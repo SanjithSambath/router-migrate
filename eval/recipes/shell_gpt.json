@@ -4,7 +4,7 @@
   "python": "3.12",
   "setup": [
     ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
-    ". scripts/env.sh && .venv/bin/uv pip install -q --python \"$ENV/bin/python\" -e \"$SRC[test]\""
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC[test]\""
   ],
   "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider -p no:warnings tests/",
   "test_env": {
@@ -12,6 +12,13 @@
     "DEFAULT_TEMPERATURE": "0.0"
   },
   "timeout_s": 900,
-  "baseline": {},
-  "notes": ""
+  "baseline": {
+    "passed": 29,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.8,
+    "exit": 0
+  },
+  "notes": "CI (lint_test.yml, matrix 3.10/3.11/3.12) runs `pip install .[dev,test]` and then `OPENAI_API_KEY=test_api_key pytest tests/ -p no:warnings -v -s`. The recipe installs only the [test] extra: [dev] is ruff and pre-commit, which pytest doesn't need. pytest is pinned <8 by the extra (7.4.4). openai==2.54.0. Nothing deselected. tests/_integration.py is not collected because of its leading underscore. UPSTREAM BUG WORKAROUND: test_env sets DEFAULT_TEMPERATURE=0.0. At HEAD a082bd5 ('Add default temperature to config'), DEFAULT_CONFIG has the float 0.0. When no ~/.config/shell_gpt/.sgptrc exists yet, Config.get() treats that falsy value as missing and raises UsageError('Missing config key: DEFAULT_TEMPERATURE') at import, so all 4 test modules error at collection. The env var gives the same value as a string, which is what an existing .sgptrc would provide. Without it, a fresh HOME gives 4 collection errors. OPENAI_API_KEY=test_api_key stops the config import from prompting via getpass. Common: setup runs from the router-migrate root (each step sources scripts/env.sh so uv caches/Pythons stay in .tools); --exclude-newer 2026-10-13T00:00:00Z pins dependency resolution to the baseline date. test_cmd sandboxes HOME and TMPDIR into $ENV/home and $ENV/tmp so tests never read or write the real ~ (e.g. ~/.config) or /tmp. Baseline was taken with outbound network denied (macOS sandbox-exec, loopback allowed), so the tests are confirmed offline. Rebuilt from scratch into a second env (<name>-check): identical uv pip freeze and identical counts. Check-run counts: 29 passed in 1.93s (2.7s)."
 }

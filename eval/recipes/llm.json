@@ -4,11 +4,18 @@
   "python": "3.12",
   "setup": [
     ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
-    ". scripts/env.sh && .venv/bin/uv pip install -q --python \"$ENV/bin/python\" -e \"$SRC\" --group \"$SRC/pyproject.toml:dev\""
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" --group \"$SRC/pyproject.toml:dev\""
   ],
   "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider",
   "test_env": {},
   "timeout_s": 900,
-  "baseline": {},
-  "notes": ""
+  "baseline": {
+    "passed": 1208,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 32.2,
+    "exit": 0
+  },
+  "notes": "CI (test.yml, matrix 3.10-3.14) runs `pip install . --group dev` and then `python -m pytest -vv`. The recipe mirrors this with uv (`--group $SRC/pyproject.toml:dev`, PEP 735). The dev group also pulls in sphinx/mypy/black/ruff, which are unused by pytest but kept to match CI. pytest.ini picks up the whole tests/ dir. All OpenAI HTTP is mocked with httpx2-pytest or replayed from vcr cassettes, and the autouse conftest sets LLM_USER_PATH to tmp. Nothing deselected and nothing skipped. I didn't run CI's non-pytest steps (cog, black, mypy, ruff, build, test-llm-load-plugins.sh, which installs plugins from PyPI). Resolved openai==3.29.0, httpx2==2.13.1. Common: setup runs from the router-migrate root (each step sources scripts/env.sh so uv caches/Pythons stay in .tools); --exclude-newer 2026-10-13T00:00:00Z pins dependency resolution to the baseline date. test_cmd sandboxes HOME and TMPDIR into $ENV/home and $ENV/tmp so tests never read or write the real ~ (e.g. ~/.config) or /tmp. Baseline was taken with outbound network denied (macOS sandbox-exec, loopback allowed), so the tests are confirmed offline. Rebuilt from scratch into a second env (<name>-check): identical uv pip freeze and identical counts. Check-run counts: 1208 passed in 29.50s (30.8s)."
 }

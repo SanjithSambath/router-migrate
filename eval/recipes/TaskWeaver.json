@@ -4,13 +4,20 @@
   "python": "3.11",
   "setup": [
     ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
-    ". scripts/env.sh && .venv/bin/uv pip install -q --python \"$ENV/bin/python\" -e \"$SRC\" pytest"
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" pytest"
   ],
   "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider tests/unit_tests",
   "test_env": {
     "GITHUB_ACTIONS": "true"
   },
   "timeout_s": 900,
-  "baseline": {},
-  "notes": ""
+  "baseline": {
+    "passed": 100,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 14,
+    "seconds": 24.5,
+    "exit": 0
+  },
+  "notes": "CI (pytest.yml, matrix [3.11]) runs `pip install -e .`, then `pip install pytest pytest-cov`, then `pytest tests/unit_tests -v --cov=com`. The recipe skips pytest-cov and --cov because coverage has no effect on pass/fail. test_env GITHUB_ACTIONS=true reproduces CI's own deselection: 14 tests are skipped via skipif(IN_GITHUB_ACTIONS) because they need HF/sentence-transformers downloads, a real LLM, or a Jupyter kernel/docker. Those are test_embedding x5, test_environment x3, test_role x2, and test_experience, test_multi_llm, test_plugin_selector, test_tracing x1 each. The LLM-touching tests that do run use TaskWeaver's built-in MockApiService (llm.use_mock). Tests leave gitignored artifacts in $SRC (logs/, taskweaver/cli/taskweaver-project.zip), which git status hides. Resolved openai==3.29.0. Common: setup runs from the router-migrate root (each step sources scripts/env.sh so uv caches/Pythons stay in .tools); --exclude-newer 2026-10-13T00:00:00Z pins dependency resolution to the baseline date. test_cmd sandboxes HOME and TMPDIR into $ENV/home and $ENV/tmp so tests never read or write the real ~ (e.g. ~/.config) or /tmp. Baseline was taken with outbound network denied (macOS sandbox-exec, loopback allowed), so the tests are confirmed offline. Rebuilt from scratch into a second env (<name>-check): identical uv pip freeze and identical counts. Check-run counts: 100 passed, 14 skipped, 4 warnings in 24.41s (24.7s)."
 }
