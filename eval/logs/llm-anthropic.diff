@@ -1,0 +1,57 @@
+--- a/llm_anthropic.py
++++ b/llm_anthropic.py
+@@ -20,6 +20,7 @@
+ from urllib.parse import urlsplit
+ from pydantic import Field, ValidationError, field_validator, model_validator
+ from pydantic.json_schema import SkipJsonSchema
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ DEFAULT_THINKING_TOKENS = 1024
+ DEFAULT_TEMPERATURE = 1.0
+@@ -111,7 +112,7 @@
+     @click.option("--key", help="Anthropic API key to use")
+     def models(json_, key):
+         "List models available from the Anthropic API"
+-        client = Anthropic(api_key=_api_key(key))
++        client = _router_wrap_anthropic(Anthropic(api_key=_api_key(key)))
+         data = fetch_models(client)
+         if json_:
+             click.echo(json.dumps(data, indent=2))
+@@ -135,7 +136,7 @@
+         not know about will be registered, using the capabilities reported
+         by the API.
+         """
+-        client = Anthropic(api_key=_api_key(key))
++        client = _router_wrap_anthropic(Anthropic(api_key=_api_key(key)))
+         data = fetch_models(client)
+         before = _registered_model_ids()
+         path = models_cache_path()
+@@ -1857,11 +1858,11 @@
+         """Count the input tokens for a prompt using the Anthropic token
+         counting API. Accepts the same arguments as model.prompt()"""
+         llm_prompt = (conversation or self).prompt(prompt, **kwargs).prompt
+-        client = Anthropic(api_key=self.get_key(key), base_url=self.base_url)
++        client = _router_wrap_anthropic(Anthropic(api_key=self.get_key(key), base_url=self.base_url))
+         return self._count_tokens(client, llm_prompt, conversation).input_tokens
+ 
+     def execute(self, prompt, stream, response, conversation, key):
+-        client = Anthropic(api_key=self.get_key(key), base_url=self.base_url)
++        client = _router_wrap_anthropic(Anthropic(api_key=self.get_key(key), base_url=self.base_url))
+         if prompt.options.count_tokens:
+             raise TokenCount(
+                 self._count_tokens(client, prompt, conversation).input_tokens
+@@ -2006,12 +2007,12 @@
+         """Count the input tokens for a prompt using the Anthropic token
+         counting API. Accepts the same arguments as model.prompt()"""
+         llm_prompt = (conversation or self).prompt(prompt, **kwargs).prompt
+-        client = AsyncAnthropic(api_key=self.get_key(key), base_url=self.base_url)
++        client = _router_wrap_anthropic(AsyncAnthropic(api_key=self.get_key(key), base_url=self.base_url))
+         count = await self._count_tokens(client, llm_prompt, conversation)
+         return count.input_tokens
+ 
+     async def execute(self, prompt, stream, response, conversation, key):
+-        client = AsyncAnthropic(api_key=self.get_key(key), base_url=self.base_url)
++        client = _router_wrap_anthropic(AsyncAnthropic(api_key=self.get_key(key), base_url=self.base_url))
+         if prompt.options.count_tokens:
+             count = await self._count_tokens(client, prompt, conversation)
+             raise TokenCount(count.input_tokens)

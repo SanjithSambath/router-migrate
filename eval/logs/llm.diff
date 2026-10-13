@@ -1,0 +1,34 @@
+--- a/llm/default_plugins/openai_models.py
++++ b/llm/default_plugins/openai_models.py
+@@ -34,6 +34,10 @@
+     remove_dict_none_values,
+     simplify_usage_dict,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ 
+ @hookimpl
+@@ -505,7 +509,7 @@
+         }
+         if self.dimensions:
+             kwargs["dimensions"] = self.dimensions
+-        client = openai.OpenAI(api_key=key)
++        client = _router_wrap_openai(openai.OpenAI(api_key=key))
+         results = client.embeddings.create(**kwargs).data
+         return ([float(r) for r in result.embedding] for result in results)
+ 
+@@ -1364,9 +1368,9 @@
+         if os.environ.get("LLM_OPENAI_SHOW_RESPONSES"):
+             kwargs["http_client"] = logging_client()
+         if async_:
+-            return openai.AsyncOpenAI(**kwargs)
++            return _router_wrap_openai(openai.AsyncOpenAI(**kwargs))
+         else:
+-            return openai.OpenAI(**kwargs)
++            return _router_wrap_openai(openai.OpenAI(**kwargs))
+ 
+     def build_kwargs(self, prompt, stream):
+         kwargs = dict(not_nulls(prompt.options))
