@@ -94,4 +94,4 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   - 0 repos with worse tests after approving every unlock and same-model card.
   - 30 cards; 20 meet their evidence bar.
   - Live spend $0.000795. There is a REPORT.html for every repo.
-- **Tests:** 270 passing.
+- **Tests:** 269 passing, 1 skipped.

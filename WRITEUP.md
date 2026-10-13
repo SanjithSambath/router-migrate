@@ -38,7 +38,7 @@ Every number below is from `eval/scoreboard.json`, `eval/scoreboard_v2.json` and
 - **Card precision is unmeasured.** The cards were not adjudicated against a blind rubric.
 
 ## Why the v2 gain is small, and why that's the right answer
-- **Unlocks.** Of the 43 dev-set sites on another vendor's endpoint, one is on a model Router serves under the same id:
+- **Unlocks.** Of the 43 dev-set sites on another vendor, Azure or another gateway, one is on a model Router serves under the same id:
   mem0's xAI client defaults to `grok-4.3`. DeepSeek `deepseek-chat`, MiniMax `MiniMax-M2.7` and the rest are not catalog ids,
   so moving them would change the model. All 6 beta-header sites need betas that can't be dropped (code execution, computer
   use, MCP), use per-user keys, or both.
