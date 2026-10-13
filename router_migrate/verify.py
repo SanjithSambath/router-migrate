@@ -158,8 +158,10 @@ def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
     tmp = tempfile.mkdtemp(prefix="rm-replay-")
     p = os.path.join(tmp, "router_runtime.py")
     open(p, "w").write(render("router_runtime.py", catalog))
-    old = {k: os.environ.get(k) for k in ("RAMP_ROUTER_API_KEY", "RAMP_ROUTER_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")}
-    os.environ.update(RAMP_ROUTER_API_KEY=key, RAMP_ROUTER_BASE_URL=base_url, OPENAI_API_KEY="unused-provider-key", ANTHROPIC_API_KEY="unused-provider-key")
+    old = {k: os.environ.get(k) for k in ("RAMP_ROUTER_API_KEY", "RAMP_ROUTER_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ROUTER_MIGRATE_FALLBACK")}
+    # replay measures Router itself: its errors must surface, not be retried on the (fake) provider
+    os.environ.update(RAMP_ROUTER_API_KEY=key, RAMP_ROUTER_BASE_URL=base_url, OPENAI_API_KEY="unused-provider-key", ANTHROPIC_API_KEY="unused-provider-key",
+                      ROUTER_MIGRATE_FALLBACK="0")
     spec = importlib.util.spec_from_file_location("rm_replay_runtime_%s" % tag, p)
     rt = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rt)
