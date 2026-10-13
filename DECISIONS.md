@@ -37,7 +37,7 @@ reasoning items) are only reachable through code already on `responses.create`. 
 - Every wrap returns the original object when the key is absent. `ROUTER_MIGRATE_DISABLE=1` is a kill switch.
 - When active, each request is routed individually. Router takes it only if it can serve the request exactly: the model resolves
   to a catalog id, and the surface and params are supported. Everything else goes to the original provider unchanged: embeddings,
-  images, audio, files, `n>1`, logprobs, audio parts, unknown models, `previous_response_id`, Anthropic beta headers, and non-default
+  images, audio, files, `n>1`, logprobs, `seed`, audio parts, unknown models, provider-issued `previous_response_id`, Anthropic beta headers, and non-default
   base URLs (Groq, Ollama, Azure...).
 
 **Why.**
@@ -63,14 +63,14 @@ onto `gpt-4-turbo` (2024-04-09), a different model. The smoke test on swarm caug
 
 | Rule | Evidence |
 |---|---|
-| `max_tokens`/`max_completion_tokens` -> `max_output_tokens`, min 16 | Responses rejects `max_tokens` (measured 400) |
+| `max_tokens`/`max_completion_tokens` -> `max_output_tokens`; values below 16 stay on the provider (see D10) | Responses rejects `max_tokens` (measured 400); minimum 16 |
 | `stop` dropped for OpenAI-owned models and emulated client-side (also across stream chunks); forwarded for others | `stop` 501 on OpenAI models, honored on Claude (measured) |
 | `temperature`/`top_p` dropped where `capabilities.temperature == false` | 400 on gpt-5-nano (measured) |
 | `n>1`, logprobs, `logit_bias`, audio, prediction -> provider | Router 400 / no equivalent (measured: seed/n/logprobs 400) |
 | function tools sent with explicit `strict: false` unless the caller set strict | Responses defaults tools to strict; loose Chat schemas would 400 |
-| `store` removed; `previous_response_id`/`conversation`/`background` -> provider | store:true 400, previous_response_id 400 or silently ignored (measured) |
+| `store` removed (explicit `store:true` stays on the provider); Router-started `previous_response_id` chains replayed inline; `conversation`/`background` -> provider (see D10) | store:true 400, previous_response_id 400 or silently ignored (measured) |
 | `prompt_cache_key` added for Claude via Responses (the caller's feature tag) | Claude caching only works with it: 10,362 tokens cached vs 0 (measured) |
-| `service_tier: "default"` on streaming calls | Flex is on by account default and was applied mid-conversation (measured); streaming is the latency-sensitive path |
+| `service_tier: "default"` unless the caller set one (first version: streaming calls only; changed in D10) | Flex is on by account default and was applied mid-conversation (measured) |
 | reasoning effort on Claude only when max_output_tokens >= 1100 | 400 budget_tokens >= 1024 (measured) |
 | `metadata.feature = "<file>:<function>"` from the call stack | per-feature cost attribution in Router without touching call sites |
 | User-Agent forwarded from the SDK, never Python-urllib | urllib default UA gets Cloudflare 1010 (measured) |
