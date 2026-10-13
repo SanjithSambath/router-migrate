@@ -104,3 +104,16 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
     their evidence bar; live spend $0.000795; a REPORT.html per repo.
   - Docs: WRITEUP and the EMAIL draft (`662a31f`), wording fixes (`c7014bd`).
 - **Tests:** 269 passing, 1 skipped.
+
+## v2 rule deviations (recorded, not reversible)
+- **API key:** the Router key was passed inline in some Bash commands during the session. It is in no committed or
+  generated file (checked for the key prefix). Remedy: rotate the key on Router, an account setting only the owner can change.
+- **Commit size:** the M0 measurements landed in one combined commit (`7af506c`), not in small per-item commits. History
+  was left as is rather than rewritten.
+- **PROGRESS updates:** this file was updated in batches, not after each item. It was restructured afterwards so each item
+  points at its commit.
+
+## v2 what's left
+- Card precision is unmeasured (no blind adjudication). The model_owner signal has not been hand-audited.
+- No TS codemod for vendor unlocks. Policy selectors can't target individual clients.
+- Out-of-scope items are listed as next steps in WRITEUP.md. EMAIL_TO_KEDAR.md is a draft and has not been sent.
