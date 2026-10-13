@@ -1,0 +1,63 @@
+Migrate this codebase to Router, a gateway that exposes one
+OpenAI Responses-compatible API in front of models from multiple providers.
+
+HOW ROUTER WORKS
+- Base URL: https://api.router.com/v1
+- Auth header: `Authorization: Bearer $RAMP_ROUTER_API_KEY`.
+- Router holds the provider credentials. The application must never
+  send provider API keys.
+- This migration targets two routes: `GET /v1/models` and
+  `POST /v1/responses`.
+- Router also serves an Anthropic Messages compatibility surface at
+  `POST /v1/messages` and `POST /v1/messages/count_tokens`. A codebase
+  already on the Anthropic API can point at that surface instead of
+  being rewritten; migrate it to Responses only if asked. There is no
+  Chat Completions surface: OpenAI Chat Completions callers must be
+  converted to Responses.
+- Every request and response uses the OpenAI Responses schema,
+  whichever provider serves it.
+- Valid model IDs are account-specific. They come from
+  `GET /v1/models`. Never invent one or reuse a provider's public
+  model name.
+
+WHAT TO CHANGE
+1. Replace each LLM client with an OpenAI Responses client pointed at the Router base URL
+   and `RAMP_ROUTER_API_KEY`.
+2. Convert any Chat Completions call to a Responses call:
+     messages                -> input
+     system message          -> instructions
+     max_tokens              -> max_output_tokens
+     choices[0].message      -> output / output_text
+     streamed chat chunks    -> Responses SSE events
+   Inspect `response.output` rather than assuming text-only results
+   when tools, reasoning, or media are involved.
+3. Move model names into configuration read from an env var. Do not
+   hardcode them at call sites.
+4. Delete provider API keys from env files, secret managers, CI
+   config, and client construction.
+5. Leave prompts, tool definitions, retry policy, and business logic
+   unchanged.
+
+ROUTER-ONLY REQUEST FIELDS
+Pass these through the SDK's `extra_body`, or the equivalent escape
+hatch if the library has one:
+- models: ordered fallback list of 1-15
+  `provider:provider-model` candidates. Mutually exclusive with
+  `model`.
+- allow_flex_tier: boolean. Opts a request in or out of lower-cost
+  Flex capacity. It returns 400 for ineligible models, so omit it
+  unless you know the target model supports it.
+- provider_timeout: seconds allowed per provider call.
+- timeout_before_headers: seconds to wait for the first streaming
+  event.
+- metadata: short string labels such as feature or team, used for
+  spend attribution.
+
+RULES
+- Change the transport only. Do not alter model behavior or output
+  handling beyond what the schema requires.
+- If a call site uses image, audio, file input, or web search,
+  confirm the target model supports it before switching.
+- List any call site you could not migrate instead of guessing.
+- After migrating, verify with a single text-only request before
+  running the full test suite.
