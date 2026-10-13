@@ -24,8 +24,11 @@ from router_migrate.catalog import Catalog  # noqa: E402
 from router_migrate.sim.server import serve  # noqa: E402
 
 EVAL = os.path.join(ROOT, "eval")
+SETDIR = EVAL  # repos.json, recipes/, logs/ and the scoreboard of the repo set being measured (--set)
 WORK = os.path.join(EVAL, "work")
 LOGS = os.path.join(EVAL, "logs")
+SETS = {"dev": (EVAL, os.path.join(EVAL, "work")),
+        "heldout": (os.path.join(EVAL, "heldout"), os.path.join(EVAL, "work", "heldout"))}  # held-out: never used to tune the tool
 
 
 def sh(cmd, cwd=ROOT, env=None, timeout=1800):
@@ -114,7 +117,7 @@ def count(t, kind="unit"):
 
 def run_repo(repo, args, cat):
     name = repo["name"]
-    rp = os.path.join(EVAL, "recipes", name + ".json")
+    rp = os.path.join(SETDIR, "recipes", name + ".json")
     rec = json.load(open(rp)) if os.path.exists(rp) else {"name": name}
     rec["name"] = name
     row = {"repo": repo["repo"], "commit": repo["commit"][:10], "lang": rec.get("lang"), "test_cmd": rec.get("test_cmd"),
@@ -193,15 +196,19 @@ def main():
     ap.add_argument("--no-tests", action="store_true")
     ap.add_argument("--live", action="store_true", help="also replay migrated sites against api.router.com (needs RAMP_ROUTER_API_KEY)")
     ap.add_argument("--live-budget-per-repo", type=float, default=0.05)
+    ap.add_argument("--set", choices=sorted(SETS), default="dev", help="repo set: dev (eval/) or heldout (eval/heldout/)")
     args = ap.parse_args()
+    global SETDIR, WORK, LOGS
+    SETDIR, WORK = SETS[args.set]
+    LOGS = os.path.join(SETDIR, "logs")
     os.makedirs(LOGS, exist_ok=True)
-    repos = json.load(open(os.path.join(EVAL, "repos.json")))
+    repos = json.load(open(os.path.join(SETDIR, "repos.json")))
     if args.only:
         keep = set(args.only.split(","))
         repos = [r for r in repos if r["name"] in keep]
     cat = Catalog.load()
     prev = {}
-    sp = os.path.join(EVAL, "scoreboard.json")
+    sp = os.path.join(SETDIR, "scoreboard.json")
     if os.path.exists(sp):
         for r in json.load(open(sp)).get("repos", []):
             prev[r["repo"]] = r
@@ -221,12 +228,12 @@ def main():
         print("   %s" % json.dumps({k: prev[repo["repo"]].get(k) for k in ("sites_found", "migrated", "callsite_coverage", "weighted_coverage",
                                                                          "tests_before", "tests_after", "sim_valid_pct", "replay_unique_requests",
                                                                          "sim_requests_from_tests", "error")}), flush=True)
-        write_scoreboard([prev[r["repo"]] for r in json.load(open(os.path.join(EVAL, "repos.json"))) if r["repo"] in prev])
+        write_scoreboard([prev[r["repo"]] for r in json.load(open(os.path.join(SETDIR, "repos.json"))) if r["repo"] in prev])
 
 
 def write_scoreboard(rows):
     from scoreboard import write_all
-    write_all(rows, EVAL)
+    write_all(rows, SETDIR)
 
 
 if __name__ == "__main__":

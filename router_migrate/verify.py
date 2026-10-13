@@ -36,6 +36,16 @@ def parse_counts(out):
             mm = re.search(pat, m.group(1))
             add(k, int(mm.group(1)) if mm else 0)
         add("errors", 0)
+    out_plain = re.sub(r"\x1b\[[0-9;]*m", "", out)
+    for m in re.finditer(r"^\s*Tests\s{2,}(.*)$", out_plain, re.M):  # vitest: "      Tests  3 failed | 39 passed (42)"
+        found = True
+        for k, pat in (("passed", r"(\d+) passed"), ("failed", r"(\d+) failed"), ("skipped", r"(\d+) (?:skipped|todo)")):
+            mm = re.search(pat, m.group(1))
+            add(k, int(mm.group(1)) if mm else 0)
+        add("errors", 0)
+    for m in re.finditer(r"^\s*Test Files\s{2,}(\d+) failed", out_plain, re.M):  # vitest files that failed to load count as errors
+        if not re.search(r"^\s*Tests\s{2,}.*\d+ failed", out_plain, re.M):
+            add("errors", int(m.group(1)))
     for m in re.finditer(r"^Test Suites:\s+(\d+) failed", out, re.M):  # suites that failed to load
         add("errors", int(m.group(1)) if not re.search(r"Tests:", out) else 0)
     if found:

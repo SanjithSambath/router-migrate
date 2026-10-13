@@ -111,3 +111,10 @@ def test_scoreboard_router_on_na_and_legacy_rows(tmp_path):
     d = json.load(open(tmp_path / "scoreboard.json"))
     assert d["totals"]["sim_valid_pct_mean"] == 50.0 and all("sim_valid_pct" in r for r in d["repos"])
     assert "replay_ok / replay_unique_requests" in d["definitions"]["sim_valid_pct"]
+
+
+def test_parse_counts_vitest():
+    from router_migrate.verify import parse_counts
+    assert parse_counts(" Test Files  3 passed (3)\n      Tests  42 passed | 2 skipped (44)\n") == {"passed": 42, "failed": 0, "errors": 0, "skipped": 2}
+    assert parse_counts(" Test Files  1 failed | 2 passed (3)\n      Tests  3 failed | 39 passed (42)\n")["failed"] == 3
+    assert parse_counts("\x1b[2m      Tests \x1b[22m \x1b[1m\x1b[32m5 passed\x1b[39m\x1b[22m\x1b[90m (5)\x1b[39m")["passed"] == 5
