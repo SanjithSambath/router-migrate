@@ -1,0 +1,284 @@
+--- a/integrations/hermes-plugin-mem0/_openai_llm.py
++++ b/integrations/hermes-plugin-mem0/_openai_llm.py
+@@ -9,6 +9,10 @@
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.base import LLMBase
+ from mem0.llms.openai import OpenAILLM
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ # BaseLlmConfig fields copied into OpenAIConfig; the last two may be absent on older mem0.
+ _COPIED_FIELDS = ("model", "temperature", "api_key", "max_tokens", "top_p", "top_k", "enable_vision", "vision_details", "http_client_proxies")
+@@ -44,7 +48,7 @@
+         if not api_key:
+             raise ValueError("OpenAI API key is required for the Hermes Mem0 OSS provider")
+         from openai import OpenAI
+-        self.client = OpenAI(api_key=api_key, base_url=self.config.openai_base_url or get_secret("OPENAI_API_BASE", "") or get_secret("OPENAI_BASE_URL", "") or "https://api.openai.com/v1", timeout=120.0)
++        self.client = _router_wrap_openai(OpenAI(api_key=api_key, base_url=self.config.openai_base_url or get_secret("OPENAI_API_BASE", "") or get_secret("OPENAI_BASE_URL", "") or "https://api.openai.com/v1", timeout=120.0))
+ 
+     def generate_response(self, messages: List[Dict[str, str]], response_format=None, tools: Optional[List[Dict]] = None, tool_choice: str = "auto", **kwargs):
+         params = self._get_supported_params(messages=messages, **kwargs)
+--- a/integrations/vercel-ai-sdk/src/provider-response-provider.ts
++++ b/integrations/vercel-ai-sdk/src/provider-response-provider.ts
+@@ -5,6 +5,7 @@
+ import { AnthropicProviderSettings, createAnthropic } from "@ai-sdk/anthropic";
+ import { createGoogleGenerativeAI, GoogleGenerativeAIProviderSettings } from "@ai-sdk/google";
+ import { createGroq, GroqProviderSettings } from "@ai-sdk/groq";
++import { routerOptions } from "./lib/routerRuntime.js";
+ 
+ // Define a private provider field
+ class Mem0AITextGenerator implements LanguageModelV3 {
+@@ -25,16 +26,19 @@
+                     this.languageModel = createOpenAI({
+                         apiKey: config?.apiKey,
+                         ...provider_config as OpenAIProviderSettings,
++                        ...routerOptions((provider_config as any)?.fetch),
+                     }).completion(modelId);
+                 } else if(config?.modelType === "chat"){
+                     this.languageModel = createOpenAI({
+                         apiKey: config?.apiKey,
+                         ...provider_config as OpenAIProviderSettings,
++                        ...routerOptions((provider_config as any)?.fetch),
+                     }).chat(modelId);
+                 } else {
+                     this.languageModel = createOpenAI({
+                         apiKey: config?.apiKey,
+                         ...provider_config as OpenAIProviderSettings,
++                        ...routerOptions((provider_config as any)?.fetch),
+                     }).languageModel(modelId);
+                 }
+                 break;
+@@ -48,6 +52,7 @@
+                 this.languageModel = createAnthropic({
+                     apiKey: config?.apiKey,
+                     ...provider_config as AnthropicProviderSettings,
++                    ...routerOptions((provider_config as any)?.fetch),
+                 }).languageModel(modelId);
+                 break;
+             case "groq":
+--- a/mem0-ts/src/oss/src/embeddings/huggingface.ts
++++ b/mem0-ts/src/oss/src/embeddings/huggingface.ts
+@@ -1,6 +1,7 @@
+ import OpenAI from "openai";
+ import { Embedder } from "./base";
+ import { EmbeddingConfig } from "../types";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ /**
+  * HuggingFace embedding provider (hosted inference mode).
+@@ -38,6 +39,7 @@
+     this.openai = new OpenAI({
+       apiKey: config.apiKey || process.env.HUGGINGFACE_API_KEY || "hf",
+       baseURL,
++      ...routerOptions(),
+     });
+     // TEI ignores the model field; default mirrors the Python provider.
+     this.model = config.model || "tei";
+--- a/mem0-ts/src/oss/src/embeddings/lmstudio.ts
++++ b/mem0-ts/src/oss/src/embeddings/lmstudio.ts
+@@ -1,6 +1,7 @@
+ import OpenAI from "openai";
+ import { Embedder } from "./base";
+ import { EmbeddingConfig } from "../types";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ const DEFAULT_BASE_URL = "http://localhost:1234/v1";
+ const DEFAULT_MODEL =
+@@ -14,7 +15,7 @@
+   constructor(config: EmbeddingConfig) {
+     const baseURL = config.baseURL ?? config.url ?? DEFAULT_BASE_URL;
+     const apiKey = config.apiKey || DEFAULT_LMSTUDIO_API_KEY;
+-    this.openai = new OpenAI({ apiKey, baseURL: String(baseURL) });
++    this.openai = new OpenAI({ apiKey, baseURL: String(baseURL), ...routerOptions() });
+     this.model = config.model || DEFAULT_MODEL;
+   }
+ 
+--- a/mem0-ts/src/oss/src/embeddings/openai.ts
++++ b/mem0-ts/src/oss/src/embeddings/openai.ts
+@@ -1,6 +1,7 @@
+ import OpenAI from "openai";
+ import { Embedder } from "./base";
+ import { EmbeddingConfig } from "../types";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ export class OpenAIEmbedder implements Embedder {
+   private openai: OpenAI;
+@@ -11,6 +12,7 @@
+     this.openai = new OpenAI({
+       apiKey: config.apiKey,
+       baseURL: config.baseURL || config.url,
++      ...routerOptions(),
+     });
+     this.model = config.model || "text-embedding-3-small";
+     this.embeddingDims = config.embeddingDims;
+--- a/mem0-ts/src/oss/src/llms/anthropic.ts
++++ b/mem0-ts/src/oss/src/llms/anthropic.ts
+@@ -2,6 +2,7 @@
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
+ import { loadPeer } from "../utils/load_peer";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ export class AnthropicLLM implements LLM {
+   private client!: Anthropic;
+@@ -38,7 +39,7 @@
+       "Anthropic LLM",
+       () => import("@anthropic-ai/sdk"),
+     );
+-    this.client = new sdk.default(this.clientArgs);
++    this.client = new sdk.default({ ...this.clientArgs, ...routerOptions((this.clientArgs as any)?.fetch) });
+   }
+ 
+   async generateResponse(
+--- a/mem0-ts/src/oss/src/llms/openai.ts
++++ b/mem0-ts/src/oss/src/llms/openai.ts
+@@ -1,6 +1,7 @@
+ import OpenAI from "openai";
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ export class OpenAILLM implements LLM {
+   private openai: OpenAI;
+@@ -11,6 +12,7 @@
+       apiKey: config.apiKey,
+       baseURL: config.baseURL,
+       ...(config.timeout != null && { timeout: config.timeout }),
++      ...routerOptions(),
+     });
+     this.model = config.model || "gpt-5-mini";
+   }
+--- a/mem0-ts/src/oss/src/llms/openai_structured.ts
++++ b/mem0-ts/src/oss/src/llms/openai_structured.ts
+@@ -1,6 +1,7 @@
+ import OpenAI from "openai";
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ export class OpenAIStructuredLLM implements LLM {
+   private openai: OpenAI;
+@@ -11,6 +12,7 @@
+       apiKey: config.apiKey,
+       baseURL: config.baseURL,
+       ...(config.timeout != null && { timeout: config.timeout }),
++      ...routerOptions(),
+     });
+     this.model = config.model || "gpt-5-mini";
+   }
+--- a/mem0/embeddings/openai.py
++++ b/mem0/embeddings/openai.py
+@@ -6,6 +6,10 @@
+ 
+ from mem0.configs.embeddings.base import BaseEmbedderConfig
+ from mem0.embeddings.base import EmbeddingBase
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ 
+ class OpenAIEmbedding(EmbeddingBase):
+@@ -32,7 +36,7 @@
+                 DeprecationWarning,
+             )
+ 
+-        self.client = OpenAI(api_key=api_key, base_url=base_url)
++        self.client = _router_wrap_openai(OpenAI(api_key=api_key, base_url=base_url))
+ 
+     def embed(self, text, memory_action: Optional[Literal["add", "search", "update"]] = None):
+         """
+--- a/mem0/llms/anthropic.py
++++ b/mem0/llms/anthropic.py
+@@ -1,5 +1,9 @@
+ import os
+ from typing import Dict, List, Optional, Union
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ try:
+     import anthropic
+@@ -42,7 +46,7 @@
+         client_kwargs = {"api_key": api_key}
+         if base_url:
+             client_kwargs["base_url"] = base_url
+-        self.client = anthropic.Anthropic(**client_kwargs)
++        self.client = _router_wrap_anthropic(anthropic.Anthropic(**client_kwargs))
+ 
+     def _enable_sampling_parameters(self):
+         """Return whether the configured model supports sampling parameters."""
+--- a/mem0/llms/litellm.py
++++ b/mem0/llms/litellm.py
+@@ -1,5 +1,10 @@
+ import json
+ from typing import Dict, List, Optional
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import install_litellm as _router_install_litellm
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import install_litellm as _router_install_litellm
++_router_install_litellm()  # router-migrate
+ 
+ try:
+     import litellm
+--- a/mem0/llms/openai.py
++++ b/mem0/llms/openai.py
+@@ -9,6 +9,10 @@
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.base import LLMBase
+ from mem0.memory.utils import extract_json
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ 
+ class OpenAILLM(LLMBase):
+@@ -50,7 +54,7 @@
+             api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
+             base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+ 
+-            self.client = OpenAI(api_key=api_key, base_url=base_url)
++            self.client = _router_wrap_openai(OpenAI(api_key=api_key, base_url=base_url))
+ 
+     def _parse_response(self, response, tools):
+         """
+--- a/mem0/llms/openai_structured.py
++++ b/mem0/llms/openai_structured.py
+@@ -5,6 +5,10 @@
+ 
+ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.llms.base import LLMBase
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ 
+ class OpenAIStructuredLLM(LLMBase):
+@@ -16,7 +20,7 @@
+ 
+         api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
+         base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+-        self.client = OpenAI(api_key=api_key, base_url=base_url)
++        self.client = _router_wrap_openai(OpenAI(api_key=api_key, base_url=base_url))
+ 
+     def generate_response(
+         self,
+--- a/mem0/proxy/main.py
++++ b/mem0/proxy/main.py
+@@ -5,6 +5,11 @@
+ import httpx
+ 
+ import mem0
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import install_litellm as _router_install_litellm
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import install_litellm as _router_install_litellm
++_router_install_litellm()  # router-migrate
+ 
+ try:
+     import litellm

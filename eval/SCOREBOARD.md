@@ -1,8 +1,8 @@
 # router-migrate eval scoreboard
 
-Generated 2026-10-13 01:05 PDT by `make eval` (eval/run_eval.py). 11 pinned open-source repos.
+Generated 2026-10-13 01:11 PDT by `make eval` (eval/run_eval.py). 12 pinned open-source repos.
 
-**Totals:** 89 production LLM sites, 29 migrated (33% of all sites, 43% of Router-eligible sites), 12 handoff, 33 kept, 15 flagged. Tests: 9 repos unchanged, 0 worse, 2 without runnable tests.
+**Totals:** 142 production LLM sites, 40 migrated (28% of all sites, 44% of Router-eligible sites), 12 handoff, 75 kept, 15 flagged. Tests: 10 repos unchanged, 0 worse, 2 without runnable tests.
 
 | repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | sim valid | live | diff lines | runtime |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -17,6 +17,7 @@ Generated 2026-10-13 01:05 PDT by `make eval` (eval/run_eval.py). 11 pinned open
 | Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | 100% | - | 6 | 0.3s |
 | assafelovic/gpt-researcher | `3582a6841f` | 19 | 2 | 0 | 17 | 0 | 11% | 15% | 570 passed | 570 passed | 100% | - | 16 | 3.6s |
 | langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | 4 passed | 4 passed | 100% | - | 18 | 0.3s |
+| mem0ai/mem0 | `d26ba5e451` | 53 | 11 | 0 | 42 | 0 | 21% | 46% | 2007 passed | 2007 passed | 100% | - | 59 | 16.2s |
 
 ## Definitions
 
@@ -44,3 +45,4 @@ Generated 2026-10-13 01:05 PDT by `make eval` (eval/run_eval.py). 11 pinned open
 - **Nutlope/aicommits** (unit; test cmd `unset OPENAI_BASE_URL; export OPENAI_API_KEY=; npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" build && npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" test`): 79/79 passing before and after. Outcomes by sdk/surface: vercel-ai/framework.chat 4 migrated
 - **assafelovic/gpt-researcher** (unit; test cmd `TIKTOKEN_CACHE_DIR="$ENV/tiktoken_cache" $PY -m pytest tests/ --forked --timeout=60 -p no:warnings -p no:cacheprovider --deselect tests/test_researcher_logging.py --deselect tests/test_logging_output.py --deselect tests/test_mcp.py`): 570/570 passing before and after. Outcomes by sdk/surface: azure-openai/framework.chat 1 kept; langchain-anthropic/framework.chat 1 migrated; langchain-openai/framework.chat 10 kept, 1 migrated; langchain-openai/framework.embeddings 6 kept
 - **langchain-ai/langchain-nextjs-template** (unit; test cmd `node --experimental-strip-types --test utils/integrations.test.mjs`): 4/4 passing before and after. Outcomes by sdk/surface: langchain-openai/framework.chat 1 flagged, 8 migrated; langchain-openai/framework.embeddings 3 kept
+- **mem0ai/mem0** (unit; test cmd `$PY -m pytest tests/ -q -p no:cacheprovider`): 2007/2007 passing before and after. Outcomes by sdk/surface: anthropic/messages 2 migrated; azure-openai/chat.completions 4 kept; azure-openai/embeddings 4 kept; google-genai/other.chat 1 kept; google-genai/other.embeddings 2 kept; groq/chat.completions 3 kept; litellm/chat.completions 2 migrated; openai/chat.completions 5 kept, 6 migrated; openai/chat.completions.parse 1 migrated; openai/embeddings 12 kept; other/chat.completions 1 kept; other/embeddings 2 kept; other/other.chat 8 kept
