@@ -25,7 +25,7 @@ def parse_counts(out):
         c[k] = (c[k] or 0) + v
 
     found = False
-    for m in re.finditer(r"^=+ (.*?(?:passed|failed|error|skipped|no tests ran).*?) in [\d.]+s", out, re.M):  # pytest
+    for m in re.finditer(r"^(?:=+ )?((?:\d+ (?:passed|failed|errors?|skipped|deselected|xfailed|xpassed|warnings?)(?:, )?)+|no tests ran) in [\d.]+s", out, re.M):  # pytest (-q prints no === banner)
         found = True
         for k, pat in (("passed", r"(\d+) passed"), ("failed", r"(\d+) failed"), ("errors", r"(\d+) errors?"), ("skipped", r"(\d+) skipped")):
             mm = re.search(pat, m.group(1))

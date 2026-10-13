@@ -42,3 +42,10 @@ def test_node24_spec_reporter():
 def test_manten_bare():
     c = parse_counts("\u2714 x (3ms)\n\n4s\n79 passed\n\n")
     assert c["passed"] == 79
+
+
+def test_pytest_quiet_no_banner():
+    c = parse_counts("..\n2 passed, 1 skipped in 0.12s\n")
+    assert (c["passed"], c["skipped"]) == (2, 1)
+    c = parse_counts("E ...\n1 error in 0.38s\n")
+    assert c["errors"] == 1 and c["passed"] == 0

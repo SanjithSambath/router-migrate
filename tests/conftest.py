@@ -21,11 +21,15 @@ def sim():
     srv.shutdown()
 
 
+RENDERED = os.path.join(ROOT, "tests", "_rendered")
+
+
 @pytest.fixture()
 def rt(tmp_path, monkeypatch, sim):
-    """A freshly rendered router_runtime module, activated against router-sim."""
-    p = tmp_path / "router_runtime.py"
-    p.write_text(render("router_runtime.py", Catalog.load()))
+    """A freshly rendered router_runtime module (fixed path so coverage can attribute it), activated against router-sim."""
+    os.makedirs(RENDERED, exist_ok=True)
+    p = os.path.join(RENDERED, "router_runtime.py")
+    open(p, "w").write(render("router_runtime.py", Catalog.load()))
     monkeypatch.setenv("RAMP_ROUTER_API_KEY", "rm-test-key-not-a-real-key")
     monkeypatch.setenv("RAMP_ROUTER_BASE_URL", sim.base)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-provider-test")
