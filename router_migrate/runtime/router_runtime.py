@@ -550,7 +550,7 @@ def _remember(ctx, resp):
     _lru_put(_CHAINS, rid, (ctx["items"], out, resp), _CHAIN_MAX)
 
 
-def _local_error(status, message, code="router_migrate_state"):
+def _local_error(status, message, code="router_stateful_unsupported"):
     return ("local", status, {"error": {"message": message, "type": "invalid_request_error", "param": "previous_response_id", "code": code}})
 
 
@@ -591,7 +591,8 @@ def _plan_responses(body, rid, owned, feature, opts):
     if prev:
         if prev in _CHAINS:
             p_in, p_out, _ = _CHAINS[prev]
-            items = list(p_in) + list(p_out) + items
+            p_out = [o for o in p_out if not (o.get("type") == "reasoning" and not o.get("encrypted_content"))]
+            items = list(p_in) + p_out + items
         elif prev in _ROUTER_IDS:
             return _local_error(400, "previous_response_id %s was served by Router and its history is no longer in this process "
                                      "(router-migrate keeps the last %d chains in memory). Send the conversation inline, or set "
@@ -600,6 +601,8 @@ def _plan_responses(body, rid, owned, feature, opts):
             return None  # the provider issued this id; the chain stays where it started
     why = _provider_only_input(items) or _provider_only_tools(body.get("tools"))
     if why:
+        if prev:  # the provider never saw this chain, so sending it there cannot work either
+            return _local_error(400, "This turn continues a conversation served by Router but needs provider-side state (%s)." % why)
         return None
     nb = dict(body, model=rid, input=items)
     for k in ("store", "previous_response_id"):
@@ -625,8 +628,11 @@ def _local_retrieve(req):
         return None
     rid = m.group(1)
     if rid not in _CHAINS:
-        return _local_error(404, "Response %s was served by Router and is no longer in this process's memory." % rid, "not_found")
+        return _local_error(404, "Response %s was served by Router and is no longer in this process's memory." % rid)
     items, _, full = _CHAINS[rid]
+    if req.method == "DELETE":
+        del _CHAINS[rid]
+        return ("local", 200, {"id": rid, "object": "response", "deleted": True})
     if m.group(2):
         return ("local", 200, {"object": "list", "data": items, "first_id": None, "last_id": None, "has_more": False})
     return ("local", 200, full)
@@ -644,13 +650,17 @@ def _plan_request(req, opts):
     if not active():
         return None
     host, path = req.url.host, req.url.path
-    if req.method == "GET" and host in _OPENAI_HOSTS and "/responses/" in path:
+    if req.method in ("GET", "DELETE") and host in _OPENAI_HOSTS and "/responses/" in path:
         return _local_retrieve(req)
     if req.method != "POST":
         return None
     if host in _OPENAI_HOSTS and (path.endswith("/chat/completions") or path.endswith("/responses")):
         body = json.loads(req.content or b"{}")
         rid = resolve_model(body.get("model"))
+        prev = body.get("previous_response_id") if path.endswith("/responses") else None
+        if (not rid or ("openai", rid) in _DENIED) and prev in _ROUTER_IDS:
+            return _local_error(400, "previous_response_id %s was served by Router, but this turn's model %r cannot be served by Router."
+                                % (prev, body.get("model")))
         if not rid or ("openai", rid) in _DENIED:
             return None
         owned = (CATALOG.get(rid) or {}).get("o")

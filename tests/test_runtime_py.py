@@ -512,3 +512,15 @@ def test_legacy_functions_stream_uses_function_call_deltas(rt):
     evs, _ = _run(rt, _sse(CREATED, {"type": "response.output_item.added", "item": item},
                            {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": "{}"}, DONE), ctx={"legacy_functions": True})
     assert _deltas(evs, "function_call") == [{"name": "f", "arguments": ""}, {"arguments": "{}"}] and _finish(evs) == ["function_call"]
+
+
+def test_router_chain_turn_that_cannot_route_errors_locally(rt, sim):
+    c, split = client(rt)
+    r1 = c.responses.create(model="gpt-4o-mini", input="hi")
+    with pytest.raises(openai.BadRequestError, match="served by Router"):
+        c.responses.create(model="gpt-4-32k", input="again", previous_response_id=r1.id)
+    with pytest.raises(openai.BadRequestError, match="provider-side state"):
+        c.responses.create(model="gpt-4o-mini", input="again", previous_response_id=r1.id,
+                           tools=[{"type": "file_search", "vector_store_ids": ["vs_1"]}])
+    c.responses.delete(r1.id)
+    assert split.provider_calls == [] and r1.id not in rt._CHAINS
