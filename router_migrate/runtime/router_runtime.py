@@ -295,6 +295,207 @@ def _service_tier(out):
         out["service_tier"] = tier
 
 
+# ------------------------------------------------------------------------------------------------ v2 compiled policy
+# router.policy.json (repo root) is compiled by `router-migrate apply --decisions` into router_policy.py beside this file.
+# No compiled policy, an invalid one, or ROUTER_MIGRATE_POLICY=off => exactly v1 behaviour. Semantics: CONTRACTS.md section 1.
+_POLICY_KEYS = {"allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout"}
+_POLICY_STATE = {"loaded": False, "policy": None, "hash": None, "valid": False, "logged": set()}
+
+
+def _policy_log(key, msg):
+    if key not in _POLICY_STATE["logged"]:
+        _POLICY_STATE["logged"].add(key)
+        sys.stderr.write("router-migrate policy %s\n" % msg)
+
+
+def _valid_entry(e):
+    if not isinstance(e, dict) or set(e) - _POLICY_KEYS:
+        return False
+    if "allow_flex_tier" in e and not isinstance(e["allow_flex_tier"], bool):
+        return False
+    if "prompt_cache_key" in e and not (isinstance(e["prompt_cache_key"], str) and e["prompt_cache_key"]):
+        return False
+    if "metadata" in e and not (isinstance(e["metadata"], dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in e["metadata"].items())):
+        return False
+    if "fallbacks" in e and not (isinstance(e["fallbacks"], list) and 1 <= len(e["fallbacks"]) <= 14 and all(isinstance(x, str) and x for x in e["fallbacks"])):
+        return False
+    if "provider_timeout" in e:
+        t = e["provider_timeout"]
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not 1 <= t <= 660:
+            return False
+    return True
+
+
+def policy_valid(p):
+    if not isinstance(p, dict) or p.get("version") != 1 or set(p) - {"version", "defaults", "globs", "features"}:
+        return False
+    if "defaults" in p and not _valid_entry(p["defaults"]):
+        return False
+    for k in ("globs", "features"):
+        if k in p and not (isinstance(p[k], dict) and all(isinstance(n, str) and _valid_entry(e) for n, e in p[k].items())):
+            return False
+    return True
+
+
+def set_policy(policy, policy_hash=None):
+    """Install a policy (what router_policy.py does on import; tests use it directly). None removes it."""
+    _POLICY_STATE.update(loaded=True, policy=policy, hash=policy_hash, valid=policy is not None and policy_valid(policy), logged=set())
+
+
+def _load_policy():
+    if not _POLICY_STATE["loaded"]:
+        _POLICY_STATE["loaded"] = True
+        mod = None
+        try:
+            if __package__:
+                mod = importlib.import_module(__package__ + ".router_policy")
+            else:
+                raise ImportError
+        except Exception:
+            try:  # sibling file (runtime imported as a top-level module or by path)
+                import importlib.util as _u
+                p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "router_policy.py")
+                if os.path.exists(p):
+                    spec = _u.spec_from_file_location("_router_migrate_policy", p)
+                    mod = _u.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+            except Exception:
+                mod = None
+        if mod is not None and hasattr(mod, "POLICY"):
+            pol = getattr(mod, "POLICY")
+            _POLICY_STATE.update(policy=pol, hash=getattr(mod, "POLICY_HASH", None), valid=policy_valid(pol))
+    if (os.environ.get("ROUTER_MIGRATE_POLICY") or "").strip().lower() in ("off", "0", "false", "no"):
+        return None
+    if _POLICY_STATE["policy"] is None:
+        return None
+    h8 = str(_POLICY_STATE["hash"] or "(no hash)")[:8]
+    if not _POLICY_STATE["valid"]:
+        _policy_log("invalid", "%s invalid: ignored (v1 behaviour)" % h8)
+        return None
+    _policy_log("hash", h8)
+    return _POLICY_STATE["policy"]
+
+
+def _glob_re(pat):
+    out, i = "", 0
+    while i < len(pat):
+        if pat.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pat[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        elif pat[i] == "?":
+            out, i = out + "[^/]", i + 1
+        else:
+            out, i = out + re.escape(pat[i]), i + 1
+    return re.compile("^" + out + "$")
+
+
+def policy_for(feature, policy=None):
+    """Effective settings for a feature id: exact feature > longest matching glob > defaults, per key; metadata merged."""
+    p = policy if policy is not None else _load_policy()
+    if not p:
+        return {}
+    layers = [p.get("defaults") or {}]
+    if feature:
+        globs = sorted(((g, e) for g, e in (p.get("globs") or {}).items() if _glob_re(g).match(feature)), key=lambda x: (len(x[0]), x[0]))
+        layers += [e for _, e in globs]
+        if feature in (p.get("features") or {}):
+            layers.append(p["features"][feature])
+    eff, meta = {}, {}
+    for e in layers:
+        for k, v in e.items():
+            if k == "metadata":
+                meta.update(v)
+            else:
+                eff[k] = v
+    if meta:
+        eff["metadata"] = meta
+    return eff
+
+
+def _request_modalities(nb):
+    mods = set()
+    for it in nb.get("input") if isinstance(nb.get("input"), list) else []:
+        for part in (it.get("content") if isinstance(it, dict) and isinstance(it.get("content"), list) else []):
+            t = part.get("type") if isinstance(part, dict) else None
+            if t == "input_image":
+                mods.add("image")
+            elif t == "input_file":
+                mods.add("file")
+    return mods
+
+
+def _candidate_ok(cand, nb, original):
+    row = CATALOG.get(cand)
+    if not row or cand == original:
+        return False
+    c = row.get("c") or {}
+    if c.get("st", "active") != "active" or "responses" not in (c.get("s") or []):
+        return False
+    if "tools" in nb and not c.get("tools"):
+        return False
+    fmt = ((nb.get("text") or {}).get("format") or {}).get("type")
+    if fmt in ("json_schema", "json_object") and not c.get("so"):
+        return False
+    if not _request_modalities(nb) <= set(c.get("in") or ["text"]):
+        return False
+    if nb.get("stop") and row.get("o") == "openai":
+        return False
+    if nb.get("temperature") is not None and row.get("t") is False:
+        return False
+    return True
+
+
+def _apply_policy(nb, caller_body, feature):
+    """Mutates a Router-bound /v1/responses body per the compiled policy. No policy => untouched."""
+    p = _load_policy()
+    if not p:
+        return nb
+    fid = ((caller_body.get("metadata") or {}).get("feature") if isinstance(caller_body.get("metadata"), dict) else None) or feature
+    eff = policy_for(fid, p)
+    if not eff:
+        return nb
+    if eff.get("metadata"):
+        meta = dict(nb.get("metadata") or {})
+        for k, v in eff["metadata"].items():
+            if k in meta:
+                continue  # the request's own keys win (incl. v1's metadata.feature)
+            if len(meta) >= 16:
+                _policy_log("meta16:%s" % fid, "metadata cap reached for %s: policy keys dropped" % fid)
+                break
+            meta[k] = v
+        nb["metadata"] = meta
+    if eff.get("prompt_cache_key") and "prompt_cache_key" not in nb:
+        key = eff["prompt_cache_key"]
+        if "$feature" in key:
+            key = key.replace("$feature", fid) if fid else None
+        if key:
+            nb["prompt_cache_key"] = key[:200]
+    if eff.get("provider_timeout") and "provider_timeout" not in nb:
+        nb["provider_timeout"] = eff["provider_timeout"]
+    caller_tier = caller_body.get("service_tier") is not None
+    flex = eff.get("allow_flex_tier")
+    if flex is True and not (CATALOG.get(nb.get("model")) or {}).get("c", {}).get("f"):
+        _policy_log("flex:%s" % fid, "allow_flex_tier skipped for %s: %s has no flex tier" % (fid, nb.get("model")))
+        flex = None
+    if flex is not None and not caller_tier:
+        nb.pop("service_tier", None)
+        nb["allow_flex_tier"] = flex
+    if eff.get("fallbacks"):
+        seen, cands = set(), []
+        for c in eff["fallbacks"]:
+            if c not in seen and _candidate_ok(c, nb, nb.get("model")):
+                cands.append(c)
+            seen.add(c)
+        if len(cands) < len(seen):
+            _policy_log("fb:%s" % fid, "fallbacks for %s: %d of %d candidates dropped by the capability guard" % (fid, len(seen) - len(cands), len(seen)))
+        if cands:
+            nb["models"] = [nb.pop("model")] + cands
+            if nb.pop("allow_flex_tier", None) is not None and not caller_tier:
+                _service_tier(nb)  # flex does not apply to a models list [measured]; keep v1's default tier
+    return nb
+
+
 def _usage(u):
     if not u:
         return None
@@ -618,6 +819,7 @@ def _plan_responses(body, rid, owned, feature, opts):
     if owned == "anthropic" and "prompt_cache_key" not in nb and feature:
         nb["prompt_cache_key"] = feature
     _service_tier(nb)
+    _apply_policy(nb, body, feature)
     return ("responses", nb, {"items": items})
 
 
@@ -670,11 +872,14 @@ def _plan_request(req, opts):
                 nb, ctx = chat_to_responses(body, rid, owned, feature)
             except Untranslatable:
                 return None
+            _apply_policy(nb, body, feature)
             return ("chat", nb, ctx)
         return _plan_responses(body, rid, owned, feature, opts)
     if host in _ANTHROPIC_HOSTS and (path.rstrip("/").endswith("/v1/messages") or path.endswith("/v1/messages/count_tokens")):
         if req.headers.get("anthropic-beta"):
             return None  # beta features are unmeasured on Router; keep on Anthropic
+        if _load_policy():
+            _policy_log("messages", "not applied on /v1/messages (Router-only fields are Responses-only)")
         body = json.loads(req.content or b"{}")
         rid = resolve_model(body.get("model"))
         if not rid or ("anthropic", rid) in _DENIED:
