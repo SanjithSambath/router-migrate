@@ -1,0 +1,398 @@
+diff --git a/.env.example b/.env.example
+index 832b6be..835baa6 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,4 +1,7 @@
+-OPENAI_API_KEY="YOUR_API_KEY"
++# Router (OpenAI Responses-compatible gateway at https://api.router.com/v1)
++RAMP_ROUTER_API_KEY="YOUR_ROUTER_API_KEY"
++# Account-specific model ID; list valid IDs with GET https://api.router.com/v1/models
++ROUTER_MODEL="YOUR_ROUTER_MODEL_ID"
+ LANGCHAIN_CALLBACKS_BACKGROUND=false
+ 
+ # Required for agent example
+@@ -7,14 +10,15 @@ LANGCHAIN_CALLBACKS_BACKGROUND=false
+ # Required for retrieval examples
+ # SUPABASE_PRIVATE_KEY="YOUR_SUPABASE_PRIVATE_KEY"
+ # SUPABASE_URL="YOUR_SUPABASE_URL"
++# Retrieval examples also embed text with OpenAIEmbeddings, which Router does not
++# serve (Router exposes only /v1/models and /v1/responses). Until embeddings are
++# moved off the OpenAI API, they still need this key.
++# OPENAI_API_KEY="YOUR_API_KEY"
+ 
+ # Optional: For Tracing with LangSmith
+ # LANGCHAIN_TRACING_V2=true
+ # LANGCHAIN_API_KEY=YOUR_API_KEY
+ # LANGCHAIN_PROJECT=nextjs-starter
+ 
+-# Optional: Other model keys
+-# ANTHROPIC_API_KEY="YOUR_API_KEY"
+-
+ # Turn on demo mode
+ # NEXT_PUBLIC_DEMO="true"
+\ No newline at end of file
+diff --git a/README.md b/README.md
+index c910c36..064a078 100644
+--- a/README.md
++++ b/README.md
+@@ -27,7 +27,9 @@ You can check out a hosted version of this repo here: https://langchain-nextjs-t
+ First, clone this repo and download it locally.
+ 
+ Next, you'll need to set up environment variables in your repo's `.env.local` file. Copy the `.env.example` file to `.env.local`.
+-To start with the basic examples, you'll just need to add your OpenAI API key.
++To start with the basic examples, you'll just need to set `RAMP_ROUTER_API_KEY` and `ROUTER_MODEL`.
++All chat models are called through [Router](https://api.router.com/v1)'s OpenAI Responses-compatible API; Router holds the provider credentials.
++`ROUTER_MODEL` must be a model ID returned by `GET https://api.router.com/v1/models` for your account.
+ 
+ Because this app is made to run in serverless Edge functions, make sure you've set the `LANGCHAIN_CALLBACKS_BACKGROUND` environment variable to `false` to ensure tracing finishes if you are using [LangSmith tracing](https://docs.smith.langchain.com/).
+ 
+@@ -81,6 +83,8 @@ the code under `app/api/retrieval/ingest/route.ts`, `app/api/chat/retrieval/rout
+ For Supabase, follow [these instructions](https://js.langchain.com/docs/integrations/vectorstores/supabase) to set up your
+ database, then get your database URL and private key and paste them into `.env.local`.
+ 
++The retrieval examples embed text with `OpenAIEmbeddings`. Router does not serve embeddings, so these examples still call the OpenAI embeddings API directly and need `OPENAI_API_KEY` set in `.env.local`.
++
+ You can then switch to the `Retrieval` and `Retrieval Agent` examples. The default document text is pulled from the LangChain.js retrieval
+ use case docs, but you can change them to whatever text you'd like.
+ 
+diff --git a/app/ai_sdk/agent/action.ts b/app/ai_sdk/agent/action.ts
+index 97d60b5..e9cf2b4 100644
+--- a/app/ai_sdk/agent/action.ts
++++ b/app/ai_sdk/agent/action.ts
+@@ -1,6 +1,6 @@
+ "use server";
+ 
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { ChatPromptTemplate } from "@langchain/core/prompts";
+ import { TavilySearch } from "@langchain/tavily";
+ import {
+@@ -20,7 +20,7 @@ export async function runAgent(input: string) {
+       "hwchase17/openai-tools-agent",
+     );
+ 
+-    const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
++    const llm = createRouterChatModel({ temperature: 0 });
+ 
+     const agent = createToolCallingAgent({
+       llm,
+diff --git a/app/ai_sdk/agent/page.tsx b/app/ai_sdk/agent/page.tsx
+index 506127c..540bf22 100644
+--- a/app/ai_sdk/agent/page.tsx
++++ b/app/ai_sdk/agent/page.tsx
+@@ -7,6 +7,24 @@ import { StreamEvent } from "@langchain/core/tracers/log_stream";
+ import { Input } from "@/components/ui/input";
+ import { Button } from "@/components/ui/button";
+ 
++// Responses API messages carry content as an array of content blocks, which
++// the tool-calling agent passes through as its final output. Render the text.
++function outputToText(output: unknown): string {
++  if (typeof output === "string") return output;
++  if (Array.isArray(output)) {
++    return output
++      .map((block) =>
++        typeof block === "string"
++          ? block
++          : block?.type === "text" && typeof block.text === "string"
++            ? block.text
++            : "",
++      )
++      .join("");
++  }
++  return "";
++}
++
+ export default function Page() {
+   const [input, setInput] = useState("");
+   const [data, setData] = useState<StreamEvent[]>([]);
+@@ -77,7 +95,9 @@ export default function Page() {
+           <hr />
+           <div className="flex flex-col w-full gap-2">
+             <strong className="text-center">Result</strong>
+-            <p className="break-words">{data[data.length - 1].data.output}</p>
++            <p className="break-words">
++              {outputToText(data[data.length - 1].data.output)}
++            </p>
+           </div>
+         </>
+       )}
+diff --git a/app/ai_sdk/tools/action.ts b/app/ai_sdk/tools/action.ts
+index ec5abf1..3f3ff4b 100644
+--- a/app/ai_sdk/tools/action.ts
++++ b/app/ai_sdk/tools/action.ts
+@@ -1,6 +1,6 @@
+ "use server";
+ 
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { ChatPromptTemplate } from "@langchain/core/prompts";
+ import { createStreamableValue } from "@ai-sdk/rsc";
+ import { z } from "zod";
+@@ -35,8 +35,7 @@ export async function executeTool(
+       ["human", "{input}"],
+     ]);
+ 
+-    const llm = new ChatOpenAI({
+-      model: "gpt-4o-mini",
++    const llm = createRouterChatModel({
+       temperature: 0,
+     });
+ 
+diff --git a/app/api/chat/agents/route.ts b/app/api/chat/agents/route.ts
+index 4069ca2..3365978 100644
+--- a/app/api/chat/agents/route.ts
++++ b/app/api/chat/agents/route.ts
+@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
+ import { type UIMessage, type TextUIPart, createTextStreamResponse } from "ai";
+ 
+ import { createReactAgent } from "@langchain/langgraph/prebuilt";
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { TavilySearch } from "@langchain/tavily";
+ import { calculator } from "@/utils/calculator";
+ import {
+@@ -36,7 +36,9 @@ const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
+     return { content: message.content, role: "user" };
+   } else if (message._getType() === "ai") {
+     return {
+-      content: message.content,
++      // Responses API messages carry content as an array of content blocks;
++      // the client expects the assistant text as a string.
++      content: message.text,
+       role: "assistant",
+       tool_calls: (message as AIMessage).tool_calls,
+     };
+@@ -71,8 +73,7 @@ export async function POST(req: NextRequest) {
+     // Requires process.env.TAVILY_API_KEY, also used by the AI SDK agent example.
+     // You can remove this or use a different tool instead.
+     const tools = [calculator, new TavilySearch({ maxResults: 5 })];
+-    const chat = new ChatOpenAI({
+-      model: "gpt-4o-mini",
++    const chat = createRouterChatModel({
+       temperature: 0,
+     });
+ 
+@@ -114,9 +115,12 @@ export async function POST(req: NextRequest) {
+         async start(controller) {
+           for await (const { event, data } of eventStream) {
+             if (event === "on_chat_model_stream") {
+-              // Intermediate chat model generations will contain tool calls and no content
+-              if (!!data.chunk.content) {
+-                controller.enqueue(textEncoder.encode(data.chunk.content));
++              // Intermediate chat model generations will contain tool calls and no content.
++              // Responses API chunks carry content as an array of content blocks,
++              // so read the concatenated text rather than the raw content.
++              const text = data.chunk.text;
++              if (!!text) {
++                controller.enqueue(textEncoder.encode(text));
+               }
+             }
+           }
+diff --git a/app/api/chat/retrieval/route.ts b/app/api/chat/retrieval/route.ts
+index b81aef9..849860f 100644
+--- a/app/api/chat/retrieval/route.ts
++++ b/app/api/chat/retrieval/route.ts
+@@ -3,7 +3,8 @@ import { type UIMessage, type TextUIPart, createTextStreamResponse } from "ai";
+ 
+ import { createClient } from "@supabase/supabase-js";
+ 
+-import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
++import { OpenAIEmbeddings } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { PromptTemplate } from "@langchain/core/prompts";
+ import { SupabaseVectorStore } from "@/utils/supabase-vector-store";
+ import { Document } from "@langchain/core/documents";
+@@ -77,8 +78,7 @@ export async function POST(req: NextRequest) {
+     const previousMessages = messages.slice(0, -1);
+     const currentMessageContent = getMessageText(messages[messages.length - 1]);
+ 
+-    const model = new ChatOpenAI({
+-      model: "gpt-4o-mini",
++    const model = createRouterChatModel({
+       temperature: 0.2,
+     });
+ 
+diff --git a/app/api/chat/retrieval_agents/route.ts b/app/api/chat/retrieval_agents/route.ts
+index 278bf30..2809688 100644
+--- a/app/api/chat/retrieval_agents/route.ts
++++ b/app/api/chat/retrieval_agents/route.ts
+@@ -11,7 +11,8 @@ import {
+   HumanMessage,
+   SystemMessage,
+ } from "@langchain/core/messages";
+-import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
++import { OpenAIEmbeddings } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { createRetrieverTool } from "@langchain/classic/tools/retriever";
+ import { createReactAgent } from "@langchain/langgraph/prebuilt";
+ 
+@@ -38,7 +39,9 @@ const convertLangChainMessageToVercelMessage = (message: BaseMessage) => {
+     return { content: message.content, role: "user" };
+   } else if (message._getType() === "ai") {
+     return {
+-      content: message.content,
++      // Responses API messages carry content as an array of content blocks;
++      // the client expects the assistant text as a string.
++      content: message.text,
+       role: "assistant",
+       tool_calls: (message as AIMessage).tool_calls,
+     };
+@@ -73,8 +76,7 @@ export async function POST(req: NextRequest) {
+       .map(convertVercelMessageToLangChainMessage);
+     const returnIntermediateSteps = body.show_intermediate_steps;
+ 
+-    const chatModel = new ChatOpenAI({
+-      model: "gpt-4o-mini",
++    const chatModel = createRouterChatModel({
+       temperature: 0.2,
+     });
+ 
+@@ -137,9 +139,12 @@ export async function POST(req: NextRequest) {
+         async start(controller) {
+           for await (const { event, data } of eventStream) {
+             if (event === "on_chat_model_stream") {
+-              // Intermediate chat model generations will contain tool calls and no content
+-              if (!!data.chunk.content) {
+-                controller.enqueue(textEncoder.encode(data.chunk.content));
++              // Intermediate chat model generations will contain tool calls and no content.
++              // Responses API chunks carry content as an array of content blocks,
++              // so read the concatenated text rather than the raw content.
++              const text = data.chunk.text;
++              if (!!text) {
++                controller.enqueue(textEncoder.encode(text));
+               }
+             }
+           }
+diff --git a/app/api/chat/route.ts b/app/api/chat/route.ts
+index e2c5bd4..fec9be4 100644
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -1,7 +1,7 @@
+ import { NextRequest, NextResponse } from "next/server";
+ import { type UIMessage, type TextUIPart, createTextStreamResponse } from "ai";
+ 
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { PromptTemplate } from "@langchain/core/prompts";
+ import { StringOutputParser } from "@langchain/core/output_parsers";
+ 
+@@ -40,17 +40,11 @@ export async function POST(req: NextRequest) {
+     const prompt = PromptTemplate.fromTemplate(TEMPLATE);
+ 
+     /**
+-     * You can also try e.g.:
+-     *
+-     * import { ChatAnthropic } from "@langchain/anthropic";
+-     * const model = new ChatAnthropic({});
+-     *
+-     * See a full list of supported models at:
+-     * https://js.langchain.com/docs/modules/model_io/models/
++     * Calls Router's OpenAI Responses-compatible API. The model ID comes from
++     * the ROUTER_MODEL env var (see GET https://api.router.com/v1/models).
+      */
+-    const model = new ChatOpenAI({
++    const model = createRouterChatModel({
+       temperature: 0.8,
+-      model: "gpt-4o-mini",
+     });
+ 
+     const outputParser = new StringOutputParser();
+diff --git a/app/api/chat/structured_output/route.ts b/app/api/chat/structured_output/route.ts
+index 5e298c9..6bdee2c 100644
+--- a/app/api/chat/structured_output/route.ts
++++ b/app/api/chat/structured_output/route.ts
+@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
+ 
+ import { z } from "zod";
+ 
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "@/utils/router";
+ import { PromptTemplate } from "@langchain/core/prompts";
+ 
+ export const runtime = "edge";
+@@ -31,9 +31,8 @@ export async function POST(req: NextRequest) {
+     /**
+      * Function calling is currently only supported with ChatOpenAI models
+      */
+-    const model = new ChatOpenAI({
++    const model = createRouterChatModel({
+       temperature: 0.8,
+-      model: "gpt-4o-mini",
+     });
+ 
+     /**
+diff --git a/app/langgraph/agent/agent.ts b/app/langgraph/agent/agent.ts
+index 85879d9..0e36c7b 100644
+--- a/app/langgraph/agent/agent.ts
++++ b/app/langgraph/agent/agent.ts
+@@ -4,9 +4,9 @@ import {
+   START,
+   Annotation,
+ } from "@langchain/langgraph";
+-import { ChatOpenAI } from "@langchain/openai";
++import { createRouterChatModel } from "../../../utils/router";
+ 
+-const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
++const llm = createRouterChatModel({ temperature: 0 });
+ 
+ const builder = new StateGraph(
+   Annotation.Root({
+diff --git a/utils/router.ts b/utils/router.ts
+new file mode 100644
+index 0000000..7580e7d
+--- /dev/null
++++ b/utils/router.ts
+@@ -0,0 +1,53 @@
++import { ChatOpenAI, type ChatOpenAIFields } from "@langchain/openai";
++
++/**
++ * Router: an OpenAI Responses-compatible gateway in front of models from
++ * multiple providers. Router holds the provider credentials, so this app only
++ * ever sends RAMP_ROUTER_API_KEY.
++ */
++export const ROUTER_BASE_URL = "https://api.router.com/v1";
++
++/**
++ * Model IDs are account-specific and must come from `GET /v1/models` on
++ * Router. Configure the one to use via the ROUTER_MODEL env var.
++ */
++export function getRouterModel(): string {
++  const model = process.env.ROUTER_MODEL;
++  if (!model) {
++    throw new Error(
++      "ROUTER_MODEL is not set. Set it to a model ID returned by GET https://api.router.com/v1/models.",
++    );
++  }
++  return model;
++}
++
++function getRouterApiKey(): string {
++  const apiKey = process.env.RAMP_ROUTER_API_KEY;
++  if (!apiKey) {
++    // Fail loudly rather than letting the client fall back to a provider key
++    // (e.g. OPENAI_API_KEY) from the environment.
++    throw new Error("RAMP_ROUTER_API_KEY is not set.");
++  }
++  return apiKey;
++}
++
++type RouterChatModelFields = Omit<
++  ChatOpenAIFields,
++  "model" | "modelName" | "apiKey" | "configuration" | "useResponsesApi"
++>;
++
++/**
++ * Creates a LangChain chat model that talks to Router's `POST /v1/responses`
++ * endpoint using the OpenAI Responses API.
++ */
++export function createRouterChatModel(fields: RouterChatModelFields = {}) {
++  return new ChatOpenAI({
++    ...fields,
++    model: getRouterModel(),
++    apiKey: getRouterApiKey(),
++    useResponsesApi: true,
++    configuration: {
++      baseURL: ROUTER_BASE_URL,
++    },
++  });
++}

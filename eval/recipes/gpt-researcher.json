@@ -18,7 +18,7 @@
     "failed": 0,
     "errors": 0,
     "skipped": 2,
-    "seconds": 16.7,
+    "seconds": 17.7,
     "exit": 0
   },
   "notes": "Each setup command that runs uv sources scripts/env.sh itself so caches/Python installs stay in .tools. Baseline measured with cwd=$SRC=eval/work/base/<name> under a clean env (env -i HOME/PATH/LANG + test_env, RAMP_ROUTER_API_KEY unset, no provider API keys) with outbound network denied via macOS sandbox-exec (loopback + unix sockets allowed); counts were identical on a from-scratch rebuild into eval/work/envs/<name>-check (since deleted). Mirrors CI unit job (.github/workflows/tests.yml): pip install -e '.[test]' + requirements.txt, warm tiktoken cache (o200k_base, cl100k_base) outside pytest, then `python -m pytest tests/ --forked --timeout=60 -p no:warnings` with GPTR_BLOCK_NETWORK=1 (tests/conftest.py socket guard). Python 3.12 (requires-python >=3.12). tiktoken cache lives in $ENV/tiktoken_cache (TIKTOKEN_CACHE_DIR set inline in test_cmd so the setup warm-up is reused offline). Deselections, identical to CI (4 tests deselected): tests/test_researcher_logging.py and tests/test_logging_output.py (build a real OpenAI client, need OPENAI_API_KEY), tests/test_mcp.py (live web research, hangs offline). 2 module-level skips: tests/test_security_fix.py (helpers removed upstream; skips in CI too) and tests/backend/test_write_md_to_pdf_filename.py (weasyprint needs pango/gobject native libs; CI apt-installs them, not present on this Mac, so this module runs in CI but skips here). Added -p no:cacheprovider. --exclude-newer 2026-10-13 pins resolution date. Tests write gitignored logs/ and outputs/ dirs in $SRC."
