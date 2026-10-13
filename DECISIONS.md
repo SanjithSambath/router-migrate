@@ -178,3 +178,25 @@ left on the provider. It is gone. The provider key stays required, and it is nee
 Clamping `max_tokens=1` to 16 was a behavior change I had accepted; the review was right that it should not be silent.
 `service_tier: "default"` is now sent on every routed call unless the caller chose a tier. Flex is the account default (measured),
 and no pre-migration call was ever flex. `ROUTER_MIGRATE_SERVICE_TIER=auto` restores the account default.
+
+## D11. v2 M0: what the live measurements kept and cut
+
+Measured on 2026-10-13 for $0.0004; details are in `research/m0_measurements.md`.
+- **Kept: `tier.flex_background`.** Flex costs exactly 50% of default on gpt-5.4-mini (n=5 per arm, identical tokens).
+  - Impact is shown as −50% per call, marked "measured on gpt-5.4-mini only". It is "unmeasured" for other models.
+  - Flex latency reached 61 s on gpt-5-nano, so the card exists only for the background latency class.
+  - Eligibility is per model (17 measured), not per vendor: Router rejects gpt-4o-mini's flex request.
+- **Kept: `fallback.candidates`.** Router's `models` list works through raw HTTP, openai-python `extra_body` and openai-node
+  extra params. It advances on no-permission (403) and on unknown models.
+  - `allow_flex_tier` is ignored with a list. A list with no tier is served at flex (account default).
+  - So the runtime keeps v1's `service_tier: "default"` alongside fallbacks and never sends `allow_flex_tier` with a list.
+- **Not built: anything that depends on Jev.** "service_tier default vs Jev" could not be measured: Jev is off, and turning it
+  on is an account change. The MVP has no Jev rule; the setup checklist states the documented claim and marks it unmeasured.
+- **Setup checklist only, never written by the tool: Switchyard.** `model: "switchyard"` from app code returned 200 (served
+  by gpt-5.6-luna at flex) while the routing toggle was off but a config was saved. Earlier, with no config, it returned 404.
+  It is known to switch model family mid-conversation.
+- **Flex guard is per model.** The policy's flex guard reads a per-model flex bit (`c.f`) compiled into both runtimes from
+  `router_migrate/data/flex_models.json`, not an owner check.
+- **Policy scope (MVP cut).** SPEC_V2 rule 5 asks for stable client ids baked into every wrap. The MVP policy matches on the
+  feature id instead (`file:function`; the caller's own `metadata.feature` wins), so v1 wraps and diffs stay byte-for-byte
+  unchanged. Site/client-id selectors are a next step.

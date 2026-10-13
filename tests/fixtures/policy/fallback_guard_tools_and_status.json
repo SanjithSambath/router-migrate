@@ -1,0 +1,55 @@
+{
+ "name": "fallback_guard_tools_and_status",
+ "policy": {
+  "version": 1,
+  "features": {
+   "src/app.py:ask": {
+    "fallbacks": [
+     "gpt-4",
+     "gpt-4.1-mini",
+     "not-a-model",
+     "gpt-4o-mini"
+    ]
+   }
+  }
+ },
+ "feature": "src/app.py:ask",
+ "request_path": "/v1/chat/completions",
+ "request": {
+  "model": "gpt-4o-mini",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hi"
+   }
+  ],
+  "max_tokens": 32,
+  "metadata": {
+   "feature": "src/app.py:ask"
+  },
+  "tools": [
+   {
+    "type": "function",
+    "function": {
+     "name": "f",
+     "parameters": {
+      "type": "object",
+      "properties": {}
+     }
+    }
+   }
+  ]
+ },
+ "expect": {
+  "router_path": "/v1/responses",
+  "body_has": {
+   "models": [
+    "gpt-4o-mini",
+    "gpt-4.1-mini"
+   ]
+  },
+  "body_lacks": [
+   "model"
+  ]
+ }
+}

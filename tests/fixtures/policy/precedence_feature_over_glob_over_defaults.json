@@ -1,0 +1,60 @@
+{
+ "name": "precedence_feature_over_glob_over_defaults",
+ "policy": {
+  "version": 1,
+  "defaults": {
+   "provider_timeout": 30,
+   "metadata": {
+    "a": "d",
+    "b": "d"
+   }
+  },
+  "globs": {
+   "src/*": {
+    "provider_timeout": 40,
+    "metadata": {
+     "b": "g",
+     "c": "g"
+    }
+   },
+   "src/app.py:*": {
+    "provider_timeout": 50
+   }
+  },
+  "features": {
+   "src/app.py:ask": {
+    "metadata": {
+     "c": "f"
+    }
+   }
+  }
+ },
+ "feature": "src/app.py:ask",
+ "request_path": "/v1/chat/completions",
+ "request": {
+  "model": "gpt-4o-mini",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hi"
+   }
+  ],
+  "max_tokens": 32,
+  "metadata": {
+   "feature": "src/app.py:ask"
+  }
+ },
+ "expect": {
+  "router_path": "/v1/responses",
+  "body_has": {
+   "provider_timeout": 50,
+   "metadata": {
+    "a": "d",
+    "b": "g",
+    "c": "f",
+    "feature": "src/app.py:ask"
+   }
+  },
+  "body_lacks": []
+ }
+}

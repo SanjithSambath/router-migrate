@@ -19,14 +19,15 @@
 // Env: RAMP_ROUTER_API_KEY, RAMP_ROUTER_BASE_URL (default https://api.router.com),
 //      ROUTER_MIGRATE_DISABLE=1|true|yes|on (kill switch), ROUTER_MIGRATE_MODEL_MAP='{"old":"router-id"}',
 //      ROUTER_MIGRATE_SERVICE_TIER (default "default"; "auto" sends none),
-//      ROUTER_MIGRATE_FEATURE_TAG=off (no metadata.feature / automatic prompt_cache_key from the call stack).
+//      ROUTER_MIGRATE_FEATURE_TAG=off (no metadata.feature / automatic prompt_cache_key from the call stack),
+//      ROUTER_MIGRATE_POLICY=off (ignore the compiled router.policy.json; see "v2 compiled policy" below).
 /* eslint-disable */
 // @ts-nocheck
 
 type AnyFetch = (input: any, init?: any) => Promise<Response>;
 
 const CATALOG_JSON = String.raw`__ROUTER_CATALOG__`;
-let CATALOG: Record<string, { o?: string; t?: boolean | null; r?: boolean }> = {};
+let CATALOG: Record<string, { o?: string; t?: boolean | null; r?: boolean; c?: { tools?: boolean; so?: boolean; in?: string[]; st?: string; s?: string[]; f?: boolean } }> = {};
 let ALIASES: Record<string, string> = {};
 let DATED: Record<string, string> = {}; // dated provider snapshot -> catalog id, only where Router reported the equivalence
 try {
@@ -724,6 +725,268 @@ function agentFor(agent: any) {
   };
 }
 
+// --- v2 compiled policy (router.policy.json -> routerPolicy.ts, which sets globalThis.__ROUTER_MIGRATE_POLICY__ =
+// {policy, hash} when imported). Applied only to Router-bound POST /v1/responses bodies (translated chat and the Responses
+// passthrough), never to /v1/messages. No policy, an invalid one, or ROUTER_MIGRATE_POLICY=off => v1 bodies, byte for byte.
+// Policy never changes which model answers: no model key, no generation params; fallbacks only add candidates after the
+// original. Logs go to console.warn and carry no request content: the policy hash once, each guard skip once per
+// (feature, key).
+
+type PolicyEntry = { allow_flex_tier?: boolean; prompt_cache_key?: string; metadata?: Record<string, string>; fallbacks?: string[]; provider_timeout?: number };
+type LoadedPolicy = { hash: string; defaults?: PolicyEntry; features: Record<string, PolicyEntry>; globs: [string, RegExp, PolicyEntry][] };
+
+const POLICY_KEYS = ["allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout"];
+const POLICY_TOP_KEYS = ["version", "defaults", "globs", "features"];
+const MAX_FALLBACKS = 14; // Router takes 1-15 candidates; the original model is always first
+const POLICY_LOGS: Map<string, true> = sharedMap("router-migrate.policyLogs");
+const POLICY_CACHE: WeakMap<object, LoadedPolicy | null> = new WeakMap();
+const own = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+
+function policyLog(key: string, msg: string) {
+  if (POLICY_LOGS.has(key)) return;
+  lruPut(POLICY_LOGS, key, true, MAX_ROUTER_IDS);
+  try {
+    console.warn(msg);
+  } catch {}
+}
+
+function validEntry(e: any): boolean {
+  if (!plainObject(e)) return false;
+  for (const k of Object.keys(e)) {
+    const v = e[k];
+    if (!POLICY_KEYS.includes(k)) return false;
+    if (k === "allow_flex_tier" && typeof v !== "boolean") return false;
+    if (k === "prompt_cache_key" && typeof v !== "string") return false;
+    if (k === "metadata" && !(plainObject(v) && Object.values(v).every((x) => typeof x === "string"))) return false;
+    if (k === "fallbacks" && !(Array.isArray(v) && v.length >= 1 && v.length <= MAX_FALLBACKS && v.every((x) => typeof x === "string" && !!x))) return false;
+    if (k === "provider_timeout" && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 660)) return false;
+  }
+  return true;
+}
+
+function validPolicy(p: any): boolean {
+  if (!plainObject(p) || p.version !== 1) return false;
+  if (!Object.keys(p).every((k) => POLICY_TOP_KEYS.includes(k))) return false;
+  if (own(p, "defaults") && !validEntry(p.defaults)) return false;
+  for (const k of ["globs", "features"]) if (own(p, k) && !(plainObject(p[k]) && Object.values(p[k]).every(validEntry))) return false;
+  return true;
+}
+
+/** fnmatch on a feature id: `*` and `?` stay within a path segment, `**` matches anything, `[...]` is a character class. */
+export function globToRegExp(pat: string): RegExp {
+  let re = "";
+  for (let i = 0; i < pat.length; i++) {
+    const c = pat[i];
+    if (c === "*") {
+      if (pat[i + 1] === "*") {
+        while (pat[i + 1] === "*") i++;
+        re += ".*";
+      } else re += "[^/]*";
+    } else if (c === "?") re += "[^/]";
+    else if (c === "[") {
+      let j = i + 1;
+      if (pat[j] === "!") j++;
+      if (pat[j] === "]") j++;
+      while (j < pat.length && pat[j] !== "]") j++;
+      if (j >= pat.length) re += "\\[";
+      else {
+        let cls = pat.slice(i + 1, j).replace(/\\/g, "\\\\");
+        if (cls[0] === "!") cls = "^" + cls.slice(1);
+        else if (cls[0] === "^") cls = "\\" + cls;
+        re += `[${cls}]`;
+        i = j;
+      }
+    } else re += c.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`, "s");
+}
+
+/** The compiled policy, validated (cached per policy object); null when absent, invalid or ROUTER_MIGRATE_POLICY=off. */
+function activePolicy(): LoadedPolicy | null {
+  if ((env("ROUTER_MIGRATE_POLICY") || "").trim().toLowerCase() === "off") return null;
+  let g: any;
+  try {
+    g = (globalThis as any).__ROUTER_MIGRATE_POLICY__;
+  } catch {
+    return null;
+  }
+  if (g == null) return null;
+  if (typeof g !== "object") {
+    policyLog("invalid", "router-migrate policy invalid: ignored (v1 behaviour)");
+    return null;
+  }
+  if (POLICY_CACHE.has(g)) return POLICY_CACHE.get(g) || null;
+  let loaded: LoadedPolicy | null = null;
+  let hash = "";
+  try {
+    hash = typeof g.hash === "string" ? g.hash : "";
+    const p = g.policy;
+    if (validPolicy(p)) {
+      const globs: [string, RegExp, PolicyEntry][] = Object.keys(p.globs || {})
+        .sort((a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0)) // least specific first; the longest pattern wins
+        .map((k) => [k, globToRegExp(k), p.globs[k]]);
+      loaded = { hash, defaults: p.defaults, features: p.features || {}, globs };
+    }
+  } catch {
+    loaded = null;
+  }
+  if (!loaded) policyLog("invalid", `router-migrate policy ${hash.slice(0, 8) || "(no hash)"} invalid: ignored (v1 behaviour)`);
+  POLICY_CACHE.set(g, loaded);
+  return loaded;
+}
+
+/** Matching entries for a feature id, least specific first: defaults, matching globs by pattern length, exact feature. */
+function policyLayers(L: LoadedPolicy, featId: string | undefined): PolicyEntry[] {
+  const layers: PolicyEntry[] = [];
+  if (L.defaults) layers.push(L.defaults);
+  if (typeof featId === "string") {
+    for (const [, re, e] of L.globs) if (re.test(featId)) layers.push(e);
+    if (own(L.features, featId)) layers.push(L.features[featId]);
+  }
+  return layers;
+}
+
+function layersPick(layers: PolicyEntry[], key: string): any {
+  let v: any;
+  for (const l of layers) if (own(l, key)) v = (l as any)[key];
+  return v;
+}
+
+/** Effective policy settings for a feature id (metadata merged), or null when no valid policy is active. */
+export function routerPolicyFor(featId?: string): { hash: string; settings: PolicyEntry } | null {
+  const L = activePolicy();
+  if (!L) return null;
+  const layers = policyLayers(L, featId);
+  const settings: any = {};
+  for (const k of POLICY_KEYS) {
+    if (k === "metadata") {
+      const m = Object.fromEntries(layers.flatMap((l) => Object.entries(l.metadata || {})));
+      if (Object.keys(m).length) settings.metadata = m;
+    } else {
+      const v = layersPick(layers, k);
+      if (v !== undefined) settings[k] = v;
+    }
+  }
+  return { hash: L.hash, settings };
+}
+
+/** Input modalities a Responses body needs beyond text (image / file parts). */
+function inputModalities(input: any): string[] {
+  const need = new Set<string>();
+  for (const it of Array.isArray(input) ? input : []) {
+    if (!it || typeof it !== "object") continue;
+    for (const parts of [it.content, it.output]) {
+      if (!Array.isArray(parts)) continue;
+      for (const p of parts) {
+        if (p?.type === "input_image") need.add("image");
+        else if (p?.type === "input_file") need.add("file");
+      }
+    }
+  }
+  return [...need];
+}
+
+/** Why a fallback candidate cannot serve this request (capability guard), or "" when it can. */
+function candidateProblem(c: string, nb: any, need: string[]): string {
+  if (!own(CATALOG, c)) return "not in catalog";
+  if (c === nb.model) return "original model";
+  const m = CATALOG[c];
+  const cap = m.c || {};
+  if ((cap.st || "active") !== "active") return `status ${cap.st}`;
+  if (!(cap.s || []).includes("responses")) return "no responses surface";
+  if (nb.tools != null && !cap.tools) return "no tools";
+  const ft = plainObject(nb.text) && plainObject(nb.text.format) ? nb.text.format.type : undefined;
+  if ((ft === "json_schema" || ft === "json_object") && !cap.so) return "no structured outputs";
+  const miss = need.filter((x) => !(cap.in || ["text"]).includes(x));
+  if (miss.length) return `no ${miss.join("/")} input`;
+  if (nb.stop != null && m.o === "openai") return "OpenAI does not take stop";
+  if (nb.temperature != null && m.t === false) return "no temperature";
+  return "";
+}
+
+function policyBody(L: LoadedPolicy, nb: any, featId: string | undefined, callerTier: boolean): any {
+  policyLog("hash", `router-migrate policy ${L.hash.slice(0, 8) || "(no hash)"}`);
+  const layers = policyLayers(L, featId);
+  if (!layers.length) return nb;
+  const fid = featId || "(no feature)";
+  const skip = (key: string, why: string) => policyLog(`skip\u0000${fid}\u0000${key}`, `router-migrate policy: ${key} skipped for ${fid} (${why})`);
+  const out: any = { ...nb };
+
+  // metadata: defaults < globs < feature, the request's own keys win; at the 16-key cap the least specific policy keys go first
+  const req = plainObject(out.metadata) ? out.metadata : {};
+  const room = METADATA_MAX_KEYS - Object.keys(req).length;
+  const pol = new Map<string, string>();
+  let capped = false;
+  for (const l of [...layers].reverse())
+    for (const [k, v] of Object.entries(l.metadata || {})) {
+      if (own(req, k) || pol.has(k)) continue;
+      if (pol.size >= room) capped = true;
+      else pol.set(k, v);
+    }
+  if (capped) skip("metadata", `${METADATA_MAX_KEYS}-key cap`);
+  if (pol.size) out.metadata = { ...req, ...Object.fromEntries(pol) };
+
+  const pck = layersPick(layers, "prompt_cache_key");
+  if (pck !== undefined && !out.prompt_cache_key) {
+    if (pck.includes("$feature") && !featId) skip("prompt_cache_key", "no feature id for $feature");
+    else {
+      const v = pck.split("$feature").join(featId || "");
+      if (v) out.prompt_cache_key = v;
+    }
+  }
+
+  const pt = layersPick(layers, "provider_timeout");
+  if (pt !== undefined && out.provider_timeout == null) out.provider_timeout = pt;
+
+  let multi = false;
+  const fb: string[] | undefined = layersPick(layers, "fallbacks");
+  if (fb !== undefined && typeof out.model === "string") {
+    const need = inputModalities(out.input);
+    const kept: string[] = [];
+    const dropped: string[] = [];
+    for (const c of fb) {
+      const why = candidateProblem(c, out, need);
+      if (why) dropped.push(`${c}: ${why}`);
+      else if (!kept.includes(c)) kept.push(c);
+    }
+    if (dropped.length) skip("fallbacks", dropped.join("; "));
+    if (kept.length) {
+      out.models = [out.model, ...kept];
+      delete out.model; // Router rejects model and models together
+      multi = true;
+    }
+  }
+
+  const flex = layersPick(layers, "allow_flex_tier");
+  if (flex !== undefined) {
+    if (multi) skip("allow_flex_tier", "fallbacks send a models list; flex applies to a single model only");
+    else if (callerTier) skip("allow_flex_tier", "the caller set service_tier");
+    else if (flex === true && CATALOG[out.model]?.c?.f !== true) skip("allow_flex_tier", `${out.model} has no flex tier`);
+    else {
+      out.allow_flex_tier = flex;
+      delete out.service_tier; // v1's automatic service_tier would switch Flex off
+    }
+  }
+  return out;
+}
+
+/** The v1 Router body with the compiled policy applied; the v1 body itself (same object) when no policy applies. */
+function applyPolicy(nb: any, featId: string | undefined, callerTier: boolean): any {
+  const L = activePolicy();
+  if (!L) return nb;
+  try {
+    return policyBody(L, nb, featId, callerTier);
+  } catch {
+    return nb; // a policy bug never changes where or how the request is served
+  }
+}
+
+/** Feature id for policy lookup: the caller's own metadata.feature, else the one derived from the call stack. */
+function policyFeature(meta: any, feat: string | undefined): string | undefined {
+  if (plainObject(meta) && own(meta, "feature") && meta.feature != null) return String(meta.feature);
+  return feat;
+}
+
 type Plan =
   | { local: Response }
   | { kind: "chat" | "responses" | "anthropic"; path: string; body: any; ctx?: any; items?: any[]; anthropic: boolean; headers: Headers; providerAuth: boolean };
@@ -794,6 +1057,7 @@ function planRequest(input: any, init: any): Plan | null {
   const feat = featureTagOn() ? feature() : undefined;
   if (isAnthropic) {
     if (headers.get("anthropic-beta")) return null; // beta features unmeasured on Router
+    if (activePolicy()) policyLog("messages", "router-migrate policy: not applied on /v1/messages (Router-only fields are not supported there)");
     const p = path.endsWith("count_tokens") ? "/v1/messages/count_tokens" : "/v1/messages";
     return { kind: "anthropic", path: p, body: { ...body, model: rid }, anthropic: true, headers, providerAuth };
   }
@@ -816,10 +1080,12 @@ function planRequest(input: any, init: any): Plan | null {
       const tier = defaultTier();
       if (tier) nb.service_tier = tier;
     }
-    return { kind: "responses", path: "/v1/responses", body: nb, items, anthropic: false, headers, providerAuth };
+    const pb = applyPolicy(nb, policyFeature(body.metadata, feat), body.service_tier != null);
+    return { kind: "responses", path: "/v1/responses", body: pb, items, anthropic: false, headers, providerAuth };
   }
   const tr = chatToResponses(body, rid, owned, feat);
-  return { kind: "chat", path: "/v1/responses", body: tr.body, ctx: tr.ctx, anthropic: false, headers, providerAuth };
+  const pb = applyPolicy(tr.body, policyFeature(body.metadata, feat), body.service_tier != null);
+  return { kind: "chat", path: "/v1/responses", body: pb, ctx: tr.ctx, anthropic: false, headers, providerAuth };
 }
 
 /** fetch for OpenAI/Anthropic/Vercel/LangChain clients: Router when it can serve the request, the provider otherwise. */

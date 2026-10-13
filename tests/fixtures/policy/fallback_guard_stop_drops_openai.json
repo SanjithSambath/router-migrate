@@ -1,0 +1,44 @@
+{
+ "name": "fallback_guard_stop_drops_openai",
+ "policy": {
+  "version": 1,
+  "features": {
+   "src/app.py:ask": {
+    "fallbacks": [
+     "gpt-4.1-mini",
+     "claude-sonnet-4-5"
+    ]
+   }
+  }
+ },
+ "feature": "src/app.py:ask",
+ "request_path": "/v1/chat/completions",
+ "request": {
+  "model": "claude-haiku-4-5",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hi"
+   }
+  ],
+  "max_tokens": 32,
+  "metadata": {
+   "feature": "src/app.py:ask"
+  },
+  "stop": [
+   "END"
+  ]
+ },
+ "expect": {
+  "router_path": "/v1/responses",
+  "body_has": {
+   "models": [
+    "claude-haiku-4-5",
+    "claude-sonnet-4-5"
+   ]
+  },
+  "body_lacks": [
+   "model"
+  ]
+ }
+}

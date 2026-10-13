@@ -7,14 +7,25 @@ PLACEHOLDER = "__ROUTER_CATALOG__"
 
 
 def compact_catalog(catalog):
-    """{models: {id: {o: owned_by, t: temperature_supported, r: reasoning}}, aliases: {alias: id}} for the runtimes."""
+    """{models: {id: {o: owned_by, t: temperature_supported, r: reasoning, c: capabilities}}, aliases: {alias: id}} for the runtimes."""
     models, aliases = {}, {}
     for m in catalog.models:
         if m.get("requires_byok") or "responses" not in (m.get("surfaces") or []) and "messages" not in (m.get("surfaces") or []):
             continue
-        models[m["id"]] = {"o": m.get("owned_by"), "t": m.get("temperature"), "r": bool(m.get("reasoning"))}
+        models[m["id"]] = {"o": m.get("owned_by"), "t": m.get("temperature"), "r": bool(m.get("reasoning")),
+                           # capabilities for the v2 policy guard (fallback candidates): tools, structured outputs, input modalities,
+                           # status, surfaces. v1 code never reads "c".
+                           "c": {"tools": bool(m.get("tools")), "so": bool(m.get("structured_outputs")),
+                                 "in": sorted(m.get("input_modalities") or ["text"]), "st": m.get("status") or "active",
+                                 "s": sorted(m.get("surfaces") or [])}}
         for a in m.get("aliases") or []:
             aliases.setdefault(a, m["id"])
+    try:  # models measured to have a flex tier (v2 policy guard for allow_flex_tier)
+        for mid in json.load(open(os.path.join(os.path.dirname(HERE), "data", "flex_models.json")))["flex_models"]:
+            if mid in models:
+                models[mid]["c"]["f"] = True
+    except (OSError, ValueError, KeyError):
+        pass
     try:
         dated = {k: v for k, v in json.load(open(os.path.join(os.path.dirname(HERE), "data", "dated_equivalents.json")))["dated_to_catalog"].items() if v in models}
     except (OSError, ValueError, KeyError):
