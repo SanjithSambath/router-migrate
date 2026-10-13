@@ -462,6 +462,7 @@ function analyze(sf, rel) {
     found.push({ site, node, info });
     clientNodes.add(node);
     const r = assignTarget(node);
+    if (r) site.target = r;
     if (r) {
       recvSdk.set(r, { sdk: info.sdk });
       if (info.lc && info.surface !== "OpenAIEmbeddings") lcInst.set(r, { sdk: info.sdk, model: f.model });
@@ -499,6 +500,7 @@ function analyze(sf, rel) {
     const info = defaultInstance(b.module, b.name);
     if (!info) continue;
     const site = mkSite(b.node, "client", { sdk: info.sdk, surface: info.surface, model: null, base_url: null });
+    site.target = local;
     found.push({ site, node: b.node, info: { ...info, local, binding: b } });
   }
 
@@ -511,6 +513,8 @@ function analyze(sf, rel) {
       let base = e.expression;
       if (ts.isPropertyAccessExpression(base)) base = base.expression;
       let sdk = null;
+      const bt = skipOuter(base);
+      const receiver = ts.isIdentifier(bt) ? bt.text : null; // the provider instance the model comes from: custom('gpt-4o')
       const ref = resolveRef(base);
       if (ref) {
         const di = defaultInstance(ref.module, ref.name);
@@ -526,7 +530,7 @@ function analyze(sf, rel) {
       }
       if (sdk) {
         const m = e.arguments.length ? staticString(e.arguments[0]) : null;
-        return { sdk, model: m !== null ? { value: m, static: true } : e.arguments.length ? valueOf(e.arguments[0]) : null };
+        return { sdk, receiver, model: m !== null ? { value: m, static: true } : e.arguments.length ? valueOf(e.arguments[0]) : null };
       }
     }
     if (ts.isIdentifier(e) && depth < 2) {
@@ -607,7 +611,7 @@ function analyze(sf, rel) {
         const [surface, stream] = AI_FUNCS[ref.name];
         const opts = node.arguments.length ? objectArg(node.arguments[0], node.getStart(sf)) : null;
         const vm = opts ? vercelModel(propValue(getProp(opts, "model"))) : { sdk: "vercel-ai", model: null };
-        found.push({ site: mkSite(node, "call", { sdk: vm.sdk, surface, stream, model: vm.model }), node, info: null });
+        found.push({ site: mkSite(node, "call", { sdk: vm.sdk, surface, stream, model: vm.model, receiver: vm.receiver || null }), node, info: null });
         handled = true;
       }
       if (!handled && ts.isPropertyAccessExpression(callee)) {

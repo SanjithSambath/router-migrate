@@ -111,6 +111,10 @@ def link_same_file(sites):
                 if cands[0]["sdk"] in ("azure-openai",):
                     s["sdk"] = "azure-openai"
             elif len(cands) > 1:
+                named = [c for c in cands if s.get("receiver") and c.get("target") == s["receiver"]]
+                if len(named) == 1:  # TS: the call names the instance it uses (custom('gpt-4o') -> const custom = createOpenAI(...))
+                    s["client_id"], s["client_link"] = named[0]["id"], "same-file-name"
+                    continue
                 s["client_candidates"] = [c["id"] for c in cands]
                 s["client_link"] = "ambiguous"
     return sites
@@ -155,7 +159,7 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
 
     # 2) classify LLM sites: API calls, plus framework model constructions (LangChain/LlamaIndex models are the call sites).
     #    Vercel AI SDK: generateText/streamText calls are the sites; provider constructions only count when no call was found.
-    vercel_calls = any(s["kind"] == "call" and s["sdk"] == "vercel-ai" for s in sites)
+    vercel_calls = any(s["kind"] == "call" and s["sdk"].startswith("vercel-ai") for s in sites)  # calls are labelled vercel-ai-<provider> when the provider resolves
     vproviders = [c for c in clients.values() if c["lang"] == "ts" and c["surface"] in VERCEL_PROVIDERS and c["prod"]]
     for s in sites:
         is_framework_client = s["kind"] == "client" and s["surface"] in FRAMEWORK_CLIENT_SURFACE
