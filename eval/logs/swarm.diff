@@ -1,0 +1,22 @@
+--- a/swarm/core.py
++++ b/swarm/core.py
+@@ -19,6 +19,10 @@
+     Response,
+     Result,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ __CTX_VARS_NAME__ = "context_variables"
+ 
+@@ -26,7 +30,7 @@
+ class Swarm:
+     def __init__(self, client=None):
+         if not client:
+-            client = OpenAI()
++            client = _router_wrap_openai(OpenAI())
+         self.client = client
+ 
+     def get_chat_completion(

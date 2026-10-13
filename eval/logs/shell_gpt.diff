@@ -1,0 +1,22 @@
+--- a/sgpt/handlers/handler.py
++++ b/sgpt/handlers/handler.py
+@@ -9,6 +9,10 @@
+ from ..function import get_function
+ from ..printer import MarkdownPrinter, Printer, TextPrinter
+ from ..role import DefaultRoles, SystemRole
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_openai as _router_wrap_openai
+ 
+ completion: Callable[..., Any] = lambda *args, **kwargs: Generator[Any, None, None]
+ 
+@@ -28,7 +32,7 @@
+ else:
+     from openai import OpenAI
+ 
+-    client = OpenAI(**additional_kwargs)  # type: ignore
++    client = _router_wrap_openai(OpenAI(**additional_kwargs))  # type: ignore
+     completion = client.chat.completions.create
+     additional_kwargs = {}
+ 
