@@ -236,3 +236,17 @@ def test_non_openai_base_url_untouched(rt, sim):
     c = openai.OpenAI(base_url="http://localhost:11434/v1", http_client=httpx.Client(transport=rt.RouterTransport(inner=split)))
     c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
     assert split.provider_calls and sim.records == []
+
+
+def test_wrap_keeps_existing_transport(rt, sim):
+    """A client built with a custom transport keeps it underneath the router transport."""
+    class Marker(httpx.HTTPTransport):
+        used = 0
+
+        def handle_request(self, request):
+            Marker.used += 1
+            return super().handle_request(request)
+    base = openai.OpenAI(http_client=httpx.Client(transport=Marker()))
+    c = rt.wrap_openai(base)
+    assert c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "pong"
+    assert Marker.used == 1 and last(sim)["valid"]

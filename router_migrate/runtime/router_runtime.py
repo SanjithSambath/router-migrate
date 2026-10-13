@@ -612,14 +612,14 @@ def _client_factory(libname, is_async):
     return (h.AsyncClient if is_async else h.Client), {"timeout": h.Timeout(600.0, connect=5.0), "follow_redirects": True}
 
 
-def _make_client(libname, is_async, **kwargs):
+def _make_client(libname, is_async, inner=None, **kwargs):
     classes = _classes(libname)
     if classes is None:
         return None
     cls, defaults = _client_factory(libname, is_async)
     for k, v in defaults.items():
         kwargs.setdefault(k, v)
-    return cls(transport=(classes[1] if is_async else classes[0])(), **kwargs)
+    return cls(transport=(classes[1] if is_async else classes[0])(inner=inner), **kwargs)
 
 
 def http_client(**kwargs):
@@ -639,7 +639,13 @@ def async_http_client(**kwargs):
 
 def _with_client(client, is_async):
     try:
-        hc = _make_client(_sdk_lib(client), is_async)
+        # keep the client's own transport (custom certs, proxies, pools) underneath ours
+        existing = getattr(getattr(client, "_client", None), "_transport", None)
+        lib = _sdk_lib(client)
+        h = _lib(lib)
+        base_cls = (h.AsyncBaseTransport if is_async else h.BaseTransport) if h else None
+        inner = existing if base_cls is not None and isinstance(existing, base_cls) else None
+        hc = _make_client(lib, is_async, inner=inner)
         return client.with_options(http_client=hc) if hc is not None else client
     except Exception:
         return client  # unknown client shape (e.g. a test double): leave it exactly as it was

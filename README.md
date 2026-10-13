@@ -104,9 +104,9 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
   **handoff** rather than being guessed.
 - Models outside the Router catalog stay on their provider. That is deliberate: substituting a different model is a product decision
   (`ROUTER_MIGRATE_MODEL_MAP` opts in per model).
-- When Router is active, the patched client uses the runtime's own HTTP transport, so `HTTP(S)_PROXY` environment settings and a
-  custom `http_client` passed to that client are not applied to its requests. Environments that require an egress proxy should
-  keep `ROUTER_MIGRATE_DISABLE=1` until the proxy is configured on the runtime.
+- When Router is active, the runtime keeps the client's own transport underneath (so custom certificates, `proxy=` and
+  connection pools still apply), but `HTTP(S)_PROXY` *environment* proxies that httpx mounts per-URL are not consulted for
+  Router requests. Environments that rely on env proxies should keep `ROUTER_MIGRATE_DISABLE=1` until that is configured.
 - Some Router features are only reachable from code already on the Responses API (built-in tools, reasoning items, `models`
   fallback lists). Code that is moved by translation gets plain generation.
 
