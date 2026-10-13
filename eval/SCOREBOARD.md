@@ -1,6 +1,6 @@
 # router-migrate eval scoreboard
 
-Generated 2026-10-13 01:01 PDT by `make eval` (eval/run_eval.py). 8 pinned open-source repos.
+Generated 2026-10-13 01:02 PDT by `make eval` (eval/run_eval.py). 8 pinned open-source repos.
 
 **Totals:** 54 production LLM sites, 19 migrated (35% of all sites, 45% of Router-eligible sites), 12 handoff, 12 kept, 11 flagged. Tests: 6 repos unchanged, 0 worse, 2 without runnable tests.
 
@@ -12,8 +12,8 @@ Generated 2026-10-13 01:01 PDT by `make eval` (eval/run_eval.py). 8 pinned open-
 | mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 1 | 0 | 4 | 10 | 7% | 9% | 2 passed, 1 failed | 2 passed, 1 failed | 100% | - | 49 | 0.4s |
 | openai/openai-responses-starter-app | `0fae283f12` | 7 | 1 | 1 | 5 | 0 | 14% | 50% | tsc: 0 errors | tsc: 0 errors | 100% | - | 18 | 0.3s |
 | vercel/ai-chatbot | `c2f8235e1f` | 9 | 0 | 9 | 0 | 0 | 0% | 0% | tsc: 0 errors | tsc: 0 errors | - | - | 0 | 0.2s |
-| Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | n/a | n/a | 100% | - | 6 | 0.3s |
-| langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | n/a | n/a | 100% | - | 18 | 0.3s |
+| Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | 100% | - | 6 | 0.3s |
+| langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | 4 passed | 4 passed | 100% | - | 18 | 0.3s |
 
 ## Definitions
 
@@ -36,5 +36,5 @@ Generated 2026-10-13 01:01 PDT by `make eval` (eval/run_eval.py). 8 pinned open-
 - **mckaywrigley/chatbot-ui** (unit; test cmd `npm test`): 2/3 passing before and after. Outcomes by sdk/surface: anthropic/messages 1 migrated; openai/assistants 1 kept; openai/chat.completions 10 flagged; openai/embeddings 3 kept
 - **openai/openai-responses-starter-app** (typecheck; test cmd `./node_modules/.bin/tsc --noEmit -p . --incremental false`): typecheck: 0 -> 0 errors. Outcomes by sdk/surface: openai/files 1 handoff, 1 kept; openai/responses 1 migrated; openai/vector_stores 4 kept
 - **vercel/ai-chatbot** (typecheck; test cmd `./node_modules/.bin/tsc --noEmit -p . --incremental false`): typecheck: 0 -> 0 errors. Outcomes by sdk/surface: vercel-ai/framework.chat 9 handoff
-- **Nutlope/aicommits** (unit; test cmd `unset OPENAI_BASE_URL; export OPENAI_API_KEY=; npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" build && npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" test`): typecheck 0 -> 0 errors. Outcomes by sdk/surface: vercel-ai/framework.chat 4 migrated
-- **langchain-ai/langchain-nextjs-template** (unit; test cmd `node --experimental-strip-types --test utils/integrations.test.mjs`): typecheck 1 -> 1 errors. Outcomes by sdk/surface: langchain-openai/framework.chat 1 flagged, 8 migrated; langchain-openai/framework.embeddings 3 kept
+- **Nutlope/aicommits** (unit; test cmd `unset OPENAI_BASE_URL; export OPENAI_API_KEY=; npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" build && npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" test`): 79/79 passing before and after. Outcomes by sdk/surface: vercel-ai/framework.chat 4 migrated
+- **langchain-ai/langchain-nextjs-template** (unit; test cmd `node --experimental-strip-types --test utils/integrations.test.mjs`): 4/4 passing before and after. Outcomes by sdk/surface: langchain-openai/framework.chat 1 flagged, 8 migrated; langchain-openai/framework.embeddings 3 kept
