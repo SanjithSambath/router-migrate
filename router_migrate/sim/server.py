@@ -402,6 +402,10 @@ def make_handler(sim):
 
         def do_GET(self):
             path = self.path.split("?")[0]
+            if path == "/__last":  # test helper: the most recent logged request
+                return self._send(200, sim.records[-1] if sim.records else {})
+            if path == "/__log":
+                return self._send(200, sim.records)
             rec = {"ts": time.time(), "method": "GET", "path": path, "ua": self.headers.get("User-Agent")}
             if not self._auth():
                 rec.update(status=401, valid=False, error="missing key")
