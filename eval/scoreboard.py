@@ -75,6 +75,7 @@ DEFS = {
     "callsite_coverage": "migrated / sites_found",
     "weighted_coverage": "migrated / Router-eligible sites (generation surfaces Router can serve)",
     "tests_before/after": "the repo's own offline test suite (or typecheck where it has none), Router off, before vs after migrating",
+    "tests, Router on": "the same tests with RAMP_ROUTER_API_KEY set and Router pointed at router-sim. Suites that mock HTTP by exact URL (VCR cassettes, httpx mocks for api.openai.com/api.anthropic.com) cannot match once requests go to Router; those failures are mock misses, not behavior changes (see per-repo notes)",
     "sim_valid_pct": "valid / total requests at router-sim from (a) the repo's tests run with Router on and (b) one synthetic replay per migrated site",
     "live_success_pct": "same replay against api.router.com (null when not run)",
 }
@@ -86,15 +87,15 @@ def markdown(rows, t, gen):
          "Tests: %d repos unchanged, %d worse, %d without runnable tests." % (
              t["sites_found"], t["migrated"], pct(t["callsite_coverage"]), pct(t["weighted_coverage"]), t["handoff"], t["kept"], t["flagged"],
              t["repos_tests_same"], t["repos_tests_worse"], t["repos_no_tests"]), "",
-         "| repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | sim valid | live | diff lines | runtime |",
-         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+         "| repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | tests, Router on (sim) | sim valid | live | diff lines | runtime |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in rows:
         if "error" in r:
             L.append("| %s | %s | error: %s |" % (r["repo"], r.get("commit"), r["error"]))
             continue
-        L.append("| %s | `%s` | %d | %d | %d | %d | %d | %s | %s | %s | %s | %s | %s | %s | %ss |" % (
+        L.append("| %s | `%s` | %d | %d | %d | %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %ss |" % (
             r["repo"], r["commit"], r["sites_found"], r["migrated"], r["handoff"], r["kept"], r["flagged"], pct(r["callsite_coverage"]),
-            pct(r["weighted_coverage"]), tcount(r["tests_before"]), tcount(r["tests_after"]),
+            pct(r["weighted_coverage"]), tcount(r["tests_before"]), tcount(r["tests_after"]), tcount(r.get("tests_router_on")),
             "-" if r.get("sim_valid_pct") is None else "%.0f%%" % r["sim_valid_pct"],
             "-" if r.get("live_success_pct") is None else "%.0f%%" % r["live_success_pct"], r.get("diff_lines"), r.get("runtime_s")))
     L += ["", "## Definitions", ""] + ["- **%s**: %s" % (k, v) for k, v in DEFS.items()]

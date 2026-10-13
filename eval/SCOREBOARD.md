@@ -1,26 +1,26 @@
 # router-migrate eval scoreboard
 
-Generated 2026-10-13 01:19 PDT by `make eval` (eval/run_eval.py). 15 pinned open-source repos.
+Generated 2026-10-13 01:20 PDT by `make eval` (eval/run_eval.py). 15 pinned open-source repos.
 
 **Totals:** 171 production LLM sites, 57 migrated (33% of all sites, 51% of Router-eligible sites), 12 handoff, 86 kept, 16 flagged. Tests: 15 repos unchanged, 0 worse, 0 without runnable tests.
 
-| repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | sim valid | live | diff lines | runtime |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| openai/swarm | `6af0b4caf3` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | 6 passed | 6 passed | 100% | - | 6 | 0.5s |
-| TheR1D/shell_gpt | `a082bd5327` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | 29 passed | 29 passed | 100% | - | 6 | 0.6s |
-| microsoft/TaskWeaver | `d44ddef23f` | 12 | 6 | 0 | 6 | 0 | 50% | 75% | 100 passed | 100 passed | 100% | - | 28 | 1.1s |
-| simonw/llm | `05d7ae7ded` | 12 | 8 | 0 | 4 | 0 | 67% | 100% | 1208 passed | 1208 passed | 100% | - | 10 | 6.7s |
-| abi/screenshot-to-code | `a8139779f7` | 4 | 2 | 0 | 2 | 0 | 50% | 100% | 280 passed | 280 passed | 100% | - | 14 | 3.5s |
-| anthropics/anthropic-quickstarts | `9ec32b91df` | 12 | 6 | 0 | 2 | 4 | 50% | 60% | 189 passed | 189 passed | 100% | - | 125 | 4.1s |
-| simonw/llm-anthropic | `b66cdf112c` | 5 | 3 | 0 | 1 | 1 | 60% | 75% | 123 passed | 123 passed | 100% | - | 13 | 1.7s |
-| di-sukharev/opencommit | `a84b7cc597` | 5 | 3 | 2 | 0 | 0 | 60% | 60% | 243 passed | 243 passed | 100% | - | 6 | 0.3s |
-| mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 1 | 0 | 4 | 10 | 7% | 9% | 2 passed, 1 failed | 2 passed, 1 failed | 100% | - | 49 | 0.4s |
-| openai/openai-responses-starter-app | `0fae283f12` | 7 | 1 | 1 | 5 | 0 | 14% | 50% | tsc: 0 errors | tsc: 0 errors | 100% | - | 18 | 0.3s |
-| vercel/ai-chatbot | `c2f8235e1f` | 9 | 0 | 9 | 0 | 0 | 0% | 0% | tsc: 0 errors | tsc: 0 errors | - | - | 0 | 0.2s |
-| Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | 100% | - | 6 | 0.3s |
-| assafelovic/gpt-researcher | `3582a6841f` | 19 | 2 | 0 | 17 | 0 | 11% | 15% | 570 passed | 570 passed | 100% | - | 16 | 3.6s |
-| langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | 4 passed | 4 passed | 100% | - | 18 | 0.3s |
-| mem0ai/mem0 | `d26ba5e451` | 53 | 11 | 0 | 42 | 0 | 21% | 46% | 2007 passed | 2007 passed | 100% | - | 59 | 16.2s |
+| repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | tests, Router on (sim) | sim valid | live | diff lines | runtime |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| openai/swarm | `6af0b4caf3` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | 6 passed | 6 passed | 6 passed | 100% | - | 6 | 0.5s |
+| TheR1D/shell_gpt | `a082bd5327` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | 29 passed | 29 passed | 29 passed | 100% | - | 6 | 0.6s |
+| microsoft/TaskWeaver | `d44ddef23f` | 12 | 6 | 0 | 6 | 0 | 50% | 75% | 100 passed | 100 passed | 100 passed | 100% | - | 28 | 1.1s |
+| simonw/llm | `05d7ae7ded` | 12 | 8 | 0 | 4 | 0 | 67% | 100% | 1208 passed | 1208 passed | 1089 passed, 226 failed | 100% | - | 10 | 6.7s |
+| abi/screenshot-to-code | `a8139779f7` | 4 | 2 | 0 | 2 | 0 | 50% | 100% | 280 passed | 280 passed | 280 passed | 100% | - | 14 | 3.5s |
+| anthropics/anthropic-quickstarts | `9ec32b91df` | 12 | 6 | 0 | 2 | 4 | 50% | 60% | 189 passed | 189 passed | 189 passed | 100% | - | 125 | 4.1s |
+| simonw/llm-anthropic | `b66cdf112c` | 5 | 3 | 0 | 1 | 1 | 60% | 75% | 123 passed | 123 passed | 94 passed, 29 failed | 100% | - | 13 | 1.7s |
+| di-sukharev/opencommit | `a84b7cc597` | 5 | 3 | 2 | 0 | 0 | 60% | 60% | 243 passed | 243 passed | 243 passed | 100% | - | 6 | 0.3s |
+| mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 1 | 0 | 4 | 10 | 7% | 9% | 2 passed, 1 failed | 2 passed, 1 failed | 2 passed, 1 failed | 100% | - | 49 | 0.4s |
+| openai/openai-responses-starter-app | `0fae283f12` | 7 | 1 | 1 | 5 | 0 | 14% | 50% | tsc: 0 errors | tsc: 0 errors | tsc: 0 errors | 100% | - | 18 | 0.3s |
+| vercel/ai-chatbot | `c2f8235e1f` | 9 | 0 | 9 | 0 | 0 | 0% | 0% | tsc: 0 errors | tsc: 0 errors | tsc: 0 errors | - | - | 0 | 0.2s |
+| Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | 79 passed | 100% | - | 6 | 0.3s |
+| assafelovic/gpt-researcher | `3582a6841f` | 19 | 2 | 0 | 17 | 0 | 11% | 15% | 570 passed | 570 passed | 570 passed | 100% | - | 16 | 3.6s |
+| langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | 4 passed | 4 passed | 4 passed | 100% | - | 18 | 0.3s |
+| mem0ai/mem0 | `d26ba5e451` | 53 | 11 | 0 | 42 | 0 | 21% | 46% | 2007 passed | 2007 passed | 2007 passed | 100% | - | 59 | 16.2s |
 
 ## Definitions
 
@@ -32,6 +32,7 @@ Generated 2026-10-13 01:19 PDT by `make eval` (eval/run_eval.py). 15 pinned open
 - **callsite_coverage**: migrated / sites_found
 - **weighted_coverage**: migrated / Router-eligible sites (generation surfaces Router can serve)
 - **tests_before/after**: the repo's own offline test suite (or typecheck where it has none), Router off, before vs after migrating
+- **tests, Router on**: the same tests with RAMP_ROUTER_API_KEY set and Router pointed at router-sim. Suites that mock HTTP by exact URL (VCR cassettes, httpx mocks for api.openai.com/api.anthropic.com) cannot match once requests go to Router; those failures are mock misses, not behavior changes (see per-repo notes)
 - **sim_valid_pct**: valid / total requests at router-sim from (a) the repo's tests run with Router on and (b) one synthetic replay per migrated site
 - **live_success_pct**: same replay against api.router.com (null when not run)
 

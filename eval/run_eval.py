@@ -152,6 +152,7 @@ def run_repo(repo, args, cat):
     row["tests_before"] = count(row.get("_tests_before"), kind) or {"not_run": (rec.get("baseline") or {}).get("reason") or "no runnable tests"}
     row["tests_after"] = count(row.get("_tests_after"), kind) or {"not_run": row["tests_before"].get("not_run", "-")}
     st = row.get("_sim_tests") or {}
+    row["tests_router_on"] = count(st, kind) if st else {"not_run": row["tests_before"].get("not_run", "-")}
     rr = [r for r in rep["results"] if r.get("ok") is not None]
     n_req = st.get("requests", 0) + len(rr)
     n_ok = st.get("valid", 0) + sum(1 for r in rr if r["ok"])
