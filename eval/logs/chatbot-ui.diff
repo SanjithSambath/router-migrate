@@ -1,0 +1,221 @@
+--- a/app/api/assistants/openai/route.ts
++++ b/app/api/assistants/openai/route.ts
+@@ -1,6 +1,7 @@
+ import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
+ import { ServerRuntime } from "next"
+ import OpenAI from "openai"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export const runtime: ServerRuntime = "edge"
+ 
+@@ -12,7 +13,8 @@
+ 
+     const openai = new OpenAI({
+       apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
++      organization: profile.openai_organization_id,
++      ...routerOptions()
+     })
+ 
+     const myAssistants = await openai.beta.assistants.list({
+--- a/app/api/chat/anthropic/route.ts
++++ b/app/api/chat/anthropic/route.ts
+@@ -5,6 +5,7 @@
+ import Anthropic from "@anthropic-ai/sdk"
+ import { AnthropicStream, StreamingTextResponse } from "ai"
+ import { NextRequest, NextResponse } from "next/server"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export const runtime = "edge"
+ 
+@@ -56,7 +57,8 @@
+     )
+ 
+     const anthropic = new Anthropic({
+-      apiKey: profile.anthropic_api_key || ""
++      apiKey: profile.anthropic_api_key || "",
++      ...routerOptions()
+     })
+ 
+     try {
+--- a/app/api/chat/azure/route.ts
++++ b/app/api/chat/azure/route.ts
+@@ -3,6 +3,7 @@
+ import { OpenAIStream, StreamingTextResponse } from "ai"
+ import OpenAI from "openai"
+ import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export const runtime = "edge"
+ 
+@@ -48,7 +49,8 @@
+       apiKey: KEY,
+       baseURL: `${ENDPOINT}/openai/deployments/${DEPLOYMENT_ID}`,
+       defaultQuery: { "api-version": "2023-12-01-preview" },
+-      defaultHeaders: { "api-key": KEY }
++      defaultHeaders: { "api-key": KEY },
++      ...routerOptions()
+     })
+ 
+     const response = await azureOpenai.chat.completions.create({
+--- a/app/api/chat/custom/route.ts
++++ b/app/api/chat/custom/route.ts
+@@ -5,6 +5,7 @@
+ import { ServerRuntime } from "next"
+ import OpenAI from "openai"
+ import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export const runtime: ServerRuntime = "edge"
+ 
+@@ -34,7 +35,8 @@
+ 
+     const custom = new OpenAI({
+       apiKey: customModel.api_key || "",
+-      baseURL: customModel.base_url
++      baseURL: customModel.base_url,
++      ...routerOptions()
+     })
+ 
+     const response = await custom.chat.completions.create({
+--- a/app/api/chat/openai/route.ts
++++ b/app/api/chat/openai/route.ts
+@@ -4,6 +4,7 @@
+ import { ServerRuntime } from "next"
+ import OpenAI from "openai"
+ import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export const runtime: ServerRuntime = "edge"
+ 
+@@ -21,7 +22,8 @@
+ 
+     const openai = new OpenAI({
+       apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
++      organization: profile.openai_organization_id,
++      ...routerOptions()
+     })
+ 
+     const response = await openai.chat.completions.create({
+--- a/app/api/chat/tools/route.ts
++++ b/app/api/chat/tools/route.ts
+@@ -5,6 +5,7 @@
+ import { OpenAIStream, StreamingTextResponse } from "ai"
+ import OpenAI from "openai"
+ import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export async function POST(request: Request) {
+   const json = await request.json()
+@@ -21,7 +22,8 @@
+ 
+     const openai = new OpenAI({
+       apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
++      organization: profile.openai_organization_id,
++      ...routerOptions()
+     })
+ 
+     let allTools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
+--- a/app/api/command/route.ts
++++ b/app/api/command/route.ts
+@@ -1,6 +1,7 @@
+ import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
+ import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
+ import OpenAI from "openai"
++import { routerOptions } from "../../../lib/routerRuntime"
+ 
+ export const runtime = "edge"
+ 
+@@ -17,7 +18,8 @@
+ 
+     const openai = new OpenAI({
+       apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
++      organization: profile.openai_organization_id,
++      ...routerOptions()
+     })
+ 
+     const response = await openai.chat.completions.create({
+--- a/app/api/retrieval/process/docx/route.ts
++++ b/app/api/retrieval/process/docx/route.ts
+@@ -6,6 +6,7 @@
+ import { createClient } from "@supabase/supabase-js"
+ import { NextResponse } from "next/server"
+ import OpenAI from "openai"
++import { routerOptions } from "../../../../../lib/routerRuntime"
+ 
+ export async function POST(req: Request) {
+   const json = await req.json()
+@@ -52,12 +53,14 @@
+         apiKey: profile.azure_openai_api_key || "",
+         baseURL: `${profile.azure_openai_endpoint}/openai/deployments/${profile.azure_openai_embeddings_id}`,
+         defaultQuery: { "api-version": "2023-12-01-preview" },
+-        defaultHeaders: { "api-key": profile.azure_openai_api_key }
++        defaultHeaders: { "api-key": profile.azure_openai_api_key },
++        ...routerOptions()
+       })
+     } else {
+       openai = new OpenAI({
+         apiKey: profile.openai_api_key || "",
+-        organization: profile.openai_organization_id
++        organization: profile.openai_organization_id,
++        ...routerOptions()
+       })
+     }
+ 
+--- a/app/api/retrieval/process/route.ts
++++ b/app/api/retrieval/process/route.ts
+@@ -12,6 +12,7 @@
+ import { createClient } from "@supabase/supabase-js"
+ import { NextResponse } from "next/server"
+ import OpenAI from "openai"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export async function POST(req: Request) {
+   try {
+@@ -105,12 +106,14 @@
+         apiKey: profile.azure_openai_api_key || "",
+         baseURL: `${profile.azure_openai_endpoint}/openai/deployments/${profile.azure_openai_embeddings_id}`,
+         defaultQuery: { "api-version": "2023-12-01-preview" },
+-        defaultHeaders: { "api-key": profile.azure_openai_api_key }
++        defaultHeaders: { "api-key": profile.azure_openai_api_key },
++        ...routerOptions()
+       })
+     } else {
+       openai = new OpenAI({
+         apiKey: profile.openai_api_key || "",
+-        organization: profile.openai_organization_id
++        organization: profile.openai_organization_id,
++        ...routerOptions()
+       })
+     }
+ 
+--- a/app/api/retrieval/retrieve/route.ts
++++ b/app/api/retrieval/retrieve/route.ts
+@@ -3,6 +3,7 @@
+ import { Database } from "@/supabase/types"
+ import { createClient } from "@supabase/supabase-js"
+ import OpenAI from "openai"
++import { routerOptions } from "../../../../lib/routerRuntime"
+ 
+ export async function POST(request: Request) {
+   const json = await request.json()
+@@ -39,12 +40,14 @@
+         apiKey: profile.azure_openai_api_key || "",
+         baseURL: `${profile.azure_openai_endpoint}/openai/deployments/${profile.azure_openai_embeddings_id}`,
+         defaultQuery: { "api-version": "2023-12-01-preview" },
+-        defaultHeaders: { "api-key": profile.azure_openai_api_key }
++        defaultHeaders: { "api-key": profile.azure_openai_api_key },
++        ...routerOptions()
+       })
+     } else {
+       openai = new OpenAI({
+         apiKey: profile.openai_api_key || "",
+-        organization: profile.openai_organization_id
++        organization: profile.openai_organization_id,
++        ...routerOptions()
+       })
+     }
+ 

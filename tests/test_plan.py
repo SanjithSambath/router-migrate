@@ -95,3 +95,18 @@ def test_config_base_url_naming_another_vendor_is_kept():
     o, _ = outcomes(sites)
     for line, (expr, want) in cases.items():
         assert o[line][0] == want, (expr, o[line])
+
+
+def test_vendor_module_with_unresolved_client_is_kept():
+    c = site(1, "client", "openai", "OpenAI", target="this.client", lang="ts")
+    a = dict(site(2, "call", "openai", "chat.completions", lang="ts", client_link=None), file="src/engine/deepseek.ts")
+    b = dict(site(3, "call", "openai", "chat.completions", lang="ts", client_link=None), file="src/engine/openAi.ts")
+    o, _ = outcomes([c, a, b])
+    assert o[2][0] == "kept" and "deepseek" in o[2][1]
+    assert o[3][0] == "migrated"
+
+
+def test_raw_http_model_listing_is_kept():
+    r = site(1, "raw_http", "openai", "models", url="https://api.openai.com/v1/models")
+    o, _ = outcomes([r])
+    assert o[1][0] == "kept"

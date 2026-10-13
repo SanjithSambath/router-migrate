@@ -32,6 +32,8 @@ FRAMEWORK_CLIENT_SURFACE = {"ChatOpenAI": "framework.chat", "ChatAnthropic": "fr
                             "gateway": "framework.chat"}
 VERCEL_PROVIDERS = {"createOpenAI", "createAnthropic", "openai-default-provider", "anthropic-default-provider", "createOpenAICompatible",
                     "createTogetherAI", "createGroq", "createXai", "createMistral", "createGoogleGenerativeAI", "gateway", "createGateway"}
+VENDOR_IN_PATH = re.compile(r"(?:^|/|_|-)(deepseek|groq|mistral|ollama|together|xai|grok|minimax|openrouter|perplexity|gemini|azure|lmstudio|"
+                            r"vllm|zhipu|dashscope|aimlapi|flowise|mlx|llamacpp|bedrock|vertex|cohere|fireworks|qwen|moonshot)(?:[._/-]|$)")
 OTHER_VENDOR_MODELS = re.compile(r"^(gemini|grok|deepseek|kimi|glm|qwen|minimax|gpt-oss|nemotron)", re.I)
 
 
@@ -57,6 +59,8 @@ def client_target(c):
         # config-driven. If the expression itself names another vendor (a fallback URL literal or a vendor env var), that is
         # where the traffic goes by default, and the runtime will leave it there.
         text = str(bu.get("value"))
+        if re.search(r"azure|/deployments", text, re.I):
+            return "azure"
         hosts = [h for h in re.findall(r"https?://([A-Za-z0-9.\-]+)", text) if h not in ("api.openai.com", "api.anthropic.com")]
         if hosts:
             return "other:" + hosts[0]
@@ -75,8 +79,29 @@ def client_target(c):
     return "other:" + (h or bu["value"][:40])
 
 
+def link_same_file(sites):
+    """Calls with no resolved client: link to the only client of the same SDK family constructed in the same file."""
+    by_file = {}
+    for c in sites:
+        if c["kind"] == "client":
+            by_file.setdefault((c["file"], _family(c["sdk"])), []).append(c)
+    for s in sites:
+        if s["kind"] == "call" and not s.get("client_id") and not s.get("client_candidates"):
+            fam = _family(s["sdk"])
+            cands = by_file.get((s["file"], fam), []) + ([] if fam != "openai" else by_file.get((s["file"], "azure-openai"), []))
+            if len(cands) == 1:
+                s["client_id"] = cands[0]["id"]
+                s["client_link"] = "same-file-unique"
+                if cands[0]["sdk"] in ("azure-openai",):
+                    s["sdk"] = "azure-openai"
+            elif len(cands) > 1:
+                s["client_candidates"] = [c["id"] for c in cands]
+                s["client_link"] = "ambiguous"
+    return sites
+
+
 def build(scan, catalog, include_nonprod=False):
-    sites = scan["sites"]
+    sites = link_same_file([dict(x) for x in scan["sites"]])
     clients = {s["id"]: s for s in sites if s["kind"] == "client"}
     patches, plan_sites = [], []
 
@@ -171,6 +196,8 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
         via = s.get("client_id") if s.get("client_id") in patched else (s["id"] if s["id"] in patched else None)
         if via is None:
             return "kept", "non-production code (tests/examples/evals): reported, not edited (use --include-nonprod)", None
+    if s["kind"] == "raw_http" and surface not in ("chat.completions", "messages", "responses"):
+        return "kept", "raw HTTP %s request (not generation traffic); describes the provider account" % surface, None
     if s["kind"] == "raw_http":
         return "handoff", "raw HTTP to %s %s: rewrite onto the OpenAI/Anthropic SDK (then the runtime applies) or call Router directly" % (
             "api.openai.com" if sdk == "openai" else "api.anthropic.com", surface), None
@@ -247,6 +274,10 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
             fam = by_sdk.get((s["lang"], _family(sdk)), [])
             fam_patch = [c for c in fam if c["id"] in patched]
             fam = [c for c in fam if c["prod"]] or fam
+            vendor = VENDOR_IN_PATH.search(s["file"].lower())
+            if vendor and fam_patch:
+                return "kept", "call lives in a %s-specific module and its client is not resolved statically; that vendor's endpoint " \
+                               "is not routed by the runtime" % vendor.group(1), None
             if fam and len(fam_patch) == len(fam):
                 cid = fam_patch[0]["id"]
                 link = "repo-wide"
@@ -259,6 +290,9 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
     if not ok:
         return "flagged", why, cid
     tgt = patched.get(cid, "provider")
+    vendor = VENDOR_IN_PATH.search(s["file"].lower())
+    if tgt == "provider-or-config" and vendor:
+        return "kept", "config-driven client in a %s-specific module: that vendor's endpoint is not routed by the runtime" % vendor.group(1), cid
     note = " (base URL is config-driven: routed when it resolves to the provider default)" if tgt == "provider-or-config" else ""
     return "migrated", "client patched; %s%s" % (why, note), cid
 

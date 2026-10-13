@@ -1,0 +1,38 @@
+--- a/src/engine/anthropic.ts
++++ b/src/engine/anthropic.ts
+@@ -10,6 +10,7 @@
+ import { removeContentTags } from '../utils/removeContentTags';
+ import { tokenCount } from '../utils/tokenCount';
+ import { AiEngine, AiEngineConfig } from './Engine';
++import { routerOptions } from '../lib/routerRuntime.js';
+ 
+ interface AnthropicConfig extends AiEngineConfig {}
+ 
+@@ -50,7 +51,7 @@
+       clientOptions.httpAgent = new HttpsProxyAgent(proxy);
+     }
+ 
+-    this.client = new AnthropicClient(clientOptions);
++    this.client = new AnthropicClient({ ...clientOptions, ...routerOptions((clientOptions as any)?.fetch) });
+   }
+ 
+   public generateCommitMessage = async (
+--- a/src/engine/openAi.ts
++++ b/src/engine/openAi.ts
+@@ -6,6 +6,7 @@
+ import { removeContentTags } from '../utils/removeContentTags';
+ import { tokenCount } from '../utils/tokenCount';
+ import { AiEngine, AiEngineConfig } from './Engine';
++import { routerOptions } from '../lib/routerRuntime.js';
+ 
+ export interface OpenAiConfig extends AiEngineConfig {}
+ 
+@@ -53,7 +54,7 @@
+       clientOptions.fetch = (...args) => globalThis.fetch(...args);
+     }
+ 
+-    this.client = new OpenAI(clientOptions);
++    this.client = new OpenAI({ ...clientOptions, ...routerOptions((clientOptions as any)?.fetch) });
+   }
+ 
+   public generateCommitMessage = async (
