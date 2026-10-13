@@ -1,0 +1,416 @@
+diff --git a/agents/README.md b/agents/README.md
+index 3885d68..206f915 100644
+--- a/agents/README.md
++++ b/agents/README.md
+@@ -43,6 +43,7 @@ From this foundation, you can add domain-specific tools, optimize performance, o
+ ## Requirements
+ 
+ - Python 3.10+
+-- Claude API key (set as `ANTHROPIC_API_KEY` environment variable)
++- Router API key (set as `RAMP_ROUTER_API_KEY` environment variable). Requests go to Router's Anthropic Messages compatibility surface at `https://api.router.com/v1/messages` (override the host with `ROUTER_BASE_URL`, default `https://api.router.com`).
++- Router model ID (set as `ROUTER_MODEL`), taken from Router's `GET /v1/models` for your account
+ - `anthropic` Python library, 1.0 or later
+ - `mcp` Python library
+\ No newline at end of file
+diff --git a/agents/agent.py b/agents/agent.py
+index e33f79a..4bf9ef4 100644
+--- a/agents/agent.py
++++ b/agents/agent.py
+@@ -3,10 +3,10 @@
+ import asyncio
+ import os
+ from contextlib import AsyncExitStack
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ from typing import Any
+ 
+-from anthropic import Anthropic
++from anthropic import Anthropic, Omit
+ 
+ from .tools.base import Tool
+ from .utils.connections import setup_mcp_connections
+@@ -14,15 +14,44 @@ from .utils.history_util import MessageHistory
+ from .utils.tool_util import execute_tools
+ 
+ 
++# Requests go through Router's Anthropic Messages compatibility surface.
++# The Anthropic SDK appends "/v1/messages", so this resolves to
++# https://api.router.com/v1/messages (and /v1/messages/count_tokens).
++ROUTER_BASE_URL = os.environ.get("ROUTER_BASE_URL", "https://api.router.com")
++
++
++def _router_model_from_env() -> str:
++    """Read the Router model ID (from GET /v1/models) from ROUTER_MODEL."""
++    model = os.environ.get("ROUTER_MODEL")
++    if not model:
++        raise RuntimeError(
++            "ROUTER_MODEL is not set. Set it to a model ID returned by "
++            "Router's GET /v1/models for your account."
++        )
++    return model
++
++
++def create_router_client() -> Anthropic:
++    """Create an Anthropic Messages client pointed at Router.
++
++    Router authenticates with `Authorization: Bearer $RAMP_ROUTER_API_KEY`
++    and holds the provider credentials, so no provider API key is sent.
++    """
++    return Anthropic(
++        base_url=ROUTER_BASE_URL,
++        auth_token=os.environ.get("RAMP_ROUTER_API_KEY"),
++        # Never forward a provider key, even if ANTHROPIC_API_KEY is set.
++        default_headers={"X-Api-Key": Omit()},
++    )
++
++
+ @dataclass
+ class ModelConfig:
+     """Configuration settings for Claude model parameters."""
+ 
+-    # Available models include:
+-    # - claude-sonnet-5-5 (default)
+-    # - claude-opus-5-5
+-    # - claude-haiku-4-5-20251001
+-    model: str = "claude-sonnet-5-5"
++    # Router model ID, read from the ROUTER_MODEL env var. Valid IDs are
++    # account-specific and come from Router's GET /v1/models.
++    model: str = field(default_factory=_router_model_from_env)
+     max_tokens: int = 4096
+     context_window_tokens: int = 180000
+ 
+@@ -50,7 +79,7 @@ class Agent:
+             mcp_servers: MCP server configurations
+             config: Model configuration with defaults
+             verbose: Enable detailed logging
+-            client: Anthropic client instance
++            client: Anthropic client instance (defaults to a Router client)
+             message_params: Additional parameters for client.messages.create().
+                            These override any conflicting parameters from config.
+         """
+@@ -61,9 +90,7 @@ class Agent:
+         self.config = config or ModelConfig()
+         self.mcp_servers = mcp_servers or []
+         self.message_params = message_params or {}
+-        self.client = client or Anthropic(
+-            api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+-        )
++        self.client = client or create_router_client()
+         self.history = MessageHistory(
+             model=self.config.model,
+             system=self.system,
+diff --git a/agents/agent_demo.ipynb b/agents/agent_demo.ipynb
+index 155fcd7..e560571 100644
+--- a/agents/agent_demo.ipynb
++++ b/agents/agent_demo.ipynb
+@@ -123,7 +123,7 @@
+     "    tools=[think_tool], \n",
+     "    mcp_servers=[brave_search_server, calculator_server], \n",
+     "    config=ModelConfig(\n",
+-    "        model=\"claude-sonnet-5-5\", \n",
++    "        model=os.environ[\"ROUTER_MODEL\"],  # Router model ID from GET /v1/models\n",
+     "        max_tokens=4096\n",
+     "    ),\n",
+     "    verbose=True\n",
+@@ -502,6 +502,8 @@
+    ],
+    "source": [
+     "# Create Anthropic server tools\n",
++    "# NOTE: web search and code execution are Anthropic server tools. Confirm that\n",
++    "# your Router model (ROUTER_MODEL) supports them before running this cell.\n",
+     "web_search_tool = WebSearchServerTool(\n",
+     "    name=\"web_search\",\n",
+     "    max_uses=5,  # Limit to 5 searches per request\n",
+@@ -523,7 +525,7 @@
+     "\"\"\",\n",
+     "    tools=[think_tool, web_search_tool, code_execution_tool],\n",
+     "    config=ModelConfig(\n",
+-    "        model=\"claude-sonnet-5-5\",\n",
++    "        model=os.environ[\"ROUTER_MODEL\"],  # Router model ID from GET /v1/models\n",
+     "        max_tokens=4096\n",
+     "    ),\n",
+     "    verbose=True\n",
+diff --git a/agents/test_message_params.py b/agents/test_message_params.py
+index 1b86044..0919d98 100644
+--- a/agents/test_message_params.py
++++ b/agents/test_message_params.py
+@@ -248,9 +248,12 @@ class TestMessageParams:
+ 
+ def main():
+     """Run the test suite."""
+-    # Check for API key
+-    if not os.environ.get("ANTHROPIC_API_KEY"):
+-        print("Error: Please set ANTHROPIC_API_KEY environment variable")
++    # Check for Router API key and model
++    if not os.environ.get("RAMP_ROUTER_API_KEY"):
++        print("Error: Please set RAMP_ROUTER_API_KEY environment variable")
++        sys.exit(1)
++    if not os.environ.get("ROUTER_MODEL"):
++        print("Error: Please set ROUTER_MODEL to a model ID from Router's GET /v1/models")
+         sys.exit(1)
+         
+     # Run tests
+diff --git a/browser-use-demo/.env.example b/browser-use-demo/.env.example
+index 6e2cf11..93859ee 100644
+--- a/browser-use-demo/.env.example
++++ b/browser-use-demo/.env.example
+@@ -1,6 +1,13 @@
+ # Anthropic API Configuration
++# Still required by the main sampling loop (browser_use_demo/loop.py), which has
++# not been migrated to Router (screenshot/image input and Anthropic beta tools).
+ ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ 
++# Router configuration (used by the browser tool's AI-based `find` action)
++RAMP_ROUTER_API_KEY=your_router_api_key_here
++# Model ID from Router's GET /v1/models for your account
++ROUTER_MODEL=
++
+ # Port Configuration (optional - defaults shown)
+ VNC_PORT=5900
+ STREAMLIT_PORT=8501
+diff --git a/browser-use-demo/browser_use_demo/tools/browser.py b/browser-use-demo/browser_use_demo/tools/browser.py
+index cd51d59..9b1fa9c 100644
+--- a/browser-use-demo/browser_use_demo/tools/browser.py
++++ b/browser-use-demo/browser_use_demo/tools/browser.py
+@@ -914,13 +914,23 @@ Source element: <{result.get("source", "unknown")}>
+             else:
+                 dom_tree_json = json.dumps(dom_tree, indent=2)
+ 
+-            # Try to use Anthropic API if available
+-            api_key = os.environ.get("ANTHROPIC_API_KEY")
+-            if api_key:
++            # Try to use the LLM via Router if configured. Requests go through
++            # Router's Anthropic Messages compatibility surface; the SDK
++            # appends "/v1/messages" to the base URL.
++            router_api_key = os.environ.get("RAMP_ROUTER_API_KEY")
++            router_model = os.environ.get("ROUTER_MODEL")
++            if router_api_key and router_model:
+                 try:
+-                    from anthropic import AsyncAnthropic
+-
+-                    client = AsyncAnthropic(api_key=api_key)
++                    from anthropic import AsyncAnthropic, Omit
++
++                    client = AsyncAnthropic(
++                        base_url=os.environ.get(
++                            "ROUTER_BASE_URL", "https://api.router.com"
++                        ),
++                        auth_token=router_api_key,
++                        # Never forward a provider key, even if ANTHROPIC_API_KEY is set.
++                        default_headers={"X-Api-Key": Omit()},
++                    )
+ 
+                     prompt = f"""You are helping find elements on a web page. The user wants to find: "{search_query}"
+ 
+@@ -946,7 +956,7 @@ FOUND: 0
+ ERROR: explanation of why no elements were found"""
+ 
+                     response = await client.messages.create(
+-                        model="claude-sonnet-5-5",
++                        model=router_model,
+                         max_tokens=800,
+                         messages=[{"role": "user", "content": prompt}],
+                     )
+@@ -1036,7 +1046,7 @@ ERROR: explanation of why no elements were found"""
+ 
+             # For simple fallback, just report count (no ref_ids without AI analysis)
+             return ToolResult(
+-                output=f"Found {len(elements)} matching element{'s' if len(elements) != 1 else ''} (Note: AI-based search with ref_ids requires ANTHROPIC_API_KEY)",
++                output=f"Found {len(elements)} matching element{'s' if len(elements) != 1 else ''} (Note: AI-based search with ref_ids requires RAMP_ROUTER_API_KEY and ROUTER_MODEL)",
+                 error=None,
+             )
+ 
+diff --git a/browser-use-demo/docker-compose.yml b/browser-use-demo/docker-compose.yml
+index 976439e..5b699d6 100644
+--- a/browser-use-demo/docker-compose.yml
++++ b/browser-use-demo/docker-compose.yml
+@@ -5,6 +5,8 @@ services:
+     image: browser-use-demo:latest
+     environment:
+       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
++      - RAMP_ROUTER_API_KEY=${RAMP_ROUTER_API_KEY:-}
++      - ROUTER_MODEL=${ROUTER_MODEL:-}
+     volumes:
+       - ./validate_env.py:/home/browseruse/validate_env.py
+       - ${HOME}/.anthropic:/home/browseruse/.anthropic
+diff --git a/customer-support-agent/README.md b/customer-support-agent/README.md
+index 69a1af4..45c89d3 100644
+--- a/customer-support-agent/README.md
++++ b/customer-support-agent/README.md
+@@ -25,21 +25,22 @@ An advanced, fully customizable customer support chat interface powered by Claud
+ Create a `.env.local` file in the root directory with the following variables:
+ 
+ ```
+-ANTHROPIC_API_KEY=your_anthropic_api_key
++RAMP_ROUTER_API_KEY=your_router_api_key
++ROUTER_MODEL=a_model_id_from_router_get_v1_models
++NEXT_PUBLIC_ROUTER_MODELS=comma,separated,router,model,ids
+ BAWS_ACCESS_KEY_ID=your_aws_access_key
+ BAWS_SECRET_ACCESS_KEY=your_aws_secret_key
+ ```
+ 
++LLM requests go through Router's Anthropic Messages compatibility surface (`https://api.router.com/v1/messages`, override the host with `ROUTER_BASE_URL`). Router holds the provider credentials, so no provider API key is needed. Model IDs are account-specific; list them with Router's `GET /v1/models`.
++
+ Note: We are adding a 'B' in front of the AWS environment variables for a reason that will be discussed later in the deployment section.
+ 
+ ##  How to Get Your Keys
+ 
+-### Claude API Key
++### Router API Key
+ 
+-1. Visit [console.anthropic.com](https://console.anthropic.com/dashboard)
+-2. Sign up or log in to your account
+-3. Click on "Get API keys"
+-4. Copy the key and paste it into your `.env.local` file
++Get a Router API key from Ramp and paste it into your `.env.local` file as `RAMP_ROUTER_API_KEY`.
+ 
+ ### AWS Access Key and Secret Key
+ 
+@@ -110,23 +111,11 @@ To create your own knowledge base:
+ 
+ ##  Switching Models
+ 
+-This project supports multiple Claude models. To switch between models:
+-
+-1. In `ChatArea.tsx`, the `models` array defines available models:
+-
+-```typescript
+-const models: Model[] = [
+-  { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
+-  { id: "claude-3-5-sonnet-20240620", name: "Claude 3.5 Sonnet" },
+-  // Add more models as needed
+-];
+-```
++This project supports multiple models through Router. To switch between models:
+ 
+-2. The `selectedModel` state variable controls the currently selected model:
++1. Set `NEXT_PUBLIC_ROUTER_MODELS` to a comma-separated list of Router model IDs (from `GET /v1/models`). `ChatArea.tsx` builds the `models` array from it.
+ 
+-```typescript
+-const [selectedModel, setSelectedModel] = useState("claude-3-haiku-20240307");
+-```
++2. The `selectedModel` state variable controls the currently selected model and defaults to the first entry. If no model is sent, the API route uses `ROUTER_MODEL`.
+ 
+ 3. To implement model switching in the UI, a dropdown component is used that updates the `selectedModel`.
+ 
+@@ -176,7 +165,8 @@ To deploy this application using AWS Amplify, follow these steps:
+        build:
+          commands:
+            - npm run build # Next.js build runs first
+-           - echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
++           - echo "RAMP_ROUTER_API_KEY=$RAMP_ROUTER_API_KEY" >> .env
++           - echo "ROUTER_MODEL=$ROUTER_MODEL" >> .env
+            - echo "KNOWLEDGE_BASE_ID=$KNOWLEDGE_BASE_ID" >> .env
+            - echo "BAWS_ACCESS_KEY_ID=$BAWS_ACCESS_KEY_ID" >> .env
+            - echo "BAWS_SECRET_ACCESS_KEY=$BAWS_SECRET_ACCESS_KEY" >> .env
+@@ -194,7 +184,9 @@ To deploy this application using AWS Amplify, follow these steps:
+ 7. Click on "Advanced settings" and add your environmental variables:
+ 
+    ```
+-   ANTHROPIC_API_KEY=your_anthropic_api_key
++   RAMP_ROUTER_API_KEY=your_router_api_key
++   ROUTER_MODEL=a_model_id_from_router_get_v1_models
++   NEXT_PUBLIC_ROUTER_MODELS=comma,separated,router,model,ids
+    BAWS_ACCESS_KEY_ID=your_aws_access_key
+    BAWS_SECRET_ACCESS_KEY=your_aws_secret_key
+    ```
+diff --git a/customer-support-agent/amplify.yml b/customer-support-agent/amplify.yml
+index cd0a982..f80a3d0 100644
+--- a/customer-support-agent/amplify.yml
++++ b/customer-support-agent/amplify.yml
+@@ -7,7 +7,8 @@ frontend:
+     build:
+       commands:
+         - npm run build # Next.js build runs first
+-        - echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
++        - echo "RAMP_ROUTER_API_KEY=$RAMP_ROUTER_API_KEY" >> .env
++        - echo "ROUTER_MODEL=$ROUTER_MODEL" >> .env
+         - echo "KNOWLEDGE_BASE_ID=$KNOWLEDGE_BASE_ID" >> .env
+         - echo "BAWS_ACCESS_KEY_ID=$BAWS_ACCESS_KEY_ID" >> .env
+         - echo "BAWS_SECRET_ACCESS_KEY=$BAWS_SECRET_ACCESS_KEY" >> .env
+diff --git a/customer-support-agent/app/api/chat/route.ts b/customer-support-agent/app/api/chat/route.ts
+index b35fa46..36dd91f 100644
+--- a/customer-support-agent/app/api/chat/route.ts
++++ b/customer-support-agent/app/api/chat/route.ts
+@@ -4,10 +4,21 @@ import { retrieveContext, RAGSource } from "@/app/lib/utils";
+ import crypto from "crypto";
+ import customerSupportCategories from "@/app/lib/customer_support_categories.json";
+ 
++// Requests go through Router's Anthropic Messages compatibility surface.
++// The SDK appends "/v1/messages", so this resolves to
++// https://api.router.com/v1/messages. Router authenticates with
++// `Authorization: Bearer $RAMP_ROUTER_API_KEY` and holds the provider
++// credentials, so no provider API key is sent (apiKey: null).
+ const anthropic = new Anthropic({
+-  apiKey: process.env.ANTHROPIC_API_KEY,
++  baseURL: process.env.ROUTER_BASE_URL ?? "https://api.router.com",
++  authToken: process.env.RAMP_ROUTER_API_KEY,
++  apiKey: null,
+ });
+ 
++// Default Router model ID (from GET /v1/models), used when the client
++// does not send one.
++const DEFAULT_MODEL = process.env.ROUTER_MODEL;
++
+ // Debug message helper function
+ // Input: message string and optional data object
+ // Output: JSON string with message, sanitized data, and timestamp
+@@ -66,7 +77,8 @@ export async function POST(req: Request) {
+   const measureTime = (label: string) => logTimestamp(label, apiStart);
+ 
+   // Extract data from the request body
+-  const { messages, model, knowledgeBaseId } = await req.json();
++  const { messages, model: requestedModel, knowledgeBaseId } = await req.json();
++  const model = requestedModel || DEFAULT_MODEL;
+   const latestMessage = messages[messages.length - 1].content;
+ 
+   console.log("📝 Latest Query:", latestMessage);
+@@ -78,7 +90,7 @@ export async function POST(req: Request) {
+     debugMessage("🚀 API route called", {
+       messagesReceived: messages.length,
+       latestMessageLength: latestMessage.length,
+-      anthropicKeySlice: process.env.ANTHROPIC_API_KEY?.slice(0, 4) + "****",
++      routerKeySlice: process.env.RAMP_ROUTER_API_KEY?.slice(0, 4) + "****",
+     }),
+   ).slice(0, MAX_DEBUG_LENGTH);
+ 
+diff --git a/customer-support-agent/components/ChatArea.tsx b/customer-support-agent/components/ChatArea.tsx
+index 056091a..8e269e1 100644
+--- a/customer-support-agent/components/ChatArea.tsx
++++ b/customer-support-agent/components/ChatArea.tsx
+@@ -297,12 +297,21 @@ const ConversationHeader: React.FC<ConversationHeaderProps> = ({
+   </div>
+ );
+ 
++// Router model IDs offered in the model picker, read from the comma-separated
++// NEXT_PUBLIC_ROUTER_MODELS env var (IDs come from Router's GET /v1/models).
++// If it is empty, the API route falls back to ROUTER_MODEL.
++const ROUTER_MODELS: Model[] = (process.env.NEXT_PUBLIC_ROUTER_MODELS ?? "")
++  .split(",")
++  .map((id) => id.trim())
++  .filter(Boolean)
++  .map((id) => ({ id, name: id }));
++
+ function ChatArea() {
+   const [messages, setMessages] = useState<Message[]>([]);
+   const [input, setInput] = useState("");
+   const [isLoading, setIsLoading] = useState(false);
+   const [showHeader, setShowHeader] = useState(false);
+-  const [selectedModel, setSelectedModel] = useState("claude-haiku-4-5-20251001");
++  const [selectedModel, setSelectedModel] = useState(ROUTER_MODELS[0]?.id ?? "");
+   const [showAvatar, setShowAvatar] = useState(false);
+ 
+   const messagesEndRef = useRef<HTMLDivElement>(null);
+@@ -315,11 +324,7 @@ function ChatArea() {
+     // Add more knowledge bases as needed
+   ];
+ 
+-  const models: Model[] = [
+-    { id: "claude-3-haiku-20240307", name: "Claude 3 Haiku" },
+-    { id: "claude-haiku-4-5-20251001", name: "Claude 4.5 Haiku" },
+-    { id: "claude-3-5-sonnet-20240620", name: "Claude 3.5 Sonnet" },
+-  ];
++  const models: Model[] = ROUTER_MODELS;
+ 
+   const scrollToBottom = () => {
+     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

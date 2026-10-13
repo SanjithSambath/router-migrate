@@ -1,0 +1,1644 @@
+diff --git a/.env.example b/.env.example
+index bb61b744..58763aee 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,4 +1,23 @@
+-OPENAI_API_KEY=
++# LLMs are served through Router (OpenAI Responses API). Router holds the
++# provider credentials; do not set provider API keys (OPENAI_API_KEY, ...).
++RAMP_ROUTER_API_KEY=
++# ROUTER_BASE_URL=https://api.router.com/v1
++# Model IDs are account-specific: pick them from Router's GET /v1/models and
++# set them as 'router:<model-id>'.
++FAST_LLM=
++SMART_LLM=
++STRATEGIC_LLM=
++# Optional Router-only request fields (sent via extra_body; omitted when unset)
++# ROUTER_PROVIDER_TIMEOUT=60          # seconds per provider call
++# ROUTER_TIMEOUT_BEFORE_HEADERS=30    # seconds to wait for the first streaming event
++# ROUTER_ALLOW_FLEX_TIER=true         # only for Flex-eligible models (400 otherwise)
++# ROUTER_METADATA={"feature": "gpt-researcher", "team": "research"}
++# Eval / benchmark graders (evals/, deep_agents/*_benchmark.py)
++# GRADER_LLM=router:<model-id>
++# PRECISION_LLM=router:<model-id>
++# BENCHMARK_LARGE_LLM=router:<model-id>
++# BENCHMARK_SMALL_LLM=router:<model-id>
++
+ TAVILY_API_KEY=
+ 
+ # Optional: filter scraped content with TypeSafe's Jev (the default when this key is set).
+diff --git a/.github/workflows/docker-build.yml b/.github/workflows/docker-build.yml
+index c40e5466..7c10763f 100644
+--- a/.github/workflows/docker-build.yml
++++ b/.github/workflows/docker-build.yml
+@@ -14,7 +14,11 @@ jobs:
+     environment: tests  # Specify the environment to use for this job
+     env:
+       # Ensure these environment variables are set for the entire job
+-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
++      RAMP_ROUTER_API_KEY: ${{ secrets.RAMP_ROUTER_API_KEY }}
++      # Router model IDs ('router:<model-id>', from Router's GET /v1/models)
++      FAST_LLM: ${{ vars.FAST_LLM }}
++      SMART_LLM: ${{ vars.SMART_LLM }}
++      STRATEGIC_LLM: ${{ vars.STRATEGIC_LLM }}
+       TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+       LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+     steps:
+diff --git a/.github/workflows/tests.yml b/.github/workflows/tests.yml
+index db91aa32..7d1e56ba 100644
+--- a/.github/workflows/tests.yml
++++ b/.github/workflows/tests.yml
+@@ -137,7 +137,7 @@ jobs:
+             --deselect tests/test_logging_output.py \
+             --deselect tests/test_mcp.py
+       # These three belong to a live suite, not this one. The first two build a
+-      # real OpenAI client at call time and need OPENAI_API_KEY. test_mcp.py
++      # real Router client at call time and need RAMP_ROUTER_API_KEY. test_mcp.py
+       # runs an actual web-search research task ("latest updates in the NBA
+       # playoffs"), which hangs here rather than failing -- it only surfaced on
+       # a full 3.12 install, where every optional dependency is present.
+diff --git a/backend/report_type/deep_research/example.py b/backend/report_type/deep_research/example.py
+index 616587c3..dd0d3f56 100644
+--- a/backend/report_type/deep_research/example.py
++++ b/backend/report_type/deep_research/example.py
+@@ -2,7 +2,9 @@ from typing import List, Dict, Any, Optional, Set
+ from fastapi import WebSocket
+ import asyncio
+ import logging
++import os
+ from gpt_researcher import GPTResearcher
++from gpt_researcher.config.config import Config
+ from gpt_researcher.llm_provider.generic.base import ReasoningEfforts
+ from gpt_researcher.skills.deep_research import (
+     parse_follow_up_questions_response,
+@@ -14,10 +16,11 @@ from gpt_researcher.utils.enum import ReportType, ReportSource, Tone
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# Constants for models
+-GPT4_MODEL = "gpt-4o"  # For standard tasks
+-O3_MINI_MODEL = "o3-mini"  # For reasoning tasks
+-LLM_PROVIDER = "openai"
++# Models are Router model IDs (from GET /v1/models), read from env as
++# 'router:<model-id>': SMART_LLM for standard tasks, STRATEGIC_LLM for reasoning.
++GPT4_MODEL = Config.parse_llm(os.environ.get("SMART_LLM"))[1]  # For standard tasks
++O3_MINI_MODEL = Config.parse_llm(os.environ.get("STRATEGIC_LLM"))[1]  # For reasoning tasks
++LLM_PROVIDER = "router"
+ 
+ class ResearchProgress:
+     def __init__(self, total_depth: int, total_breadth: int):
+diff --git a/backend/requirements.txt b/backend/requirements.txt
+index 407fa274..c92cc661 100644
+--- a/backend/requirements.txt
++++ b/backend/requirements.txt
+@@ -18,7 +18,7 @@ langchain-openai>=1.0.0
+ langchain-text-splitters>=1.0.0
+ 
+ # LLM & API
+-openai>=1.3.3
++openai>=1.82.0  # Responses API (Router)
+ httpx>=0.28.1
+ tavily-python>=0.7.12
+ 
+diff --git a/backend/server/server_utils.py b/backend/server/server_utils.py
+index 19293d9d..c03d8c4e 100644
+--- a/backend/server/server_utils.py
++++ b/backend/server/server_utils.py
+@@ -273,13 +273,12 @@ async def send_file_paths(websocket, file_paths: Dict[str, str]):
+ 
+ 
+ def get_config_dict(
+-    langchain_api_key: str, openai_api_key: str, tavily_api_key: str,
++    langchain_api_key: str, tavily_api_key: str,
+     google_api_key: str, google_cx_key: str, bing_api_key: str,
+     searchapi_api_key: str, serpapi_api_key: str, serper_api_key: str, searx_url: str
+ ) -> Dict[str, str]:
+     return {
+         "LANGCHAIN_API_KEY": langchain_api_key or os.getenv("LANGCHAIN_API_KEY", ""),
+-        "OPENAI_API_KEY": openai_api_key or os.getenv("OPENAI_API_KEY", ""),
+         "TAVILY_API_KEY": tavily_api_key or os.getenv("TAVILY_API_KEY", ""),
+         "GOOGLE_API_KEY": google_api_key or os.getenv("GOOGLE_API_KEY", ""),
+         "GOOGLE_CX_KEY": google_cx_key or os.getenv("GOOGLE_CX_KEY", ""),
+diff --git a/deep_agents/agent.py b/deep_agents/agent.py
+index 615a302e..0ab601f9 100644
+--- a/deep_agents/agent.py
++++ b/deep_agents/agent.py
+@@ -7,6 +7,8 @@ from deepagents import create_deep_agent
+ from deepagents.backends import FilesystemBackend
+ 
+ from deep_agents.tools import build_research_tools
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import router_chat_model
+ 
+ CHIEF_EDITOR_PROMPT = """You are the Chief Editor of an autonomous research team. \
+ Your job is to produce a comprehensive, well-cited research report on the topic \
+@@ -61,7 +63,10 @@ of sources used, and the file path. Never paste the full draft into your reply.
+ 
+ 
+ def build_agent(task: dict, run_dir: str):
+-    model = os.environ.get("STRATEGIC_LLM") or task.get("model", "openai:gpt-5.4")
++    # Router model ID from STRATEGIC_LLM ('router:<model-id>'); passed to the
++    # agent as a Router-backed Responses client instead of a provider string.
++    _, model_id = Config.parse_llm(os.environ.get("STRATEGIC_LLM") or task.get("model"))
++    model = router_chat_model(feature="deep-agents", model=model_id)
+     quick_search, deep_research = build_research_tools(task)
+ 
+     guidelines = ""
+diff --git a/deep_agents/benchmark.py b/deep_agents/benchmark.py
+index 5851a663..a0e95dd9 100644
+--- a/deep_agents/benchmark.py
++++ b/deep_agents/benchmark.py
+@@ -27,6 +27,15 @@ from tavily import TavilyClient
+ from deepagents import create_deep_agent
+ 
+ from deep_agents.tools import build_research_tools
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import router_chat_model
++
++
++def router_model(model: str | None):
++    """Router-backed Responses client for a 'router:<model-id>' (or bare Router
++    model ID) string. Model IDs come from Router's GET /v1/models."""
++    _, model_id = Config.parse_llm(model)
++    return router_chat_model(feature="deep-agents-benchmark", model=model_id)
+ 
+ # Shared between both systems so the only variable is the research tooling.
+ # Each system additionally gets guidance on how to use its own tools, in the
+@@ -104,7 +113,7 @@ def build_baseline_agent(model: str, system_prompt: str | None = None):
+         )
+ 
+     agent = create_deep_agent(
+-        model=model,
++        model=router_model(model),
+         tools=[internet_search],
+         system_prompt=(system_prompt or SYSTEM_PROMPT) + BASELINE_TOOL_GUIDE,
+     )
+@@ -116,7 +125,7 @@ def build_gptr_agent(model: str, source: str = "web", system_prompt: str | None
+     cost_tracker = {"total": 0.0}
+     quick_search, deep_research = build_research_tools({"source": source}, cost_tracker)
+     agent = create_deep_agent(
+-        model=model,
++        model=router_model(model),
+         tools=[quick_search, deep_research],
+         system_prompt=(system_prompt or SYSTEM_PROMPT) + GPTR_TOOL_GUIDE,
+     )
+diff --git a/deep_agents/breadth_benchmark.py b/deep_agents/breadth_benchmark.py
+index d212ea3b..b3490a84 100644
+--- a/deep_agents/breadth_benchmark.py
++++ b/deep_agents/breadth_benchmark.py
+@@ -35,9 +35,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
+ 
+ load_dotenv()
+ 
+-from langchain_openai import ChatOpenAI
+-
+-from deep_agents.benchmark import build_baseline_agent, build_gptr_agent
++from deep_agents.benchmark import build_baseline_agent, build_gptr_agent, router_model
+ from deep_agents.report_benchmark import URL_PATTERN, write_report
+ from deep_agents.recency_benchmark import grade_report
+ 
+@@ -161,12 +159,12 @@ async def main() -> None:
+     parser = argparse.ArgumentParser(description="Breadth x depth benchmark at fixed agent budgets")
+     parser.add_argument("--budgets", type=int, nargs="+", default=[25, 60],
+                         help="agent-step budgets (LangGraph recursion limits) to test")
+-    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM", "openai:gpt-5.4"))
+-    parser.add_argument("--grader-model", type=str, default="gpt-5.4")
++    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM"))
++    parser.add_argument("--grader-model", type=str, default=os.environ.get("GRADER_LLM"))
+     parser.add_argument("--concurrency", type=int, default=2)
+     args = parser.parse_args()
+ 
+-    grader = ChatOpenAI(model=args.grader_model)
++    grader = router_model(args.grader_model)
+     baseline_agent, _ = build_baseline_agent(args.model)
+     gptr_agent, gptr_costs = build_gptr_agent(args.model)
+     agents = {"baseline": baseline_agent, "gptr": gptr_agent}
+diff --git a/deep_agents/drb_generate.py b/deep_agents/drb_generate.py
+index 879a40e9..a52efcfd 100644
+--- a/deep_agents/drb_generate.py
++++ b/deep_agents/drb_generate.py
+@@ -82,7 +82,7 @@ async def main() -> None:
+     parser.add_argument("--num-tasks", type=int, default=10)
+     parser.add_argument("--seed", type=int, default=42)
+     parser.add_argument("--concurrency", type=int, default=3)
+-    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM", "openai:gpt-5.4"))
++    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM"))
+     args = parser.parse_args()
+ 
+     tasks = sample_tasks(args.bench_dir / "data/prompt_data/query.jsonl", args.num_tasks, args.seed)
+diff --git a/deep_agents/hybrid_benchmark.py b/deep_agents/hybrid_benchmark.py
+index e06216d6..c8ad1c84 100644
+--- a/deep_agents/hybrid_benchmark.py
++++ b/deep_agents/hybrid_benchmark.py
+@@ -53,7 +53,6 @@ load_dotenv()
+ DOCS_DIR = Path(__file__).parent / "benchmark_data" / "internal_docs"
+ os.environ["DOC_PATH"] = str(DOCS_DIR)
+ 
+-from langchain_openai import ChatOpenAI
+ from deepagents import create_deep_agent
+ from deepagents.backends import FilesystemBackend
+ 
+@@ -62,6 +61,7 @@ from deep_agents.benchmark import (
+     BASELINE_TOOL_GUIDE,
+     build_baseline_agent,
+     build_gptr_agent,
++    router_model,
+ )
+ from deep_agents.report_benchmark import write_report
+ from deep_agents.recency_benchmark import grade_report
+@@ -112,7 +112,7 @@ def build_baseline_files_agent(model: str):
+         )
+ 
+     return create_deep_agent(
+-        model=model,
++        model=router_model(model),
+         tools=[internet_search],
+         system_prompt=SYSTEM_PROMPT + BASELINE_TOOL_GUIDE + FILES_GUIDE,
+         backend=FilesystemBackend(root_dir=str(workdir), virtual_mode=True),
+@@ -168,11 +168,11 @@ def coverage(grades: list[dict]) -> dict:
+ 
+ async def main() -> None:
+     parser = argparse.ArgumentParser(description="Hybrid-research benchmark: private docs + web vs web-only")
+-    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM", "openai:gpt-5.4"))
+-    parser.add_argument("--grader-model", type=str, default="gpt-5.4")
++    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM"))
++    parser.add_argument("--grader-model", type=str, default=os.environ.get("GRADER_LLM"))
+     args = parser.parse_args()
+ 
+-    grader = ChatOpenAI(model=args.grader_model)
++    grader = router_model(args.grader_model)
+     baseline_agent, _ = build_baseline_agent(args.model)
+     baseline_files_agent = build_baseline_files_agent(args.model)
+     gptr_agent, gptr_costs = build_gptr_agent(args.model, source="hybrid")
+diff --git a/deep_agents/recency_benchmark.py b/deep_agents/recency_benchmark.py
+index 36321d74..a7104485 100644
+--- a/deep_agents/recency_benchmark.py
++++ b/deep_agents/recency_benchmark.py
+@@ -39,9 +39,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
+ 
+ load_dotenv()
+ 
+-from langchain_openai import ChatOpenAI
+-
+-from deep_agents.benchmark import build_baseline_agent, build_gptr_agent, message_text
++from deep_agents.benchmark import build_baseline_agent, build_gptr_agent, message_text, router_model
+ from deep_agents.report_benchmark import URL_PATTERN, write_report
+ 
+ RESULTS_DIR = Path(__file__).parent / "benchmark_results"
+@@ -225,7 +223,8 @@ def grade_report(grader, task: dict, report: str) -> list[dict]:
+     checkpoints_text = "\n".join(f"{i}. {c}" for i, c in enumerate(task["checkpoints"], 1))
+     prompt = GRADER_TEMPLATE.format(checkpoints=checkpoints_text, report=report or "(empty report)")
+     for _ in range(3):
+-        response = grader.invoke([{"role": "user", "content": prompt}]).content.strip()
++        # Responses output is a list of typed items; .text is the text output.
++        response = grader.invoke([{"role": "user", "content": prompt}]).text.strip()
+         # Extract the JSON array even if the model wraps it in prose/fences
+         start, end = response.find("["), response.rfind("]")
+         if start != -1 and end > start:
+@@ -267,11 +266,11 @@ def summarize(records: list[dict], system: str) -> dict:
+ async def main() -> None:
+     parser = argparse.ArgumentParser(description="Recency benchmark: GPT Researcher deep agent vs raw-search deep agent")
+     parser.add_argument("--concurrency", type=int, default=2)
+-    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM", "openai:gpt-5.4"))
+-    parser.add_argument("--grader-model", type=str, default="gpt-5.4")
++    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM"))
++    parser.add_argument("--grader-model", type=str, default=os.environ.get("GRADER_LLM"))
+     args = parser.parse_args()
+ 
+-    grader = ChatOpenAI(model=args.grader_model)
++    grader = router_model(args.grader_model)
+     baseline_agent, _ = build_baseline_agent(args.model)
+     gptr_agent, gptr_costs = build_gptr_agent(args.model)
+ 
+diff --git a/deep_agents/report_benchmark.py b/deep_agents/report_benchmark.py
+index 8e2f7bd7..ec61d5f0 100644
+--- a/deep_agents/report_benchmark.py
++++ b/deep_agents/report_benchmark.py
+@@ -41,9 +41,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
+ 
+ load_dotenv()
+ 
+-from langchain_openai import ChatOpenAI
+-
+-from deep_agents.benchmark import build_baseline_agent, build_gptr_agent, message_text
++from deep_agents.benchmark import build_baseline_agent, build_gptr_agent, message_text, router_model
+ 
+ RESULTS_DIR = Path(__file__).parent / "benchmark_results"
+ 
+@@ -132,7 +130,8 @@ def judge_pair(judge, topic: str, report_a: str, report_b: str, dimension_questi
+         report_a=report_a,
+         report_b=report_b,
+     )
+-    response = judge.invoke([{"role": "user", "content": prompt}]).content.strip().upper()
++    # Responses output is a list of typed items; .text is the text output.
++    response = judge.invoke([{"role": "user", "content": prompt}]).text.strip().upper()
+     return response if response in ("A", "B", "T") else "T"
+ 
+ 
+@@ -155,13 +154,13 @@ async def main() -> None:
+     parser.add_argument("--num-topics", type=int, default=8)
+     parser.add_argument("--concurrency", type=int, default=2)
+     parser.add_argument("--seed", type=int, default=42)
+-    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM", "openai:gpt-5.4"))
+-    parser.add_argument("--judge-model", type=str, default="gpt-5.4")
++    parser.add_argument("--model", type=str, default=os.environ.get("STRATEGIC_LLM"))
++    parser.add_argument("--judge-model", type=str, default=os.environ.get("GRADER_LLM"))
+     args = parser.parse_args()
+ 
+     rng = random.Random(args.seed)
+     topics = TOPICS[: args.num_topics]
+-    judge = ChatOpenAI(model=args.judge_model)
++    judge = router_model(args.judge_model)
+ 
+     baseline_agent, _ = build_baseline_agent(args.model)
+     gptr_agent, gptr_costs = build_gptr_agent(args.model)
+diff --git a/deep_agents/task.json b/deep_agents/task.json
+index 43341283..1b8b8421 100644
+--- a/deep_agents/task.json
++++ b/deep_agents/task.json
+@@ -1,6 +1,5 @@
+ {
+   "query": "Is AI in a hype cycle?",
+-  "model": "openai:gpt-5.4",
+   "max_sections": 3,
+   "source": "web",
+   "follow_guidelines": false,
+diff --git a/docker-compose.yml b/docker-compose.yml
+index d5fdfd35..8421f157 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -4,8 +4,11 @@ services:
+     image: gptresearcher/gpt-researcher
+     build: ./
+     environment: 
+-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
++      RAMP_ROUTER_API_KEY: ${RAMP_ROUTER_API_KEY}
++      ROUTER_BASE_URL: ${ROUTER_BASE_URL:-https://api.router.com/v1}
++      FAST_LLM: ${FAST_LLM}
++      SMART_LLM: ${SMART_LLM}
++      STRATEGIC_LLM: ${STRATEGIC_LLM}
+       TAVILY_API_KEY: ${TAVILY_API_KEY}
+       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY}
+       LOGGING_LEVEL: INFO
+@@ -48,8 +51,11 @@ services:
+     image: gptresearcher/gpt-researcher-tests
+     build: ./
+     environment: 
+-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
++      RAMP_ROUTER_API_KEY: ${RAMP_ROUTER_API_KEY}
++      ROUTER_BASE_URL: ${ROUTER_BASE_URL:-https://api.router.com/v1}
++      FAST_LLM: ${FAST_LLM}
++      SMART_LLM: ${SMART_LLM}
++      STRATEGIC_LLM: ${STRATEGIC_LLM}
+       TAVILY_API_KEY: ${TAVILY_API_KEY}
+       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY}
+       LOGGING_LEVEL: INFO
+diff --git a/evals/context_filter/judge.py b/evals/context_filter/judge.py
+index eea721af..935dbf07 100644
+--- a/evals/context_filter/judge.py
++++ b/evals/context_filter/judge.py
+@@ -12,7 +12,10 @@ Quality signals, from most to least objective:
+               to cancel position bias; a pair counts as a win only if the
+               strategy wins both orders.
+ 
+-    python -m evals.context_filter.judge --results results/ --judge-model gpt-5.4
++    python -m evals.context_filter.judge --results results/ --judge-model router:<model-id>
++
++Judge / precision models are Router model IDs (from GET /v1/models), defaulting
++to GRADER_LLM / PRECISION_LLM ('router:<model-id>').
+     python -m evals.context_filter.judge --results results/ --baseline none --only jev jev_wide
+ """
+ 
+@@ -24,19 +27,27 @@ import statistics
+ from collections import defaultdict
+ from pathlib import Path
+ 
++import os
++
+ from openai import AsyncOpenAI
+ 
+ from evals.simple_evals.simpleqa_eval import GRADER_TEMPLATE
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import router_client_kwargs, router_extra_body
+ 
+-client = AsyncOpenAI(max_retries=6, timeout=300)
++# OpenAI Responses client pointed at Router (RAMP_ROUTER_API_KEY).
++client = AsyncOpenAI(**router_client_kwargs(), max_retries=6, timeout=300)
+ SEM = asyncio.Semaphore(8)
+ 
+ 
+ async def ask(model: str, prompt: str) -> str:
+     async with SEM:
+-        response = await client.chat.completions.create(
+-            model=model, messages=[{"role": "user", "content": prompt}])
+-    return response.choices[0].message.content.strip()
++        response = await client.responses.create(
++            model=model,
++            input=[{"role": "user", "content": prompt}],
++            extra_body=router_extra_body(default_metadata={"feature": "context-filter-eval"}),
++        )
++    return response.output_text.strip()
+ 
+ 
+ async def grade_simpleqa(model: str, r: dict) -> str:
+@@ -99,11 +110,16 @@ async def pairwise(model: str, r: dict, base: dict) -> str:
+ async def main() -> None:
+     parser = argparse.ArgumentParser()
+     parser.add_argument("--results", type=Path, required=True)
+-    parser.add_argument("--judge-model", default="gpt-5.4")
+-    parser.add_argument("--precision-model", default="gpt-5.4-mini")
++    parser.add_argument("--judge-model", default=os.environ.get("GRADER_LLM"))
++    parser.add_argument("--precision-model", default=os.environ.get("PRECISION_LLM"))
+     parser.add_argument("--baseline", default="embeddings", help="strategy the pairwise judge compares against")
+     parser.add_argument("--only", nargs="*", help="score only these strategies (the baseline is still loaded)")
+     args = parser.parse_args()
++    args.judge_model = Config.parse_llm(args.judge_model)[1]
++    args.precision_model = Config.parse_llm(args.precision_model)[1]
++    if not args.judge_model or not args.precision_model:
++        parser.error("set --judge-model/--precision-model or GRADER_LLM/PRECISION_LLM "
++                     "to Router model IDs ('router:<model-id>', from GET /v1/models)")
+     BASELINE = args.baseline
+ 
+     by_strategy = defaultdict(dict)
+diff --git a/evals/quality_eval/benchmark.py b/evals/quality_eval/benchmark.py
+index 1174521a..6b756895 100644
+--- a/evals/quality_eval/benchmark.py
++++ b/evals/quality_eval/benchmark.py
+@@ -33,7 +33,8 @@ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+ from dotenv import load_dotenv
+-from langchain_openai import ChatOpenAI
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import ROUTER_API_KEY_ENV, router_chat_model
+ 
+ from evals.quality_eval.metrics import evaluate_report, is_skipped as _is_skipped
+ 
+@@ -52,14 +53,21 @@ QUERIES = {
+     "chemistry": "Mechanism of nucleophilic substitution reactions in organic chemistry",
+ }
+ 
++# Router model IDs (from GET /v1/models) for the large / small arms, read from
++# BENCHMARK_LARGE_LLM / BENCHMARK_SMALL_LLM ('router:<model-id>'). Config names
++# are kept as stable log labels.
++_LARGE_MODEL = Config.parse_llm(os.environ.get("BENCHMARK_LARGE_LLM"))[1]
++_SMALL_MODEL = Config.parse_llm(os.environ.get("BENCHMARK_SMALL_LLM"))[1]
++
+ CONFIGS = [
+-    {"name": "single-gpt4o",      "arch": "single", "model": "gpt-4o"},
+-    {"name": "single-gpt4o-mini", "arch": "single", "model": "gpt-4o-mini"},
+-    {"name": "multi-gpt4o",       "arch": "multi",  "model": "gpt-4o"},
+-    {"name": "multi-gpt4o-mini",  "arch": "multi",  "model": "gpt-4o-mini"},
++    {"name": "single-gpt4o",      "arch": "single", "model": _LARGE_MODEL},
++    {"name": "single-gpt4o-mini", "arch": "single", "model": _SMALL_MODEL},
++    {"name": "multi-gpt4o",       "arch": "multi",  "model": _LARGE_MODEL},
++    {"name": "multi-gpt4o-mini",  "arch": "multi",  "model": _SMALL_MODEL},
+ ]
+ 
+-GRADER_MODEL_NAME = "gpt-4-turbo"
++# Router model ID for the grader, from GRADER_LLM ('router:<model-id>').
++GRADER_MODEL_NAME = Config.parse_llm(os.environ.get("GRADER_LLM"))[1]
+ LOGS_DIR = Path(__file__).parent / "logs"
+ 
+ # High-authority topics — tagged HIGH in the per-topic summary (others shown "low").
+@@ -91,7 +99,7 @@ def _set_token_limit(model: str):
+ 
+ async def _run_single_agent(query: str, model: str):
+     """Run GPTResearcher and return (report, sources, context)."""
+-    os.environ["SMART_LLM"] = f"openai:{model}"
++    os.environ["SMART_LLM"] = f"router:{model}"
+     _set_token_limit(model)
+ 
+     from gpt_researcher.agent import GPTResearcher
+@@ -123,8 +131,8 @@ async def _run_multi_agent(query: str, model: str):
+     visited_urls and context. This patches only the test process, not the
+     upstream library.
+     """
+-    os.environ["SMART_LLM"]     = f"openai:{model}"
+-    os.environ["STRATEGIC_LLM"] = f"openai:{model}"
++    os.environ["SMART_LLM"]     = f"router:{model}"
++    os.environ["STRATEGIC_LLM"] = f"router:{model}"
+     _set_token_limit(model)
+ 
+     from multi_agents.agents.orchestrator import ChiefEditorAgent
+@@ -492,26 +500,31 @@ async def main(
+     max_topics: int | None = None,
+ ):
+     load_dotenv()
+-    openai_key  = os.getenv("OPENAI_API_KEY")
+     tavily_key  = os.getenv("TAVILY_API_KEY")
+ 
+-    if not openai_key:
+-        raise ValueError("OPENAI_API_KEY not set")
++    if not os.getenv(ROUTER_API_KEY_ENV):
++        raise ValueError(f"{ROUTER_API_KEY_ENV} not set")
+     if not tavily_key:
+         raise ValueError("TAVILY_API_KEY not set")
+ 
+-    os.environ["OPENAI_API_KEY"]  = openai_key
+     os.environ["TAVILY_API_KEY"]  = tavily_key
+     os.environ["RETRIEVER"]       = "tavily"
+ 
+-    grader_model = ChatOpenAI(
++    selected = [c for c in CONFIGS if c["name"] in config_names]
++    if not summary_only:
++        missing = [c["name"] for c in selected if not c["model"]]
++        if missing:
++            raise ValueError(
++                f"No Router model ID for {', '.join(missing)}: set BENCHMARK_LARGE_LLM / "
++                "BENCHMARK_SMALL_LLM to 'router:<model-id>' (IDs from GET /v1/models)"
++            )
++
++    grader_model = router_chat_model(
++        feature="quality-eval",
+         temperature=0,
+-        model_name=GRADER_MODEL_NAME,
+-        openai_api_key=openai_key,
++        model=GRADER_MODEL_NAME,
+     )
+ 
+-    selected = [c for c in CONFIGS if c["name"] in config_names]
+-
+     if summary_only:
+         logs = []
+         for config in selected:
+@@ -582,11 +595,6 @@ if __name__ == "__main__":
+         sys.exit(0)
+ 
+     # Load API keys from file if not in environment
+-    if not os.getenv("OPENAI_API_KEY"):
+-        key_path = Path("D:/chenh/api_keys/gpt_api_key.txt")
+-        if key_path.exists():
+-            os.environ["OPENAI_API_KEY"] = key_path.read_text().strip()
+-
+     if not os.getenv("TAVILY_API_KEY"):
+         key_path = Path("D:/chenh/api_keys/tavily_api_key.txt")
+         if key_path.exists():
+diff --git a/evals/quality_eval/metrics.py b/evals/quality_eval/metrics.py
+index 52b1a24e..22e40e5c 100644
+--- a/evals/quality_eval/metrics.py
++++ b/evals/quality_eval/metrics.py
+@@ -238,7 +238,7 @@ async def _llm_score_domains(domains: list[str], grader_model) -> list[dict]:
+     )
+     try:
+         resp    = await grader_model.ainvoke(prompt)
+-        results = _parse_json(resp.content)
++        results = _parse_json(resp.text)
+         return [
+             {"domain": r["domain"], "score": float(r["score"]), "tier": f"llm:{r.get('reason','')}"}
+             for r in results
+@@ -337,7 +337,7 @@ async def _check_one_subtopic(subtopic: str, report: str, grader_model) -> bool:
+     try:
+         resp   = await grader_model.ainvoke(
+             _COVERAGE_ONE_PROMPT.format(subtopic=subtopic, report=report[:12000]))
+-        result = _parse_json(resp.content)
++        result = _parse_json(resp.text)
+         return bool(result.get("covered", False))
+     except Exception:
+         return False
+@@ -358,7 +358,7 @@ async def subtopic_coverage(query: str, report: str, grader_model, subtopics=Non
+     if subtopics is None:
+         try:
+             resp1     = await grader_model.ainvoke(_SUBTOPICS_PROMPT.format(query=query))
+-            subtopics = _parse_json(resp1.content)
++            subtopics = _parse_json(resp1.text)
+         except Exception:
+             return {
+                 "expected_subtopics":     [],
+@@ -457,7 +457,7 @@ async def _verify_one_claim(claim: str, context_text: str, grader_model) -> dict
+                 context=context_text[:4000],
+             )
+         )
+-        result = _parse_json(resp.content)
++        result = _parse_json(resp.text)
+         if isinstance(result, list) and result:
+             return result[0]
+         if isinstance(result, dict):
+@@ -489,7 +489,7 @@ async def unsupported_claim(report: str, context, grader_model, claims=None) ->
+     if claims is None:
+         try:
+             resp1  = await grader_model.ainvoke(_EXTRACT_CLAIMS_PROMPT.format(report=report[:12000]))
+-            claims = _parse_json(resp1.content)
++            claims = _parse_json(resp1.text)
+         except Exception as e:
+             return {
+                 "total_claims": 0, "avg_claim_score": None,
+diff --git a/evals/quality_eval/perturbation.py b/evals/quality_eval/perturbation.py
+index ed8334ee..2664e2e7 100644
+--- a/evals/quality_eval/perturbation.py
++++ b/evals/quality_eval/perturbation.py
+@@ -230,9 +230,11 @@ async def main():
+         print(_row(fx["topic"], vals))
+ 
+     # --- source_authority: swap to low-authority (LLM-scored) ---
+-    from langchain_openai import ChatOpenAI
+-    grader = ChatOpenAI(temperature=0, model_name="gpt-4-turbo",
+-                        openai_api_key=os.environ["OPENAI_API_KEY"])
++    from gpt_researcher.config.config import Config
++    from gpt_researcher.llm_provider.generic.base import router_chat_model
++    # Router model ID for the grader, from GRADER_LLM ('router:<model-id>').
++    grader = router_chat_model(feature="quality-eval", temperature=0,
++                               model=Config.parse_llm(os.environ.get("GRADER_LLM"))[1])
+     print("\n=== source_authority  (swap to low-authority, LLM-scored) ===")
+     print(_header())
+     for fx in fixtures:
+@@ -275,9 +277,4 @@ async def main():
+ 
+ if __name__ == "__main__":
+     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+-    # Load API key from file if not already set (needed for source_authority).
+-    if not os.getenv("OPENAI_API_KEY"):
+-        kp = Path("D:/chenh/api_keys/gpt_api_key.txt")
+-        if kp.exists():
+-            os.environ["OPENAI_API_KEY"] = kp.read_text().strip()
+     asyncio.run(main())
+diff --git a/evals/quality_eval/run_eval.py b/evals/quality_eval/run_eval.py
+index 79ebdd80..66fc728f 100644
+--- a/evals/quality_eval/run_eval.py
++++ b/evals/quality_eval/run_eval.py
+@@ -29,7 +29,8 @@ from datetime import datetime, timezone
+ from pathlib import Path
+ 
+ from dotenv import load_dotenv
+-from langchain_openai import ChatOpenAI
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import ROUTER_API_KEY_ENV, router_chat_model
+ 
+ from gpt_researcher.agent import GPTResearcher
+ from gpt_researcher.utils.enum import ReportType, ReportSource, Tone
+@@ -42,7 +43,8 @@ try:
+ except ImportError:
+     _HALLUCINATION_AVAILABLE = False
+ 
+-GRADER_MODEL_NAME = "gpt-4-turbo"
++# Router model ID for the grader, from GRADER_LLM ('router:<model-id>').
++GRADER_MODEL_NAME = Config.parse_llm(os.environ.get("GRADER_LLM"))[1]
+ LOGS_DIR = Path(__file__).parent / "logs"
+ QUERIES_FILE = Path(__file__).parent.parent / "hallucination_eval" / "inputs" / "search_queries.jsonl"
+ 
+@@ -69,7 +71,7 @@ def _load_queries(n: int) -> list[str]:
+ 
+ def _check_env():
+     load_dotenv()
+-    missing = [v for v in ["OPENAI_API_KEY", "TAVILY_API_KEY"] if not os.getenv(v)]
++    missing = [v for v in [ROUTER_API_KEY_ENV, "TAVILY_API_KEY"] if not os.getenv(v)]
+     if missing:
+         raise ValueError(f"Missing environment variables: {', '.join(missing)}")
+ 
+@@ -190,10 +192,10 @@ async def main(num_examples: int, run_subtopic: bool, run_hallucination: bool, r
+ 
+     run_start     = time.perf_counter()
+     run_timestamp = datetime.now(timezone.utc).isoformat()
+-    grader_model  = ChatOpenAI(
++    grader_model  = router_chat_model(
++        feature="quality-eval",
+         temperature=0,
+-        model_name=GRADER_MODEL_NAME,
+-        openai_api_key=os.getenv("OPENAI_API_KEY"),
++        model=GRADER_MODEL_NAME,
+     )
+ 
+     if run_hallucination and not _HALLUCINATION_AVAILABLE:
+@@ -278,7 +280,7 @@ async def main(num_examples: int, run_subtopic: bool, run_hallucination: bool, r
+             "timestamp":            run_timestamp,
+             "git_commit":           _get_git_commit(),
+             "grader_model":         GRADER_MODEL_NAME,
+-            "researcher_model":     os.getenv("SMART_LLM", "openai:gpt-4.1"),
++            "researcher_model":     os.getenv("SMART_LLM"),
+             "num_examples":         num_examples,
+             "subtopic_enabled":       run_subtopic,
+             "hallucination_enabled":       run_hallucination,
+diff --git a/evals/simple_evals/run_eval.py b/evals/simple_evals/run_eval.py
+index 413b3c83..d253619f 100644
+--- a/evals/simple_evals/run_eval.py
++++ b/evals/simple_evals/run_eval.py
+@@ -17,9 +17,11 @@ from dotenv import load_dotenv
+ from gpt_researcher.agent import GPTResearcher
+ from gpt_researcher.utils.enum import ReportType, ReportSource, Tone
+ from evals.simple_evals.simpleqa_eval import SimpleQAEval
+-from langchain_openai import ChatOpenAI
++from gpt_researcher.config.config import Config
++from gpt_researcher.llm_provider.generic.base import ROUTER_API_KEY_ENV, router_chat_model
+ 
+-GRADER_MODEL_NAME = "gpt-4-turbo"
++# Router model ID for the grader, from GRADER_LLM ('router:<model-id>').
++GRADER_MODEL_NAME = Config.parse_llm(os.environ.get("GRADER_LLM"))[1]
+ LOGS_DIR = Path(__file__).parent / "logs"
+ 
+ 
+@@ -45,7 +47,7 @@ def map_with_progress(fn: Callable[[T], R], items: List[T]) -> List[R]:
+ def _check_env_vars():
+     """Verify required environment variables are set. Called inside main() so --help works."""
+     load_dotenv()
+-    required = ["OPENAI_API_KEY", "TAVILY_API_KEY"]
++    required = [ROUTER_API_KEY_ENV, "TAVILY_API_KEY"]
+     missing = [v for v in required if not os.getenv(v)]
+     if missing:
+         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+@@ -114,10 +116,10 @@ async def main(num_examples: int):
+ 
+     try:
+         # initiate evaluator
+-        grader_model = ChatOpenAI(
++        grader_model = router_chat_model(
++            feature="simple-evals",
+             temperature=0,
+-            model_name=GRADER_MODEL_NAME,
+-            openai_api_key=os.getenv("OPENAI_API_KEY")
++            model=GRADER_MODEL_NAME,
+         )
+         evaluator = SimpleQAEval(grader_model=grader_model, num_examples=num_examples)
+         
+@@ -217,7 +219,7 @@ async def main(num_examples: int):
+                     "timestamp": run_timestamp,
+                     "git_commit": get_git_commit(),
+                     "grader_model": GRADER_MODEL_NAME,
+-                    "researcher_model": os.getenv("SMART_LLM", "openai:gpt-4.1"),
++                    "researcher_model": os.getenv("SMART_LLM"),
+                     "num_examples": num_examples,
+                     "total_duration_seconds": round(time.perf_counter() - run_start, 2),
+                 }
+diff --git a/evals/simple_evals/simpleqa_eval.py b/evals/simple_evals/simpleqa_eval.py
+index ba00c509..f03f9cf5 100644
+--- a/evals/simple_evals/simpleqa_eval.py
++++ b/evals/simple_evals/simpleqa_eval.py
+@@ -9,7 +9,6 @@ import json
+ import pandas
+ import random
+ from typing import Dict, List, Any
+-from langchain_openai import ChatOpenAI
+ 
+ GRADER_TEMPLATE = """
+ Your job is to look at a question, a gold target, and a predicted answer, and then assign a grade of either ["CORRECT", "INCORRECT", "NOT_ATTEMPTED"].
+@@ -156,7 +155,8 @@ class SimpleQAEval:
+         
+         messages = [{"role": "user", "content": prompt}]
+         response = self.grader_model.invoke(messages)
+-        response_text = response.content.strip()
++        # Responses output is a list of typed items; .text is the text output.
++        response_text = response.text.strip()
+         
+         # Convert letter response to grade string
+         if response_text in CHOICE_LETTERS:
+diff --git a/gpt_researcher/config/config.py b/gpt_researcher/config/config.py
+index d7f84252..1c8f5f39 100644
+--- a/gpt_researcher/config/config.py
++++ b/gpt_researcher/config/config.py
+@@ -198,23 +198,24 @@ class Config:
+ 
+     @staticmethod
+     def parse_llm(llm_str: str | None) -> tuple[str | None, str | None]:
+-        """Parse llm string into (llm_provider, llm_model)."""
+-        from gpt_researcher.llm_provider.generic.base import _SUPPORTED_PROVIDERS
++        """Parse llm string into (llm_provider, llm_model).
+ 
+-        if llm_str is None:
++        Every model is served through Router, so the provider is always
++        ``router``. Accepts ``router:<model-id>`` or a bare Router model ID
++        (IDs come from Router's ``GET /v1/models`` and may themselves contain
++        ``:``, so only an explicit ``router:`` prefix is stripped).
++        """
++        if llm_str is None or llm_str.strip() == "":
+             return None, None
+-        try:
+-            llm_provider, llm_model = llm_str.split(":", 1)
+-            assert llm_provider in _SUPPORTED_PROVIDERS, (
+-                f"Unsupported {llm_provider}.\nSupported llm providers are: "
+-                + ", ".join(_SUPPORTED_PROVIDERS)
+-            )
+-            return llm_provider, llm_model
+-        except ValueError:
++        llm_str = llm_str.strip()
++        prefix = "router:"
++        model = llm_str[len(prefix):] if llm_str.startswith(prefix) else llm_str
++        if not model:
+             raise ValueError(
+-                "Set SMART_LLM or FAST_LLM = '<llm_provider>:<llm_model>' "
+-                "Eg 'openai:gpt-4o-mini'"
++                "Set SMART_LLM or FAST_LLM = 'router:<model-id>' "
++                "using a model ID from Router's GET /v1/models"
+             )
++        return "router", model
+ 
+     @staticmethod
+     def parse_reasoning_effort(reasoning_effort_str: str | None) -> str | None:
+diff --git a/gpt_researcher/config/variables/base.py b/gpt_researcher/config/variables/base.py
+index b9ce7b2e..3f2822ff 100644
+--- a/gpt_researcher/config/variables/base.py
++++ b/gpt_researcher/config/variables/base.py
+@@ -7,9 +7,9 @@ class BaseConfig(TypedDict):
+     EMBEDDING: str
+     SIMILARITY_THRESHOLD: float
+     CONTEXT_FILTER: str
+-    FAST_LLM: str
+-    SMART_LLM: str
+-    STRATEGIC_LLM: str
++    FAST_LLM: Union[str, None]
++    SMART_LLM: Union[str, None]
++    STRATEGIC_LLM: Union[str, None]
+     FAST_TOKEN_LIMIT: int
+     SMART_TOKEN_LIMIT: int
+     STRATEGIC_TOKEN_LIMIT: int
+diff --git a/gpt_researcher/config/variables/default.py b/gpt_researcher/config/variables/default.py
+index a0857d22..7d0d738c 100644
+--- a/gpt_researcher/config/variables/default.py
++++ b/gpt_researcher/config/variables/default.py
+@@ -5,12 +5,14 @@ DEFAULT_CONFIG: BaseConfig = {
+     "EMBEDDING": "openai:text-embedding-3-small",
+     "SIMILARITY_THRESHOLD": 0.42,
+     "CONTEXT_FILTER": "auto",  # auto | jev | keyword | embeddings | none; auto = jev with TYPESAFE_API_KEY, else keyword
+-    "FAST_LLM": "openai:gpt-5.4-mini",
+-    "SMART_LLM": "openai:gpt-5.4",  # Has support for long responses (2k+ words).
+-    "STRATEGIC_LLM": "openai:gpt-5.4",  # Reasoning model used for planning; tune REASONING_EFFORT for speed vs. depth.
+-    # Output token limits. For reasoning models (the default gpt-5.x family)
+-    # these map to max_completion_tokens, which also covers reasoning tokens -
+-    # hence the generous headroom on top of the visible output.
++    # LLMs are served through Router. Set these via env as 'router:<model-id>'
++    # where <model-id> comes from Router's GET /v1/models (account-specific).
++    "FAST_LLM": None,
++    "SMART_LLM": None,  # Should support long responses (2k+ words).
++    "STRATEGIC_LLM": None,  # Reasoning model used for planning; tune REASONING_EFFORT for speed vs. depth.
++    # Output token limits. These map to the Responses API's max_output_tokens,
++    # which for reasoning models also covers reasoning tokens - hence the
++    # generous headroom on top of the visible output.
+     "FAST_TOKEN_LIMIT": 6000,
+     "SMART_TOKEN_LIMIT": 12000,
+     "STRATEGIC_TOKEN_LIMIT": 8000,
+diff --git a/gpt_researcher/llm_provider/generic/base.py b/gpt_researcher/llm_provider/generic/base.py
+index e7e20023..c94bf9ad 100644
+--- a/gpt_researcher/llm_provider/generic/base.py
++++ b/gpt_researcher/llm_provider/generic/base.py
+@@ -10,36 +10,16 @@ from colorama import Fore, Style, init
+ import os
+ from enum import Enum
+ 
++# All LLM traffic goes through Router (an OpenAI Responses-compatible gateway
++# in front of every upstream provider). Router holds the provider credentials,
++# so the application only ever sends RAMP_ROUTER_API_KEY.
+ _SUPPORTED_PROVIDERS = {
+-    "openai",
+-    "anthropic",
+-    "azure_openai",
+-    "cohere",
+-    "google_vertexai",
+-    "google_genai",
+-    "fireworks",
+-    "ollama",
+-    "together",
+-    "mistralai",
+-    "huggingface",
+-    "groq",
+-    "bedrock",
+-    "dashscope",
+-    "xai",
+-    "deepseek",
+-    "litellm",
+-    "gigachat",
+-    "openrouter",
+-    "vllm_openai",
+-    "aimlapi",
+-    "netmind",
+-    "forge",
+-    "avian",
+-    "minimax",
+-    "atlascloud",
+-    "nebius",
++    "router",
+ }
+ 
++ROUTER_DEFAULT_BASE_URL = "https://api.router.com/v1"
++ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY"
++
+ NO_SUPPORT_TEMPERATURE_MODELS = [
+     "deepseek/deepseek-reasoner",
+     "o1-mini",
+@@ -95,6 +75,114 @@ class ReasoningEfforts(Enum):
+     Low = "low"
+ 
+ 
++def model_in(model: str | None, models: list[str]) -> bool:
++    """Check a model against one of the per-model capability lists above.
++
++    Router model IDs are account-specific (from ``GET /v1/models``) and may
++    carry a ``provider:`` prefix (e.g. ``<provider>:<provider-model>``). Match
++    either the full ID or the part after the first ``:`` so the existing
++    temperature / reasoning-effort handling keeps applying to the same models.
++    """
++    if not model:
++        return False
++    if model in models:
++        return True
++    _, sep, provider_model = model.partition(":")
++    return bool(sep) and provider_model in models
++
++
++def _env_number(name: str) -> int | float | None:
++    raw = os.environ.get(name)
++    if raw is None or raw.strip() == "":
++        return None
++    value = float(raw)
++    return int(value) if value.is_integer() else value
++
++
++def router_extra_body(default_metadata: dict[str, str] | None = None) -> dict[str, Any]:
++    """Router-only request fields, sent through the OpenAI SDK's ``extra_body``.
++
++    Every field is opt-in via env so nothing is sent that the target model may
++    reject:
++      ROUTER_PROVIDER_TIMEOUT        -> provider_timeout (seconds per provider call)
++      ROUTER_TIMEOUT_BEFORE_HEADERS  -> timeout_before_headers (seconds to first stream event)
++      ROUTER_ALLOW_FLEX_TIER         -> allow_flex_tier (only set for Flex-eligible models; 400 otherwise)
++      ROUTER_METADATA                -> metadata (JSON object of short string labels, e.g.
++                                        {"feature": "research", "team": "search"})
++    ``models`` (ordered fallback list) is intentionally not wired up: it is
++    mutually exclusive with ``model``, which the LangChain client always sends.
++    """
++    extra: dict[str, Any] = {}
++
++    provider_timeout = _env_number("ROUTER_PROVIDER_TIMEOUT")
++    if provider_timeout is not None:
++        extra["provider_timeout"] = provider_timeout
++
++    timeout_before_headers = _env_number("ROUTER_TIMEOUT_BEFORE_HEADERS")
++    if timeout_before_headers is not None:
++        extra["timeout_before_headers"] = timeout_before_headers
++
++    allow_flex_tier = os.environ.get("ROUTER_ALLOW_FLEX_TIER")
++    if allow_flex_tier is not None and allow_flex_tier.strip() != "":
++        extra["allow_flex_tier"] = allow_flex_tier.strip().lower() in ("true", "1", "yes", "on")
++
++    metadata: dict[str, str] = dict(default_metadata or {})
++    raw_metadata = os.environ.get("ROUTER_METADATA")
++    if raw_metadata:
++        parsed = json.loads(raw_metadata)
++        if not isinstance(parsed, dict):
++            raise ValueError("ROUTER_METADATA must be a JSON object of string labels")
++        metadata.update({str(k): str(v) for k, v in parsed.items()})
++    if metadata:
++        extra["metadata"] = metadata
++
++    return extra
++
++
++def router_client_kwargs() -> dict[str, Any]:
++    """Connection settings for an OpenAI Responses client pointed at Router."""
++    api_key = os.environ.get(ROUTER_API_KEY_ENV)
++    if not api_key:
++        raise ValueError(
++            f"{ROUTER_API_KEY_ENV} is not set. All LLM requests go through Router; "
++            "provider API keys are no longer used."
++        )
++    return {
++        "base_url": os.environ.get("ROUTER_BASE_URL", ROUTER_DEFAULT_BASE_URL),
++        "api_key": api_key,
++    }
++
++
++def router_chat_model(feature: str = "gpt-researcher", **kwargs: Any):
++    """LangChain chat model backed by Router's OpenAI Responses API.
++
++    ``kwargs`` are ChatOpenAI options (``model`` must be a Router model ID).
++    Router-only fields are sent via ``extra_body``; a caller-supplied
++    ``extra_body`` (e.g. from LLM_KWARGS) wins over the env-derived defaults.
++    """
++    _check_pkg("langchain_openai")
++    from langchain_openai import ChatOpenAI
++
++    if not kwargs.get("model"):
++        raise ValueError(
++            "A Router model ID is required (from Router's GET /v1/models). "
++            "Set it via FAST_LLM / SMART_LLM / STRATEGIC_LLM = 'router:<model-id>'."
++        )
++
++    extra_body = {
++        **router_extra_body(default_metadata={"feature": feature}),
++        **(kwargs.pop("extra_body", None) or {}),
++    }
++    if extra_body:
++        kwargs["extra_body"] = extra_body
++
++    return ChatOpenAI(
++        **router_client_kwargs(),
++        use_responses_api=True,
++        **kwargs,
++    )
++
++
+ class ChatLogger:
+     """Helper utility to log all chat requests and their corresponding responses
+     plus the stack trace leading to the call.
+@@ -143,218 +231,22 @@ class GenericLLMProvider:
+             }
+ 
+     @classmethod
+-    def from_provider(cls, provider: str, chat_log: str | None = None, verbose: bool=True, **kwargs: Any):
+-        if provider == "openai":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            # Support custom OpenAI-compatible APIs via OPENAI_BASE_URL
+-            if "openai_api_base" not in kwargs and os.environ.get("OPENAI_BASE_URL"):
+-                kwargs["openai_api_base"] = os.environ["OPENAI_BASE_URL"]
+-
+-            # Report token usage on streamed responses too, so cost
+-            # tracking can use real usage instead of tiktoken estimates.
+-            kwargs.setdefault("stream_usage", True)
+-
+-            llm = ChatOpenAI(**kwargs)
+-        elif provider == "anthropic":
+-            _check_pkg("langchain_anthropic")
+-            from langchain_anthropic import ChatAnthropic
+-
+-            llm = ChatAnthropic(**kwargs)
+-        elif provider == "azure_openai":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import AzureChatOpenAI
+-
+-            if "model" in kwargs:
+-                model_name = kwargs.get("model", None)
+-                kwargs = {"azure_deployment": model_name, **kwargs}
+-
+-            llm = AzureChatOpenAI(**kwargs)
+-        elif provider == "cohere":
+-            _check_pkg("langchain_cohere")
+-            from langchain_cohere import ChatCohere
+-
+-            llm = ChatCohere(**kwargs)
+-        elif provider == "google_vertexai":
+-            _check_pkg("langchain_google_vertexai")
+-            from langchain_google_vertexai import ChatVertexAI
+-
+-            llm = ChatVertexAI(**kwargs)
+-        elif provider == "google_genai":
+-            _check_pkg("langchain_google_genai")
+-            from langchain_google_genai import ChatGoogleGenerativeAI
+-
+-            llm = ChatGoogleGenerativeAI(**kwargs)
+-        elif provider == "fireworks":
+-            _check_pkg("langchain_fireworks")
+-            from langchain_fireworks import ChatFireworks
+-
+-            llm = ChatFireworks(**kwargs)
+-        elif provider == "ollama":
+-            _check_pkg("langchain_community")
+-            _check_pkg("langchain_ollama")
+-            from langchain_ollama import ChatOllama
+-
+-            # Use OLLAMA_BASE_URL from env if not already supplied in kwargs;
+-            # fall back to the Ollama default so OLLAMA_BASE_URL is optional.
+-            if "base_url" not in kwargs:
+-                kwargs["base_url"] = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+-
+-            llm = ChatOllama(**kwargs)
+-        elif provider == "together":
+-            _check_pkg("langchain_together")
+-            from langchain_together import ChatTogether
+-
+-            llm = ChatTogether(**kwargs)
+-        elif provider == "mistralai":
+-            _check_pkg("langchain_mistralai")
+-            from langchain_mistralai import ChatMistralAI
+-
+-            # Support custom Mistral-compatible APIs via MISTRAL_BASE_URL
+-            if "endpoint" not in kwargs and "base_url" not in kwargs and os.environ.get("MISTRAL_BASE_URL"):
+-                kwargs["endpoint"] = os.environ["MISTRAL_BASE_URL"]
+-
+-            llm = ChatMistralAI(**kwargs)
+-        elif provider == "huggingface":
+-            _check_pkg("langchain_huggingface")
+-            from langchain_huggingface import ChatHuggingFace
+-
+-            if "model" in kwargs or "model_name" in kwargs:
+-                model_id = kwargs.pop("model", None) or kwargs.pop("model_name", None)
+-                kwargs = {"model_id": model_id, **kwargs}
+-            llm = ChatHuggingFace(**kwargs)
+-        elif provider == "groq":
+-            _check_pkg("langchain_groq")
+-            from langchain_groq import ChatGroq
+-
+-            llm = ChatGroq(**kwargs)
+-        elif provider == "bedrock":
+-            _check_pkg("langchain_aws")
+-            from langchain_aws import ChatBedrock
+-
+-            if "model" in kwargs or "model_name" in kwargs:
+-                model_id = kwargs.pop("model", None) or kwargs.pop("model_name", None)
+-                kwargs = {"model_id": model_id, "model_kwargs": kwargs}
+-            llm = ChatBedrock(**kwargs)
+-        elif provider == "dashscope":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://dashscope.aliyuncs.com/compatible-mode/v1',
+-                     openai_api_key=os.environ["DASHSCOPE_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "xai":
+-            _check_pkg("langchain_xai")
+-            from langchain_xai import ChatXAI
+-
+-            llm = ChatXAI(**kwargs)
+-        elif provider == "deepseek":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.deepseek.com',
+-                     openai_api_key=os.environ["DEEPSEEK_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "atlascloud":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.atlascloud.ai/v1',
+-                     openai_api_key=os.environ["ATLASCLOUD_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "litellm":
+-            _check_pkg("langchain_community")
+-            from langchain_community.chat_models.litellm import ChatLiteLLM
+-
+-            llm = ChatLiteLLM(**kwargs)
+-        elif provider == "gigachat":
+-            _check_pkg("langchain_gigachat")
+-            from langchain_gigachat.chat_models import GigaChat
+-
+-            kwargs.pop("model", None) # Use env GIGACHAT_MODEL=GigaChat-Max
+-            llm = GigaChat(**kwargs)
+-        elif provider == "openrouter":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-            from langchain_core.rate_limiters import InMemoryRateLimiter
+-
+-            rps = float(os.environ["OPENROUTER_LIMIT_RPS"]) if "OPENROUTER_LIMIT_RPS" in os.environ else 1.0
+-
+-            rate_limiter = InMemoryRateLimiter(
+-                requests_per_second=rps,
+-                check_every_n_seconds=0.1,
+-                max_bucket_size=10,
+-            )
+-
+-            llm = ChatOpenAI(openai_api_base='https://openrouter.ai/api/v1',
+-                     request_timeout=180,
+-                     openai_api_key=os.environ["OPENROUTER_API_KEY"],
+-                     rate_limiter=rate_limiter,
+-                     **kwargs
+-                )
+-        elif provider == "vllm_openai":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-            llm = ChatOpenAI(
+-                openai_api_key=os.environ["VLLM_OPENAI_API_KEY"],
+-                openai_api_base=os.environ["VLLM_OPENAI_API_BASE"],
+-                **kwargs
+-            )
+-        elif provider == "aimlapi":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.aimlapi.com/v1',
+-                             openai_api_key=os.environ["AIMLAPI_API_KEY"],
+-                             **kwargs
+-                             )
+-        elif provider == "forge":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.forge.tensorblock.co/v1',
+-                     openai_api_key=os.environ["FORGE_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "avian":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.avian.io/v1',
+-                     openai_api_key=os.environ["AVIAN_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "minimax":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            llm = ChatOpenAI(openai_api_base='https://api.minimax.io/v1',
+-                     openai_api_key=os.environ["MINIMAX_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == "nebius":
+-            _check_pkg("langchain_openai")
+-            from langchain_openai import ChatOpenAI
+-
+-            # NEBIUS_BASE_URL overrides the default endpoint (self-hosted / regional)
+-            llm = ChatOpenAI(openai_api_base=os.getenv("NEBIUS_BASE_URL", 'https://api.tokenfactory.nebius.com/v1'),
+-                     openai_api_key=os.environ["NEBIUS_API_KEY"],
+-                     **kwargs
+-                )
+-        elif provider == 'netmind':
+-            _check_pkg("langchain_netmind")
+-            from langchain_netmind import ChatNetmind
+-
+-            llm = ChatNetmind(**kwargs)
+-        else:
+-            supported = ", ".join(_SUPPORTED_PROVIDERS)
++    def from_provider(cls, provider: str | None, chat_log: str | None = None, verbose: bool=True, **kwargs: Any):
++        """Build the LLM client.
++
++        Every model is served through Router's OpenAI Responses API
++        (``POST /v1/responses``), so there is a single client regardless of
++        which upstream provider Router picks for the configured model ID.
++        """
++        if provider not in (None, "router"):
++            supported = ", ".join(sorted(_SUPPORTED_PROVIDERS))
+             raise ValueError(
+-                f"Unsupported {provider}.\n\nSupported model providers are: {supported}"
++                f"Unsupported {provider}.\n\nAll LLM traffic now goes through Router. "
++                f"Supported model providers are: {supported}. Set FAST_LLM / SMART_LLM / "
++                "STRATEGIC_LLM to 'router:<model-id>' using an ID from Router's GET /v1/models."
+             )
++
++        llm = router_chat_model(**kwargs)
+         return cls(llm, chat_log, verbose=verbose)
+ 
+ 
+@@ -365,7 +257,9 @@ class GenericLLMProvider:
+             output = await self.llm.ainvoke(messages, **kwargs)
+             self._capture_response_metadata(output)
+ 
+-            res = output.content
++            # Responses output is a list of typed items (text, reasoning, tool
++            # calls...). `.text` joins only the text output, i.e. output_text.
++            res = output.text
+ 
+         else:
+             res = await self.stream_response(messages, websocket, **kwargs)
+@@ -383,7 +277,8 @@ class GenericLLMProvider:
+         # Streaming the response using the chain astream method from langchain
+         async for chunk in self.llm.astream(messages, **kwargs):
+             self._capture_response_metadata(chunk)
+-            content = chunk.content
++            # Responses SSE deltas arrive as content blocks; keep text deltas only.
++            content = chunk.text
+             if not content:
+                 continue
+             response += content
+diff --git a/gpt_researcher/mcp/research.py b/gpt_researcher/mcp/research.py
+index b83d639b..70ad2328 100644
+--- a/gpt_researcher/mcp/research.py
++++ b/gpt_researcher/mcp/research.py
+@@ -134,17 +134,19 @@ class MCPResearchSkill:
+                         logger.error(f"Error executing tool {tool_name}: {e}")
+                         continue
+                         
+-            # Also include the LLM's own analysis/response as a result
+-            if hasattr(response, 'content') and response.content:
++            # Also include the LLM's own analysis/response as a result.
++            # Responses output is a list of typed items; `.text` is the text output.
++            response_text = getattr(response, 'text', '') or ''
++            if response_text:
+                 llm_analysis = {
+                     "title": f"LLM Analysis: {query}",
+                     "href": "mcp://llm_analysis",
+-                    "body": response.content
++                    "body": response_text
+                 }
+                 research_results.append(llm_analysis)
+                 
+                 # Log LLM analysis content
+-                analysis_preview = response.content[:300] + "..." if len(response.content) > 300 else response.content
++                analysis_preview = response_text[:300] + "..." if len(response_text) > 300 else response_text
+                 logger.debug(f"LLM Analysis: {analysis_preview}")
+                 logger.info("Added LLM analysis to results")
+             
+diff --git a/gpt_researcher/utils/llm.py b/gpt_researcher/utils/llm.py
+index d914f60a..779c458b 100644
+--- a/gpt_researcher/utils/llm.py
++++ b/gpt_researcher/utils/llm.py
+@@ -17,6 +17,7 @@ from gpt_researcher.llm_provider.generic.base import (
+     NO_SUPPORT_TEMPERATURE_MODELS,
+     SUPPORT_REASONING_EFFORT_MODELS,
+     ReasoningEfforts,
++    model_in,
+ )
+ 
+ from ..prompts import PromptFamily
+@@ -69,7 +70,10 @@ async def create_chat_completion(
+     """
+     # validate input
+     if model is None:
+-        raise ValueError("Model cannot be None")
++        raise ValueError(
++            "Model cannot be None. Set FAST_LLM / SMART_LLM / STRATEGIC_LLM to "
++            "'router:<model-id>' with an ID from Router's GET /v1/models."
++        )
+     # Sanity guard against absurd values (e.g., env var typos). The actual
+     # per-model output limits are enforced by the upstream provider.
+     if max_tokens is not None and max_tokens > 200_000:
+@@ -83,15 +87,15 @@ async def create_chat_completion(
+     # Get the provider from supported providers
+     provider_kwargs = {'model': model}
+ 
+-    if model in SUPPORT_REASONING_EFFORT_MODELS:
++    if model_in(model, SUPPORT_REASONING_EFFORT_MODELS):
+         provider_kwargs['reasoning_effort'] = reasoning_effort
+ 
+-    if model not in NO_SUPPORT_TEMPERATURE_MODELS:
++    if not model_in(model, NO_SUPPORT_TEMPERATURE_MODELS):
+         provider_kwargs['temperature'] = temperature
+     else:
+         # These models enforce their default temperature, but output limits
+-        # still apply (langchain-openai maps max_tokens to the API's
+-        # max_completion_tokens). Note that for reasoning models the limit
++        # still apply (langchain-openai maps max_tokens to the Responses API's
++        # max_output_tokens). Note that for reasoning models the limit
+         # covers reasoning tokens too, so budgets need extra headroom.
+         provider_kwargs['temperature'] = None
+     provider_kwargs['max_tokens'] = max_tokens
+@@ -109,11 +113,6 @@ async def create_chat_completion(
+         except json.JSONDecodeError:
+             pass
+ 
+-    if llm_provider == "openai":
+-        base_url = os.environ.get("OPENAI_BASE_URL", None)
+-        if base_url:
+-            provider_kwargs['openai_api_base'] = base_url
+-
+     provider = get_llm(llm_provider, **provider_kwargs)
+     response = ""
+     # create response
+@@ -199,7 +198,7 @@ async def construct_subtopics(
+         if config.llm_kwargs:
+             provider_kwargs.update(config.llm_kwargs)
+ 
+-        if config.smart_llm_model in SUPPORT_REASONING_EFFORT_MODELS:
++        if model_in(config.smart_llm_model, SUPPORT_REASONING_EFFORT_MODELS):
+             provider_kwargs['reasoning_effort'] = ReasoningEfforts.High.value
+         else:
+             provider_kwargs['temperature'] = config.temperature
+diff --git a/gpt_researcher/utils/tools.py b/gpt_researcher/utils/tools.py
+index 9f2aeb28..67e3378c 100644
+--- a/gpt_researcher/utils/tools.py
++++ b/gpt_researcher/utils/tools.py
+@@ -30,7 +30,8 @@ def _track_response_cost(
+     if not cost_callback:
+         return
+ 
+-    response_content = getattr(response_message, "content", "") or ""
++    # Responses output is a list of typed items; cost the text output only.
++    response_content = getattr(response_message, "text", "") or ""
+     llm_costs = calculate_llm_cost(
+         llm_provider=llm_provider,
+         model=model,
+@@ -197,11 +198,11 @@ async def create_chat_completion_with_tools(
+                 cost_callback=cost_callback,
+             )
+              
+-            return final_response.content, tool_calls_metadata
++            return final_response.text, tool_calls_metadata
+          
+         else:
+             # No tool calls, return regular response
+-            return response.content, []
++            return response.text, []
+         
+     except Exception as e:
+         error_type = type(e).__name__
+@@ -324,8 +325,10 @@ def get_available_providers_with_tools() -> List[str]:
+     Returns:
+         List of provider names that support function calling
+     """
+-    # These are the providers known to support function calling in LangChain
++    # These are the providers known to support function calling in LangChain.
++    # "router" serves function tools through the OpenAI Responses API.
+     return [
++        "router",
+         "openai",
+         "anthropic", 
+         "google_genai",
+diff --git a/multi_agents/ag2/agents/orchestrator.py b/multi_agents/ag2/agents/orchestrator.py
+index 1a695901..00dbb3c3 100644
+--- a/multi_agents/ag2/agents/orchestrator.py
++++ b/multi_agents/ag2/agents/orchestrator.py
+@@ -41,12 +41,22 @@ class ChiefEditorAgent:
+         return output_dir
+ 
+     def _llm_config(self) -> Dict[str, Any]:
+-        model_name = self.task.get("model") or "gpt-4o"
++        from gpt_researcher.llm_provider.generic.base import router_client_kwargs
++
++        # Model comes from STRATEGIC_LLM via open_task(); no hardcoded fallback.
++        model_name = self.task.get("model")
++        if not model_name:
++            raise ValueError(
++                "No model configured. Set STRATEGIC_LLM='router:<model-id>' "
++                "using an ID from Router's GET /v1/models."
++            )
+         return {
+             "config_list": [
+                 {
+                     "model": model_name,
+-                    "api_type": "openai",
++                    # OpenAI Responses client pointed at Router.
++                    "api_type": "responses",
++                    **router_client_kwargs(),
+                 }
+             ],
+             "temperature": 0,
+diff --git a/multi_agents/ag2/main.py b/multi_agents/ag2/main.py
+index 1239e6db..b60a18dd 100644
+--- a/multi_agents/ag2/main.py
++++ b/multi_agents/ag2/main.py
+@@ -24,12 +24,12 @@ def open_task() -> dict:
+             "No task found. Please ensure a valid task.json file is present in the multi_agents/ag2 directory."
+         )
+ 
+-    strategic_llm = os.environ.get("STRATEGIC_LLM")
+-    if strategic_llm and ":" in strategic_llm:
+-        model_name = strategic_llm.split(":", 1)[1]
++    # The model comes from STRATEGIC_LLM ('router:<model-id>', an ID from
++    # Router's GET /v1/models); task.json does not pin a model name.
++    from gpt_researcher.config.config import Config
++    _, model_name = Config.parse_llm(os.environ.get("STRATEGIC_LLM"))
++    if model_name:
+         task["model"] = model_name
+-    elif strategic_llm:
+-        task["model"] = strategic_llm
+ 
+     return task
+ 
+diff --git a/multi_agents/ag2/task.json b/multi_agents/ag2/task.json
+index 9299218c..b271eeb1 100644
+--- a/multi_agents/ag2/task.json
++++ b/multi_agents/ag2/task.json
+@@ -9,7 +9,6 @@
+   },
+   "include_human_feedback": false,
+   "follow_guidelines": false,
+-  "model": "gpt-4o",
+   "guidelines": [
+     "The report MUST be written in APA format",
+     "Each sub section MUST include supporting sources using hyperlinks. If none exist, erase the sub section or rewrite it to be a part of the previous section",
+diff --git a/multi_agents/agent.py b/multi_agents/agent.py
+index c86a534d..ca5fb114 100644
+--- a/multi_agents/agent.py
++++ b/multi_agents/agent.py
+@@ -1,3 +1,6 @@
++import os
++
++from gpt_researcher.config.config import Config
+ from multi_agents.agents import ChiefEditorAgent
+ 
+ chief_editor = ChiefEditorAgent({
+@@ -5,7 +8,8 @@ chief_editor = ChiefEditorAgent({
+   "max_sections": 3,
+   "max_plan_revisions": 3,
+   "follow_guidelines": False,
+-  "model": "gpt-4o",
++  # Router model ID from STRATEGIC_LLM ('router:<model-id>'), not hardcoded.
++  "model": Config.parse_llm(os.environ.get("STRATEGIC_LLM"))[1],
+   "guidelines": [
+     "The report MUST be written in APA format",
+     "Each sub section MUST include supporting sources using hyperlinks. If none exist, erase the sub section or rewrite it to be a part of the previous section",
+diff --git a/multi_agents/main.py b/multi_agents/main.py
+index 38f95bd0..1484238c 100644
+--- a/multi_agents/main.py
++++ b/multi_agents/main.py
+@@ -55,14 +55,12 @@ def open_task():
+     if not task:
+         raise Exception("No task found. Please ensure a valid task.json file is present in the multi_agents directory and contains the necessary task information.")
+ 
+-    # Override model with STRATEGIC_LLM if defined in environment
+-    strategic_llm = os.environ.get("STRATEGIC_LLM")
+-    if strategic_llm and ":" in strategic_llm:
+-        # Extract the model name (part after the first colon)
+-        model_name = strategic_llm.split(":", 1)[1]
++    # The model comes from STRATEGIC_LLM ('router:<model-id>', an ID from
++    # Router's GET /v1/models); task.json does not pin a model name.
++    from gpt_researcher.config.config import Config
++    _, model_name = Config.parse_llm(os.environ.get("STRATEGIC_LLM"))
++    if model_name:
+         task["model"] = model_name
+-    elif strategic_llm:
+-        task["model"] = strategic_llm
+ 
+     return task
+ 
+diff --git a/multi_agents/task.json b/multi_agents/task.json
+index 3b5d6069..7a78a28f 100644
+--- a/multi_agents/task.json
++++ b/multi_agents/task.json
+@@ -9,7 +9,6 @@
+   },
+   "include_human_feedback": false,
+   "follow_guidelines": false,
+-  "model": "gpt-5.4",
+   "guidelines": [
+     "The report MUST be written in APA format",
+     "Each sub section MUST include supporting sources using hyperlinks. If none exist, erase the sub section or rewrite it to be a part of the previous section",
+diff --git a/requirements.txt b/requirements.txt
+index f50d76f1..296234cd 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -18,7 +18,7 @@ langchain-text-splitters>=1.0.0
+ langgraph>=0.2.76
+ 
+ # LLM Providers
+-openai>=1.3.3
++openai>=1.82.0  # Responses API (Router)
+ ollama>=0.4.8
+ litellm>=1.71.0
+ google-genai>=1.0.0  # For image generation with Imagen
+diff --git a/terraform/github-actions-setup/main.tf b/terraform/github-actions-setup/main.tf
+index 4b8c3962..6afbe0bb 100644
+--- a/terraform/github-actions-setup/main.tf
++++ b/terraform/github-actions-setup/main.tf
+@@ -15,8 +15,8 @@ data "terraform_remote_state" "shared" {
+ data "aws_secretsmanager_secret" "secret_manager_openwebui" {
+   name = var.secret_manager_openwebui
+ }
+-data "aws_secretsmanager_secret" "webui_pipeline_secret_manager" {
+-  name = var.webui_pipeline_secret_manager
++data "aws_secretsmanager_secret" "ramp_router_api_key" {
++  name = var.ramp_router_api_key_secret
+ }
+ 
+ # Use the shared github-actions-iam module
+@@ -35,7 +35,7 @@ module "github_actions_iam" {
+   additional_s3_resource_arns       = []
+   additional_efs_resource_arns      = []
+   additional_postgres_resource_arns = []
+-  additional_secrets_resource_arns  = ["${data.aws_secretsmanager_secret.webui_pipeline_secret_manager.arn}"]
++  additional_secrets_resource_arns  = ["${data.aws_secretsmanager_secret.ramp_router_api_key.arn}"]
+   # Github OIDC Provider (from shared-infrastructure)
+   github_oidc_provider_arn = data.terraform_remote_state.shared.outputs.github_oidc_provider_arn
+   # Otional ECR repository
+diff --git a/terraform/github-actions-setup/variables.tf b/terraform/github-actions-setup/variables.tf
+index 8a96e56d..943fae50 100644
+--- a/terraform/github-actions-setup/variables.tf
++++ b/terraform/github-actions-setup/variables.tf
+@@ -16,10 +16,9 @@ variable "environment" {
+   default     = "prod"
+ }
+ 
+-variable "webui_pipeline_secret_manager" {
+-  description = "OAth client credentials for GPT Researcher"
++variable "ramp_router_api_key_secret" {
++  description = "Name/ARN of the AWS Secrets Manager secret holding the Router API key (RAMP_ROUTER_API_KEY)"
+   type        = string
+-  default     = "arn:aws:secretsmanager:us-east-1:908027381725:secret:webUIpipelinesOpenAIApiKey-uUPw5T"
+ }
+ 
+ variable "service_name" {
+diff --git a/terraform/main.tf b/terraform/main.tf
+index 54d1f4ff..02a75c79 100644
+--- a/terraform/main.tf
++++ b/terraform/main.tf
+@@ -21,8 +21,10 @@ data "aws_ecr_repository" "app" {
+ data "aws_secretsmanager_secret" "openwebui_secret_manager" {
+   name = var.openwebui_secret_manager
+ }
+-data "aws_secretsmanager_secret" "webui_pipieline_credentials" {
+-  name = var.webui_pipieline_credentials
++# Router API key (RAMP_ROUTER_API_KEY). Router holds the LLM provider
++# credentials, so no provider API key is injected into the service.
++data "aws_secretsmanager_secret" "ramp_router_api_key" {
++  name = var.ramp_router_api_key_secret
+ }
+ 
+ # Common module for shared constants - NOW REMOTE
+@@ -129,7 +131,7 @@ resource "aws_iam_role_policy" "website_content_agents_secrets_policy" {
+         ]
+         Resource = [
+           "${data.aws_secretsmanager_secret.openwebui_secret_manager.arn}",
+-          "${data.aws_secretsmanager_secret.webui_pipieline_credentials.arn}",
++          "${data.aws_secretsmanager_secret.ramp_router_api_key.arn}",
+         ]
+       },
+       {
+@@ -176,7 +178,7 @@ module "ecs_service" {
+   }
+ 
+   secrets = {
+-    OPENAI_API_KEY         = "${data.aws_secretsmanager_secret.webui_pipieline_credentials.arn}"
++    RAMP_ROUTER_API_KEY    = "${data.aws_secretsmanager_secret.ramp_router_api_key.arn}"
+     AWS_ACCESS_KEY         = "${data.aws_secretsmanager_secret.openwebui_secret_manager.arn}:AI_GENERATED_S3_AWS_ACCESS_KEY::"
+     AWS_SECRET_KEY         = "${data.aws_secretsmanager_secret.openwebui_secret_manager.arn}:AI_GENERATED_S3_AWS_SECRET_KEY::"
+     GOOGLE_API_KEY         = "${data.aws_secretsmanager_secret.openwebui_secret_manager.arn}:GOOGLE_PSE_API_KEY::"
+diff --git a/terraform/variables.tf b/terraform/variables.tf
+index dd1ba63f..03a4d6ce 100644
+--- a/terraform/variables.tf
++++ b/terraform/variables.tf
+@@ -295,10 +295,9 @@ variable "ecs_service_environment" {
+   default     = "production"
+ }
+ 
+-variable "webui_pipieline_credentials" {
+-  description = "Credentials for the Excel Add-in environment was storaged in AWS Secrets Manager"
++variable "ramp_router_api_key_secret" {
++  description = "Name/ARN of the AWS Secrets Manager secret holding the Router API key (injected as RAMP_ROUTER_API_KEY)"
+   type        = string
+-  default     = "arn:aws:secretsmanager:us-east-1:908027381725:secret:webUIpipelinesOpenAIApiKey-uUPw5T"
+ }
+ 
+ variable "cloudmap_service_name" {

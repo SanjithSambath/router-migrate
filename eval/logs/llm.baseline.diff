@@ -1,0 +1,790 @@
+diff --git a/docs/openai-models.md b/docs/openai-models.md
+index 3ccf817..f133323 100644
+--- a/docs/openai-models.md
++++ b/docs/openai-models.md
+@@ -8,76 +8,39 @@ LLM ships with a default plugin for talking to OpenAI's API. OpenAI offer both l
+ 
+ ## Configuration
+ 
+-All OpenAI models are accessed using an API key. You can obtain one from [the API keys page](https://platform.openai.com/api-keys) on their site.
++Language models are served through Router (`https://api.router.com/v1`), a gateway that exposes one OpenAI Responses-compatible API in front of models from multiple providers. Router holds the provider credentials, so LLM only ever sends your Router key.
+ 
+-Once you have created a key, configure LLM to use it by running:
++Set the key using the `RAMP_ROUTER_API_KEY` environment variable, or store it by running:
+ 
+ ```bash
+-llm keys set openai
++llm keys set router
+ ```
+-Then paste in the API key.
+ 
+-(openai-models-language)=
+-
+-## OpenAI language models
+-
+-Run `llm models` for a full list of available models. The OpenAI models supported by LLM are:
++Valid model IDs are specific to your Router account. List them with:
+ 
+-<!-- [[[cog
+-from click.testing import CliRunner
+-from llm.cli import cli
+-result = CliRunner().invoke(cli, ["models", "list"])
+-models = [line for line in result.output.split("\n") if line.startswith("OpenAI ")]
+-cog.out("```\n{}\n```".format("\n".join(models)))
+-]]] -->
++```bash
++llm openai models
+ ```
+-OpenAI Chat: gpt-4o (aliases: 4o)
+-OpenAI Chat: gpt-4o-mini (aliases: 4o-mini)
+-OpenAI Chat: gpt-4.1 (aliases: 4.1)
+-OpenAI Chat: gpt-4.1-mini (aliases: 4.1-mini)
+-OpenAI Chat: gpt-4.1-nano (aliases: 4.1-nano)
+-OpenAI Chat: gpt-3.5-turbo (aliases: 3.5, chatgpt)
+-OpenAI Chat: gpt-3.5-turbo-16k (aliases: chatgpt-16k, 3.5-16k)
+-OpenAI Chat: gpt-4 (aliases: 4, gpt4)
+-OpenAI Chat: gpt-4-turbo-2024-04-09
+-OpenAI Chat: gpt-4-turbo (aliases: gpt-4-turbo-preview, 4-turbo, 4t)
+-OpenAI Responses: o1
+-OpenAI Responses: o1-2024-12-17
+-OpenAI Responses: o3-mini
+-OpenAI Responses: o3
+-OpenAI Responses: o4-mini
+-OpenAI Responses: gpt-5
+-OpenAI Responses: gpt-5-mini
+-OpenAI Responses: gpt-5-nano
+-OpenAI Responses: gpt-5-2025-08-07
+-OpenAI Responses: gpt-5-mini-2025-08-07
+-OpenAI Responses: gpt-5-nano-2025-08-07
+-OpenAI Responses: gpt-5.1
+-OpenAI Responses: gpt-5.2
+-OpenAI Responses: gpt-5.2-chat-latest
+-OpenAI Responses: gpt-5.4
+-OpenAI Responses: gpt-5.4-2026-03-05
+-OpenAI Responses: gpt-5.4-mini
+-OpenAI Responses: gpt-5.4-mini-2026-03-17
+-OpenAI Responses: gpt-5.4-nano
+-OpenAI Responses: gpt-5.4-nano-2026-03-17
+-OpenAI Responses: gpt-5.5
+-OpenAI Responses: gpt-5.5-2026-04-23
+-OpenAI Responses: gpt-5.6-sol
+-OpenAI Responses: gpt-5.6-terra
+-OpenAI Responses: gpt-5.6-luna
+-OpenAI Responses: gpt-6-astra
+-OpenAI Responses: gpt-6-sol
+-OpenAI Responses: gpt-6-luna
+-OpenAI Completion: gpt-3.5-turbo-instruct (aliases: 3.5-instruct, chatgpt-instruct)
++Then configure the models LLM should register:
++
++```bash
++# The default model, used when no -m/--model is given
++export LLM_ROUTER_DEFAULT_MODEL='<model-id>'
++# Optional: further comma-separated model IDs to register
++export LLM_ROUTER_MODELS='<model-id>,<model-id>'
+ ```
+-<!-- [[[end]]] -->
+ 
+-See [the OpenAI models documentation](https://platform.openai.com/docs/models) for details of each of these.
++These models are registered with text, tool calling and schema support. Image, PDF and audio attachments and reasoning options are not enabled by default because support depends on the target model; once you have confirmed a model supports them, register it in `extra-openai-models.yaml` (see below) with `vision: true` or `reasoning: true`. Entries in that file without an `api_base` are served by Router using the Responses API.
++
++Router does not provide Chat Completions, legacy Completions or embeddings endpoints.
++
++(openai-models-language)=
++
++## OpenAI language models
+ 
+-[GPT-6 Sol](https://developers.openai.com/api/docs/models/gpt-6-sol) and [GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) use the Responses API by default and support `-o reasoning_effort` values of `none`, `low`, `medium`, `high`, `xhigh` and `max`. If you opt into Chat Completions with `-o chat_completions 1`, function calling requires `-o reasoning_effort none`.
++The language models available to LLM are the Router model IDs configured through `LLM_ROUTER_DEFAULT_MODEL` and `LLM_ROUTER_MODELS` (see {ref}`openai-models-configuration`). Run `llm models` to see which are registered, and `llm openai models` to list every model ID your Router account can use.
+ 
+-`gpt-6-luna` is OpenAI's cheapest frontier model, and is the default for if you don't specify a model at all. Consult [OpenAI's model documentation](https://platform.openai.com/docs/models) for details of the other models.
++All of these models use the OpenAI Responses API. There is no default model unless you set `LLM_ROUTER_DEFAULT_MODEL` or run `llm models default <model-id>`.
+ 
+ ## Model features
+ 
+@@ -237,7 +200,7 @@ The vector size of the supported OpenAI embedding models are as follows:
+ 
+ ## OpenAI completion models
+ 
+-The `gpt-3.5-turbo-instruct` model is a little different - it is a completion model rather than a chat model, described in [the OpenAI completions documentation](https://platform.openai.com/docs/api-reference/completions/create).
++Router does not serve the legacy Completions API, so completion models (`completion: true` in `extra-openai-models.yaml`) only work against an endpoint configured with an explicit `api_base`.
+ 
+ (openai-extra-models)=
+ 
+diff --git a/llm/__init__.py b/llm/__init__.py
+index 3b33f33..91be5a3 100644
+--- a/llm/__init__.py
++++ b/llm/__init__.py
+@@ -90,7 +90,13 @@ __all__ = [
+     "user",
+     "user_dir",
+ ]
+-DEFAULT_MODEL = "gpt-6-luna"
++# Models are served through Router, where valid model IDs are
++# account-specific (listed by Router's GET /v1/models, or `llm openai
++# models`). The default model is therefore configuration, not code: set it
++# with `llm models default <model-id>` or the environment variable below.
++DEFAULT_MODEL_ENV_VAR = "LLM_ROUTER_DEFAULT_MODEL"
++DEFAULT_MODEL: str | None = None
++_DEFAULT_MODEL_FROM_ENV: Any = object()
+ 
+ 
+ def get_plugins(all=False):
+@@ -313,6 +319,16 @@ class UnknownModelError(KeyError):
+     pass
+ 
+ 
++def _require_model_name(name: str | None) -> str:
++    if not name:
++        raise UnknownModelError(
++            "No model specified and no default model configured - set the "
++            f"{DEFAULT_MODEL_ENV_VAR} environment variable or run "
++            "'llm models default <model-id>'"
++        )
++    return name
++
++
+ def get_models() -> list[Model]:
+     "Get all registered models"
+     models_with_aliases = get_models_with_aliases()
+@@ -328,7 +344,7 @@ def get_async_models() -> list[AsyncModel]:
+ def get_async_model(name: str | None = None) -> AsyncModel:
+     "Get an async model by name or alias"
+     aliases = get_async_model_aliases()
+-    name = name or get_default_model()
++    name = _require_model_name(name or get_default_model())
+     try:
+         return aliases[name]
+     except KeyError:
+@@ -347,7 +363,7 @@ def get_async_model(name: str | None = None) -> AsyncModel:
+ def get_model(name: str | None = None, _skip_async: bool = False) -> Model:
+     "Get a model by name or alias"
+     aliases = get_model_aliases()
+-    name = name or get_default_model()
++    name = _require_model_name(name or get_default_model())
+     try:
+         return aliases[name]
+     except KeyError:
+@@ -484,10 +500,12 @@ def cosine_similarity(a, b):
+     return dot_product / (magnitude_a * magnitude_b)
+ 
+ 
+-def get_default_model(filename="default_model.txt", default=DEFAULT_MODEL):
++def get_default_model(filename="default_model.txt", default=_DEFAULT_MODEL_FROM_ENV):
+     path = user_dir() / filename
+     if path.exists():
+         return path.read_text().strip()
++    elif default is _DEFAULT_MODEL_FROM_ENV:
++        return os.environ.get(DEFAULT_MODEL_ENV_VAR) or DEFAULT_MODEL
+     else:
+         return default
+ 
+diff --git a/llm/cli.py b/llm/cli.py
+index 19396a2..73919c9 100644
+--- a/llm/cli.py
++++ b/llm/cli.py
+@@ -549,11 +549,12 @@ def cli():
+ 
+     https://llm.datasette.io/en/stable/plugins/directory.html
+ 
+-    To get started with OpenAI, obtain an API key from them and:
++    To get started with Router, set the RAMP_ROUTER_API_KEY environment
++    variable (or run 'llm keys set router'), then pick a model ID from
++    'llm openai models' and configure it:
+ 
+     \b
+-        $ llm keys set openai
+-        Enter key: ...
++        $ export LLM_ROUTER_DEFAULT_MODEL=<model-id>
+ 
+     Then execute a prompt like this:
+ 
+@@ -1578,7 +1579,7 @@ def keys_get(name):
+     Example usage:
+ 
+     \b
+-        export OPENAI_API_KEY=$(llm keys get openai)
++        export RAMP_ROUTER_API_KEY=$(llm keys get router)
+     """
+     path = user_dir() / "keys.json"
+     if not path.exists():
+@@ -1600,7 +1601,7 @@ def keys_set(name, value):
+     Example usage:
+ 
+     \b
+-        $ llm keys set openai
++        $ llm keys set router
+         Enter key: ...
+     """
+     default = {"// Note": "This file stores secret API credentials. Do not share!"}
+diff --git a/llm/default_plugins/openai_models.py b/llm/default_plugins/openai_models.py
+index bb85184..c92a0fd 100644
+--- a/llm/default_plugins/openai_models.py
++++ b/llm/default_plugins/openai_models.py
+@@ -36,352 +36,59 @@ from llm.utils import (
+ )
+ 
+ 
+-@hookimpl
+-def register_models(register):
+-    # GPT-4o
+-    register(
+-        Chat(
+-            "gpt-4o",
+-            vision=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncChat(
+-            "gpt-4o",
+-            vision=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        aliases=("4o",),
+-    )
+-    register(
+-        Chat(
+-            "gpt-4o-mini",
+-            vision=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncChat(
+-            "gpt-4o-mini",
+-            vision=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        aliases=("4o-mini",),
+-    )
+-    # GPT-4.1
+-    for model_id in ("gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"):
+-        register(
+-            Chat(
+-                model_id,
+-                vision=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncChat(
+-                model_id,
+-                vision=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            aliases=(model_id.replace("gpt-", ""),),
+-        )
+-    # 3.5 and 4
+-    register(
+-        Chat("gpt-3.5-turbo", service_tier=True),
+-        AsyncChat("gpt-3.5-turbo", service_tier=True),
+-        aliases=("3.5", "chatgpt"),
+-    )
+-    register(
+-        Chat("gpt-3.5-turbo-16k", service_tier=True),
+-        AsyncChat("gpt-3.5-turbo-16k", service_tier=True),
+-        aliases=("chatgpt-16k", "3.5-16k"),
+-    )
+-    register(
+-        Chat("gpt-4", service_tier=True),
+-        AsyncChat("gpt-4", service_tier=True),
+-        aliases=("4", "gpt4"),
+-    )
+-    # GPT-4 Turbo models
+-    register(
+-        Chat("gpt-4-turbo-2024-04-09", service_tier=True),
+-        AsyncChat("gpt-4-turbo-2024-04-09", service_tier=True),
+-    )
+-    register(
+-        Chat("gpt-4-turbo", service_tier=True),
+-        AsyncChat("gpt-4-turbo", service_tier=True),
+-        aliases=("gpt-4-turbo-preview", "4-turbo", "4t"),
+-    )
+-    # o1
+-    for model_id in ("o1", "o1-2024-12-17"):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                can_stream=False,
+-                reasoning=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                can_stream=False,
+-                reasoning=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
++#: Router: one OpenAI Responses-compatible API in front of models from
++#: multiple providers. Router holds the provider credentials - this plugin
++#: only ever sends the Router key.
++ROUTER_BASE_URL = "https://api.router.com/v1"
++ROUTER_KEY_ALIAS = "router"
++ROUTER_KEY_ENV_VAR = "RAMP_ROUTER_API_KEY"
++#: Comma-separated Router model IDs to register. Valid IDs are
++#: account-specific: list them with ``llm openai models`` (GET /v1/models).
++ROUTER_MODELS_ENV_VAR = "LLM_ROUTER_MODELS"
++
++CHAT_COMPLETIONS_UNSUPPORTED = (
++    "Router does not serve the Chat Completions or legacy Completions APIs - "
++    "use a Responses model, or configure an explicit api_base for this model"
++)
+ 
+-    register(
+-        Responses(
+-            "o3-mini",
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncResponses(
+-            "o3-mini",
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-    )
+-    register(
+-        Responses(
+-            "o3",
+-            vision=True,
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncResponses(
+-            "o3",
+-            vision=True,
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-    )
+-    register(
+-        Responses(
+-            "o4-mini",
+-            vision=True,
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncResponses(
+-            "o4-mini",
+-            vision=True,
+-            reasoning=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-    )
+-    # GPT-5
+-    for model_id in (
+-        "gpt-5",
+-        "gpt-5-mini",
+-        "gpt-5-nano",
+-        "gpt-5-2025-08-07",
+-        "gpt-5-mini-2025-08-07",
+-        "gpt-5-nano-2025-08-07",
+-    ):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
+-    # GPT-5.1
+-    register(
+-        Responses(
+-            "gpt-5.1",
+-            vision=True,
+-            reasoning=True,
+-            verbosity=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-        AsyncResponses(
+-            "gpt-5.1",
+-            vision=True,
+-            reasoning=True,
+-            verbosity=True,
+-            service_tier=True,
+-            supports_schema=True,
+-            supports_tools=True,
+-        ),
+-    )
+-    # GPT-5.2
+-    for model_id in ("gpt-5.2", "gpt-5.2-chat-latest"):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
+-        # "gpt-5.2-pro" is Responses API only
+-
+-    # GPT-5.4
+-    for model_id in (
+-        "gpt-5.4",
+-        "gpt-5.4-2026-03-05",
+-        "gpt-5.4-mini",
+-        "gpt-5.4-mini-2026-03-17",
+-        "gpt-5.4-nano",
+-        "gpt-5.4-nano-2026-03-17",
+-    ):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
+-    # GPT-5.5 — routes through the Responses API by default; pass
+-    # ``-o chat_completions 1`` to fall back to /v1/chat/completions.
+-    for model_id in (
+-        "gpt-5.5",
+-        "gpt-5.5-2026-04-23",
+-    ):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
+ 
+-    # GPT-5.6
+-    for model_id in ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
+-        register(
+-            Responses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-            AsyncResponses(
+-                model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+-                supports_schema=True,
+-                supports_tools=True,
+-            ),
+-        )
+-    # GPT-6
+-    for model_id in ("gpt-6-astra", "gpt-6-sol", "gpt-6-luna"):
++def router_model_ids() -> list[str]:
++    """Router model IDs configured via environment variables, in order and
++    de-duplicated. The default model (``LLM_ROUTER_DEFAULT_MODEL``) is
++    always included so it resolves without being listed twice."""
++    candidates = [
++        os.environ.get(llm.DEFAULT_MODEL_ENV_VAR) or "",
++        *(os.environ.get(ROUTER_MODELS_ENV_VAR) or "").split(","),
++    ]
++    model_ids: list[str] = []
++    for candidate in candidates:
++        candidate = candidate.strip()
++        if candidate and candidate not in model_ids:
++            model_ids.append(candidate)
++    return model_ids
++
++
++@hookimpl
++def register_models(register):
++    # Models are served through Router's Responses API. Model IDs are
++    # account-specific (GET /v1/models), so they come from configuration
++    # rather than being hardcoded here. Image/PDF/audio input and reasoning
++    # options are left off by default because support depends on the target
++    # model; enable them per model in extra-openai-models.yaml once confirmed.
++    for model_id in router_model_ids():
+         register(
+             Responses(
+                 model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+                 supports_schema=True,
+                 supports_tools=True,
+             ),
+             AsyncResponses(
+                 model_id,
+-                vision=True,
+-                reasoning=True,
+-                verbosity=True,
+-                image_detail_original=True,
+-                service_tier=True,
+                 supports_schema=True,
+                 supports_tools=True,
+             ),
+         )
+ 
+-    # The -instruct completion model
+-    register(
+-        Completion("gpt-3.5-turbo-instruct", default_max_tokens=256),
+-        aliases=("3.5-instruct", "chatgpt-instruct"),
+-    )
+-
+     # Load extra models
+     extra_path = llm.user_dir() / "extra-openai-models.yaml"
+     if not extra_path.exists():
+@@ -414,7 +121,9 @@ def register_models(register):
+         if extra_model.get("completion"):
+             klass = Completion
+             async_klass = None
+-        elif extra_model.get("responses"):
++        elif extra_model.get("responses") or not api_base:
++            # Models without an explicit api_base are served by Router,
++            # which only exposes the Responses API.
+             klass = Responses
+             async_klass = AsyncResponses
+         else:
+@@ -859,19 +568,19 @@ def register_commands(cli):
+ 
+     @openai_.command()
+     @click.option("json_", "--json", is_flag=True, help="Output as JSON")
+-    @click.option("--key", help="OpenAI API key")
++    @click.option("--key", help="Router API key")
+     def models(json_, key):
+-        "List models available to you from the OpenAI API"
++        "List model IDs available to your account from Router (GET /v1/models)"
+         from llm import get_key
+ 
+-        api_key = get_key(key, "openai", "OPENAI_API_KEY")
++        api_key = get_key(key, ROUTER_KEY_ALIAS, ROUTER_KEY_ENV_VAR)
+         response = httpx2.get(
+-            "https://api.openai.com/v1/models",
++            f"{ROUTER_BASE_URL}/models",
+             headers={"Authorization": f"Bearer {api_key}"},
+         )
+         if response.status_code != 200:
+             raise click.ClickException(
+-                f"Error {response.status_code} from OpenAI API: {response.text}"
++                f"Error {response.status_code} from Router API: {response.text}"
+             )
+         models = response.json()["data"]
+         if json_:
+@@ -880,13 +589,18 @@ def register_commands(cli):
+             to_print = []
+             for model in models:
+                 # Print id, owned_by, root, created as ISO 8601
+-                created_str = datetime.datetime.fromtimestamp(
+-                    model["created"], datetime.timezone.utc
+-                ).isoformat()
++                created = model.get("created")
++                created_str = (
++                    datetime.datetime.fromtimestamp(
++                        created, datetime.timezone.utc
++                    ).isoformat()
++                    if created is not None
++                    else ""
++                )
+                 to_print.append(
+                     {
+                         "id": model["id"],
+-                        "owned_by": model["owned_by"],
++                        "owned_by": model.get("owned_by", ""),
+                         "created": created_str,
+                     }
+                 )
+@@ -1345,8 +1059,8 @@ class _Shared:
+ 
+     def get_client(self, key, *, async_=False):
+         kwargs = {}
+-        if self.api_base:
+-            kwargs["base_url"] = self.api_base
++        # Models without an explicit api_base are served by Router.
++        kwargs["base_url"] = self.api_base or ROUTER_BASE_URL
+         if self.api_type:
+             kwargs["api_type"] = self.api_type
+         if self.api_version:
+@@ -1403,8 +1117,11 @@ class _Shared:
+ 
+ 
+ class Chat(_Shared, KeyModel):
+-    needs_key = "openai"
+-    key_env_var = "OPENAI_API_KEY"
++    # Chat Completions is only used for explicitly configured api_base
++    # endpoints (extra-openai-models.yaml, `llm openai endpoint`); Router
++    # does not serve it.
++    needs_key = ROUTER_KEY_ALIAS
++    key_env_var = ROUTER_KEY_ENV_VAR
+     default_max_tokens = None
+ 
+     Options = build_options_class()
+@@ -1417,6 +1134,8 @@ class Chat(_Shared, KeyModel):
+         conversation: Conversation | None = None,
+         key: str | None = None,
+     ) -> Iterator[str | StreamEvent]:
++        if not self.api_base:
++            raise NotImplementedError(CHAT_COMPLETIONS_UNSUPPORTED)
+         if prompt.system and not self.allows_system_prompt:
+             raise NotImplementedError("Model does not support system prompts")
+         messages = self.build_messages(
+@@ -1521,8 +1240,9 @@ class Chat(_Shared, KeyModel):
+ 
+ 
+ class AsyncChat(_Shared, AsyncKeyModel):
+-    needs_key = "openai"
+-    key_env_var = "OPENAI_API_KEY"
++    # See Chat: only used for explicitly configured api_base endpoints.
++    needs_key = ROUTER_KEY_ALIAS
++    key_env_var = ROUTER_KEY_ENV_VAR
+     default_max_tokens = None
+ 
+     Options = build_options_class()
+@@ -1535,6 +1255,8 @@ class AsyncChat(_Shared, AsyncKeyModel):
+         conversation: AsyncConversation | None = None,
+         key: str | None = None,
+     ) -> AsyncGenerator[str | StreamEvent, None]:
++        if not self.api_base:
++            raise NotImplementedError(CHAT_COMPLETIONS_UNSUPPORTED)
+         if prompt.system and not self.allows_system_prompt:
+             raise NotImplementedError("Model does not support system prompts")
+         messages = self.build_messages(
+@@ -2448,8 +2170,8 @@ class _SharedResponses(_Shared):
+ 
+ 
+ class Responses(_SharedResponses, KeyModel):
+-    needs_key = "openai"
+-    key_env_var = "OPENAI_API_KEY"
++    needs_key = ROUTER_KEY_ALIAS
++    key_env_var = ROUTER_KEY_ENV_VAR
+     default_max_tokens = None
+ 
+     def __init__(
+@@ -2500,13 +2222,14 @@ class Responses(_SharedResponses, KeyModel):
+         self._image_detail_original = image_detail_original
+         self._service_tier = service_tier
+         # Override the Options class so that ``-o chat_completions 1`` is
+-        # always available on Responses-routed models.
++        # available on Responses models with an explicit api_base. Router
++        # has no Chat Completions surface, so Router models omit it.
+         self.Options = build_options_class(
+             reasoning=reasoning,
+             reasoning_summary=reasoning,
+             verbosity=verbosity,
+             image_detail_original=image_detail_original,
+-            chat_completions=True,
++            chat_completions=bool(api_base),
+             service_tier=service_tier,
+         )
+ 
+@@ -2694,8 +2417,8 @@ class Responses(_SharedResponses, KeyModel):
+ 
+ 
+ class AsyncResponses(_SharedResponses, AsyncKeyModel):
+-    needs_key = "openai"
+-    key_env_var = "OPENAI_API_KEY"
++    needs_key = ROUTER_KEY_ALIAS
++    key_env_var = ROUTER_KEY_ENV_VAR
+     default_max_tokens = None
+ 
+     def __init__(
+@@ -2745,12 +2468,13 @@ class AsyncResponses(_SharedResponses, AsyncKeyModel):
+         self._verbosity = verbosity
+         self._image_detail_original = image_detail_original
+         self._service_tier = service_tier
++        # See Responses: no Chat Completions fallback for Router models.
+         self.Options = build_options_class(
+             reasoning=reasoning,
+             reasoning_summary=reasoning,
+             verbosity=verbosity,
+             image_detail_original=image_detail_original,
+-            chat_completions=True,
++            chat_completions=bool(api_base),
+             service_tier=service_tier,
+         )
+ 
+@@ -2963,6 +2687,8 @@ class Completion(Chat):
+         conversation: Conversation | None = None,
+         key: str | None = None,
+     ) -> Iterator[str | StreamEvent]:
++        if not self.api_base:
++            raise NotImplementedError(CHAT_COMPLETIONS_UNSUPPORTED)
+         if prompt.system:
+             raise NotImplementedError(
+                 "System prompts are not supported for OpenAI completion models"

@@ -1,0 +1,1208 @@
+diff --git a/README.md b/README.md
+index ea1b5a2..2345442 100644
+--- a/README.md
++++ b/README.md
+@@ -94,13 +94,20 @@ pip install git+https://github.com/microsoft/TaskWeaver@<TAG>
+ ```
+ 
+ ### 🖊️ Step 2: Configure the LLMs
+-Before running TaskWeaver, you need to provide your LLM configurations. Taking OpenAI as an example, you can configure `taskweaver_config.json` file as follows. 
++Before running TaskWeaver, you need to provide your LLM configurations. All LLM calls go through Router
++(`https://api.router.com/v1`, OpenAI Responses API). Router holds the provider credentials, so no provider API key is configured here.
+ 
+-#### OpenAI
++#### Router
++```bash
++export RAMP_ROUTER_API_KEY=...          # Router key, sent as `Authorization: Bearer`
++export ROUTER_MODEL=...                 # a model ID returned by GET https://api.router.com/v1/models
++# optional: ordered fallback list instead of ROUTER_MODEL
++# export ROUTER_MODELS="provider:model-a,provider:model-b"
++```
++`taskweaver_config.json`:
+ ```json
+ {
+-  "llm.api_key": "the api key",
+-  "llm.model": "the model name, e.g., gpt-4"
++  "llm.api_type": "router"
+ }
+ ```
+ 
+diff --git a/auto_eval/evaluator.py b/auto_eval/evaluator.py
+index 7df3587..66f1d04 100644
+--- a/auto_eval/evaluator.py
++++ b/auto_eval/evaluator.py
+@@ -8,10 +8,10 @@ from typing import Dict, List, Optional, Tuple, Union
+ import yaml
+ from langchain.load import dumps
+ from langchain.schema.messages import AIMessage, HumanMessage, SystemMessage
+-from langchain_community.chat_models import ChatOpenAI
+-from langchain_community.chat_models.azureml_endpoint import AzureMLChatOnlineEndpoint, CustomOpenAIChatContentFormatter
+-from langchain_google_genai import ChatGoogleGenerativeAI
+-from langchain_openai import AzureChatOpenAI
++from langchain.schema.output_parser import StrOutputParser
++from langchain_openai import ChatOpenAI
++
++ROUTER_BASE_URL = "https://api.router.com/v1"
+ 
+ EVALUATOR_PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), "evaluator_prompt.yaml")
+ VIRTUAL_USER_PROMPT_FILE_PATH = os.path.join(os.path.dirname(__file__), "virtual_user_prompt.yaml")
+@@ -40,40 +40,18 @@ def get_config(config: Dict[str, str], var_name: str) -> str:
+         raise ValueError(f"Config value {var_name} is not found in evaluator_config.json or environment variables.")
+ 
+ 
+-def config_llm(config: Dict[str, str]) -> Union[ChatOpenAI, AzureChatOpenAI]:
+-    api_type = get_config(config, "llm.api_type")
+-    if api_type == "azure":
+-        model = AzureChatOpenAI(
+-            azure_endpoint=get_config(config, "llm.api_base"),
+-            openai_api_key=get_config(config, "llm.api_key"),
+-            openai_api_version=get_config(config, "llm.api_version"),
+-            azure_deployment=get_config(config, "llm.model"),
+-            temperature=0,
+-            verbose=True,
+-        )
+-    elif api_type == "openai":
+-        model = ChatOpenAI(
+-            openai_api_key=get_config(config, "llm.api_key"),
+-            model_name=get_config(config, "llm.model"),
+-            temperature=0,
+-            verbose=True,
+-        )
+-    elif api_type == "google_ai":
+-        os.environ["GOOGLE_API_KEY"] = get_config(config, "llm.api_key")
+-        model = ChatGoogleGenerativeAI(
+-            temperature=0,
+-            model=get_config(config, "llm.model"),
+-            verbose=True,
+-            convert_system_message_to_human=True,
+-        )
+-    elif api_type == "azure_ml":
+-        model = AzureMLChatOnlineEndpoint(
+-            endpoint_url=get_config(config, "llm.api_base"),
+-            endpoint_api_key=get_config(config, "llm.api_key"),
+-            content_formatter=CustomOpenAIChatContentFormatter(),
+-        )
+-    else:
+-        raise ValueError("Invalid API type. Please check your config file.")
++def config_llm(config: Dict[str, str]) -> ChatOpenAI:
++    # All evaluator LLM calls go through Router (OpenAI Responses API).
++    # The Router model ID is read from the ROUTER_MODEL env var (or `llm.model` in evaluator_config.json).
++    model_id = os.environ.get("ROUTER_MODEL") or get_config(config, "llm.model")
++    model = ChatOpenAI(
++        base_url=ROUTER_BASE_URL,
++        api_key=os.environ["RAMP_ROUTER_API_KEY"],
++        model=model_id,
++        use_responses_api=True,
++        temperature=0,
++        verbose=True,
++    )
+     return model
+ 
+ 
+@@ -133,7 +111,8 @@ class VirtualUser:
+         chat_history: List[Union[AIMessage, HumanMessage, SystemMessage]],
+     ) -> str:
+         chat_history.append(HumanMessage(content=message))
+-        response = self.llm_model.invoke(chat_history).content
++        # Responses output may be a list of content blocks; StrOutputParser extracts the output text.
++        response = (self.llm_model | StrOutputParser()).invoke(chat_history)
+         chat_history.append(AIMessage(content=response))
+         return response
+ 
+@@ -241,7 +220,8 @@ class Evaluator(object):
+                 HumanMessage(content=self.format_input(task_description, chat_history, scoring_point)),
+             ]
+ 
+-            response = self.llm_model.invoke(messages).content
++            # Responses output may be a list of content blocks; StrOutputParser extracts the output text.
++            response = (self.llm_model | StrOutputParser()).invoke(messages)
+ 
+             return self.parse_output(response)
+ 
+diff --git a/auto_eval/evaluator_config_template.json b/auto_eval/evaluator_config_template.json
+index de2d222..66794bf 100644
+--- a/auto_eval/evaluator_config_template.json
++++ b/auto_eval/evaluator_config_template.json
+@@ -1,8 +1,4 @@
+ {
+-  "llm.api_type": "azure or openai",
+-  "llm.api_base": "place your base url here",
+-  "llm.api_key": "place your key here",
+-  "llm.api_version": "place your version here",
+-  "llm.model": "place your deployment name here",
++  "llm.model": "Router model ID from GET https://api.router.com/v1/models (or set the ROUTER_MODEL env var)",
+   "virtual_user.max_rounds": 15
+-}
+\ No newline at end of file
++}
+diff --git a/project/plugins/paper_summary.py b/project/plugins/paper_summary.py
+index 3c411ce..e33fc67 100644
+--- a/project/plugins/paper_summary.py
++++ b/project/plugins/paper_summary.py
+@@ -2,11 +2,13 @@ import os
+ 
+ from langchain.document_loaders.pdf import PyPDFLoader
+ from langchain.schema.messages import HumanMessage, SystemMessage
+-from langchain_community.chat_models import ChatOpenAI
+-from langchain_openai import AzureChatOpenAI
++from langchain.schema.output_parser import StrOutputParser
++from langchain_openai import ChatOpenAI
+ 
+ from taskweaver.plugin import Plugin, register_plugin
+ 
++ROUTER_BASE_URL = "https://api.router.com/v1"
++
+ paper_summarize_prompt = r"""
+ Please summarize this paper and highlight the key points, including the following:
+ - The problem the paper is trying to solve.
+@@ -20,21 +22,15 @@ Please summarize this paper and highlight the key points, including the followin
+ @register_plugin
+ class SummarizePaperPlugin(Plugin):
+     def __call__(self, paper_file_path: str):
+-        os.environ["OPENAI_API_TYPE"] = self.config.get("api_type", "azure")
+-        if os.environ["OPENAI_API_TYPE"] == "azure":
+-            model = AzureChatOpenAI(
+-                azure_endpoint=self.config.get("api_base"),
+-                openai_api_key=self.config.get("api_key"),
+-                openai_api_version=self.config.get("api_version"),
+-                azure_deployment=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        elif os.environ["OPENAI_API_TYPE"] == "openai":
+-            os.environ["OPENAI_API_KEY"] = self.config.get("api_key")
+-            model = ChatOpenAI(model_name=self.config.get("deployment_name"), temperature=0, verbose=True)
+-        else:
+-            raise ValueError("Invalid API type. Please check your config file.")
++        # Router (OpenAI Responses API); model ID comes from the ROUTER_MODEL env var.
++        model = ChatOpenAI(
++            base_url=ROUTER_BASE_URL,
++            api_key=os.environ["RAMP_ROUTER_API_KEY"],
++            model=os.environ["ROUTER_MODEL"],
++            use_responses_api=True,
++            temperature=0,
++            verbose=True,
++        )
+ 
+         loader = PyPDFLoader(paper_file_path)
+         pages = loader.load()
+@@ -44,7 +40,8 @@ class SummarizePaperPlugin(Plugin):
+             HumanMessage(content="The paper content:" + "\n".join([c.page_content for c in pages])),
+         ]
+ 
+-        summary_res = model.invoke(messages).content
++        # Responses output may be a list of content blocks; StrOutputParser extracts the output text.
++        summary_res = (model | StrOutputParser()).invoke(messages)
+ 
+         description = f"We have summarized {len(pages)} pages of this paper." f"Paper summary is: {summary_res}"
+ 
+diff --git a/project/plugins/paper_summary.yaml b/project/plugins/paper_summary.yaml
+index 5515c0d..e247078 100644
+--- a/project/plugins/paper_summary.yaml
++++ b/project/plugins/paper_summary.yaml
+@@ -22,9 +22,5 @@ returns:
+     type: str
+     description: A string describing the summarization process and the final summary.
+ 
+-configurations:
+-  api_type:
+-  api_base:
+-  api_key:
+-  api_version:
+-  deployment_name:
++# LLM calls go through Router: set RAMP_ROUTER_API_KEY and ROUTER_MODEL in the execution environment.
++configurations: {}
+diff --git a/project/plugins/sql_pull_data.py b/project/plugins/sql_pull_data.py
+index 9f3177b..28851a5 100644
+--- a/project/plugins/sql_pull_data.py
++++ b/project/plugins/sql_pull_data.py
+@@ -1,39 +1,33 @@
++import os
+ from operator import itemgetter
+ 
+ import pandas as pd
+-from langchain.chat_models import AzureChatOpenAI, ChatOpenAI
+ from langchain.prompts import ChatPromptTemplate
+ from langchain.schema.output_parser import StrOutputParser
+ from langchain.schema.runnable import RunnableLambda, RunnableMap
+ from langchain.utilities import SQLDatabase
++from langchain_openai import ChatOpenAI
+ 
+ from taskweaver.plugin import Plugin, register_plugin
+ 
++ROUTER_BASE_URL = "https://api.router.com/v1"
++SQL_STOP_SEQUENCE = "\nSQLResult:"
++
+ 
+ @register_plugin
+ class SqlPullData(Plugin):
+     db = None
+ 
+     def __call__(self, query: str):
+-        api_type = self.config.get("api_type", "azure")
+-        if api_type == "azure":
+-            model = AzureChatOpenAI(
+-                azure_endpoint=self.config.get("api_base"),
+-                openai_api_key=self.config.get("api_key"),
+-                openai_api_version=self.config.get("api_version"),
+-                azure_deployment=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        elif api_type == "openai":
+-            model = ChatOpenAI(
+-                openai_api_key=self.config.get("api_key"),
+-                model_name=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        else:
+-            raise ValueError("Invalid API type. Please check your config file.")
++        # Router (OpenAI Responses API); model ID comes from the ROUTER_MODEL env var.
++        model = ChatOpenAI(
++            base_url=ROUTER_BASE_URL,
++            api_key=os.environ["RAMP_ROUTER_API_KEY"],
++            model=os.environ["ROUTER_MODEL"],
++            use_responses_api=True,
++            temperature=0,
++            verbose=True,
++        )
+ 
+         template = """Based on the table schema below, write a SQL query that would answer the user's question:
+             {schema}
+@@ -55,7 +49,14 @@ class SqlPullData(Plugin):
+             "schema": RunnableLambda(get_schema),
+             "question": itemgetter("question"),
+         }
+-        sql_response = RunnableMap(inputs) | prompt | model.bind(stop=["\nSQLResult:"]) | StrOutputParser()
++        # The Responses API has no `stop` parameter; apply the former stop sequence client-side.
++        sql_response = (
++            RunnableMap(inputs)
++            | prompt
++            | model
++            | StrOutputParser()
++            | RunnableLambda(lambda text: text.split(SQL_STOP_SEQUENCE)[0])
++        )
+ 
+         sql = sql_response.invoke({"question": query})
+ 
+diff --git a/project/plugins/sql_pull_data.yaml b/project/plugins/sql_pull_data.yaml
+index 8b741c6..aa31b63 100644
+--- a/project/plugins/sql_pull_data.yaml
++++ b/project/plugins/sql_pull_data.yaml
+@@ -27,9 +27,5 @@ returns:
+     description: This is a string describing the data pulled from the database.
+ 
+ configurations:
+-  api_type: openai
+-  api_base:
+-  api_key:
+-  api_version:
+-  deployment_name:
++  # LLM calls go through Router: set RAMP_ROUTER_API_KEY and ROUTER_MODEL in the execution environment.
+   sqlite_db_path: sqlite:///../../../../sample_data/anomaly_detection.db
+diff --git a/project/taskweaver_config.json b/project/taskweaver_config.json
+index 7a17b3d..5df570b 100644
+--- a/project/taskweaver_config.json
++++ b/project/taskweaver_config.json
+@@ -1,5 +1,3 @@
+ {
+-  "llm.api_base": "https://api.openai.com/v1",
+-  "llm.api_key": "",
+-  "llm.model": "gpt-4-1106-preview"
+-}
+\ No newline at end of file
++  "llm.api_type": "router"
++}
+diff --git a/requirements.txt b/requirements.txt
+index f8b73c3..8d43d8e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -3,7 +3,7 @@ pandas>=2.0.0
+ matplotlib>=3.4
+ seaborn>=0.11
+ python-dotenv>=1.0.0
+-openai>=1.42.0
++openai>=1.99.0
+ pydantic>=2.8.2
+ pyyaml>=6.0
+ scikit-learn>=1.2.2
+diff --git a/taskweaver/llm/__init__.py b/taskweaver/llm/__init__.py
+index 967ec61..8a1b7cd 100644
+--- a/taskweaver/llm/__init__.py
++++ b/taskweaver/llm/__init__.py
+@@ -4,7 +4,6 @@ from typing import Any, Callable, Generator, List, Optional, Type
+ from injector import Injector, Module, inject, provider
+ 
+ from taskweaver.config.config_mgt import AppConfigSource
+-from taskweaver.llm.azure_ml import AzureMLService
+ from taskweaver.llm.base import (
+     CompletionService,
+     EmbeddingService,
+@@ -13,29 +12,18 @@ from taskweaver.llm.base import (
+     LLMServiceConfig,
+ )
+ from taskweaver.llm.google_genai import GoogleGenAIService
+-from taskweaver.llm.groq import GroqService, GroqServiceConfig
+ from taskweaver.llm.mock import MockApiService
+ from taskweaver.llm.ollama import OllamaService
+-from taskweaver.llm.openai import OpenAIService
++from taskweaver.llm.openai import ROUTER_API_TYPES, OpenAIService
+ from taskweaver.llm.placeholder import PlaceholderEmbeddingService
+ from taskweaver.llm.qwen import QWenService, QWenServiceConfig
+ from taskweaver.llm.sentence_transformer import SentenceTransformerService
+ from taskweaver.llm.util import ChatMessageType, format_chat_message
+ from taskweaver.llm.zhipuai import ZhipuAIService
+-from taskweaver.llm.anthropic import AnthropicService
+-
+-llm_completion_config_map = {
+-    "openai": OpenAIService,
+-    "azure": OpenAIService,
+-    "azure_ad": OpenAIService,
+-    "azure_ml": AzureMLService,
+-    "ollama": OllamaService,
+-    "google_genai": GoogleGenAIService,
+-    "qwen": QWenService,
+-    "zhipuai": ZhipuAIService,
+-    "groq": GroqService,
+-    "anthropic": AnthropicService,
+-}
++
++# Every chat completion goes through Router (OpenAI Responses API). Legacy provider
++# `api_type` values are kept as aliases so existing configurations keep loading.
++llm_completion_config_map = {api_type: OpenAIService for api_type in ROUTER_API_TYPES}
+ 
+ # TODO
+ llm_embedding_config_map = {}
+@@ -54,27 +42,15 @@ class LLMApi(object):
+         self.ext_llm_injector = Injector([])
+         self.ext_llms = {}  # extra llm models
+ 
+-        if self.config.api_type in ["openai", "azure", "azure_ad"]:
+-            self._set_completion_service(OpenAIService)
+-        elif self.config.api_type == "ollama":
+-            self._set_completion_service(OllamaService)
+-        elif self.config.api_type == "azure_ml":
+-            self._set_completion_service(AzureMLService)
+-        elif self.config.api_type == "google_genai":
+-            self._set_completion_service(GoogleGenAIService)
+-        elif self.config.api_type == "qwen":
+-            self._set_completion_service(QWenService)
+-        elif self.config.api_type == "zhipuai":
+-            self._set_completion_service(ZhipuAIService)
+-        elif self.config.api_type == "groq":
+-            self._set_completion_service(GroqService)
+-        elif self.config.api_type == "anthropic":  # Add support for Anthropic
+-            self._set_completion_service(AnthropicService)
++        if self.config.api_type in llm_completion_config_map:
++            self._set_completion_service(llm_completion_config_map[self.config.api_type])
+         else:
+             raise ValueError(f"API type {self.config.api_type} is not supported")
+ 
+-        if self.config.embedding_api_type in ["openai", "azure", "azure_ad"]:
+-            self._set_embedding_service(OpenAIService)
++        if self.config.embedding_api_type in ["router", "openai", "azure", "azure_ad"]:
++            self.embedding_service = PlaceholderEmbeddingService(
++                "Router does not expose an embeddings endpoint. Please configure a different embedding API.",
++            )
+         elif self.config.embedding_api_type == "ollama":
+             self._set_embedding_service(OllamaService)
+         elif self.config.embedding_api_type == "google_genai":
+diff --git a/taskweaver/llm/base.py b/taskweaver/llm/base.py
+index f29d943..0f25b85 100644
+--- a/taskweaver/llm/base.py
++++ b/taskweaver/llm/base.py
+@@ -32,7 +32,7 @@ class LLMModuleConfig(ModuleConfig):
+         self._set_name("llm")
+         self.api_type = self._get_str(
+             "api_type",
+-            "openai",
++            "router",
+         )
+         self.embedding_api_type = self._get_str(
+             "embedding_api_type",
+diff --git a/taskweaver/llm/openai.py b/taskweaver/llm/openai.py
+index d2d2fe6..0605232 100644
+--- a/taskweaver/llm/openai.py
++++ b/taskweaver/llm/openai.py
+@@ -1,8 +1,8 @@
+ from __future__ import annotations
+ 
++import json
+ import os
+-import sys
+-from typing import TYPE_CHECKING, Any, Callable, Generator, List, Optional
++from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple
+ 
+ from injector import inject
+ 
+@@ -10,104 +10,160 @@ from taskweaver.llm.util import ChatMessageType, format_chat_message
+ 
+ from .base import CompletionService, EmbeddingService, LLMServiceConfig
+ 
+-DEFAULT_STOP_TOKEN: List[str] = ["<EOS>"]
+-
+ if TYPE_CHECKING:
+     from openai import OpenAI
+ 
++# All LLM traffic goes through Router, an OpenAI Responses-compatible gateway.
++# Router holds the provider credentials; the application only sends its Router key.
++ROUTER_BASE_URL = "https://api.router.com/v1"
++ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY"
++# Router model ID (account-specific, list them with `GET /v1/models`).
++ROUTER_MODEL_ENV = "ROUTER_MODEL"
++# Optional ordered fallback list of `provider:provider-model` candidates (comma separated).
++# Mutually exclusive with ROUTER_MODEL / llm.model.
++ROUTER_MODELS_ENV = "ROUTER_MODELS"
++
++# Legacy `llm.api_type` values are still accepted so existing configs keep working,
++# but every one of them is now served by Router.
++ROUTER_API_TYPES = [
++    "router",
++    "openai",
++    "azure",
++    "azure_ad",
++    "azure_ml",
++    "ollama",
++    "google_genai",
++    "qwen",
++    "zhipuai",
++    "groq",
++    "anthropic",
++]
++
+ 
+ class OpenAIServiceConfig(LLMServiceConfig):
+     def _configure(self) -> None:
+         # shared common config
+         self.api_type = self.llm_module_config.api_type
+-        assert self.api_type in ["openai", "azure", "azure_ad"], "Invalid API type"
++        assert self.api_type in ROUTER_API_TYPES, "Invalid API type"
+ 
+         self._set_name(self.api_type)
+ 
+-        shared_api_base = self.llm_module_config.api_base
+-        self.api_base = self._get_str(
+-            "api_base",
+-            (shared_api_base if shared_api_base is not None else "https://api.openai.com/v1"),
+-        )
+-        shared_api_key = self.llm_module_config.api_key
+-        self.api_key = self._get_str(
+-            "api_key",
+-            (shared_api_key if shared_api_key is not None else ("" if self.api_type == "azure_ad" else None)),
+-        )
++        # Router endpoint. Provider endpoints configured via `llm.api_base` are intentionally ignored.
++        self.api_base = self.src.get_str("llm.router.api_base", ROUTER_BASE_URL)
+ 
++        # Model ID comes from configuration backed by an env var, never hardcoded at the call site.
+         shared_model = self.llm_module_config.model
+-        self.model = self._get_str(
++        self.model: Optional[str] = self._get_str(
+             "model",
+-            shared_model if shared_model is not None else "gpt-4",
+-        )
+-
+-        shared_embedding_model = self.llm_module_config.embedding_model
+-        self.embedding_model = self._get_str(
+-            "embedding_model",
+-            (shared_embedding_model if shared_embedding_model is not None else "text-embedding-ada-002"),
++            shared_model if shared_model is not None else os.environ.get(ROUTER_MODEL_ENV),
++            required=False,
+         )
++        self.models: List[str] = [
++            m
++            for m in self._get_list(
++                "models",
++                [m.strip() for m in os.environ.get(ROUTER_MODELS_ENV, "").split(",") if m.strip()],
++            )
++            if m
++        ]
+ 
+         self.response_format = self.llm_module_config.response_format
+ 
+-        # openai specific config
+-        self.api_version = self._get_str("api_version", "2024-06-01")
+-        is_azure_ad_login = self.api_type == "azure_ad"
+-        self.aad_auth_mode = self._get_enum(
+-            "aad_auth_mode",
+-            ["device_login", "aad_app", "default_azure_credential"],
+-            None if is_azure_ad_login else "device_login",
+-        )
+-
+-        is_app_login = is_azure_ad_login and self.aad_auth_mode == "aad_app"
+-        self.aad_tenant_id = self._get_str(
+-            "aad_tenant_id",
+-            None if is_app_login else "common",
+-        )
+-        self.aad_api_resource = self._get_str(
+-            "aad_api_resource",
+-            None if is_app_login else "https://cognitiveservices.azure.com/",
+-        )
+-        self.aad_api_scope = self._get_str(
+-            "aad_api_scope",
+-            None if is_app_login else ".default",
+-        )
+-        self.aad_client_id = self._get_str(
+-            "aad_client_id",
+-            None if is_app_login else "",
+-        )
+-        self.aad_client_secret = self._get_str(
+-            "aad_client_secret",
+-            None if is_app_login else "",
+-        )
+-        self.aad_skip_interactive = self._get_bool(
+-            "aad_skip_interactive",
+-            # support interactive on macOS and Windows by default, skip on other platforms
+-            # could be overridden by config
+-            not (sys.platform == "darwin" or sys.platform == "win32"),
+-        )
+-        self.aad_use_token_cache = self._get_bool("aad_use_token_cache", True)
+-        self.aad_token_cache_path = self._get_str(
+-            "aad_token_cache_path",
+-            "cache/token_cache.bin",
+-        )
+-        self.aad_token_cache_full_path = os.path.join(
+-            self.src.app_base_path,
+-            self.aad_token_cache_path,
+-        )
+-
+-        self.stop_token = self._get_list("stop_token", DEFAULT_STOP_TOKEN)
+         self.temperature = self._get_float("temperature", 0)
+         self.max_tokens = self._get_int("max_tokens", 1024)
+         self.top_p = self._get_float("top_p", 0)
+-        self.frequency_penalty = self._get_float("frequency_penalty", 0)
+-        self.presence_penalty = self._get_float("presence_penalty", 0)
+-        self.seed = self._get_int("seed", 123456)
+ 
+         self.require_alternative_roles = self._get_bool("require_alternative_roles", False)
+         self.support_system_role = self._get_bool("support_system_role", True)
+         self.support_constrained_generation = self._get_bool("support_constrained_generation", False)
+         self.json_schema_enforcer = self._get_str("json_schema_enforcer", None, required=False)
+ 
++        # Router-only request fields (sent through `extra_body`), all optional.
++        provider_timeout = self._get_str("provider_timeout", None, required=False)
++        self.provider_timeout: Optional[float] = float(provider_timeout) if provider_timeout else None
++        timeout_before_headers = self._get_str("timeout_before_headers", None, required=False)
++        self.timeout_before_headers: Optional[float] = (
++            float(timeout_before_headers) if timeout_before_headers else None
++        )
++        self.metadata: Dict[str, str] = {str(k): str(v) for k, v in self._get_dict("metadata", {}).items()}
++
++
++def _content_to_text(content: Any) -> str:
++    if isinstance(content, str):
++        return content
++    return "".join(part.get("text", "") for part in content if part.get("type") == "text")
++
++
++def _convert_content(role: str, content: Any) -> Any:
++    """Convert Chat Completions message content into Responses input content."""
++    if isinstance(content, str):
++        return content
++    text_type = "output_text" if role == "assistant" else "input_text"
++    parts: List[Dict[str, Any]] = []
++    for part in content:
++        if part.get("type") == "text":
++            parts.append({"type": text_type, "text": part["text"]})
++        elif part.get("type") == "image_url":
++            image_url = part["image_url"]
++            url = image_url["url"] if isinstance(image_url, dict) else image_url
++            parts.append({"type": "input_image", "image_url": url, "detail": "auto"})
++        else:
++            raise ValueError(f"Unsupported message content type: {part.get('type')}")
++    return parts
++
++
++def _convert_messages(messages: List[ChatMessageType]) -> Tuple[Optional[str], List[Dict[str, Any]]]:
++    """messages -> (instructions, input). Leading system messages become `instructions`."""
++    instructions: List[str] = []
++    input_items: List[Dict[str, Any]] = []
++    for message in messages:
++        role = message["role"]
++        if role == "system" and len(input_items) == 0:
++            instructions.append(_content_to_text(message["content"]))
++            continue
++        input_items.append(
++            {
++                "role": role,
++                "content": _convert_content(role, message["content"]),
++            },
++        )
++    return ("\n\n".join(instructions) if instructions else None), input_items
++
++
++def _convert_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    converted: List[Dict[str, Any]] = []
++    for tool in tools:
++        if tool.get("type") == "function" and "function" in tool:
++            fn = tool["function"]
++            converted.append(
++                {
++                    "type": "function",
++                    "name": fn["name"],
++                    "description": fn.get("description"),
++                    "parameters": fn.get("parameters"),
++                    # Chat Completions did not enforce strict schemas by default; keep that behavior.
++                    "strict": False,
++                },
++            )
++        else:
++            converted.append(tool)
++    return converted
++
++
++def _convert_tool_choice(tool_choice: Any) -> Any:
++    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function" and "function" in tool_choice:
++        return {"type": "function", "name": tool_choice["function"]["name"]}
++    return tool_choice
++
++
++def _convert_response_format(response_format: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
++    """Chat Completions `response_format` -> Responses `text.format`."""
++    if response_format is None:
++        return None
++    if response_format.get("type") == "json_schema" and "json_schema" in response_format:
++        return {"type": "json_schema", **response_format["json_schema"]}
++    return response_format
++
+ 
+ class OpenAIService(CompletionService, EmbeddingService):
+     @inject
+@@ -116,36 +172,25 @@ class OpenAIService(CompletionService, EmbeddingService):
+ 
+         self.api_type = self.config.api_type
+ 
+-        assert self.api_type in ["openai", "azure", "azure_ad"], "Invalid API type"
++        assert self.api_type in ROUTER_API_TYPES, "Invalid API type"
+ 
+         self._client: Optional[OpenAI] = None
+ 
+     @property
+     def client(self):
+-        from openai import AzureOpenAI, OpenAI
++        from openai import OpenAI
+ 
+         if self._client is not None:
+             return self._client
+ 
+-        if self.api_type == "openai":
+-            client = OpenAI(
+-                base_url=self.config.api_base,
+-                api_key=self.config.api_key,
+-            )
+-        elif self.api_type == "azure":
+-            client = AzureOpenAI(
+-                api_version=self.config.api_version,
+-                azure_endpoint=self.config.api_base,
+-                api_key=self.config.api_key,
+-            )
+-        elif self.api_type == "azure_ad":
+-            client = AzureOpenAI(
+-                api_version=self.config.api_version,
+-                azure_endpoint=self.config.api_base,
+-                azure_ad_token_provider=self._get_aad_token_provider(),
+-            )
+-        else:
+-            raise Exception(f"Invalid API type: {self.api_type}")
++        api_key = os.environ.get(ROUTER_API_KEY_ENV)
++        if not api_key:
++            raise Exception(f"{ROUTER_API_KEY_ENV} is not set. Router requires it for authentication.")
++
++        client = OpenAI(
++            base_url=self.config.api_base,
++            api_key=api_key,
++        )
+ 
+         self._client = client
+         return client
+@@ -162,19 +207,17 @@ class OpenAIService(CompletionService, EmbeddingService):
+     ) -> Generator[ChatMessageType, None, None]:
+         import openai
+ 
+-        engine = self.config.model
+-
+         temperature = temperature if temperature is not None else self.config.temperature
+         max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
+         top_p = top_p if top_p is not None else self.config.top_p
+-        stop = stop if stop is not None else self.config.stop_token
+-        seed = self.config.seed
++        # NOTE: `stop`, `seed`, `frequency_penalty` and `presence_penalty` have no equivalent
++        # in the Responses schema and are no longer sent.
+ 
+         try:
+-            tools_kwargs = {}
++            tools_kwargs: Dict[str, Any] = {}
+             if "tools" in kwargs and "tool_choice" in kwargs:
+-                tools_kwargs["tools"] = kwargs["tools"]
+-                tools_kwargs["tool_choice"] = kwargs["tool_choice"]
++                tools_kwargs["tools"] = _convert_tools(kwargs["tools"])
++                tools_kwargs["tool_choice"] = _convert_tool_choice(kwargs["tool_choice"])
+ 
+             if "response_format" in kwargs:
+                 response_format = kwargs["response_format"]
+@@ -190,21 +233,32 @@ class OpenAIService(CompletionService, EmbeddingService):
+                 }
+             else:
+                 response_format = None
++            text_format = _convert_response_format(response_format)
+ 
+-            extra_body = {}
+             if self.config.support_constrained_generation:
+-                if "json_schema" in kwargs:
+-                    extra_body["guided_json"] = kwargs["json_schema"]
+-                    assert isinstance(extra_body["guided_json"], dict), "JSON schema must be a dictionary"
+-
+-                    assert self.config.json_schema_enforcer in [
+-                        "outlines",
+-                        "lm-format-enforcer",
+-                    ], f"Invalid JSON schema enforcer: {self.config.json_schema_enforcer}"
+-                    extra_body["guided_decoding_backend"] = self.config.json_schema_enforcer
++                raise Exception(
++                    "Constrained generation (guided_json / guided_decoding_backend) is a self-hosted "
++                    "inference server extension and is not supported through Router.",
++                )
+ 
+-                else:
+-                    raise Exception("Constrained generation requires a JSON schema")
++            # Router-only fields go through `extra_body`.
++            extra_body: Dict[str, Any] = {}
++            model_kwargs: Dict[str, Any] = {}
++            if len(self.config.models) > 0:
++                extra_body["models"] = self.config.models
++            elif self.config.model:
++                model_kwargs["model"] = self.config.model
++            else:
++                raise Exception(
++                    f"No Router model configured. Set {ROUTER_MODEL_ENV} (or llm.model) to a model ID "
++                    f"returned by GET {self.config.api_base}/models, or {ROUTER_MODELS_ENV} to a fallback list.",
++                )
++            if self.config.provider_timeout is not None:
++                extra_body["provider_timeout"] = self.config.provider_timeout
++            if stream and self.config.timeout_before_headers is not None:
++                extra_body["timeout_before_headers"] = self.config.timeout_before_headers
++            if len(self.config.metadata) > 0:
++                extra_body["metadata"] = self.config.metadata
+ 
+             # Preprocess messages
+             # 1. Change `system` to `user` if `support_system_role` is False
+@@ -219,216 +273,79 @@ class OpenAIService(CompletionService, EmbeddingService):
+                             {"role": "assistant", "content": "I get it."},
+                         )
+ 
+-            res: Any = self.client.chat.completions.create(
+-                model=engine,
+-                messages=messages,  # type: ignore
++            instructions, input_items = _convert_messages(messages)
++
++            request: Dict[str, Any] = dict(
++                input=input_items,  # type: ignore
+                 temperature=temperature,
+-                max_tokens=max_tokens,
++                max_output_tokens=max_tokens,
+                 top_p=top_p,
+-                frequency_penalty=self.config.frequency_penalty,
+-                presence_penalty=self.config.presence_penalty,
+-                stop=stop,
+                 stream=stream,
+-                seed=seed,
+-                response_format=response_format,
+-                extra_body=extra_body,
++                **model_kwargs,
+                 **tools_kwargs,
+             )
++            if instructions is not None:
++                request["instructions"] = instructions
++            if text_format is not None:
++                request["text"] = {"format": text_format}
++            if len(extra_body) > 0:
++                request["extra_body"] = extra_body
++
++            res: Any = self.client.responses.create(**request)
+             if stream:
+-                role: Any = None
+-                for stream_res in res:
+-                    if not stream_res.choices:
+-                        continue
+-                    delta = stream_res.choices[0].delta
+-                    if delta is None:
+-                        continue
+-
+-                    role = delta.role if delta.role is not None else role
+-                    content = delta.content if delta.content is not None else ""
+-                    if content is None:
+-                        continue
+-                    yield format_chat_message(role, content)
++                for event in res:
++                    if event.type == "response.output_text.delta":
++                        yield format_chat_message("assistant", event.delta)
++                    elif event.type == "response.failed":
++                        error = event.response.error
++                        raise Exception(f"Router response failed: {error}")
++                    elif event.type == "error":
++                        raise Exception(f"Router stream error: {event.message}")
+             else:
+-                oai_response = res.choices[0].message
+-                if oai_response is None:
+-                    raise Exception("OpenAI API returned an empty response")
++                if res.output is None or len(res.output) == 0:
++                    raise Exception("Router API returned an empty response")
+                 response: ChatMessageType = format_chat_message(
+-                    role=(oai_response.role if oai_response.role is not None else "assistant"),
+-                    message=(oai_response.content if oai_response.content is not None else ""),
++                    role="assistant",
++                    message=res.output_text if res.output_text is not None else "",
+                 )
+-                if oai_response.tool_calls is not None and len(oai_response.tool_calls) > 0:
+-                    import json
+-
++                tool_calls = [item for item in res.output if item.type == "function_call"]
++                if len(tool_calls) > 0:
+                     response["role"] = "function"
+                     response["content"] = json.dumps(
+                         [
+                             {
+-                                "name": t.function.name,
+-                                "arguments": json.loads(t.function.arguments),
++                                "name": t.name,
++                                "arguments": json.loads(t.arguments),
+                             }
+-                            for t in oai_response.tool_calls
++                            for t in tool_calls
+                         ],
+                     )
+                 yield response
+ 
+         except openai.APITimeoutError as e:
+             # Handle timeout error, e.g. retry or log
+-            raise Exception(f"OpenAI API request timed out: {e}")
++            raise Exception(f"Router API request timed out: {e}")
+         except openai.APIConnectionError as e:
+             # Handle connection error, e.g. check network or log
+-            raise Exception(f"OpenAI API request failed to connect: {e}")
++            raise Exception(f"Router API request failed to connect: {e}")
+         except openai.BadRequestError as e:
+             # Handle invalid request error, e.g. validate parameters or log
+-            raise Exception(f"OpenAI API request was invalid: {e}")
++            raise Exception(f"Router API request was invalid: {e}")
+         except openai.AuthenticationError as e:
+             # Handle authentication error, e.g. check credentials or log
+-            raise Exception(f"OpenAI API request was not authorized: {e}")
++            raise Exception(f"Router API request was not authorized: {e}")
+         except openai.PermissionDeniedError as e:
+             # Handle permission error, e.g. check scope or log
+-            raise Exception(f"OpenAI API request was not permitted: {e}")
++            raise Exception(f"Router API request was not permitted: {e}")
+         except openai.RateLimitError as e:
+             # Handle rate limit error, e.g. wait or log
+-            raise Exception(f"OpenAI API request exceeded rate limit: {e}")
++            raise Exception(f"Router API request exceeded rate limit: {e}")
+         except openai.APIError as e:
+             # Handle API error, e.g. retry or log
+-            raise Exception(f"OpenAI API returned an API Error: {e}")
++            raise Exception(f"Router API returned an API Error: {e}")
+ 
+     def get_embeddings(self, strings: List[str]) -> List[List[float]]:
+-        embedding_results = self.client.embeddings.create(
+-            input=strings,
+-            model=self.config.embedding_model,
+-        ).data
+-        return [r.embedding for r in embedding_results]
+-
+-    def _get_aad_token_provider(self) -> Callable[[], str]:
+-        if self.config.aad_auth_mode == "default_azure_credential":
+-            return self._get_aad_token_provider_azure_identity()
+-        return lambda: self._get_aad_token_msal()
+-
+-    def _get_aad_token_provider_azure_identity(self) -> Callable[[], str]:
+-        try:
+-            from azure.identity import DefaultAzureCredential, get_bearer_token_provider  # type: ignore
+-        except ImportError:
+-            raise Exception(
+-                "AAD authentication requires azure-identity module to be installed, "
+-                "please run `pip install azure-identity`",
+-            )
+-        credential = DefaultAzureCredential(exclude_interactive_browser_credential=False)
+-        print("Using DefaultAzureCredential for AAD authentication")
+-        scope = f"{self.config.aad_api_resource}/{self.config.aad_api_scope}"
+-        return get_bearer_token_provider(credential, scope)
+-
+-    def _get_aad_token_msal(self) -> str:
+-        try:
+-            import msal  # type: ignore
+-        except ImportError:
+-            raise Exception(
+-                "AAD authentication requires msal module to be installed, please run `pip install msal`",
+-            )
+-
+-        config = self.config
+-
+-        cache: Any = msal.SerializableTokenCache()
+-
+-        token_cache_file: Optional[str] = None
+-        if config.aad_use_token_cache:
+-            token_cache_file = config.aad_token_cache_full_path
+-            if not os.path.exists(token_cache_file):
+-                os.makedirs(os.path.dirname(token_cache_file), exist_ok=True)
+-            if os.path.exists(token_cache_file):
+-                with open(token_cache_file, "r") as cache_file:
+-                    cache.deserialize(cache_file.read())  # type: ignore
+-
+-        def save_cache():
+-            if token_cache_file is not None and config.aad_use_token_cache:
+-                with open(token_cache_file, "w") as cache_file:
+-                    cache_file.write(cache.serialize())
+-
+-        authority = f"https://login.microsoftonline.com/{config.aad_tenant_id}"
+-        api_resource = config.aad_api_resource
+-        api_scope = config.aad_api_scope
+-        auth_mode = config.aad_auth_mode
+-
+-        if auth_mode == "aad_app":
+-            app: Any = msal.ConfidentialClientApplication(
+-                client_id=config.aad_client_id,
+-                client_credential=config.aad_client_secret,
+-                authority=authority,
+-                token_cache=cache,
+-            )
+-            result: Any = app.acquire_token_for_client(
+-                scopes=[
+-                    f"{api_resource}/{api_scope}",
+-                ],
+-            )
+-            if "access_token" in result:
+-                return result["access_token"]
+-
+-            raise Exception(
+-                f"Authentication failed for acquiring AAD token for application login: {str(result)}",
+-            )
+-
+-        scopes = [
+-            f"{api_resource}/{api_scope}",
+-        ]
+-        app: Any = msal.PublicClientApplication(
+-            "04b07795-8ddb-461a-bbee-02f9e1bf7b46",  # default id in Azure Identity module
+-            authority=authority,
+-            token_cache=cache,
+-        )
+-        result = None
+-        try:
+-            account = app.get_accounts()[0]
+-            result = app.acquire_token_silent(scopes, account=account)
+-            if result is not None and "access_token" in result:
+-                save_cache()
+-                return result["access_token"]
+-            result = None
+-        except Exception:
+-            pass
+-
+-        try:
+-            account = cache.find(cache.CredentialType.ACCOUNT)[0]
+-            refresh_token = cache.find(
+-                cache.CredentialType.REFRESH_TOKEN,
+-                query={
+-                    "home_account_id": account["home_account_id"],
+-                },
+-            )[0]
+-            result = app.acquire_token_by_refresh_token(
+-                refresh_token["secret"],
+-                scopes=scopes,
+-            )
+-            if result is not None and "access_token" in result:
+-                save_cache()
+-                return result["access_token"]
+-            result = None
+-        except Exception:
+-            pass
+-
+-        if not self.config.aad_skip_interactive:
+-            try:
+-                result = app.acquire_token_interactive(scopes=scopes)
+-                if result is not None and "access_token" in result:
+-                    save_cache()
+-                    return result["access_token"]
+-                result = None
+-            except Exception:
+-                pass
+-
+-        flow = app.initiate_device_flow(scopes=scopes)
+-        print(flow["message"])
+-        result = app.acquire_token_by_device_flow(flow=flow)
+-        if result is not None and "access_token" in result:
+-            save_cache()
+-            return result["access_token"]
+-
+-        error_details = "\n".join(
+-            [
+-                result.get("error"),
+-                result.get("error_description"),
+-            ],
+-        )
+         raise Exception(
+-            f"Authentication failed for acquiring AAD token for AAD auth: {error_details}",
++            "Router does not expose an embeddings endpoint (only GET /v1/models and POST /v1/responses). "
++            "Configure a different `llm.embedding_api_type`, e.g. `sentence_transformers`.",
+         )
+diff --git a/tests/unit_tests/data/plugins/paper_summary.py b/tests/unit_tests/data/plugins/paper_summary.py
+index dddc132..e33fc67 100644
+--- a/tests/unit_tests/data/plugins/paper_summary.py
++++ b/tests/unit_tests/data/plugins/paper_summary.py
+@@ -1,11 +1,14 @@
+ import os
+ 
+-from langchain.chat_models import AzureChatOpenAI, ChatOpenAI
+ from langchain.document_loaders.pdf import PyPDFLoader
+ from langchain.schema.messages import HumanMessage, SystemMessage
++from langchain.schema.output_parser import StrOutputParser
++from langchain_openai import ChatOpenAI
+ 
+ from taskweaver.plugin import Plugin, register_plugin
+ 
++ROUTER_BASE_URL = "https://api.router.com/v1"
++
+ paper_summarize_prompt = r"""
+ Please summarize this paper and highlight the key points, including the following:
+ - The problem the paper is trying to solve.
+@@ -19,21 +22,15 @@ Please summarize this paper and highlight the key points, including the followin
+ @register_plugin
+ class SummarizePaperPlugin(Plugin):
+     def __call__(self, paper_file_path: str):
+-        os.environ["OPENAI_API_TYPE"] = self.config.get("api_type", "azure")
+-        if os.environ["OPENAI_API_TYPE"] == "azure":
+-            model = AzureChatOpenAI(
+-                azure_endpoint=self.config.get("api_base"),
+-                openai_api_key=self.config.get("api_key"),
+-                openai_api_version=self.config.get("api_version"),
+-                azure_deployment=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        elif os.environ["OPENAI_API_TYPE"] == "openai":
+-            os.environ["OPENAI_API_KEY"] = self.config.get("api_key")
+-            model = ChatOpenAI(model_name=self.config.get("deployment_name"), temperature=0, verbose=True)
+-        else:
+-            raise ValueError("Invalid API type. Please check your config file.")
++        # Router (OpenAI Responses API); model ID comes from the ROUTER_MODEL env var.
++        model = ChatOpenAI(
++            base_url=ROUTER_BASE_URL,
++            api_key=os.environ["RAMP_ROUTER_API_KEY"],
++            model=os.environ["ROUTER_MODEL"],
++            use_responses_api=True,
++            temperature=0,
++            verbose=True,
++        )
+ 
+         loader = PyPDFLoader(paper_file_path)
+         pages = loader.load()
+@@ -43,7 +40,8 @@ class SummarizePaperPlugin(Plugin):
+             HumanMessage(content="The paper content:" + "\n".join([c.page_content for c in pages])),
+         ]
+ 
+-        summary_res = model.invoke(messages).content
++        # Responses output may be a list of content blocks; StrOutputParser extracts the output text.
++        summary_res = (model | StrOutputParser()).invoke(messages)
+ 
+         description = f"We have summarized {len(pages)} pages of this paper." f"Paper summary is: {summary_res}"
+ 
+diff --git a/tests/unit_tests/data/plugins/paper_summary.yaml b/tests/unit_tests/data/plugins/paper_summary.yaml
+index 4a07306..796ced0 100644
+--- a/tests/unit_tests/data/plugins/paper_summary.yaml
++++ b/tests/unit_tests/data/plugins/paper_summary.yaml
+@@ -20,9 +20,5 @@ returns:
+     type: str
+     description: A string describing the summarization process and the final summary.
+ 
+-configurations:
+-  api_type: "azure or openai"
+-  api_base: "place your base url here"
+-  api_key: "place your key here"
+-  api_version: "place your version here"
+-  deployment_name: "place your deployment name here"
++# LLM calls go through Router: set RAMP_ROUTER_API_KEY and ROUTER_MODEL in the execution environment.
++configurations: {}
+diff --git a/tests/unit_tests/data/plugins/sql_pull_data.py b/tests/unit_tests/data/plugins/sql_pull_data.py
+index 8f5d449..2013ad1 100644
+--- a/tests/unit_tests/data/plugins/sql_pull_data.py
++++ b/tests/unit_tests/data/plugins/sql_pull_data.py
+@@ -1,37 +1,31 @@
++import os
+ from operator import itemgetter
+ 
+ import pandas as pd
+-from langchain.chat_models import AzureChatOpenAI, ChatOpenAI
+ from langchain.prompts import ChatPromptTemplate
+ from langchain.schema.output_parser import StrOutputParser
+ from langchain.schema.runnable import RunnableLambda, RunnableMap
+ from langchain.utilities import SQLDatabase
++from langchain_openai import ChatOpenAI
+ 
+ from taskweaver.plugin import Plugin, register_plugin
+ 
++ROUTER_BASE_URL = "https://api.router.com/v1"
++SQL_STOP_SEQUENCE = "\nSQLResult:"
++
+ 
+ @register_plugin
+ class SqlPullData(Plugin):
+     def __call__(self, query: str):
+-        api_type = self.config.get("api_type", "azure")
+-        if api_type == "azure":
+-            model = AzureChatOpenAI(
+-                azure_endpoint=self.config.get("api_base"),
+-                openai_api_key=self.config.get("api_key"),
+-                openai_api_version=self.config.get("api_version"),
+-                azure_deployment=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        elif api_type == "openai":
+-            model = ChatOpenAI(
+-                openai_api_key=self.config.get("api_key"),
+-                model_name=self.config.get("deployment_name"),
+-                temperature=0,
+-                verbose=True,
+-            )
+-        else:
+-            raise ValueError("Invalid API type. Please check your config file.")
++        # Router (OpenAI Responses API); model ID comes from the ROUTER_MODEL env var.
++        model = ChatOpenAI(
++            base_url=ROUTER_BASE_URL,
++            api_key=os.environ["RAMP_ROUTER_API_KEY"],
++            model=os.environ["ROUTER_MODEL"],
++            use_responses_api=True,
++            temperature=0,
++            verbose=True,
++        )
+ 
+         template = """Based on the table schema below, write a SQL query that would answer the user's question:
+             {schema}
+@@ -49,7 +43,14 @@ class SqlPullData(Plugin):
+             "schema": RunnableLambda(get_schema),
+             "question": itemgetter("question"),
+         }
+-        sql_response = RunnableMap(inputs) | prompt | model.bind(stop=["\nSQLResult:"]) | StrOutputParser()
++        # The Responses API has no `stop` parameter; apply the former stop sequence client-side.
++        sql_response = (
++            RunnableMap(inputs)
++            | prompt
++            | model
++            | StrOutputParser()
++            | RunnableLambda(lambda text: text.split(SQL_STOP_SEQUENCE)[0])
++        )
+ 
+         sql = sql_response.invoke({"question": query})
+ 
+diff --git a/tests/unit_tests/data/plugins/sql_pull_data.yaml b/tests/unit_tests/data/plugins/sql_pull_data.yaml
+index 2dc3ff1..19a17c4 100644
+--- a/tests/unit_tests/data/plugins/sql_pull_data.yaml
++++ b/tests/unit_tests/data/plugins/sql_pull_data.yaml
+@@ -24,9 +24,5 @@ returns:
+     description: This is a string describing the data pulled from the database.
+ 
+ configurations:
+-  api_type: openai
+-  api_base:
+-  api_key:
+-  api_version:
+-  deployment_name:
++  # LLM calls go through Router: set RAMP_ROUTER_API_KEY and ROUTER_MODEL in the execution environment.
+   sqlite_db_path: sqlite:///../../../../sample_data/anomaly_detection.db
