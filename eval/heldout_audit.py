@@ -75,7 +75,8 @@ def main():
         inv = [s for s in json.load(open(ip))["sites"] if s.get("prod") and s.get("expected") != "nonprod"]
         ps = [s for s in plan["sites"] if s.get("prod")]
         pairs, missed, extra = match(inv, ps)
-        row = collections.Counter(inventory=len(inv), tool=len(ps), matched=len(pairs), missed=len(missed), extra=len(extra))
+        row = collections.Counter(inventory=len(inv), tool=len(ps), matched=len(pairs), missed=len(missed), extra=len(extra),
+                                  agree=0, tool_migrated=0, exp_migrated=0, both_migrated=0)
         for i, p in pairs:
             t, x = p["outcome"], i["expected"]
             conf[(t, x)] += 1
@@ -97,15 +98,23 @@ def main():
             disagreements.append({"key": "%s|%s:%s" % (r["repo"], p["file"], p["line"]), "tool": p["outcome"], "expected": "NOT IN INVENTORY",
                                   "tool_reason": p["reason"][:220], "surface": p.get("surface"), "sdk": p.get("sdk"),
                                   "verdict": adj.get("%s|%s:%s" % (r["repo"], p["file"], p["line"]), {}).get("correct")})
+        relevant = [i for i in inv if i["expected"] in ("migrated", "flagged", "handoff")]
+        row["relevant"] = len(relevant)
+        row["relevant_found"] = sum(1 for i in relevant if i not in missed)
+        row["exp_migrated_found"] = sum(1 for i in inv if i["expected"] == "migrated" and i not in missed)
+        row["exp_migrated_all"] = sum(1 for i in inv if i["expected"] == "migrated")
         tot.update(row)
-        rows.append(dict(row, repo=r["repo"], status="ok"))
+        rows.append(dict(row, repo=r["repo"], status="ok"))  # Counter drops nothing here: keys were initialised
     pct = lambda a, b: "%.0f%%" % (100.0 * a / b) if b else "-"  # noqa: E731
     summary = {
         "repos_scored": sum(1 for x in rows if x.get("status") == "ok"),
         "inventory_prod_sites": tot["inventory"], "tool_prod_sites": tot["tool"], "matched": tot["matched"],
         "discovery_recall": pct(tot["matched"], tot["inventory"]), "scanner_only_sites": tot["extra"],
         "outcome_agreement": pct(tot["agree"], tot["matched"]),
-        "migrated_precision": pct(tot["both_migrated"], tot["tool_migrated"]), "migrated_recall": pct(tot["both_migrated"], tot["exp_migrated"]),
+        "router_relevant_discovery_recall": pct(tot["relevant_found"], tot["relevant"]),
+        "migrated_precision": pct(tot["both_migrated"], tot["tool_migrated"]),
+        "migrated_recall_on_found_sites": pct(tot["both_migrated"], tot["exp_migrated"]),
+        "migrated_recall_end_to_end": pct(tot["both_migrated"], tot["exp_migrated_all"]),
         "counts": dict(tot),
     }
     json.dump({"summary": summary, "rows": rows, "confusion": {"%s->%s" % k: v for k, v in conf.items()}, "disagreements": disagreements},

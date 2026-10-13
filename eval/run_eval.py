@@ -31,10 +31,21 @@ SETS = {"dev": (EVAL, os.path.join(EVAL, "work")),
         "heldout": (os.path.join(EVAL, "heldout"), os.path.join(EVAL, "work", "heldout"))}  # held-out: never used to tune the tool
 
 
+def contain(e):
+    """Keep evaluated repos' setup and tests from touching anything outside their work dirs: git discovery stops at WORK
+    (so a repo's tests can never see router-migrate's own .git), and browser downloads are skipped."""
+    e.setdefault("GIT_CEILING_DIRECTORIES", WORK)
+    for k, v in (("PUPPETEER_SKIP_DOWNLOAD", "true"), ("PUPPETEER_SKIP_CHROMIUM_DOWNLOAD", "true"), ("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "1"),
+                 ("HUSKY", "0")):
+        e.setdefault(k, v)
+    return e
+
+
 def sh(cmd, cwd=ROOT, env=None, timeout=1800):
     e = dict(os.environ)
     e.pop("RAMP_ROUTER_API_KEY", None)
     e.update(env or {})
+    contain(e)
     r = subprocess.run(cmd, cwd=cwd, shell=True, env=e, capture_output=True, text=True, timeout=timeout, executable="/bin/bash")
     return r.returncode, (r.stdout or "") + (r.stderr or "")
 
@@ -82,6 +93,11 @@ def tests(rec, src, label, env=None):
     cmd = subst(rec["test_cmd"], rec, src)
     e = {k: subst(str(v), rec, src) for k, v in (rec.get("test_env") or {}).items()}
     e.update(env or {})
+    env_dir = os.path.join(WORK, "envs", rec["name"])
+    for k, sub in (("HOME", "home"), ("XDG_CONFIG_HOME", "home/.config"), ("XDG_CACHE_HOME", "home/.cache"), ("XDG_DATA_HOME", "home/.local/share")):
+        os.makedirs(os.path.join(env_dir, sub), exist_ok=True)
+        e.setdefault(k, os.path.join(env_dir, sub))  # the recipe's own HOME (set inside test_cmd) still wins
+    contain(e)
     res = V.run_tests(cmd, src, env=e, timeout=rec.get("timeout_s", 1800))
     open(os.path.join(LOGS, "%s.%s.log" % (rec["name"], label)), "w").write(res["tail"])
     return res
