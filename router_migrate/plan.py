@@ -49,6 +49,8 @@ def client_target(c):
     bu = c.get("base_url")
     if not bu or not bu.get("value"):
         return "provider"
+    if "router.com" in str(bu.get("value")) or "RAMP_ROUTER" in str(bu.get("value")):
+        return "router"  # already pointed at Router (native migration, e.g. by hand or by an agent)
     if not bu.get("static"):
         return "provider-or-config"  # config-driven: Router takes it when it resolves to api.openai.com / api.anthropic.com
     h = _host(bu["value"])
@@ -141,16 +143,20 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
         return "flagged", "anthropic beta API (anthropic-beta header) is unmeasured on Router; the runtime keeps it on Anthropic", None
     if surface == "other.chat" or sdk in ("google-genai", "mistral", "cohere", "ollama", "groq", "other"):
         m = (s.get("model") or {}).get("value") if (s.get("model") or {}).get("static") else None
-        rid = catalog.resolve(m)[0] if m else None
+        rid, why = catalog.resolve(m) if m else (None, "")
         if rid:
             return "handoff", "%s SDK call; Router serves '%s' as '%s' via /v1/responses: port this call to the OpenAI SDK + runtime" % (sdk, m, rid), None
-        return "kept", "%s SDK / endpoint%s; Router does not serve this vendor's endpoint" % (sdk, (" (model %s)" % m) if m else ""), None
+        extra = " (model %s: %s)" % (m, why) if m else ""
+        return "kept", "%s SDK / endpoint%s; Router does not serve this vendor's endpoint with the shared key" % (sdk, extra), None
     if s.get("has_prev_response"):
         return "flagged", "previous_response_id needs provider-side state (Router: 400 on OpenAI, ignored elsewhere [measured]); runtime keeps it on the provider", None
     # find the client
     cid = None
     if s["kind"] == "client":
         cid = s["id"] if s["id"] in patched else None
+        if cid is None and client_target(s) == "router":
+            ok, why = _model_check(s, catalog)
+            return ("migrated" if ok else "flagged"), "framework client points at Router natively; " + why, s["id"]
         if cid is None:
             tgt = client_target(s)
             if tgt.startswith("other:"):
@@ -169,6 +175,11 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
         link = s.get("client_link")
         if s.get("client_id"):
             c = clients.get(s["client_id"])
+            if c and client_target(c) == "router":
+                ok, why = _model_check(s, catalog)
+                if surface in ("chat.completions", "chat.completions.parse", "chat.completions.stream", "completions.legacy"):
+                    return "flagged", "client points at Router but uses %s, which Router does not serve (measured 404)" % surface, c["id"]
+                return ("migrated" if ok else "flagged"), "client points at Router natively; " + why, c["id"]
             if c and c["id"] in patched:
                 cid = c["id"]
             elif c:
