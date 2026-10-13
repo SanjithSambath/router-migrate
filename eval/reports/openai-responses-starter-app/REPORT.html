@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>router-migrate</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #FFFFFF; --subtle: #FCFBFA; --muted: #F4F2F0; --border: #E9E5E2; --border-strong: #D2CECB;
+  --text: #1A1919; --text-2: #6E6A68; --text-3: #9A9592;
+  --solar: #E4F222; --solar-hover: #D6E41A; --on-solar: #1A1919;
+  --pos: #26763B; --pos-bg: #E7F3EA; --neg: #B74018; --neg-bg: #F9EAE2;
+  --warn: #876634; --warn-bg: #F6F2D0; --info: #425E93; --info-bg: #D8DEED;
+  --add-bg: #EEF6F0; --del-bg: #FBF0EB; --hunk-bg: #F4F2F0;
+  --inv-bg: #1A1919; --inv-text: #FFFFFF;
+  --scrim: rgba(26,25,25,.32);
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1A1919; --subtle: #201F1E; --muted: #2A2827; --border: #32302F; --border-strong: #46423F;
+    --text: #D2CECB; --text-2: #A39D99; --text-3: #7A7471;
+    --pos: #7CC08E; --pos-bg: #1E2B21; --neg: #E58A66; --neg-bg: #33221B;
+    --warn: #D2B36F; --warn-bg: #2F2A1A; --info: #93A9D6; --info-bg: #1F2533;
+    --add-bg: #1C2620; --del-bg: #2B1F1A; --hunk-bg: #242221;
+    --inv-bg: #D2CECB; --inv-text: #1A1919;
+    --scrim: rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1A1919; --subtle: #201F1E; --muted: #2A2827; --border: #32302F; --border-strong: #46423F;
+  --text: #D2CECB; --text-2: #A39D99; --text-3: #7A7471;
+  --pos: #7CC08E; --pos-bg: #1E2B21; --neg: #E58A66; --neg-bg: #33221B;
+  --warn: #D2B36F; --warn-bg: #2F2A1A; --info: #93A9D6; --info-bg: #1F2533;
+  --add-bg: #1C2620; --del-bg: #2B1F1A; --hunk-bg: #242221;
+  --inv-bg: #D2CECB; --inv-text: #1A1919;
+  --scrim: rgba(0,0,0,.5);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/20px var(--sans); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { font-weight: 400; letter-spacing: -0.02em; margin: 0; }
+h1 { font-size: 28px; line-height: 36px; }
+h2 { font-size: 20px; line-height: 28px; }
+h3 { font-size: 16px; line-height: 24px; }
+p { margin: 0; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--border-strong); }
+a:hover { text-decoration-color: currentColor; }
+code, .mono, .num { font-family: var(--mono); font-size: 0.93em; }
+.num { font-variant-numeric: tabular-nums; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- shell ---------- */
+.top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 20; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 0 32px; }
+.bar { display: flex; align-items: center; gap: 12px; height: 56px; }
+.brand { font: 500 13px/20px var(--mono); color: var(--text); letter-spacing: 0; white-space: nowrap; }
+.brand-sep { color: var(--text-3); }
+.brand-repo { color: var(--text-2); font: 400 13px/20px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.spacer { flex: 1; }
+.mode { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.dot { width: 6px; height: 6px; border-radius: 3px; background: var(--text-3); flex: none; }
+.mode.live .dot { background: var(--pos); animation: pulse 1.6s ease-in-out infinite; }
+.mode.err .dot { background: var(--neg); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin-bottom: -1px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; height: 44px; padding: 0 12px; color: var(--text-2); cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--text); }
+.count { font: 500 11px/16px var(--mono); padding: 0 6px; border-radius: 8px; background: var(--muted); color: var(--text-2); }
+.tab[aria-selected="true"] .count { background: var(--inv-bg); color: var(--inv-text); }
+main { padding: 32px 0 64px; }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.meta { color: var(--text-2); font-size: 13px; line-height: 20px; }
+.meta .sep { color: var(--text-3); padding: 0 6px; }
+.section { margin-top: 40px; }
+.section:first-child { margin-top: 0; }
+.section-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.section-head .meta { margin-left: 0; }
+.section-sub { color: var(--text-2); font-size: 13px; margin: -4px 0 16px; max-width: 760px; }
+.pane { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.pane-pad { padding: 20px; }
+.subtle { background: var(--subtle); }
+.banner { display: block; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--border); background: var(--subtle); color: var(--text-2); font-size: 13px; margin-bottom: 24px; }
+.banner code { color: var(--text); background: var(--muted); padding: 1px 6px; border-radius: 4px; }
+.banner.warn { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
+.banner.neg { background: var(--neg-bg); border-color: transparent; color: var(--neg); }
+
+/* ---------- buttons, chips ---------- */
+.btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; text-decoration: none; }
+.btn:hover:not(:disabled) { background: var(--muted); }
+.btn:disabled { cursor: not-allowed; opacity: .45; }
+.btn.lg { height: 40px; padding: 0 16px; font-size: 14px; }
+.btn.inv { background: var(--inv-bg); color: var(--inv-text); border-color: var(--inv-bg); }
+.btn.inv:hover:not(:disabled) { background: var(--inv-bg); opacity: .88; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+.btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--muted); }
+.btn.primary { background: var(--solar); color: var(--on-solar); border-color: var(--solar); }
+.btn.primary:hover:not(:disabled) { background: var(--solar-hover); border-color: var(--solar-hover); }
+.btn.primary:disabled { background: var(--muted); border-color: var(--border); color: var(--text-2); opacity: 1; }
+.btn.on { background: var(--muted); border-color: var(--text-2); }
+.icon-btn { width: 32px; padding: 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--subtle); color: var(--text-2); font-size: 12px; line-height: 16px; white-space: nowrap; max-width: 100%; }
+.chip .k { color: var(--text-3); }
+.chip.mono { font-family: var(--mono); font-size: 11.5px; }
+.chip.trunc { overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 22px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 8px; font-size: 12px; font-weight: 500; white-space: nowrap; background: var(--muted); color: var(--text-2); }
+.pill.pos { background: var(--pos-bg); color: var(--pos); }
+.pill.neg { background: var(--neg-bg); color: var(--neg); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.info { background: var(--info-bg); color: var(--info); }
+.pill.solid { background: var(--inv-bg); color: var(--inv-text); }
+.chip.emu { background: var(--info-bg); color: var(--info); border-color: transparent; }
+.chip.drop { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+
+/* ---------- overview ---------- */
+.stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.step { padding: 16px; border-right: 1px solid var(--border); min-width: 0; position: relative; }
+.step:last-child { border-right: 0; }
+.step-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.step-ic { width: 20px; height: 20px; border-radius: 10px; flex: none; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); color: var(--text-3); }
+.step-ic svg { width: 12px; height: 12px; }
+.step.done .step-ic { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-text); }
+.step.running .step-ic { border-color: var(--info); color: var(--info); }
+.step.running .step-ic::after { content: ""; width: 8px; height: 8px; border-radius: 4px; background: var(--info); animation: pulse 1.2s ease-in-out infinite; }
+.step.error .step-ic { background: var(--neg-bg); border-color: var(--neg); color: var(--neg); }
+.step.skipped .step-ic { border-style: dashed; }
+.step-name { font-weight: 500; font-size: 13px; }
+.step-status { font-size: 12px; color: var(--text-2); }
+.step.error .step-status { color: var(--neg); }
+.step-counts { font-size: 12px; line-height: 18px; color: var(--text-2); }
+.step-counts .num { color: var(--text); font-size: 12px; }
+.step-msg { font-size: 12px; line-height: 16px; color: var(--text-3); margin-top: 4px; overflow-wrap: anywhere; }
+.step.running { background: var(--subtle); }
+.step-bar { position: absolute; left: 0; right: 0; top: 0; height: 2px; background: transparent; }
+.step.running .step-bar { background: var(--info); }
+.step.error .step-bar { background: var(--neg); }
+
+.grid { display: grid; gap: 16px; }
+.kpis { grid-template-columns: 2fr 1fr 1fr 1fr; }
+.kpi { padding: 20px; min-width: 0; }
+.kpi-label { color: var(--text-2); font-size: 13px; }
+.kpi-value { font: 400 32px/40px var(--mono); letter-spacing: -0.02em; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.kpi-value small { font-size: 14px; color: var(--text-2); letter-spacing: 0; margin-left: 4px; }
+.kpi-sub { color: var(--text-2); font-size: 12px; margin-top: 4px; line-height: 16px; }
+.kpi-pair { display: grid; grid-template-columns: 1fr 1fr; }
+.kpi-pair > .kpi + .kpi { border-left: 1px solid var(--border); }
+.kpi-foot { grid-column: 1 / -1; border-top: 1px solid var(--border); padding: 10px 20px; font-size: 12px; color: var(--text-2); background: var(--subtle); border-radius: 0 0 12px 12px; }
+.delta { font-family: var(--mono); font-size: 12px; color: var(--pos); }
+
+.funnel { padding: 8px 20px; }
+.frow { display: grid; grid-template-columns: 180px 1fr 64px; gap: 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.frow:last-child { border-bottom: 0; }
+.flabel { font-size: 13px; }
+.flabel .meta { display: block; font-size: 12px; line-height: 16px; }
+.ftrack { height: 12px; background: var(--muted); border-radius: 4px; overflow: hidden; }
+.ffill { height: 100%; border-radius: 4px; background: var(--text-2); min-width: 2px; }
+.ffill.z { min-width: 0; }
+.ffill.all { background: var(--border-strong); }
+.ffill.serv { background: var(--text-2); }
+.ffill.moved { background: var(--pos); }
+.ffill.review { background: var(--warn); }
+.ffill.kept { background: var(--text-3); }
+.fnum { text-align: right; font: 400 16px/24px var(--mono); font-variant-numeric: tabular-nums; }
+.two { grid-template-columns: 3fr 2fr; }
+.list { margin: 0; padding: 0; list-style: none; }
+.li { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.li:last-child { border-bottom: 0; }
+.li-main { flex: 1; min-width: 0; }
+.li-title { font-size: 14px; }
+.li-sub { color: var(--text-2); font-size: 12px; line-height: 16px; margin-top: 2px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+.kv dt { color: var(--text-2); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+
+/* ---------- tables ---------- */
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+.seg button { appearance: none; border: 0; background: var(--bg); height: 30px; padding: 0 12px; font-size: 13px; color: var(--text-2); cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--muted); color: var(--text); }
+.seg .num { font-size: 11.5px; color: var(--text-3); }
+.input { height: 32px; border: 1px solid var(--border-strong); border-radius: 8px; padding: 0 10px; background: var(--bg); min-width: 0; }
+.input::placeholder { color: var(--text-3); }
+.input:focus { outline: none; border-color: var(--text-2); }
+.tbl-wrap { position: relative; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--text-2); font-size: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--subtle); white-space: nowrap; }
+td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--subtle); }
+td.site { font-family: var(--mono); font-size: 12px; min-width: 220px; }
+td.nw { white-space: nowrap; }
+td.site .ln { color: var(--text-3); }
+td.reason { color: var(--text-2); min-width: 300px; max-width: 440px; }
+td .mono { font-size: 12px; }
+.empty { padding: 40px 20px; text-align: center; color: var(--text-2); }
+
+/* ---------- diff ---------- */
+.diff { font: 400 12px/18px var(--mono); overflow-x: auto; background: var(--bg); }
+.diff table { font: inherit; width: 100%; min-width: max-content; }
+.diff td { padding: 0 8px; border: 0; white-space: pre; vertical-align: top; }
+.diff tbody tr:hover td { background: inherit; }
+.diff td.n { color: var(--text-3); text-align: right; user-select: none; width: 1%; min-width: 40px; }
+.diff tr.add td { background: var(--add-bg); }
+.diff tr.del td { background: var(--del-bg); }
+.diff tr.add td.c::before { content: "+"; color: var(--pos); padding-right: 8px; }
+.diff tr.del td.c::before { content: "-"; color: var(--neg); padding-right: 8px; }
+.diff tr.ctx td.c::before { content: " "; padding-right: 8px; }
+.diff tr.hunk td { background: var(--hunk-bg); color: var(--text-2); padding-top: 4px; padding-bottom: 4px; }
+.code { font: 400 12px/18px var(--mono); white-space: pre; overflow-x: auto; padding: 12px 16px; margin: 0; background: var(--subtle); }
+
+.drawer-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(880px, 100%); background: var(--bg); border-left: 1px solid var(--border); z-index: 41; display: flex; flex-direction: column; }
+.drawer-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.drawer-files { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--subtle); }
+.drawer-files button { font-family: var(--mono); font-size: 11.5px; }
+.drawer-body { flex: 1; overflow: auto; }
+.file-head { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--subtle); font: 500 12px/18px var(--mono); z-index: 1; }
+.stat-add { color: var(--pos); font-family: var(--mono); }
+.stat-del { color: var(--neg); font-family: var(--mono); }
+
+/* ---------- cards ---------- */
+.cards { display: grid; gap: 12px; }
+.card { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); }
+.card.sel { border-color: var(--text-2); }
+.card.decided { background: var(--subtle); }
+.card-main { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.card-head { display: flex; gap: 8px 12px; align-items: flex-start; flex-wrap: wrap; }
+.card-title { flex: 1 1 240px; min-width: 0; }
+.card-title h3 { overflow-wrap: anywhere; }
+.card-meta { color: var(--text-2); font-size: 12.5px; margin-top: 4px; }
+.card-meta .sep { color: var(--text-3); padding: 0 6px; }
+.card-meta .num { font-size: 12px; color: var(--text); }
+.check { width: 16px; height: 16px; margin: 4px 0 0; accent-color: var(--text); flex: none; cursor: pointer; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 24px; }
+.fact-label { color: var(--text-3); font-size: 12px; line-height: 16px; margin-bottom: 4px; }
+.fact-val { font-size: 13px; }
+.impact { font-family: var(--mono); font-size: 15px; font-variant-numeric: tabular-nums; }
+.impact.save { color: var(--pos); }
+.impact.cost { color: var(--neg); }
+.loses { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; }
+.loses li { display: flex; gap: 8px; }
+.loses li::before { content: ""; width: 6px; height: 6px; border-radius: 3px; background: var(--neg); margin-top: 7px; flex: none; }
+.loses.none li::before { background: var(--pos); }
+.ev { display: inline-flex; align-items: center; gap: 4px; }
+.ev i { width: 8px; height: 8px; border-radius: 4px; border: 1px solid var(--border-strong); display: inline-block; }
+.ev i.on { background: var(--text); border-color: var(--text); }
+.ev i.need { border-color: var(--warn); border-style: dashed; }
+.ev-lbl { font: 400 12px/16px var(--mono); color: var(--text-2); margin-left: 6px; }
+.rule { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.rule .rid { font: 500 12px/16px var(--mono); }
+.rule .chip { height: auto; min-height: 24px; padding-top: 3px; padding-bottom: 3px; white-space: normal; overflow-wrap: anywhere; display: inline-block; }
+.chip { overflow: hidden; }
+details.more { border-top: 1px solid var(--border); }
+details.more > summary { list-style: none; cursor: pointer; padding: 10px 20px; color: var(--text-2); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); margin-right: 4px; transition: transform .12s; }
+details.more[open] > summary::before { transform: rotate(45deg); }
+details.more > summary:hover { color: var(--text); }
+.more-body { padding: 0 20px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.more-body > * { min-width: 0; }
+.more-body .diff, .more-body .code { border: 1px solid var(--border); border-radius: 8px; }
+.ev-results { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px; }
+.ev-results li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ev-results .lv { font: 500 11.5px/16px var(--mono); color: var(--text-2); width: 22px; flex: none; }
+.ev-results .src { color: var(--text-3); font-size: 12px; }
+.options { display: grid; gap: 6px; }
+.opt { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.opt .mono { font-size: 12px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 12px 20px; border-top: 1px solid var(--border); }
+.actions .spacer { min-width: 8px; }
+.actions .note { color: var(--text-3); font-size: 12px; }
+.inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--subtle); }
+.inline-form .input { flex: 1; min-width: 200px; }
+.inline-form input[type=date].input { flex: 0 0 auto; min-width: 160px; }
+.decision { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+.group-title { display: flex; align-items: center; gap: 10px; margin: 24px 0 10px; font-size: 13px; color: var(--text-2); }
+.group-title:first-of-type { margin-top: 0; }
+.group-title .line { flex: 1; height: 1px; background: var(--border); }
+.recom-only { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--info); background: var(--info-bg); border-radius: 8px; padding: 2px 8px; font-weight: 500; }
+.cnr td.rid { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+.cnr td.why { color: var(--text-2); }
+
+#sticky { position: sticky; bottom: 0; z-index: 30; }
+.sticky { border-top: 1px solid var(--border); background: var(--bg); }
+.sticky .wrap { display: flex; align-items: center; gap: 12px; height: 64px; }
+.sticky .sum { font-size: 13px; color: var(--text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sticky .sum b { font-weight: 500; color: var(--text); font-family: var(--mono); }
+
+.result { margin-bottom: 24px; }
+.result-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.result .code { background: var(--bg); border-radius: 0 0 12px 12px; max-height: 280px; overflow: auto; }
+
+/* ---------- setup ---------- */
+.setup-item { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 20px; }
+.setup-item + .setup-item { border-top: 1px solid var(--border); }
+.tick { width: 24px; height: 24px; border-radius: 12px; border: 1px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center; color: transparent; }
+.tick svg { width: 12px; height: 12px; }
+.done .tick { background: var(--inv-bg); border-color: var(--inv-bg); color: var(--inv-text); }
+.done .setup-title { color: var(--text-2); }
+.setup-why { color: var(--text-2); font-size: 13px; margin-top: 4px; max-width: 760px; }
+.values { margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; max-width: 820px; }
+.values .vrow { display: grid; grid-template-columns: minmax(120px, 200px) 1fr auto; gap: 12px; align-items: center; padding: 4px 4px 4px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.values .vrow:last-child { border-bottom: 0; }
+.values .vk { color: var(--text-2); }
+.values .vv { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.setup-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.setup-actions .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.progress { height: 4px; background: var(--muted); border-radius: 2px; overflow: hidden; width: 160px; }
+.progress > i { display: block; height: 100%; background: var(--text); }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 80px; z-index: 50; background: var(--inv-bg); color: var(--inv-text); padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: calc(100% - 32px); }
+.toast.err { background: var(--neg); color: #fff; }
+
+@media (max-width: 960px) {
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpis > .kpi-pair { grid-column: 1 / -1; }
+  .two { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px; }
+  main { padding-top: 24px; }
+  h1 { font-size: 22px; line-height: 30px; }
+  .kpis { grid-template-columns: 1fr; }
+  .kpi-pair { grid-template-columns: 1fr; }
+  .kpi-pair > .kpi + .kpi { border-left: 0; border-top: 1px solid var(--border); }
+  .frow { grid-template-columns: 1fr 48px; }
+  .frow .ftrack { grid-column: 1 / -1; grid-row: 2; }
+  .stepper { grid-template-columns: 1fr 1fr; }
+  .step { border-bottom: 1px solid var(--border); }
+  .values .vrow { grid-template-columns: 1fr auto; }
+  .values .vk { grid-column: 1 / -1; }
+  .brand-repo { display: none; }
+}
+@media print { .top { position: static; } .sticky, .drawer, .drawer-scrim { display: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="bar">
+      <span class="brand">router-migrate</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-repo" id="hdr-repo"></span>
+      <span class="spacer"></span>
+      <span class="mode" id="hdr-mode"><span class="dot"></span><span id="hdr-mode-t">Static page</span></span>
+      <button class="btn ghost icon-btn" id="theme-btn" type="button" aria-label="Theme" title="Theme"></button>
+    </div>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+  </div>
+</header>
+<main><div class="wrap" id="main"></div></main>
+<div id="sticky"></div>
+<div id="drawer"></div>
+<div id="toast"></div>
+<script id="rm-boot">window.__RM__ = window.__RM__ || null; window.__RM_MODE__ = window.__RM_MODE__ || "static";window.__RM__ = {"repo":"openai/openai-responses-starter-app","root":"/Users/sanjithsambath/code/router-migrate/eval/work/runs/openai-responses-starter-app","generated":"2026-10-13T14:19:39","tool_version":"router-migrate v2-mvp","stages":[{"stage":"scan","status":"done","counts":{},"msg":""},{"stage":"plan","status":"done","counts":{"sites_found":7,"migrated":1,"handoff":0,"kept":6,"flagged":0,"router_eligible":1,"nonprod_sites":0,"callsite_coverage":0.1429,"weighted_coverage":1.0},"msg":""},{"stage":"apply","status":"done","counts":{},"msg":""},{"stage":"recommend","status":"done","counts":{"cards":3,"considered":2},"msg":""},{"stage":"decide","status":"done","counts":{"card":"rec_fallback_candidates_a1622dd9","action":"approve"},"msg":""},{"stage":"apply_decisions","status":"done","counts":{"applied":2,"skipped":0},"msg":""}],"summary":{"sites_found":7,"migrated":1,"handoff":0,"kept":6,"flagged":0,"router_eligible":1,"nonprod_sites":0,"callsite_coverage":0.1429,"weighted_coverage":1.0},"funnel":{"all_gen_ai":7,"router_servable":1,"moved":1,"needs_review":0,"kept":6},"kpis":{"lossless_migrated":1,"migrated_with_unlocks":1,"unlock_candidates":0,"cards_total":3,"live_spend_usd":0.000401,"tests_before":{"typecheck":true,"exit":0,"ts_errors":0},"tests_after":{"typecheck":true,"exit":0,"ts_errors":0}},"sites":[{"id":"ts:app/api/container_files/content/route.ts:13:8:raw_http","file":"app/api/container_files/content/route.ts","line":13,"lang":"ts","sdk":"openai","surface":"files","outcome":"kept","reason":"raw HTTP files request (not generation traffic); describes the provider account","stream":null,"feature":"app/api/container_files/content/route.ts:GET","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]},{"id":"ts:app/api/turn_response/route.ts:17:25:call","file":"app/api/turn_response/route.ts","line":17,"lang":"ts","sdk":"openai","surface":"responses","outcome":"migrated","reason":"client patched; model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it (repo names 1 openai model(s), 1 in the catalog, e.g. gpt-5.2)","stream":true,"feature":"app/api/turn_response/route.ts:POST","latency_class":"interactive","model_owner":"app_literal","resolved_model":"gpt-5.2","unlocked":false,"chips":[]},{"id":"ts:app/api/vector_stores/add_file/route.ts:8:30:call","file":"app/api/vector_stores/add_file/route.ts","line":8,"lang":"ts","sdk":"openai","surface":"vector_stores","outcome":"kept","reason":"Router has no vector stores","stream":false,"feature":"app/api/vector_stores/add_file/route.ts:POST","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]},{"id":"ts:app/api/vector_stores/create_store/route.ts:8:30:call","file":"app/api/vector_stores/create_store/route.ts","line":8,"lang":"ts","sdk":"openai","surface":"vector_stores","outcome":"kept","reason":"Router has no vector stores","stream":false,"feature":"app/api/vector_stores/create_store/route.ts:POST","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]},{"id":"ts:app/api/vector_stores/list_files/route.ts:10:30:call","file":"app/api/vector_stores/list_files/route.ts","line":10,"lang":"ts","sdk":"openai","surface":"vector_stores","outcome":"kept","reason":"Router has no vector stores","stream":false,"feature":"app/api/vector_stores/list_files/route.ts:GET","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]},{"id":"ts:app/api/vector_stores/retrieve_store/route.ts:9:30:call","file":"app/api/vector_stores/retrieve_store/route.ts","line":9,"lang":"ts","sdk":"openai","surface":"vector_stores","outcome":"kept","reason":"Router has no vector stores","stream":false,"feature":"app/api/vector_stores/retrieve_store/route.ts:GET","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]},{"id":"ts:app/api/vector_stores/upload_file/route.ts:13:23:call","file":"app/api/vector_stores/upload_file/route.ts","line":13,"lang":"ts","sdk":"openai","surface":"files","outcome":"kept","reason":"Router has no /v1/files (measured 404)","stream":false,"feature":"app/api/vector_stores/upload_file/route.ts:POST","latency_class":"interactive","model_owner":"unknown","resolved_model":null,"unlocked":false,"chips":[]}],"diff":"--- a/app/api/turn_response/route.ts\n+++ b/app/api/turn_response/route.ts\n@@ -1,6 +1,7 @@\n import { getDeveloperPrompt, MODEL } from \"@/config/constants\";\n import { getTools } from \"@/lib/tools/tools\";\n import OpenAI from \"openai\";\n+import { routerOptions } from \"../../../lib/routerRuntime\";\n \n export async function POST(request: Request) {\n   try {\n@@ -12,7 +13,7 @@\n \n     console.log(\"Received messages:\", messages);\n \n-    const openai = new OpenAI();\n+    const openai = new OpenAI({ ...routerOptions() });\n \n     const events = await openai.responses.create({\n       model: MODEL,\n--- a/app/api/vector_stores/add_file/route.ts\n+++ b/app/api/vector_stores/add_file/route.ts\n@@ -1,6 +1,7 @@\n import OpenAI from \"openai\";\n+import { routerOptions } from \"../../../../lib/routerRuntime\";\n \n-const openai = new OpenAI();\n+const openai = new OpenAI({ ...routerOptions() });\n \n export async function POST(request: Request) {\n   const { vectorStoreId, fileId } = await request.json();\n--- a/app/api/vector_stores/create_store/route.ts\n+++ b/app/api/vector_stores/create_store/route.ts\n@@ -1,6 +1,7 @@\n import OpenAI from \"openai\";\n+import { routerOptions } from \"../../../../lib/routerRuntime\";\n \n-const openai = new OpenAI();\n+const openai = new OpenAI({ ...routerOptions() });\n \n export async function POST(request: Request) {\n   const { name } = await request.json();\n--- a/app/api/vector_stores/list_files/route.ts\n+++ b/app/api/vector_stores/list_files/route.ts\n@@ -1,6 +1,7 @@\n import OpenAI from \"openai\";\n+import { routerOptions } from \"../../../../lib/routerRuntime\";\n \n-const openai = new OpenAI();\n+const openai = new OpenAI({ ...routerOptions() });\n \n export async function GET(request: Request) {\n   const { searchParams } = new URL(request.url);\n--- a/app/api/vector_stores/retrieve_store/route.ts\n+++ b/app/api/vector_stores/retrieve_store/route.ts\n@@ -1,6 +1,7 @@\n import OpenAI from \"openai\";\n+import { routerOptions } from \"../../../../lib/routerRuntime\";\n \n-const openai = new OpenAI();\n+const openai = new OpenAI({ ...routerOptions() });\n \n export async function GET(request: Request) {\n   const { searchParams } = new URL(request.url);\n--- a/app/api/vector_stores/upload_file/route.ts\n+++ b/app/api/vector_stores/upload_file/route.ts\n@@ -1,5 +1,6 @@\n import OpenAI from \"openai\";\n-const openai = new OpenAI();\n+import { routerOptions } from \"../../../../lib/routerRuntime\";\n+const openai = new OpenAI({ ...routerOptions() });\n \n export async function POST(request: Request) {\n   const { fileObject } = await request.json();\n","recommendations":{"catalog_version":"bundled snapshot (GET https://api.router.com/v1/models (live, 2026-10-12/13))","rules_version":"v2-mvp-1","repo":"openai/openai-responses-starter-app","generated":"2026-10-13T14:19:36","repo_kind":"app","signals":{"ts:app/api/container_files/content/route.ts:13:8:raw_http":{"feature":"app/api/container_files/content/route.ts:GET","function":"GET","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null},"ts:app/api/turn_response/route.ts:17:25:call":{"feature":"app/api/turn_response/route.ts:POST","function":"POST","latency_class":"interactive","model_owner":"app_literal","model_value":"gpt-5.2","resolved_model":"gpt-5.2"},"ts:app/api/vector_stores/add_file/route.ts:8:30:call":{"feature":"app/api/vector_stores/add_file/route.ts:POST","function":"POST","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null},"ts:app/api/vector_stores/create_store/route.ts:8:30:call":{"feature":"app/api/vector_stores/create_store/route.ts:POST","function":"POST","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null},"ts:app/api/vector_stores/list_files/route.ts:10:30:call":{"feature":"app/api/vector_stores/list_files/route.ts:GET","function":"GET","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null},"ts:app/api/vector_stores/retrieve_store/route.ts:9:30:call":{"feature":"app/api/vector_stores/retrieve_store/route.ts:GET","function":"GET","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null},"ts:app/api/vector_stores/upload_file/route.ts:13:23:call":{"feature":"app/api/vector_stores/upload_file/route.ts:POST","function":"POST","latency_class":"interactive","model_owner":"unknown","model_value":null,"resolved_model":null}},"cards":[{"id":"rec_attr_metadata_d4cac89f","rule":"attr.metadata","lever_group":"same_model","title":"Tag Router spend for 1 feature(s) with product=openai-responses-starter-app","scope":{"sites":["ts:app/api/turn_response/route.ts:17:25:call"],"features":["app/api/turn_response/route.ts:POST"],"latency_class":"interactive"},"model_owner":"app_literal","change":{"kind":"policy","diff":"{\"defaults\": {\"metadata\": {\"product\": \"openai-responses-starter-app\"}}}"},"loses":[],"rule_inputs":{"product":"openai-responses-starter-app","features":1},"evidence":{"level":"L0","results":[{"level":"L0","fact":"Router stores metadata as request tags; metadata.product attributes spend in Ramp","source":"docs"}]},"impact":{"per_call_pct":0,"monthly_usd":null,"ignores":"attribution only, no price change"},"risk":0,"effort":"none","options":[],"etag":"ee6ff41347b31405","state":"approved","applies":true},{"id":"rec_fallback_candidates_a1622dd9","rule":"fallback.candidates","lever_group":"same_model","title":"Fail over app/api/turn_response/route.ts:POST from gpt-5.2 to gpt-5.3-codex then claude-sonnet-4-6 on outages","scope":{"sites":["ts:app/api/turn_response/route.ts:17:25:call"],"features":["app/api/turn_response/route.ts:POST"],"latency_class":"interactive"},"model_owner":"app_literal","change":{"kind":"policy","diff":"{\"globs\": {\"**app/api/turn_response/route.*:POST\": {\"fallbacks\": [\"gpt-5.3-codex\", \"claude-sonnet-4-6\"]}}}"},"loses":["on a pre-stream failure (429/5xx/no permission) a different model answers that request"],"rule_inputs":{"model":"gpt-5.2","candidates":["gpt-5.3-codex","claude-sonnet-4-6"]},"evidence":{"level":"L0","results":[{"level":"L0","fact":"candidates match gpt-5.2's tools/structured-output/modality support and are within 0.5-2x its list price","source":"catalog"},{"level":"L0","fact":"Router's models list advances on 403/unknown model (measured)","source":"measured"}]},"impact":{"per_call_pct":0,"monthly_usd":null,"ignores":"price of the fallback model on the requests that fail over"},"risk":2,"effort":"none","options":[{"fallbacks":["gpt-5.3-codex"]},{"fallbacks":["gpt-5.3-codex","claude-sonnet-4-6"]}],"etag":"e6146b1c58fdd480","state":"approved","applies":true},{"id":"rec_model_newer_cheaper_same_family_b839242b","rule":"model.newer_cheaper_same_family","lever_group":"model","title":"Try gpt-6.1-sol for app/api/turn_response/route.ts:POST (newer, -24% list price)","scope":{"sites":["ts:app/api/turn_response/route.ts:17:25:call"],"features":["app/api/turn_response/route.ts:POST"],"latency_class":"interactive"},"model_owner":"app_literal","change":{"kind":"code","diff":"change the literal gpt-5.2 to gpt-6.1-sol"},"loses":["a different model answers every request: needs L2 evidence before applying"],"rule_inputs":{"model":"gpt-5.2","candidate":"gpt-6.1-sol"},"evidence":{"level":"L0","results":[{"level":"L0","fact":"gpt-6.1-sol: same vendor, same capabilities, lower list price","source":"catalog"}]},"impact":{"per_call_pct":-24,"monthly_usd":null,"ignores":"list prices only; output length and quality differ by model"},"risk":2,"effort":"low","options":[],"etag":"e6146b1c58fdd480","state":"new","applies":false}],"considered_not_recommended":[{"rule":"cache.key","scope":{"sites":["ts:app/api/turn_response/route.ts:17:25:call"],"features":["app/api/turn_response/route.ts:POST"]},"reason":"no static system prompt \u003e= ~1,024 tokens found (longest ~0 tokens)"},{"rule":"tier.flex_background","scope":{"sites":["ts:app/api/turn_response/route.ts:17:25:call"],"features":["app/api/turn_response/route.ts:POST"]},"reason":"latency class interactive: Flex adds up to ~61 s (measured)"}]},"decisions":{"cards":{"rec_attr_metadata_d4cac89f":{"action":"approve","etag":"ee6ff41347b31405","by":"cli","at":"2026-10-13T14:19:36"},"rec_fallback_candidates_a1622dd9":{"action":"approve","etag":"e6146b1c58fdd480","by":"cli","at":"2026-10-13T14:19:36"}}},"setup":[{"id":"setup.budget","title":"Set a per-key spend cap","why":"Router enforces caps per API key (401 when hit); set one before rollout.","values":{"page":"API keys","cap":"your monthly limit"},"link":"https://app.router.com/","done":false},{"id":"setup.flex_default","title":"Decide the account Flex default","why":"Flex is on by default (allow_flex_tier_default=true, measured) and served requests at up to ~61 s. router-migrate sends service_tier \"default\" on every routed call unless a policy opts a feature into Flex.","values":{"allow_flex_tier_default":"keep on (tool overrides per call) or off"},"link":"https://app.router.com/strategies","done":false},{"id":"setup.jev","title":"Jev auto routing (optional, unmeasured)","why":"Jev picks among 2-6 models you describe per routing profile. Not measured: the docs say allow_flex_tier opts a request out of Jev; whether service_tier \"default\" does is unverified.","values":{"routing profile":"2-6 described models","status on this account":"off"},"link":"https://app.router.com/strategies","done":false},{"id":"setup.switchyard","title":"Switchyard (experimental, coding agents only)","why":"model:\"switchyard\" works from app code once a strategy is saved (measured: served gpt-5.6-luna at flex); it switches model family mid-conversation. The tool never writes it.","values":{"efficient_model":"openai:gpt-5.6-luna","capable_model":"anthropic:claude-sonnet-4-5"},"link":"https://app.router.com/strategies","done":false},{"id":"setup.shadow","title":"Shadow a candidate model before any model change","why":"Shadow models record cost and latency for 1-3 candidates on a sample of /v1/responses traffic (needs content recording; not on BYOK keys). Results are only on the Shadow Logs page.","values":{"candidates":"1-3","sample":"5-10%"},"link":"https://app.router.com/strategies","done":false}],"unsupported":[{"site":"ts:app/api/container_files/content/route.ts:13:8:raw_http","file":"app/api/container_files/content/route.ts","line":13,"surface":"files","reason":"raw HTTP files request (not generation traffic); describes the provider account"},{"site":"ts:app/api/vector_stores/add_file/route.ts:8:30:call","file":"app/api/vector_stores/add_file/route.ts","line":8,"surface":"vector_stores","reason":"Router has no vector stores"},{"site":"ts:app/api/vector_stores/create_store/route.ts:8:30:call","file":"app/api/vector_stores/create_store/route.ts","line":8,"surface":"vector_stores","reason":"Router has no vector stores"},{"site":"ts:app/api/vector_stores/list_files/route.ts:10:30:call","file":"app/api/vector_stores/list_files/route.ts","line":10,"surface":"vector_stores","reason":"Router has no vector stores"},{"site":"ts:app/api/vector_stores/retrieve_store/route.ts:9:30:call","file":"app/api/vector_stores/retrieve_store/route.ts","line":9,"surface":"vector_stores","reason":"Router has no vector stores"},{"site":"ts:app/api/vector_stores/upload_file/route.ts:13:23:call","file":"app/api/vector_stores/upload_file/route.ts","line":13,"surface":"files","reason":"Router has no /v1/files (measured 404)"}],"policy":{"exists":true,"hash":"a9830bf6cb3dad88bd3e9e6b52f7ef39794bd2cfcb190714ec53126432b35df0","compiled_hash":"a9830bf6cb3dad88bd3e9e6b52f7ef39794bd2cfcb190714ec53126432b35df0","orphans":[]}}; window.__RM_MODE__ = "frozen";</script>
+<script>
+(function () {
+  "use strict";
+  var MODE = window.__RM_MODE__ || "static";
+  var LIVE = MODE === "live";
+  var B = window.__RM__ || null;
+  var TOKEN = "";
+  try { TOKEN = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
+  var FROZEN_NOTE = "frozen report — run `router-migrate up` to decide";
+
+  var TABS = [["overview", "Overview"], ["migration", "Migration"], ["improve", "Improve"], ["setup", "Router setup"], ["unsupported", "Unsupported"]];
+  var LV = ["L0", "L1", "L2", "L3", "L4"];
+  var LV_NAME = {L0: "catalog fact", L1: "static signal", L2: "offline replay", L3: "Router shadow", L4: "observed in production"};
+  var RULE_MIN = {"attr.metadata": -1, "budget.per_key": -1, "cache.key": 1, "tier.flex_background": 1, "tier.priority_interactive": 1,
+    "speed.fast_claude": 1, "fallback.candidates": 0, "timeout.provider": 1, "unlock.vendor_endpoint": 0, "unlock.azure_mapping": 0,
+    "unlock.stated_loss": 0, "model.deprecated": 2, "model.effort_lower": 2, "model.newer_cheaper_same_family": 2, "model.right_size": 2,
+    "model.router_choose": 3, "model.switchyard": 3, "model.cross_vendor": 3};
+  var EXPERIMENTAL = {"model.switchyard": true};
+  var NO_BULK = {"fallback.candidates": true};
+  var KIND_LABEL = {policy: "policy only", code: "code edit", config: "config edit", account: "account setting"};
+  var ACTION_STATE = {approve: "approved", dismiss: "dismissed", postpone: "postponed", shadow_first: "shadow_first"};
+  var STATE_LABEL = {"new": "New", approved: "Approved", dismissed: "Dismissed", postponed: "Postponed", shadow_first: "Shadow first", applied: "Applied"};
+  var STATE_CLS = {approved: "pos", applied: "solid", dismissed: "", postponed: "warn", shadow_first: "info"};
+  var OUTCOME_CLS = {migrated: "pos", handoff: "warn", flagged: "warn", kept: ""};
+  var SURFACE_NOTE = {embeddings: "Router has no /v1/embeddings endpoint.", images: "Router does not serve image generation.",
+    audio: "Router does not serve audio endpoints.", files: "Router has no /v1/files.", batches: "Router has no batch API.",
+    vector_stores: "Router has no vector stores.", completions: "Router has no legacy /v1/completions.", moderations: "Router has no moderation endpoint."};
+
+  var S = {tab: "overview", filter: "all", q: "", drawer: null, selected: {}, open: {}, form: {}, busy: false, applyResult: null,
+    lastText: "", pending: false, conn: "ok", undecidedOnly: false};
+
+  // ---------------- helpers ----------------
+  function esc(v) {
+    return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+    });
+  }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+  function fmtInt(v) { var n = num(v); return n == null ? "–" : n.toLocaleString("en-US"); }
+  function fmtUsd(v) {
+    var n = num(v); if (n == null) return "–";
+    if (n === 0) return "$0.00";
+    if (Math.abs(n) < 0.01) return "$" + n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+    return "$" + n.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  function fmtPct(v) { var n = num(v); if (n == null) return "–"; return (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toLocaleString("en-US", {maximumFractionDigits: 1}) + "%"; }
+  function fmtTime(s) {
+    if (!s) return ""; var d = new Date(s); if (isNaN(d.getTime())) return String(s);
+    function p(x) { return (x < 10 ? "0" : "") + x; }
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function safeLink(u) {
+    u = String(u || "");
+    return /^https:\/\/(app|docs)\.router\.com(\/|$)/.test(u) ? u : null;
+  }
+  function linkLabel(u) { return /^https:\/\/app\.router\.com\/strategies/.test(u) ? "Open Strategies page" : /^https:\/\/docs\./.test(u) ? "Read the docs" : "Open in Router"; }
+  function lvIndex(l) { var i = LV.indexOf(String(l || "").toUpperCase()); return i; }
+  function dotsep(parts) { return parts.filter(Boolean).join('<span class="sep">·</span>'); }
+  function plural(n, a, b) { return n === 1 ? a : (b || a + "s"); }
+  var ICON = {
+    check: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2 5 8.6l4.5-5"/></svg>',
+    x: '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>',
+    ext: '<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5H2.5v7h7V7M7 2.5h2.5V5M9.5 2.5 5.5 6.5"/></svg>',
+    sun: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>',
+    moon: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/></svg>',
+    auto: '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11A5.5 5.5 0 0 0 8 2.5Z" fill="currentColor"/></svg>'
+  };
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+
+  // ---------------- theme ----------------
+  var THEMES = ["system", "light", "dark"];
+  function applyTheme(t) {
+    var root = document.documentElement;
+    if (t === "light" || t === "dark") root.setAttribute("data-theme", t); else root.removeAttribute("data-theme");
+    var btn = document.getElementById("theme-btn");
+    btn.innerHTML = t === "light" ? ICON.sun : t === "dark" ? ICON.moon : ICON.auto;
+    btn.title = "Theme: " + t + " (click to change)";
+    btn.setAttribute("aria-label", btn.title);
+  }
+  var theme = store("rm.theme") || "system";
+  if (THEMES.indexOf(theme) < 0) theme = "system";
+  applyTheme(theme);
+  document.getElementById("theme-btn").addEventListener("click", function () {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    store("rm.theme", theme === "system" ? null : theme); applyTheme(theme);
+  });
+
+  // ---------------- data accessors ----------------
+  function recs() { return obj(B && B.recommendations); }
+  function cards() { return arr(recs().cards); }
+  function decisions() { return obj(obj(B && B.decisions).cards); }
+  function decisionOf(c) { return obj(decisions()[c.id]); }
+  function stateOf(c) {
+    if (c.state === "applied") return "applied";
+    var d = decisionOf(c);
+    if (d.action && ACTION_STATE[d.action]) return ACTION_STATE[d.action];
+    return c.state || "new";
+  }
+  function isDecided(c) { return stateOf(c) !== "new"; }
+  function isModelCard(c) { return c.lever_group === "model" || c.applies === false; }
+  function evLevel(c) { return lvIndex(obj(c.evidence).level); }
+  function evGroup(c) {
+    var ev = obj(c.evidence);
+    if (c.experimental || ev.experimental || EXPERIMENTAL[c.rule]) return "experimental";
+    if (typeof ev.bar_met === "boolean") return ev.bar_met ? "met" : "needs";
+    var min = RULE_MIN.hasOwnProperty(c.rule) ? RULE_MIN[c.rule] : 0;
+    if (typeof ev.required === "string") min = lvIndex(ev.required);
+    return evLevel(c) >= min ? "met" : "needs";
+  }
+  function minLevel(c) { var ev = obj(c.evidence); if (typeof ev.required === "string") return lvIndex(ev.required); return RULE_MIN.hasOwnProperty(c.rule) ? RULE_MIN[c.rule] : 0; }
+  function bulkEligible(c) {
+    return c.lever_group === "same_model" && !isModelCard(c) && evGroup(c) === "met" && num(c.risk) != null && c.risk <= 1 && !NO_BULK[c.rule] && !isDecided(c);
+  }
+  function stale(c) { var d = decisionOf(c); return !!(d.action && d.etag && c.etag && d.etag !== c.etag); }
+  function pendingApply() { return cards().filter(function (c) { return stateOf(c) === "approved" && !isModelCard(c); }); }
+  function selectedIds() { return Object.keys(S.selected).filter(function (id) { if (!S.selected[id]) return false; var c = cards().filter(function (x) { return x.id === id; })[0]; return c && bulkEligible(c); }); }
+  function undecided() { return cards().filter(function (c) { return !isDecided(c); }); }
+  function sites() { return arr(B && B.sites); }
+  function setupItems() { return arr(B && B.setup); }
+  function setupKey(it) { return "rm.setup." + ((B && B.repo) || "repo") + "." + it.id; }
+  function setupDone(it) { var v = store(setupKey(it)); if (v === "1") return true; if (v === "0") return false; return !!it.done; }
+
+  // ---------------- diff ----------------
+  var diffCache = {text: null, files: []};
+  function parseDiff(text) {
+    if (diffCache.text === text) return diffCache.files;
+    var files = [], cur = null, lines = String(text || "").split("\n"), oldN = 0, newN = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      if (l.indexOf("diff --git ") === 0) { cur = null; continue; }
+      if (l.indexOf("--- ") === 0 && i + 1 < lines.length && lines[i + 1].indexOf("+++ ") === 0) {
+        var a = l.slice(4).replace(/^a\//, ""), b = lines[i + 1].slice(4).replace(/^b\//, "");
+        a = a.split("\t")[0]; b = b.split("\t")[0];
+        cur = {file: b === "/dev/null" ? a : b, rows: [], add: 0, del: 0, isNew: a === "/dev/null"};
+        files.push(cur); i++; continue;
+      }
+      if (!cur) continue;
+      var m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(l);
+      if (m) { oldN = +m[1]; newN = +m[2]; cur.rows.push({t: "hunk", c: l}); continue; }
+      var ch = l.charAt(0);
+      if (ch === "+") { cur.rows.push({t: "add", n: newN++, c: l.slice(1)}); cur.add++; }
+      else if (ch === "-") { cur.rows.push({t: "del", o: oldN++, c: l.slice(1)}); cur.del++; }
+      else if (ch === " ") { cur.rows.push({t: "ctx", o: oldN++, n: newN++, c: l.slice(1)}); }
+      else if (l.indexOf("\\ ") === 0) { cur.rows.push({t: "hunk", c: l}); }
+    }
+    diffCache = {text: text, files: files};
+    return files;
+  }
+  function diffTable(rows) {
+    var h = ['<div class="diff"><table><tbody>'];
+    rows.forEach(function (r) {
+      if (r.t === "hunk") { h.push('<tr class="hunk"><td class="n"></td><td class="n"></td><td class="c">' + esc(r.c) + "</td></tr>"); return; }
+      h.push('<tr class="' + r.t + '"><td class="n">' + (r.o != null ? r.o : "") + '</td><td class="n">' + (r.n != null ? r.n : "") + '</td><td class="c">' + esc(r.c) + "</td></tr>");
+    });
+    h.push("</tbody></table></div>");
+    return h.join("");
+  }
+  function changeBlock(diff) {
+    var t = typeof diff === "string" ? diff : JSON.stringify(diff, null, 2);
+    if (!t) return "";
+    if (/^(--- |diff --git |@@ )/m.test(t)) {
+      var files = parseDiff2(t);
+      if (files.length) return files.map(function (f) { return '<div><div class="fact-label mono">' + esc(f.file) + '</div>' + diffTable(f.rows) + "</div>"; }).join("");
+      if (/^@@ /m.test(t)) return diffTable(parseRowsOnly(t));
+    }
+    try { t = JSON.stringify(JSON.parse(t), null, 2); } catch (e) {}
+    return '<pre class="code">' + esc(t) + "</pre>";
+  }
+  function parseDiff2(t) { var saved = diffCache; var f = parseDiff(t); diffCache = saved; return f; }
+  function parseRowsOnly(t) { var f = parseDiff2("--- a/x\n+++ b/x\n" + t); return f.length ? f[0].rows : []; }
+
+  // ---------------- API ----------------
+  function api(method, path, body) {
+    var opt = {method: method, headers: {"X-RM-Token": TOKEN}, cache: "no-store", credentials: "same-origin"};
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.text().then(function (txt) {
+        var j = null; try { j = JSON.parse(txt); } catch (e) {}
+        if (!r.ok) { var err = new Error((j && j.error) || ("HTTP " + r.status)); err.status = r.status; throw err; }
+        return {json: j, text: txt};
+      });
+    });
+  }
+  function refresh(force) {
+    if (!LIVE) return Promise.resolve();
+    return api("GET", "/api/bundle").then(function (res) {
+      setConn("ok");
+      if (force || res.text !== S.lastText) {
+        S.lastText = res.text; B = res.json; window.__RM__ = B;
+        var ae = document.activeElement;
+        if (!force && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#main,#drawer")) { S.pending = true; return; }
+        renderAll();
+      }
+    }).catch(function (e) { setConn(e.status === 403 ? "auth" : "down"); });
+  }
+  function setConn(c) { if (S.conn !== c) { S.conn = c; renderHeader(); } }
+  function toast(msg, err) {
+    var t = document.getElementById("toast");
+    t.innerHTML = '<div class="toast' + (err ? " err" : "") + '" role="status">' + esc(msg) + "</div>";
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.innerHTML = ""; }, err ? 6000 : 3200);
+  }
+  function decide(id, action, extra) {
+    if (!LIVE) return Promise.resolve();
+    var p = {card_id: id, action: action};
+    if (extra && extra.reason) p.reason = extra.reason;
+    if (extra && extra.until) p.until = extra.until;
+    return api("POST", "/api/decide", p).then(function () {
+      var dc = obj(B.decisions); dc.cards = obj(dc.cards); B.decisions = dc;
+      var c = cards().filter(function (x) { return x.id === id; })[0];
+      dc.cards[id] = {action: action, reason: p.reason, until: p.until, etag: c && c.etag, by: "ui", at: new Date().toISOString()};
+      delete S.selected[id]; delete S.form[id];
+    });
+  }
+  function doDecide(id, action, extra) {
+    if (!LIVE || S.busy) return;
+    S.busy = true; renderAll();
+    decide(id, action, extra).then(function () {
+      toast(STATE_LABEL[ACTION_STATE[action]] + ": " + titleOf(id));
+    }).catch(function (e) { toast("Could not save decision: " + e.message, true); })
+      .then(function () { S.busy = false; renderAll(); refresh(true); });
+  }
+  function titleOf(id) { var c = cards().filter(function (x) { return x.id === id; })[0]; return c ? c.title : id; }
+  function doApply() {
+    if (!LIVE || S.busy) return;
+    var sel = selectedIds();
+    S.busy = true; renderAll();
+    var chain = Promise.resolve();
+    sel.forEach(function (id) { chain = chain.then(function () { return decide(id, "approve"); }); });
+    chain.then(function () { return api("POST", "/api/apply", {}); })
+      .then(function (res) { S.applyResult = {ok: true, data: res.json}; toast("Applied approved changes"); })
+      .catch(function (e) { S.applyResult = {ok: false, error: e.message}; toast("Apply failed: " + e.message, true); })
+      .then(function () { S.busy = false; S.tab = "improve"; renderAll(); refresh(true); window.scrollTo(0, 0); });
+  }
+  function doBulkApprove() {
+    if (!LIVE || S.busy) return;
+    var sel = selectedIds(); if (!sel.length) return;
+    S.busy = true; renderAll();
+    var chain = Promise.resolve();
+    sel.forEach(function (id) { chain = chain.then(function () { return decide(id, "approve"); }); });
+    chain.then(function () { toast("Approved " + sel.length + " " + plural(sel.length, "card")); })
+      .catch(function (e) { toast("Could not save decision: " + e.message, true); })
+      .then(function () { S.busy = false; renderAll(); refresh(true); });
+  }
+
+  // ---------------- header + tabs ----------------
+  function renderHeader() {
+    document.getElementById("hdr-repo").textContent = (B && B.repo) || "";
+    if (B && B.repo) document.title = "router-migrate · " + B.repo;
+    var m = document.getElementById("hdr-mode"), t = document.getElementById("hdr-mode-t");
+    m.className = "mode" + (LIVE ? (S.conn === "ok" ? " live" : " err") : "");
+    t.textContent = LIVE ? (S.conn === "ok" ? "Live" : S.conn === "auth" ? "Session expired" : "Server stopped") : (MODE === "frozen" ? "Frozen report" : "Static page");
+    var nUnd = undecided().length, su = setupItems(), sDone = su.filter(setupDone).length, nUns = arr(B && B.unsupported).length;
+    var counts = {overview: "", migration: sites().length ? fmtInt(sites().length) : "", improve: nUnd ? fmtInt(nUnd) : "", setup: su.length ? sDone + "/" + su.length : "", unsupported: nUns ? fmtInt(nUns) : ""};
+    document.getElementById("tabs").innerHTML = TABS.map(function (tb) {
+      return '<button class="tab" role="tab" type="button" data-tab="' + tb[0] + '" aria-selected="' + (S.tab === tb[0]) + '">' + esc(tb[1]) +
+        (counts[tb[0]] ? '<span class="count">' + esc(counts[tb[0]]) + "</span>" : "") + "</button>";
+    }).join("");
+  }
+
+  // ---------------- overview ----------------
+  function countsText(c) {
+    c = obj(c);
+    return Object.keys(c).slice(0, 4).map(function (k) { return '<div><span class="num">' + esc(typeof c[k] === "number" ? fmtInt(c[k]) : c[k]) + "</span> " + esc(k.replace(/_/g, " ")) + "</div>"; }).join("");
+  }
+  function renderStepper() {
+    var st = arr(B.stages);
+    if (!st.length) return '<div class="pane empty">No stage events yet.</div>';
+    var LBL = {done: "Done", running: "Running", error: "Error", skipped: "Skipped", pending: "Pending"};
+    return '<div class="stepper">' + st.map(function (s) {
+      var status = s.status || "pending";
+      var ic = status === "done" ? ICON.check : status === "error" ? ICON.x : "";
+      return '<div class="step ' + esc(status) + '"><span class="step-bar"></span><div class="step-top"><span class="step-ic">' + ic + '</span><span class="step-name">' +
+        esc(String(s.stage || "").replace(/_/g, " ")) + '</span></div><div class="step-status">' + esc(LBL[status] || status) + "</div>" +
+        (s.counts && Object.keys(s.counts).length ? '<div class="step-counts">' + countsText(s.counts) + "</div>" : "") +
+        (s.msg ? '<div class="step-msg">' + esc(s.msg) + "</div>" : "") + "</div>";
+    }).join("") + "</div>";
+  }
+  function testsLine(b, a) {
+    b = obj(b); a = obj(a);
+    if (num(b.passed) == null && num(a.passed) == null) return {v: "–", sub: "no test command found"};
+    var worse = (num(a.failed) || 0) + (num(a.errors) || 0) > (num(b.failed) || 0) + (num(b.errors) || 0);
+    return {v: fmtInt(a.passed) + '<small>/ ' + fmtInt((num(a.passed) || 0) + (num(a.failed) || 0) + (num(a.errors) || 0)) + "</small>",
+      sub: "passing after migration · before " + fmtInt(b.passed) + " passed, " + fmtInt((num(b.failed) || 0) + (num(b.errors) || 0)) + " failed" + (worse ? " · worse" : " · unchanged"), worse: worse};
+  }
+  function renderOverview() {
+    var k = obj(B.kpis), f = obj(B.funnel), sm = obj(B.summary), h = [];
+    var meta = dotsep([B.generated ? "Generated " + esc(fmtTime(B.generated)) : "", B.tool_version ? "router-migrate <span class=\"num\">" + esc(B.tool_version) + "</span>" : "",
+      recs().catalog_version ? "catalog <span class=\"num\">" + esc(recs().catalog_version) + "</span>" : "", B.root ? '<span class="mono">' + esc(B.root) + "</span>" : ""]);
+    h.push('<div class="page-head"><div><h1>' + esc(B.repo || "Repository") + '</h1><div class="meta" style="margin-top:4px">' + meta + "</div></div></div>");
+    h.push('<div class="section"><div class="section-head"><h2>Pipeline</h2></div>' + renderStepper() + "</div>");
+
+    var all = num(f.all_gen_ai) != null ? f.all_gen_ai : num(sm.sites_found);
+    var unlockGain = (num(k.migrated_with_unlocks) || 0) - (num(k.lossless_migrated) || 0);
+    var t = testsLine(k.tests_before, k.tests_after);
+    var nCards = num(k.cards_total) != null ? k.cards_total : cards().length, nUnd = undecided().length;
+    h.push('<div class="section"><div class="section-head"><h2>Results</h2></div><div class="grid kpis">' +
+      '<div class="pane kpi-pair"><div class="kpi"><div class="kpi-label">Lossless migrated</div><div class="kpi-value">' + fmtInt(k.lossless_migrated) +
+      (all != null ? "<small>/ " + fmtInt(all) + " sites</small>" : "") + '</div><div class="kpi-sub">moved by the automatic pass, nothing dropped</div></div>' +
+      '<div class="kpi"><div class="kpi-label">Migrated with unlocks</div><div class="kpi-value">' + fmtInt(k.migrated_with_unlocks) +
+      (all != null ? "<small>/ " + fmtInt(all) + " sites</small>" : "") + '</div><div class="kpi-sub">' +
+      (unlockGain > 0 ? '<span class="delta">+' + fmtInt(unlockGain) + "</span> if unlock cards are accepted" : "no unlocks available") + "</div></div>" +
+      '<div class="kpi-foot">Reported side by side, never summed. Unlocks move traffic only after you accept the stated loss or mapping.</div></div>' +
+      '<div class="pane kpi"><div class="kpi-label">Tests</div><div class="kpi-value">' + t.v + '</div><div class="kpi-sub">' + esc(t.sub) + "</div></div>" +
+      '<div class="pane kpi"><div class="kpi-label">Cards</div><div class="kpi-value">' + fmtInt(nCards) + '</div><div class="kpi-sub">' +
+      (nUnd ? '<span class="num">' + fmtInt(nUnd) + "</span> waiting for a decision" : "all decided") + "</div></div>" +
+      '<div class="pane kpi"><div class="kpi-label">Live-check spend</div><div class="kpi-value">' + esc(fmtUsd(k.live_spend_usd)) +
+      '</div><div class="kpi-sub">usage.cost from Router replies this run</div></div></div></div>');
+
+    var rows = [["all_gen_ai", "All gen-AI sites", "production call sites found", "all"], ["router_servable", "Router-servable", "generation surfaces Router serves", "serv"],
+      ["moved", "Moved", "now routed through Router", "moved"], ["needs_review", "Needs review", "handoffs and flagged sites", "review"], ["kept", "Kept", "left on their provider, with a reason", "kept"]];
+    var max = Math.max(1, all || 0);
+    var fun = rows.map(function (r) {
+      var v = num(f[r[0]]), w = v == null ? 0 : Math.max(0, Math.min(100, 100 * v / max));
+      return '<div class="frow"><div class="flabel">' + esc(r[1]) + '<span class="meta">' + esc(r[2]) + '</span></div><div class="ftrack"><div class="ffill ' + r[3] + (v ? "" : " z") +
+        '" style="width:' + w.toFixed(2) + '%"></div></div><div class="fnum">' + fmtInt(v) + "</div></div>";
+    }).join("");
+
+    var next = [];
+    if (nUnd) next.push(['Review <span class="num">' + fmtInt(nUnd) + "</span> " + plural(nUnd, "card"), "Improve: unlocks, same-model changes and model recommendations", "improve"]);
+    var su = setupItems(), left = su.filter(function (it) { return !setupDone(it); }).length;
+    if (su.length) next.push([left ? '<span class="num">' + fmtInt(left) + "</span> Router setup " + plural(left, "step") + " left" : "Router setup complete", "Account settings on the Strategies page", "setup"]);
+    var nk = arr(B.unsupported).length;
+    if (nk) next.push(['<span class="num">' + fmtInt(nk) + "</span> unsupported " + plural(nk, "site"), "Endpoints Router does not serve yet", "unsupported"]);
+    var pol = obj(B.policy);
+    var polHtml = '<dl class="kv"><dt>router.policy.json</dt><dd>' + (pol.exists ? "present" : "not written yet") + "</dd>" +
+      (pol.hash ? "<dt>policy hash</dt><dd>" + esc(String(pol.hash).slice(0, 12)) + "</dd>" : "") +
+      (pol.compiled_hash ? "<dt>compiled hash</dt><dd>" + esc(String(pol.compiled_hash).slice(0, 12)) + (pol.hash && pol.compiled_hash !== pol.hash ? ' <span class="pill neg">mismatch</span>' : "") + "</dd>" : "") +
+      "<dt>orphan entries</dt><dd>" + fmtInt(arr(pol.orphans).length) + "</dd></dl>";
+    h.push('<div class="section grid two"><div><div class="section-head"><h2>Traffic</h2></div><div class="pane funnel">' + fun + "</div></div>" +
+      '<div><div class="section-head"><h2>Next</h2></div><div class="pane"><ul class="list">' + next.map(function (n) {
+        return '<li class="li"><div class="li-main"><div class="li-title">' + n[0] + '</div><div class="li-sub">' + esc(n[1]) + '</div></div><button class="btn" type="button" data-tab="' + n[2] + '">Open</button></li>';
+      }).join("") + (next.length ? "" : '<li class="li"><div class="li-main li-sub">Nothing pending.</div></li>') +
+      '</ul></div><div class="pane pane-pad" style="margin-top:16px"><div class="fact-label">Policy</div>' + polHtml + "</div></div></div>");
+    return h.join("");
+  }
+
+  // ---------------- migration ----------------
+  function chipHtml(ch) {
+    if (typeof ch === "string") {
+      var m = /^(emulated|dropped)[:=]\s*(.*)$/i.exec(ch);
+      if (m) ch = {kind: m[1].toLowerCase(), param: m[2]}; else return '<span class="chip mono">' + esc(ch) + "</span>";
+    }
+    ch = obj(ch);
+    var kind = String(ch.kind || "").toLowerCase(), cls = kind === "emulated" ? "emu" : kind === "dropped" ? "drop" : "";
+    return '<span class="chip mono ' + cls + '"' + (ch.note ? ' title="' + esc(ch.note) + '"' : "") + ">" + esc(kind || "param") + " " + esc(ch.param || ch.name || "") + "</span>";
+  }
+  function pathHtml(p) { return esc(p).replace(/\//g, "/<wbr>"); }
+  function siteModel(s) {
+    var m = s.model;
+    if (m && typeof m === "object") return m.value ? '<span class="mono">' + esc(m.value) + "</span>" + (m.static === false ? ' <span class="meta">runtime</span>' : "") : '<span class="meta">runtime</span>';
+    if (typeof m === "string") return '<span class="mono">' + esc(m) + "</span>";
+    return '<span class="meta">–</span>';
+  }
+  function renderMigration() {
+    var all = sites(), files = parseDiff(B.diff), byFile = {};
+    files.forEach(function (f) { byFile[f.file] = f; });
+    var outs = ["migrated", "handoff", "flagged", "kept"], cnt = {all: all.length};
+    outs.forEach(function (o) { cnt[o] = all.filter(function (s) { return s.outcome === o; }).length; });
+    var q = S.q.toLowerCase();
+    var list = all.filter(function (s) {
+      if (S.filter !== "all" && s.outcome !== S.filter) return false;
+      if (!q) return true;
+      return [s.file, s.sdk, s.surface, s.reason, s.id, obj(s.model).value].join(" ").toLowerCase().indexOf(q) >= 0;
+    });
+    var adds = files.reduce(function (a, f) { return a + f.add; }, 0), dels = files.reduce(function (a, f) { return a + f.del; }, 0);
+    var h = ['<div class="page-head"><div><h1>Migration</h1><div class="meta" style="margin-top:4px">' +
+      dotsep(['<span class="num">' + fmtInt(cnt.migrated) + "</span> migrated", '<span class="num">' + fmtInt(cnt.handoff + cnt.flagged) + "</span> need review",
+        '<span class="num">' + fmtInt(cnt.kept) + "</span> kept", files.length ? '<span class="num">' + fmtInt(files.length) + "</span> files changed " +
+        '<span class="stat-add">+' + adds + '</span> <span class="stat-del">−' + dels + "</span>" : "no diff"]) +
+      "</div></div>" + (files.length ? '<button class="btn" type="button" data-act="drawer" data-file="' + esc(files[0].file) + '">View diff</button>' : "") + "</div>"];
+    h.push('<div class="toolbar"><div class="seg" role="group" aria-label="Outcome">' + ["all"].concat(outs).map(function (o) {
+      return '<button type="button" data-act="filter" data-v="' + o + '" aria-pressed="' + (S.filter === o) + '">' + esc(o === "all" ? "All" : o.charAt(0).toUpperCase() + o.slice(1)) +
+        ' <span class="num">' + fmtInt(cnt[o]) + "</span></button>";
+    }).join("") + '</div><input class="input" id="site-q" type="search" placeholder="Filter by file, SDK or reason" value="' + esc(S.q) + '" style="flex:1;max-width:320px"></div>');
+    if (!list.length) { h.push('<div class="pane empty">No sites match.</div>'); return h.join(""); }
+    var anyChips = all.some(function (s) { return arr(s.chips).length; });
+    h.push('<div class="tbl-wrap"><table><thead><tr><th>Site</th><th>SDK · surface</th><th>Model</th><th>Outcome</th><th>Reason</th>' + (anyChips ? "<th>Params</th>" : "") + '<th><span class="sr">Diff</span></th></tr></thead><tbody>');
+    list.forEach(function (s) {
+      var f = byFile[s.file];
+      h.push('<tr><td class="site">' + pathHtml(s.file || s.id) + '<span class="ln">:' + esc(s.line) + "</span>" + (s.prod === false ? ' <span class="pill">non-prod</span>' : "") + "</td>" +
+        '<td><span class="mono">' + esc(s.sdk || "") + '</span><div class="meta">' + esc(s.surface || "") + '</div></td><td class="nw">' + siteModel(s) + "</td>" +
+        '<td class="nw"><span class="pill ' + (OUTCOME_CLS[s.outcome] || "") + '">' + esc(s.outcome || "–") + "</span></td>" +
+        '<td class="reason">' + esc(s.reason || "") + "</td>" + (anyChips ? "<td>" + (arr(s.chips).length ? '<div class="chips">' + arr(s.chips).map(chipHtml).join("") + "</div>" : '<span class="meta">–</span>') + "</td>" : "") +
+        '<td class="nw">' + (f ? '<button class="btn" type="button" data-act="drawer" data-file="' + esc(s.file) + '">Diff <span class="stat-add">+' + f.add + '</span> <span class="stat-del">−' + f.del + "</span></button>" : "") + "</td></tr>");
+    });
+    h.push("</tbody></table></div>");
+    return h.join("");
+  }
+  function renderDrawer() {
+    var el = document.getElementById("drawer");
+    if (!S.drawer || !B) { el.innerHTML = ""; return; }
+    var files = parseDiff(B.diff), cur = files.filter(function (f) { return f.file === S.drawer; })[0] || files[0];
+    if (!cur) { el.innerHTML = ""; return; }
+    el.innerHTML = '<div class="drawer-scrim" data-act="close-drawer"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Diff">' +
+      '<div class="drawer-head"><h3 style="flex:1;min-width:0;overflow-wrap:anywhere" class="mono">' + esc(cur.file) + '</h3><span class="stat-add">+' + cur.add + '</span><span class="stat-del">−' + cur.del +
+      '</span><button class="btn ghost icon-btn" type="button" data-act="close-drawer" aria-label="Close">' + ICON.x.replace("<svg", '<svg width="14" height="14"') + "</button></div>" +
+      (files.length > 1 ? '<div class="drawer-files">' + files.map(function (f) {
+        return '<button class="btn' + (f === cur ? " on" : "") + '" type="button" data-act="drawer" data-file="' + esc(f.file) + '">' + esc(f.file.split("/").slice(-2).join("/")) + "</button>";
+      }).join("") + "</div>" : "") +
+      '<div class="drawer-body"><div class="file-head">' + esc(cur.file) + (cur.isNew ? ' <span class="pill pos">new file</span>' : "") + "</div>" + diffTable(cur.rows) + "</div></aside>";
+  }
+
+  // ---------------- improve ----------------
+  function evDots(c) {
+    var lv = evLevel(c), min = minLevel(c), h = '<span class="ev" title="Evidence ' + esc(lv >= 0 ? LV[lv] + " " + LV_NAME[LV[lv]] : "none") + '">';
+    for (var i = 0; i < 5; i++) h += '<i class="' + (i <= lv ? "on" : i <= min ? "need" : "") + '"></i>';
+    return h + '<span class="ev-lbl">' + (lv >= 0 ? esc(LV[lv]) : "none") + (min > lv ? " / needs " + esc(LV[min]) : "") + "</span></span>";
+  }
+  function impactHtml(c) {
+    var im = obj(c.impact), p = num(im.per_call_pct), h = "";
+    if (p != null && p !== 0) h += '<div class="impact ' + (p < 0 ? "save" : "cost") + '">' + esc(fmtPct(p)) + ' <span class="meta" style="font-family:var(--sans)">per call vs list price</span></div>';
+    else if (p === 0) h += '<div class="impact">0% <span class="meta" style="font-family:var(--sans)">same list price</span></div>';
+    else h += '<div class="impact" style="color:var(--text-2)">– <span class="meta" style="font-family:var(--sans)">not estimated</span></div>';
+    h += '<div class="meta" style="font-size:12px">' + (num(im.monthly_usd) != null ? '<span class="num">' + esc(fmtUsd(im.monthly_usd)) + "</span>/month" : "monthly $ unmeasured (needs observe mode)") + "</div>";
+    if (im.baseline) h += '<div class="meta" style="font-size:12px">baseline <span class="num">' + esc(im.baseline) + "</span></div>";
+    if (im.ignores) h += '<div class="meta" style="font-size:12px">ignores ' + esc(im.ignores) + "</div>";
+    return h;
+  }
+  function scopeChips(c) {
+    var sc = obj(c.scope), out = [];
+    arr(sc.features).slice(0, 4).forEach(function (f) { out.push('<span class="chip mono trunc" title="' + esc(f) + '">' + esc(f) + "</span>"); });
+    if (arr(sc.features).length > 4) out.push('<span class="chip">+' + (arr(sc.features).length - 4) + " more</span>");
+    if (!arr(sc.features).length) {
+      arr(sc.sites).slice(0, 3).forEach(function (s) { out.push('<span class="chip mono trunc" title="' + esc(s) + '">' + esc(String(s).replace(/^(ts|py):/, "")) + "</span>"); });
+      if (arr(sc.sites).length > 3) out.push('<span class="chip">+' + (arr(sc.sites).length - 3) + " more</span>");
+    }
+    if (sc.latency_class) out.push('<span class="chip"><span class="k">latency</span>' + esc(sc.latency_class) + "</span>");
+    if (c.model_owner) out.push('<span class="chip"><span class="k">owner</span><span class="mono">' + esc(c.model_owner) + "</span></span>");
+    return '<div class="chips">' + out.join("") + "</div>";
+  }
+  function ruleInputs(c) {
+    var ri = obj(c.rule_inputs), ks = Object.keys(ri);
+    return '<div class="rule"><span class="rid">' + esc(c.rule) + "</span>" + ks.map(function (k) {
+      var v = ri[k]; v = typeof v === "object" ? JSON.stringify(v) : String(v);
+      return '<span class="chip mono"><span class="k">' + esc(k) + "=</span>" + esc(v) + "</span>";
+    }).join("") + "</div>";
+  }
+  function cardHtml(c) {
+    var st = stateOf(c), d = decisionOf(c), model = isModelCard(c), elig = bulkEligible(c), sel = !!S.selected[c.id] && elig;
+    var kind = obj(c.change).kind, lv = evLevel(c);
+    var metaParts = ['Risk <span class="num">' + esc(c.risk != null ? c.risk : "–") + "</span>", "Evidence <span class=\"num\">" + (lv >= 0 ? LV[lv] : "none") + "</span>",
+      esc(KIND_LABEL[kind] || kind || ""), c.effort ? "effort " + esc(c.effort) : ""];
+    var h = ['<article class="card' + (sel ? " sel" : "") + (st !== "new" ? " decided" : "") + '" id="card-' + esc(c.id) + '"><div class="card-main"><div class="card-head">'];
+    if (elig) h.push('<input type="checkbox" class="check" data-act="select" data-id="' + esc(c.id) + '"' + (sel ? " checked" : "") + (LIVE ? "" : " disabled") + ' aria-label="Select for bulk approve">');
+    h.push('<div class="card-title"><h3>' + esc(c.title) + '</h3><div class="card-meta">' + dotsep(metaParts) + "</div></div>");
+    if (model) h.push('<span class="recom-only">Recommendation only — not applied</span>');
+    if (st !== "new") h.push('<span class="pill ' + (STATE_CLS[st] || "") + '">' + esc(STATE_LABEL[st] || st) + "</span>");
+    h.push("</div>" + scopeChips(c));
+    var loses = arr(c.loses);
+    h.push('<div class="facts"><div><div class="fact-label">Impact</div>' + impactHtml(c) + '</div><div><div class="fact-label">Loses</div>' +
+      (loses.length ? '<ul class="loses">' + loses.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>" : '<ul class="loses none"><li>nothing; same model, same request</li></ul>') +
+      '</div><div><div class="fact-label">Evidence</div>' + evDots(c) + '<div class="meta" style="font-size:12px;margin-top:4px">' + esc(lv >= 0 ? LV_NAME[LV[lv]] : "no evidence needed") + "</div></div></div>");
+    h.push('<div><div class="fact-label">Rule</div>' + ruleInputs(c) + "</div>");
+    var opts = arr(c.options);
+    if (opts.length) h.push('<div><div class="fact-label">Options</div><div class="options">' + opts.slice(0, 3).map(function (o, i) {
+      o = typeof o === "object" ? o : {label: String(o)};
+      return '<div class="opt"><span class="num" style="color:var(--text-3)">' + (i + 1) + '.</span><span>' + esc(o.label || o.title || o.id || JSON.stringify(o)) + "</span>" + (o.model ? '<span class="mono">' + esc(o.model) + "</span>" : "") + "</div>";
+    }).join("") + "</div></div>");
+    if (st !== "new" && d.action) {
+      h.push('<div class="decision">' + dotsep([esc(STATE_LABEL[st]), d.reason ? "“" + esc(d.reason) + "”" : "", d.until ? "until <span class=\"num\">" + esc(d.until) + "</span>" : "",
+        d.by ? "by " + esc(d.by) : "", d.at ? esc(fmtTime(d.at)) : ""]) + "</div>");
+      if (stale(c)) h.push('<div class="banner warn" style="margin:0">The code or catalog changed since this decision. Re-confirm it.</div>');
+    }
+    h.push("</div>");
+    var ev = arr(obj(c.evidence).results), diff = obj(c.change).diff;
+    var openK = c.id;
+    h.push('<details class="more" data-key="' + esc(openK) + '"' + (S.open[openK] ? " open" : "") + "><summary>" + (diff ? "Change" : "Details") +
+      (ev.length ? " and evidence" : "") + '</summary><div class="more-body">' + (diff ? changeBlock(diff) : "") +
+      (ev.length ? '<ul class="ev-results">' + ev.map(function (r) { r = obj(r); return '<li><span class="lv">' + esc(r.level || "") + "</span><span>" + esc(r.fact || r.result || "") +
+        '</span><span class="src">' + esc(r.source || "") + "</span></li>"; }).join("") + "</ul>" : "") +
+      '<div class="meta mono" style="font-size:11.5px">' + esc(c.id) + (c.etag ? " · etag " + esc(c.etag) : "") + "</div></div></details>");
+    if (c.state !== "applied") {
+      var dis = !LIVE || S.busy ? " disabled" : "", tip = LIVE ? "" : ' title="' + esc(FROZEN_NOTE) + '"';
+      var f = S.form[c.id];
+      h.push('<div class="actions">' +
+        '<button class="btn inv" type="button" data-act="decide" data-a="approve" data-id="' + esc(c.id) + '"' + (model ? " disabled title=\"Recommendation only: edit the code yourself\"" : dis + tip) + ">" + (st === "approved" ? "Approved" : "Apply") + "</button>" +
+        '<button class="btn' + (st === "shadow_first" ? " on" : "") + '" type="button" data-act="decide" data-a="shadow_first" data-id="' + esc(c.id) + '"' + dis + tip + ">Shadow first</button>" +
+        '<button class="btn' + (st === "postponed" || (f && f.k === "postpone") ? " on" : "") + '" type="button" data-act="form" data-k="postpone" data-id="' + esc(c.id) + '"' + dis + tip + ">Postpone</button>" +
+        '<button class="btn ghost' + (f && f.k === "dismiss" ? " on" : "") + '" type="button" data-act="form" data-k="dismiss" data-id="' + esc(c.id) + '"' + dis + tip + ">Dismiss</button>" +
+        '<span class="spacer"></span>' + (LIVE ? "" : '<span class="note">' + esc(FROZEN_NOTE) + "</span>") + "</div>");
+      if (f && LIVE) {
+        if (f.k === "dismiss") h.push('<div class="inline-form"><input class="input" type="text" maxlength="500" data-form="' + esc(c.id) + '" placeholder="Why dismiss? (required, saved in decisions.json)" value="' + esc(f.v || "") + '">' +
+          '<button class="btn inv" type="button" data-act="confirm" data-id="' + esc(c.id) + '"' + (S.busy ? " disabled" : "") + '>Dismiss card</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(c.id) + '">Cancel</button></div>');
+        else h.push('<div class="inline-form"><span class="meta">Postpone until</span><input class="input" type="date" data-form="' + esc(c.id) + '" value="' + esc(f.v || "") + '">' +
+          '<button class="btn inv" type="button" data-act="confirm" data-id="' + esc(c.id) + '"' + (S.busy ? " disabled" : "") + '>Postpone</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(c.id) + '">Cancel</button></div>');
+      }
+    }
+    h.push("</article>");
+    return h.join("");
+  }
+  function groupHtml(title, sub, list) {
+    if (!list.length) return "";
+    return '<div class="group-title"><span>' + esc(title) + '</span><span class="num">' + list.length + '</span><span class="line"></span>' + (sub ? '<span>' + esc(sub) + "</span>" : "") + '</div><div class="cards">' + list.map(cardHtml).join("") + "</div>";
+  }
+  function sortCards(list) {
+    return list.slice().sort(function (a, b) { return (isDecided(a) - isDecided(b)) || ((num(a.risk) || 0) - (num(b.risk) || 0)); });
+  }
+  function renderImprove() {
+    var cs = cards(), r = recs(), h = [];
+    var vis = S.undecidedOnly ? cs.filter(function (c) { return !isDecided(c); }) : cs;
+    var unlock = sortCards(vis.filter(function (c) { return c.lever_group === "unlock"; }));
+    var model = sortCards(vis.filter(function (c) { return c.lever_group !== "unlock" && isModelCard(c); }));
+    var same = sortCards(vis.filter(function (c) { return c.lever_group !== "unlock" && !isModelCard(c); }));
+    var met = same.filter(function (c) { return evGroup(c) === "met"; }), needs = same.filter(function (c) { return evGroup(c) === "needs"; }),
+      exp = same.filter(function (c) { return evGroup(c) === "experimental"; });
+    // restraint (SPEC_V2 rule 9): the top 10 cards are visible, the rest fold behind "Show N more"
+    var order = unlock.concat(met, needs, exp, model), hidden = 0;
+    if (!S.showAll && order.length > 10) {
+      var keep = {}; order.slice(0, 10).forEach(function (c) { keep[c.id] = 1; }); hidden = order.length - 10;
+      var only = function (xs) { return xs.filter(function (c) { return keep[c.id]; }); };
+      unlock = only(unlock); met = only(met); needs = only(needs); exp = only(exp); model = only(model);
+      same = met.concat(needs, exp);
+    }
+    var nUnd = undecided().length, eligAll = cs.filter(bulkEligible);
+    h.push('<div class="page-head"><div><h1>Improve</h1><div class="meta" style="margin-top:4px">' + dotsep(['<span class="num">' + fmtInt(cs.length) + "</span> " + plural(cs.length, "card"),
+      '<span class="num">' + fmtInt(nUnd) + "</span> undecided", '<span class="num">' + fmtInt(cs.filter(function (c) { return evGroup(c) === "met" && !isModelCard(c); }).length) + "</span> bar met",
+      r.rules_version ? "rules <span class=\"num\">" + esc(r.rules_version) + "</span>" : ""]) + "</div></div>" +
+      '<div class="toolbar" style="margin:0">' + (LIVE && eligAll.length ? '<button class="btn" type="button" data-act="select-all">' + (selectedIds().length === eligAll.length ? "Clear selection" : "Select " + eligAll.length + " low-risk") + "</button>" : "") +
+      '<button class="btn' + (S.undecidedOnly ? " on" : "") + '" type="button" data-act="undecided" aria-pressed="' + S.undecidedOnly + '">Undecided only</button></div></div>');
+    if (!LIVE) h.push('<div class="banner">Frozen report. Buttons are disabled; run <code>router-migrate up</code> to decide.</div>');
+    if (S.applyResult) {
+      var ar = S.applyResult, d = obj(ar.data), res = d.result, cmd = d.command || obj(res).command || (typeof res === "string" ? res : "");
+      var out = obj(res).output || obj(res).stdout || "";
+      h.push('<div class="pane result"><div class="result-head"><span class="pill ' + (ar.ok ? "pos" : "neg") + '">' + (ar.ok ? "Applied" : "Failed") + '</span><span style="flex:1">' +
+        (ar.ok ? "The dashboard ran the same command an agent would:" : esc(ar.error)) + '</span><button class="btn ghost" type="button" data-act="close-result">Close</button></div>' +
+        (ar.ok ? '<pre class="code">' + esc("$ " + (Array.isArray(cmd) ? cmd.join(" ") : cmd || "router-migrate apply --decisions")) + (out ? "\n" + esc(out) : "") + "</pre>" : "") + "</div>");
+    }
+    if (!cs.length) h.push('<div class="pane empty">No recommendations yet. Run <span class="mono">router-migrate recommend</span>.</div>');
+    if (unlock.length) h.push('<div class="section"><div class="section-head"><h2>Unlock</h2><span class="meta">moves more traffic onto Router; counted under “migrated with unlocks”, never in the lossless number</span></div>' + '<div class="cards">' + unlock.map(cardHtml).join("") + "</div></div>");
+    if (same.length) h.push('<div class="section"><div class="section-head"><h2>Same model</h2><span class="meta">tier, cache, timeouts, fallbacks and spend tags through the compiled policy; the model that answers does not change</span></div>' +
+      groupHtml("Bar met", "evidence meets the rule’s minimum", met) + groupHtml("Needs evidence", "collect the missing level first", needs) + groupHtml("Experimental", "unmeasured behaviour; shadow first", exp) + "</div>");
+    if (model.length) h.push('<div class="section"><div class="section-head"><h2>Model changes</h2><span class="meta">recommendation only — not applied; shown as the code or config edit you would make</span></div><div class="cards">' + model.map(cardHtml).join("") + "</div></div>");
+    if (hidden || S.showAll && order.length > 10) h.push('<div class="section"><button class="btn" type="button" data-act="show-all">' + (S.showAll ? "Show the top 10 only" : "Show " + hidden + " more " + plural(hidden, "card")) + "</button></div>");
+    var cnr = arr(r.considered_not_recommended);
+    if (cnr.length) h.push('<div class="section"><div class="section-head"><h2>Considered, not recommended</h2><span class="meta">every lever the rules looked at and rejected, with the reason</span></div>' +
+      '<div class="tbl-wrap cnr"><table><thead><tr><th>Rule</th><th>Scope</th><th>Reason</th></tr></thead><tbody>' + cnr.map(function (x) {
+        x = obj(x); var sc = obj(x.scope), scope = arr(sc.features).concat(arr(sc.sites));
+        return '<tr><td class="rid">' + esc(x.rule) + "</td><td>" + (scope.length ? '<div class="chips">' + scope.slice(0, 3).map(function (s) { return '<span class="chip mono trunc" title="' + esc(s) + '">' + esc(String(s).replace(/^(ts|py):/, "")) + "</span>"; }).join("") +
+          (scope.length > 3 ? '<span class="chip">+' + (scope.length - 3) + "</span>" : "") + "</div>" : '<span class="meta">repo-wide</span>') + '</td><td class="why">' + esc(x.reason) + "</td></tr>";
+      }).join("") + "</tbody></table></div></div>");
+    return h.join("");
+  }
+  function renderSticky() {
+    var el = document.getElementById("sticky");
+    if (!B) { el.innerHTML = ""; return; }
+    var pend = pendingApply().length, sel = selectedIds().length, n = pend + sel;
+    if (S.tab !== "improve" && n === 0) { el.innerHTML = ""; return; }
+    var parts = ['<b>' + fmtInt(pend) + "</b> approved, not applied"];
+    if (LIVE) parts.push('<b>' + fmtInt(sel) + "</b> selected");
+    el.innerHTML = '<div class="sticky"><div class="wrap"><div class="sum">' + (LIVE ? parts.join(" · ") : esc(FROZEN_NOTE)) + '</div><span class="spacer"></span>' +
+      (LIVE && sel ? '<button class="btn lg" type="button" data-act="bulk"' + (S.busy ? " disabled" : "") + ">Approve " + sel + " selected</button>" : "") +
+      '<button class="btn lg primary" type="button" data-act="apply"' + (!LIVE || !n || S.busy ? " disabled" : "") + (LIVE ? "" : ' title="' + esc(FROZEN_NOTE) + '"') + ">" +
+      (S.busy ? "Working…" : "Apply " + n + " " + plural(n, "change")) + "</button></div></div>";
+  }
+
+  // ---------------- setup ----------------
+  function renderSetup() {
+    var items = setupItems(), done = items.filter(setupDone).length, h = [];
+    h.push('<div class="page-head"><div><h1>Router setup</h1><div class="meta" style="margin-top:4px">Account settings the tool cannot change. Copy the exact values into the Router app; “Mark done” is saved in this browser only.</div></div>' +
+      (items.length ? '<div style="display:flex;align-items:center;gap:12px"><span class="meta"><span class="num">' + done + "/" + items.length + '</span> done</span><div class="progress"><i style="width:' + (100 * done / items.length).toFixed(1) + '%"></i></div></div>' : "") + "</div>");
+    if (!items.length) { h.push('<div class="pane empty">No account settings recommended.</div>'); return h.join(""); }
+    h.push('<div class="pane">' + items.map(function (it) {
+      var dn = setupDone(it), link = safeLink(it.link), vals = obj(it.values), ks = Object.keys(vals);
+      return '<div class="setup-item' + (dn ? " done" : "") + '"><span class="tick">' + ICON.check + '</span><div style="min-width:0"><h3 class="setup-title">' + esc(it.title) + "</h3>" +
+        (it.why ? '<p class="setup-why">' + esc(it.why) + "</p>" : "") +
+        (ks.length ? '<div class="values">' + ks.map(function (k) {
+          var v = vals[k]; v = typeof v === "object" ? JSON.stringify(v) : String(v);
+          return '<div class="vrow"><span class="vk">' + esc(k) + '</span><span class="vv">' + esc(v) + '</span><button class="btn ghost" type="button" data-act="copy" data-v="' + esc(v) + '">Copy</button></div>';
+        }).join("") + "</div>" : "") +
+        '<div class="setup-actions">' + (link ? '<a class="btn" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer" title="' + esc(link) + '">' + esc(linkLabel(link)) + " " + ICON.ext + "</a>" : "") +
+        '<button class="btn' + (dn ? " on" : "") + '" type="button" data-act="setup-done" data-id="' + esc(it.id) + '">' + (dn ? "Done — undo" : "Mark done") + "</button>" +
+        '<span class="meta mono" style="align-self:center;font-size:11.5px">' + esc(it.id) + "</span></div></div></div>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- unsupported ----------------
+  function renderUnsupported() {
+    var u = arr(B.unsupported), groups = {}, order = [];
+    u.forEach(function (x) { var s = String(obj(x).surface || "other").replace(/^framework\./, ""); if (!groups[s]) { groups[s] = []; order.push(s); } groups[s].push(x); });
+    var h = ['<div class="page-head"><div><h1>Unsupported</h1><div class="meta" style="margin-top:4px">Production calls to endpoints Router does not serve. They stay on their provider and are not counted as unlockable.</div></div></div>'];
+    if (!u.length) { h.push('<div class="pane empty">Every production call targets an endpoint Router serves.</div>'); return h.join(""); }
+    order.forEach(function (s) {
+      var list = groups[s];
+      h.push('<div class="section"><div class="section-head"><h2>' + esc(s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")) + '</h2><span class="meta"><span class="num">' + list.length + "</span> " + plural(list.length, "site") +
+        (SURFACE_NOTE[s] ? " · " + esc(SURFACE_NOTE[s]) : "") + '</span></div><div class="tbl-wrap"><table><thead><tr><th>Site</th><th>Reason</th></tr></thead><tbody>' + list.map(function (x) {
+          x = obj(x);
+          return '<tr><td class="site">' + pathHtml(x.file || x.site) + (x.line ? '<span class="ln">:' + esc(x.line) + "</span>" : "") + '</td><td class="reason">' + esc(x.reason || "") + "</td></tr>";
+        }).join("") + "</tbody></table></div></div>");
+    });
+    return h.join("");
+  }
+
+  // ---------------- render ----------------
+  function renderAll() {
+    S.pending = false;
+    renderHeader();
+    var main = document.getElementById("main");
+    if (!B) {
+      main.innerHTML = '<div class="pane empty" style="margin-top:40px"><h2>No data</h2><p class="meta" style="margin-top:8px">This page shows a router-migrate bundle. Run <span class="mono">router-migrate up</span> to open it with data.</p></div>';
+      document.getElementById("sticky").innerHTML = ""; return;
+    }
+    var banner = "";
+    if (LIVE && S.conn === "auth") banner = '<div class="banner neg">The session token was rejected. Re-run <code>router-migrate up</code> and use the new link.</div>';
+    else if (LIVE && S.conn === "down") banner = '<div class="banner warn">Lost the local server. Decisions are paused until <code>router-migrate up</code> is running again.</div>';
+    var fn = {overview: renderOverview, migration: renderMigration, improve: renderImprove, setup: renderSetup, unsupported: renderUnsupported}[S.tab] || renderOverview;
+    var focusId = document.activeElement && document.activeElement.id === "site-q" ? "site-q" : null, caret = focusId ? document.activeElement.selectionStart : 0;
+    main.innerHTML = banner + fn();
+    if (focusId) { var q = document.getElementById(focusId); if (q) { q.focus(); try { q.setSelectionRange(caret, caret); } catch (e) {} } }
+    renderSticky(); renderDrawer();
+  }
+  function setTab(t, push) {
+    if (!TABS.some(function (x) { return x[0] === t; })) t = "overview";
+    S.tab = t; S.drawer = null;
+    if (push && location.hash !== "#" + t) { try { history.replaceState(null, "", location.pathname + location.search + "#" + t); } catch (e) {} }
+    renderAll();
+  }
+
+  // ---------------- events ----------------
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-tab],[data-act]");
+    if (!t) return;
+    if (t.hasAttribute("data-tab") && !t.hasAttribute("data-act")) { setTab(t.getAttribute("data-tab"), true); window.scrollTo(0, 0); return; }
+    var a = t.getAttribute("data-act"), id = t.getAttribute("data-id");
+    if (a === "filter") { S.filter = t.getAttribute("data-v"); renderAll(); }
+    else if (a === "drawer") { S.drawer = t.getAttribute("data-file"); renderDrawer(); var db = document.querySelector(".drawer-body"); if (db) db.scrollTop = 0; }
+    else if (a === "close-drawer") { S.drawer = null; renderDrawer(); }
+    else if (a === "select") { S.selected[id] = t.checked; renderSticky(); var card = t.closest(".card"); if (card) card.classList.toggle("sel", t.checked); }
+    else if (a === "select-all") { var el = cards().filter(bulkEligible), allSel = selectedIds().length === el.length; S.selected = {}; if (!allSel) el.forEach(function (c) { S.selected[c.id] = true; }); renderAll(); }
+    else if (a === "undecided") { S.undecidedOnly = !S.undecidedOnly; renderAll(); }
+    else if (a === "show-all") { S.showAll = !S.showAll; renderAll(); }
+    else if (a === "decide") { doDecide(id, t.getAttribute("data-a")); }
+    else if (a === "form") {
+      var k = t.getAttribute("data-k"), cur = S.form[id];
+      if (cur && cur.k === k) delete S.form[id];
+      else { var dflt = ""; if (k === "postpone") { var dt = new Date(Date.now() + 14 * 864e5); dflt = dt.toISOString().slice(0, 10); } S.form[id] = {k: k, v: dflt}; }
+      renderAll(); var inp = document.querySelector('[data-form="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]'); if (inp) inp.focus();
+    }
+    else if (a === "form-cancel") { delete S.form[id]; renderAll(); }
+    else if (a === "confirm") {
+      var f = S.form[id]; if (!f) return;
+      var v = String(f.v || "").trim();
+      if (f.k === "dismiss") { if (!v) { toast("A reason is required to dismiss", true); return; } doDecide(id, "dismiss", {reason: v}); }
+      else { if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast("Pick a date", true); return; } doDecide(id, "postpone", {until: v}); }
+    }
+    else if (a === "bulk") { doBulkApprove(); }
+    else if (a === "apply") { doApply(); }
+    else if (a === "close-result") { S.applyResult = null; renderAll(); }
+    else if (a === "setup-done") {
+      var it = setupItems().filter(function (x) { return x.id === id; })[0]; if (!it) return;
+      store(setupKey(it), setupDone(it) ? "0" : "1"); renderAll();
+    }
+    else if (a === "copy") {
+      var val = t.getAttribute("data-v");
+      var ok = function () { var old = t.textContent; t.textContent = "Copied"; setTimeout(function () { t.textContent = old; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(val).then(ok, function () { toast("Copy failed", true); }); else toast(val);
+    }
+  });
+  document.addEventListener("input", function (e) {
+    var t = e.target;
+    if (t.id === "site-q") { S.q = t.value; renderAll(); }
+    else if (t.hasAttribute("data-form")) { var f = S.form[t.getAttribute("data-form")]; if (f) f.v = t.value; }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && S.drawer) { S.drawer = null; renderDrawer(); }
+    if (e.key === "Enter" && e.target.hasAttribute && e.target.hasAttribute("data-form")) { var b = e.target.parentNode.querySelector('[data-act="confirm"]'); if (b) b.click(); }
+  });
+  document.addEventListener("toggle", function (e) { var d = e.target; if (d.tagName === "DETAILS" && d.hasAttribute("data-key")) S.open[d.getAttribute("data-key")] = d.open; }, true);
+  document.addEventListener("focusout", function () { setTimeout(function () { if (S.pending) { var ae = document.activeElement; if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) renderAll(); } }, 0); });
+  window.addEventListener("hashchange", function () { var h = location.hash.replace(/^#/, ""); if (h && h !== S.tab) setTab(h, false); });
+
+  // ---------------- boot ----------------
+  var h0 = location.hash.replace(/^#/, ""); if (h0) S.tab = h0;
+  if (!TABS.some(function (x) { return x[0] === S.tab; })) S.tab = "overview";
+  if (B) { try { S.lastText = JSON.stringify(B); } catch (e) {} }
+  renderAll();
+  if (LIVE) {
+    refresh(false);
+    setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000);
+  }
+})();
+</script>
+</body>
+</html>

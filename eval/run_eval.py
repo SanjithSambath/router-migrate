@@ -94,9 +94,11 @@ def tests(rec, src, label, env=None):
     e = {k: subst(str(v), rec, src) for k, v in (rec.get("test_env") or {}).items()}
     e.update(env or {})
     env_dir = os.path.join(WORK, "envs", rec["name"])
-    for k, sub in (("HOME", "home"), ("XDG_CONFIG_HOME", "home/.config"), ("XDG_CACHE_HOME", "home/.cache"), ("XDG_DATA_HOME", "home/.local/share")):
-        os.makedirs(os.path.join(env_dir, sub), exist_ok=True)
-        e.setdefault(k, os.path.join(env_dir, sub))  # the recipe's own HOME (set inside test_cmd) still wins
+    if SETDIR != EVAL:  # held-out set only: the dev-set baselines were measured with the real HOME (their recipes sandbox it
+        # themselves where needed); sandboxing it here changes results (e.g. a test that skips when ~/.ssh is empty)
+        for k, sub in (("HOME", "home"), ("XDG_CONFIG_HOME", "home/.config"), ("XDG_CACHE_HOME", "home/.cache"), ("XDG_DATA_HOME", "home/.local/share")):
+            os.makedirs(os.path.join(env_dir, sub), exist_ok=True)
+            e.setdefault(k, os.path.join(env_dir, sub))  # the recipe's own HOME (set inside test_cmd) still wins
     contain(e)
     res = V.run_tests(cmd, src, env=e, timeout=rec.get("timeout_s", 1800))
     open(os.path.join(LOGS, "%s.%s.log" % (rec["name"], label)), "w").write(res["tail"])

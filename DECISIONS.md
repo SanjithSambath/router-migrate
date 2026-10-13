@@ -200,3 +200,31 @@ Measured on 2026-10-13 for $0.0004; details are in `research/m0_measurements.md`
 - **Policy scope (MVP cut).** SPEC_V2 rule 5 asks for stable client ids baked into every wrap. The MVP policy matches on the
   feature id instead (`file:function`; the caller's own `metadata.feature` wins), so v1 wraps and diffs stay byte-for-byte
   unchanged. Site/client-id selectors are a next step.
+
+## D12. v2 MVP design choices
+
+- **Line numbers are mapped before reading code.** `recommend` reads code after `apply` has run, so plan.json's pre-apply line
+  numbers are mapped through `apply.diff` first. Without this, every function name and etag was read at the wrong line,
+  shifted by the inserted import.
+- **Unlock rules are strict, so the dev-set unlock gain is small and honest: +1 site.**
+  - `unlock.vendor_endpoint` needs a Python client that is not per-tenant and a model that is an exact Router catalog id, as a
+    literal or as the file's default. mem0's xAI client (`grok-4.3`) qualifies. DeepSeek (`deepseek-chat`) and MiniMax
+    (`MiniMax-M2.7`) are not catalog ids.
+  - `unlock.stated_loss` needs a client that v1 patched and only droppable beta flags (prompt-caching,
+    token-efficient-tools). On the dev set:
+    - the anthropic-quickstarts beta sites need code-execution, computer-use or MCP betas, or use per-tenant keys;
+    - llm-anthropic's betas are effort, fast-mode and mcp.
+- **Scope cuts:**
+  - **Model owner is a heuristic, not hand-audited.** Model cards are generated only for `app_literal` / `operator_config`
+    owners. The SPEC M2 hand audit (eval/owner_audit.md) is not done.
+  - **No TS vendor-unlock codemod.** There are no TS unlock candidates in the 15 repos; such sites are listed as "considered,
+    not recommended".
+- **Flex and cache cards need evidence the dev set doesn't provide.**
+  - `tier.flex_background` only fires for clear background markers (worker/job/cron/batch/... paths).
+  - `cache.key` only fires for a static prompt literal of at least ~1,024 tokens in the call's file.
+  - The 15 repos have neither, so they get no flex or cache cards. The synthetic test repo covers both levers.
+- **`up --agent`** prints only JSON on stdout (v1 step output goes to stderr). It exits 2 while any card is undecided.
+- **Eval v2 harness.** The held-out work had added a HOME/XDG sandbox to every eval test run. On the dev set this made one
+  anthropic-quickstarts test skip ("~/.ssh empty"), so the sandbox now applies to the held-out set only; dev-set baselines were
+  measured with the real HOME. anthropic-quickstarts was re-run under the dev-set settings: 189/189. The other 14 rows ran
+  with the stricter sandbox and still matched their v1 baselines exactly.

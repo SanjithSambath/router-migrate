@@ -20,6 +20,13 @@ router-migrate repo root. Read it first.
 6. `router-migrate report .`, then summarize `.router-migrate/REPORT.md`: migrated / handoff / kept / flagged, the coverage numbers,
    the test results, and anything left on the provider and why.
 
+## v2: improve (after step 6)
+7. `router-migrate up . --agent` prints the undecided Improve cards. Approve risk 0–1 same-model cards whose evidence bar is
+   met. Ask the user before approving unlock, fallback or model cards. Decide each card with
+   `router-migrate decide <id> ... --by agent`.
+8. `router-migrate apply . --decisions`, then `router-migrate status .`, which must exit 0, then re-run the tests. Report the
+   lossless number and the with-unlocks number separately.
+
 ## Guardrails
 - Never print or commit the key. Never edit tests to make them pass. Never swap a model for a different one without saying so.
 - Stop and tell the user on any 402/429 from Router.

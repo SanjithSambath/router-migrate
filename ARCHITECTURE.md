@@ -71,3 +71,43 @@ non-production code (unless `--include-nonprod`).
 | `eval/run_eval.py`, `eval/recipes/*.json` | 15-repo eval (env setup + test commands with recorded baselines) |
 | `eval/baseline.py` | docs migration prompt via `claude -p`, scored identically |
 | `AGENTS.md`, `.claude/skills/router-migrate/SKILL.md` | the agent protocol for HANDOFF tasks |
+
+## v2 (MVP): migrate -> unlock -> improve
+
+```
+v1 pass (unchanged) ─► plan.json ─► recommend.py ─► recommendations.json + RECOMMENDATIONS.md (one-way)
+                                       │ signals: latency_class · model_owner · resolved_model · feature (file:function)
+                                       │ rules:   unlock.* · attr.metadata · cache.key · tier.flex_background · fallback.candidates
+                                       │          model.* (cards only) · considered_not_recommended
+dashboard (up) / CLI decide / agent ─► decisions.json (etag per card) ─► apply --decisions
+                                                                            ├─ router.policy.json (repo root) ─► router_policy.py / routerPolicy.ts
+                                                                            └─ unlock codemods: wrap(..., unlock_hosts=[...]) / wrap(..., drop_betas=[...])
+runtime, per Router-bound /v1/responses request: v1 body ─► policy_for(feature) ─► capability guard ─► body (+metadata, cache key,
+                                                         allow_flex_tier, models:[orig,...], provider_timeout)
+```
+
+- **Policy is compiled.**
+  - `router_policy.py` sits beside `router_runtime.py`, which imports it lazily as a sibling module.
+  - `routerPolicy.ts` sets `globalThis.__ROUTER_MIGRATE_POLICY__`. `apply --decisions` appends one side-effect import of it to
+    the vendored TS/JS runtime, so no app file changes.
+  - With no compiled file, an invalid policy, or `ROUTER_MIGRATE_POLICY=off`, both runtimes produce byte-identical v1 bodies.
+    The same 21 JSON fixtures (`tests/fixtures/policy/`) check both runtimes against router-sim.
+- **Precedence:** exact feature > longest glob > defaults; `metadata` is merged and the request's own keys win.
+  - TS cards use a glob of the form `**<path stem>.*:<function>`, so they also match bundled paths such as
+    `.next/server/.../route.js:POST`.
+  - Messages-surface traffic gets no policy, because Router-only fields are Responses-only.
+- **Capability guard:**
+  - Flex only for the 17 models measured to have a flex tier (`data/flex_models.json`).
+  - Fallback candidates must match the request's tools, structured output, modalities, `stop` and temperature.
+  - A `models` list keeps v1's `service_tier: "default"` and never carries `allow_flex_tier`, which is ignored with a list
+    (measured).
+- **Unlocks are per request.**
+  - `unlock_hosts`: a vendor host's request goes to Router only when its model is an exact catalog id; anything else still
+    goes to the vendor.
+  - `drop_betas`: an Anthropic request goes to Router only if every beta flag on it was approved to drop.
+- **Dashboard:** `router_migrate/dashboard/` is one HTML page with the bundle embedded, served by a stdlib server.
+  - The server binds 127.0.0.1, requires a session token in the URL and an `X-RM-Token` header, rejects foreign Host and
+    Origin, and caps bodies at 64 KiB.
+  - Its endpoints are `GET /api/bundle`, `POST /api/decide` and `POST /api/apply`. Apply runs the same function as
+    `apply --decisions` and echoes the command.
+  - `REPORT.html` is the frozen copy.

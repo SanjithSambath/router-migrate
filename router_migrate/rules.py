@@ -116,6 +116,16 @@ RULES = [
      ["test_ts_golden", "test_ts_idempotent"]),
     ("CM14", "vendored JS runtime loads in its module format (.mjs import, CommonJS require) and is inert without the key", "design",
      ["test_vendored_js_runtime_loads_in_its_module_format"]),
+    # ---- v2 (MVP): compiled policy, recommend, decisions, dashboard
+    ("V2P01", "compiled policy: precedence, metadata merge, guard, invalid/off => v1 bytes (py + ts, shared fixtures)", "design",
+     ["test_policy_fixture", "test_no_policy_off_switch_and_invalid_are_all_v1", "test_compiled_module_is_loaded_from_beside_the_runtime"]),
+    ("V2P02", "allow_flex_tier only for models with a measured flex tier; never with a models list", "measured", ["test_policy_fixture", "test_policy_logs_once_without_content"]),
+    ("V2U01", "unlock_hosts routes a vendor host only for exact catalog models", "design", ["test_unlock_vendor_host_routes_only_catalog_models", "test_vendor_host_untouched_without_unlock"]),
+    ("V2U02", "drop_betas routes only when every beta flag was approved", "design", ["test_drop_betas_routes_only_when_every_flag_is_approved"]),
+    ("V2R01", "signals + every MVP lever + considered list; model cards owned-only, never applied", "design", ["test_signals_and_every_lever", "test_end_user_and_library_owners_get_no_model_cards"]),
+    ("V2D01", "decisions: validation, etag staleness, apply --decisions, status hash/orphans, up --agent exit codes", "design",
+     ["test_decide_validation_and_etag", "test_stale_etag_is_not_applied", "test_apply_decisions_policy_unlocks_and_status", "test_up_agent_exit_codes",
+      "test_nothing_approved_means_v1_bytes", "test_agent_and_scripted_human_reach_identical_decisions"]),
     # ---- router-sim (one per measured behavior; parametrized ids in tests/test_sim_rules.py)
     ("SM01", "chat-style fields on /v1/responses -> 400", "measured", ["chat leftovers: messages", "chat leftovers: max_tokens"]),
     ("SM02", "unknown fields -> 400", "measured", ["unknown field"]),
