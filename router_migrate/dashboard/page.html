@@ -875,6 +875,14 @@ details.more > summary:hover { color: var(--text); }
     var same = sortCards(vis.filter(function (c) { return c.lever_group !== "unlock" && !isModelCard(c); }));
     var met = same.filter(function (c) { return evGroup(c) === "met"; }), needs = same.filter(function (c) { return evGroup(c) === "needs"; }),
       exp = same.filter(function (c) { return evGroup(c) === "experimental"; });
+    // restraint (SPEC_V2 rule 9): the top 10 cards are visible, the rest fold behind "Show N more"
+    var order = unlock.concat(met, needs, exp, model), hidden = 0;
+    if (!S.showAll && order.length > 10) {
+      var keep = {}; order.slice(0, 10).forEach(function (c) { keep[c.id] = 1; }); hidden = order.length - 10;
+      var only = function (xs) { return xs.filter(function (c) { return keep[c.id]; }); };
+      unlock = only(unlock); met = only(met); needs = only(needs); exp = only(exp); model = only(model);
+      same = met.concat(needs, exp);
+    }
     var nUnd = undecided().length, eligAll = cs.filter(bulkEligible);
     h.push('<div class="page-head"><div><h1>Improve</h1><div class="meta" style="margin-top:4px">' + dotsep(['<span class="num">' + fmtInt(cs.length) + "</span> " + plural(cs.length, "card"),
       '<span class="num">' + fmtInt(nUnd) + "</span> undecided", '<span class="num">' + fmtInt(cs.filter(function (c) { return evGroup(c) === "met" && !isModelCard(c); }).length) + "</span> bar met",
@@ -894,6 +902,7 @@ details.more > summary:hover { color: var(--text); }
     if (same.length) h.push('<div class="section"><div class="section-head"><h2>Same model</h2><span class="meta">tier, cache, timeouts, fallbacks and spend tags through the compiled policy; the model that answers does not change</span></div>' +
       groupHtml("Bar met", "evidence meets the rule’s minimum", met) + groupHtml("Needs evidence", "collect the missing level first", needs) + groupHtml("Experimental", "unmeasured behaviour; shadow first", exp) + "</div>");
     if (model.length) h.push('<div class="section"><div class="section-head"><h2>Model changes</h2><span class="meta">recommendation only — not applied; shown as the code or config edit you would make</span></div><div class="cards">' + model.map(cardHtml).join("") + "</div></div>");
+    if (hidden || S.showAll && order.length > 10) h.push('<div class="section"><button class="btn" type="button" data-act="show-all">' + (S.showAll ? "Show the top 10 only" : "Show " + hidden + " more " + plural(hidden, "card")) + "</button></div>");
     var cnr = arr(r.considered_not_recommended);
     if (cnr.length) h.push('<div class="section"><div class="section-head"><h2>Considered, not recommended</h2><span class="meta">every lever the rules looked at and rejected, with the reason</span></div>' +
       '<div class="tbl-wrap cnr"><table><thead><tr><th>Rule</th><th>Scope</th><th>Reason</th></tr></thead><tbody>' + cnr.map(function (x) {
@@ -991,6 +1000,7 @@ details.more > summary:hover { color: var(--text); }
     else if (a === "select") { S.selected[id] = t.checked; renderSticky(); var card = t.closest(".card"); if (card) card.classList.toggle("sel", t.checked); }
     else if (a === "select-all") { var el = cards().filter(bulkEligible), allSel = selectedIds().length === el.length; S.selected = {}; if (!allSel) el.forEach(function (c) { S.selected[c.id] = true; }); renderAll(); }
     else if (a === "undecided") { S.undecidedOnly = !S.undecidedOnly; renderAll(); }
+    else if (a === "show-all") { S.showAll = !S.showAll; renderAll(); }
     else if (a === "decide") { doDecide(id, t.getAttribute("data-a")); }
     else if (a === "form") {
       var k = t.getAttribute("data-k"), cur = S.form[id];

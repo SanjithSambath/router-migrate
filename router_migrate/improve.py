@@ -95,7 +95,7 @@ def decide(root, card_id, action, reason=None, until=None, by="cli"):
     card["state"] = {"approve": "approved", "dismiss": "dismissed", "postpone": "postponed", "shadow_first": "shadow_first"}[action]
     save(root, "recommendations.json", r)
     open(sp(root, "RECOMMENDATIONS.md"), "w").write(rec_mod.render_markdown(r, dec))
-    event(root, "decide", "done", {"card": card_id, "action": action})
+    event(root, "decide", "done", {"decided": len(dec["cards"]), "approved": sum(1 for d in dec["cards"].values() if d["action"] == "approve")})
     return entry
 
 
