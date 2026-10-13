@@ -59,6 +59,7 @@ def prepare(names):
         print("prepared %s at %s; tests before %s" % (name, dst, res[name]["tests_before"]))
 
 
+PY_ABS_IMPORT_RE = re.compile(r"^\s*(?:from\s+([A-Za-z_][\w.]*)\s+import|import\s+([A-Za-z_][\w.]*))", re.M)
 ROUTER_MARK = re.compile(r"api\.router\.com|RAMP_ROUTER")
 IMPORT_RE = re.compile(r"""(?:from\s+['"]([^'"]+)['"]|import\s+['"]([^'"]+)['"]|require\(['"]([^'"]+)['"]\)|from\s+(\.[\w.]*)\s+import)""")
 
@@ -74,6 +75,18 @@ def _routes_via_router(root, rel, depth=0):
     if depth >= 3:
         return False
     base = os.path.dirname(rel)
+    if rel.endswith(".py"):  # absolute Python imports, resolved against each ancestor directory (possible source roots)
+        for m in PY_ABS_IMPORT_RE.finditer(src):
+            mod = (m.group(1) or m.group(2)).replace(".", "/")
+            d = base
+            while True:
+                for ext in (".py", "/__init__.py"):
+                    cand = os.path.normpath(os.path.join(d, mod + ext))
+                    if os.path.isfile(os.path.join(root, cand)) and _routes_via_router(root, cand, depth + 1):
+                        return True
+                if not d:
+                    break
+                d = os.path.dirname(d)
     for m in IMPORT_RE.finditer(src):
         spec = next(g for g in m.groups() if g)
         if not spec.startswith((".", "@/", "~/")):

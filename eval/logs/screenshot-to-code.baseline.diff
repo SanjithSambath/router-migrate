@@ -1,0 +1,2696 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 672da2a..0d52561 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -41,7 +41,7 @@ Services (see `README.md` for the canonical commands):
+ Non-obvious caveats:
+ - `poetry` is installed under `~/.local/bin` and is on PATH for interactive shells (`.bashrc`) but not necessarily for non-interactive scripts; use the full path `~/.local/bin/poetry` if `poetry` is not found.
+ - The Poetry virtualenv resolves to Python 3.12 (named like `backend-...-py3.12`), not 3.10 — `pyproject.toml` pins `^3.10`, which 3.12 satisfies. Just use `poetry run`.
+-- Core feature (screenshot → code) requires at least one LLM key: set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `GEMINI_API_KEY` in `backend/.env` (restart backend after editing) or in the in-app Settings dialog. Without a key, generation fails fast with a "No OpenAI, Anthropic, or Gemini API key" message. `REPLICATE_API_KEY` (image gen/edit) only works via `backend/.env`, not the UI.
++- Core feature (screenshot → code) goes through Ramp's Router: set `RAMP_ROUTER_API_KEY` plus a `ROUTER_MODEL_<NAME>` Router model ID per model in `backend/.env` (restart backend after editing; see `backend/router_client.py` and README). Provider API keys (OpenAI/Anthropic/Gemini) are not used. Without the Router key, generation fails fast with a "No Router API key found" message. `REPLICATE_API_KEY` (image gen/edit) only works via `backend/.env`, not the UI.
+ - Playwright Chromium is pre-installed for the optional "Screenshot preview" tool; Settings shows it as "Available".
+ - `pnpm install` prints an "Ignored build scripts (esbuild, puppeteer)" warning — this is harmless; Vite build/dev and tests work without approving builds.
+ - `cd frontend && pnpm lint` currently reports pre-existing errors (e.g. `@typescript-eslint/no-explicit-any` in `generateCode.ts`) because lint runs with `--max-warnings 0`; these are baseline issues, not environment problems.
+diff --git a/Evaluation.md b/Evaluation.md
+index e937b78..ff4684f 100644
+--- a/Evaluation.md
++++ b/Evaluation.md
+@@ -6,7 +6,7 @@ Evaluation dataset consists of 16 screenshots. A Python script for running scree
+ 
+ - Input screenshots should be located at `backend/evals_data/inputs` and the outputs will be `backend/evals_data/outputs`. If you want to modify this, modify `EVALS_DIR` in `backend/evals/config.py`. You can download the input screenshot dataset here: TODO.
+ - Set a stack and model (`STACK` var, `MODEL` var) in `backend/run_evals.py`
+-- Run `OPENAI_API_KEY=sk-... python run_evals.py` - this runs the screenshot-to-code on the input dataset in parallel but it will still take a few minutes to complete.
++- Run `python run_evals.py` with `RAMP_ROUTER_API_KEY` and the `ROUTER_MODEL_<NAME>` var for the chosen model set (see README) - this runs the screenshot-to-code on the input dataset in parallel but it will still take a few minutes to complete.
+ - Once the script is done, you can find the outputs in `backend/evals_data/outputs`.
+ 
+ ### Rating evals
+diff --git a/README.md b/README.md
+index 735c578..7f99a1c 100644
+--- a/README.md
++++ b/README.md
+@@ -39,22 +39,39 @@ Running locally requires API keys and a backend/frontend setup. The app has a Re
+ 
+ ### API keys
+ 
+-You need **at least one** model provider key (OpenAI, Anthropic, or Gemini).
+-**Gemini and Replicate are strongly recommended for the best quality of
+-screenshot-to-code accuracy** — Gemini powers asset extraction (reusing the
+-real logos/images from your screenshot) and Replicate powers image
+-generation, background removal, and image editing. Adding all four keys gives
+-the best results and lets you compare multiple models per generation.
++All LLM calls (GPT, Claude, and Gemini variants) go through Ramp's Router
++(`https://api.router.com/v1`), which holds the provider credentials. The app
++only needs a Router key — do not configure OpenAI, Anthropic, or Gemini API
++keys. Replicate (image generation/editing) is not an LLM provider and is
++configured separately.
+ 
+ | Key | Required? | What it unlocks |
+ |-----|-----------|-----------------|
+-| `OPENAI_API_KEY` | One of these three | GPT code-gen variants (GPT-5.5, GPT-5.4 Mini) |
+-| `ANTHROPIC_API_KEY` | One of these three | Claude code-gen variants (Opus 5, Opus 4.8, Fable 5, Sonnet 4.6) |
+-| `GEMINI_API_KEY` | One of these three — **strongly recommended** | Gemini code-gen variants (3 Flash, 3.1 Pro); extracts real assets from the screenshot; required for video mode |
++| `RAMP_ROUTER_API_KEY` | **Required** | All code-gen variants (GPT, Claude, Gemini) via Router |
++| `ROUTER_MODEL_<NAME>` | **Required** for each model the app uses | Maps an internal model name to your account's Router model ID (see below) |
++| `ROUTER_PROVIDER_TIMEOUT` / `ROUTER_TIMEOUT_BEFORE_HEADERS` | Optional | Router per-provider-call timeout / time to first streaming event, in seconds |
+ | `REPLICATE_API_KEY` | **Strongly recommended** | Image editing, background removal, and Replicate-backed image generation — without it, `edit_images` and `remove_backgrounds` are unavailable |
+ 
+-With more keys, the app automatically picks a stronger mix of models per
+-variant; with a single key it uses that provider's models only.
++Router model IDs are account-specific: list them with `GET /v1/models`
++(`curl -H "Authorization: Bearer $RAMP_ROUTER_API_KEY" https://api.router.com/v1/models`)
++and set one env var per internal model name. The env var name is
++`ROUTER_MODEL_` + the internal name upper-cased with non-alphanumerics
++replaced by `_`. The default variant sets use:
++
++- `ROUTER_MODEL_GPT_5_6_SOL`, `ROUTER_MODEL_GPT_6_1_SOL`
++- `ROUTER_MODEL_CLAUDE_OPUS_5`, `ROUTER_MODEL_CLAUDE_OPUS_5_5`
++- `ROUTER_MODEL_GEMINI_3_FLASH_PREVIEW`, `ROUTER_MODEL_GEMINI_3_1_PRO_PREVIEW`
++
++Other selectable models follow the same pattern (e.g. `ROUTER_MODEL_GPT_5_5`,
++`ROUTER_MODEL_GPT_5_4_MINI`, `ROUTER_MODEL_GPT_5_4_2026_03_05`,
++`ROUTER_MODEL_GPT_5_6_TERRA`, `ROUTER_MODEL_CLAUDE_OPUS_4_8`,
++`ROUTER_MODEL_CLAUDE_FABLE_5`, `ROUTER_MODEL_CLAUDE_SONNET_4_6`,
++`ROUTER_MODEL_GEMINI_3_5_FLASH`, `ROUTER_MODEL_GEMINI_3_6_FLASH`). Pick
++models that support image input — screenshots are sent as images.
++
++Not available through Router: **video mode** (needs Gemini-native video
++input) and the **asset extraction** tool (needs Gemini-native bounding-box
++detection). Video mode reports an error; asset extraction is not offered.
+ 
+ If you'd like to run the app with Ollama open-source models (not recommended due to poor-quality results), [follow this comment](https://github.com/abi/screenshot-to-code/issues/354#issuecomment-2435479853).
+ 
+@@ -62,9 +79,9 @@ Run the backend (I use Poetry for package management; run `pip install --upgrade
+ 
+ ```bash
+ cd backend
+-echo "OPENAI_API_KEY=sk-your-key" > .env
+-echo "ANTHROPIC_API_KEY=your-key" >> .env
+-echo "GEMINI_API_KEY=your-key" >> .env
++echo "RAMP_ROUTER_API_KEY=your-router-key" > .env
++echo "ROUTER_MODEL_GPT_5_6_SOL=<model id from GET /v1/models>" >> .env
++# ...one ROUTER_MODEL_<NAME> line per model (see the list above)
+ echo "REPLICATE_API_KEY=r8_your-key" >> .env
+ poetry install
+ # Install the Chromium browser used by the screenshot preview tool.
+@@ -76,7 +93,7 @@ poetry env activate
+ poetry run uvicorn main:app --reload --port 7001
+ ```
+ 
+-You can also set up OpenAI, Anthropic, and Gemini keys using the settings dialog in the frontend (click the gear icon after loading the app). Replicate must be configured in `backend/.env` as `REPLICATE_API_KEY`. The Settings dialog also shows whether **screenshot preview** is available on your backend.
++The Router key and model IDs are configured on the backend only. Replicate must be configured in `backend/.env` as `REPLICATE_API_KEY`. The Settings dialog (gear icon) shows whether **screenshot preview** is available on your backend.
+ 
+ > **Screenshot preview** (optional) lets the agent render its own generated page in a headless browser and visually check its work. It's enabled automatically once Chromium is installed (the `playwright install chromium` step above, or automatically in the Docker image). If Chromium is missing, the app just skips the tool — the Settings dialog shows whether it's available.
+ 
+@@ -97,7 +114,8 @@ If you prefer to run the backend on a different port, update `VITE_WS_BACKEND_UR
+ If you have Docker installed, run this from the root directory:
+ 
+ ```bash
+-echo "OPENAI_API_KEY=sk-your-key" > .env
++echo "RAMP_ROUTER_API_KEY=your-router-key" > .env
++# plus the ROUTER_MODEL_<NAME>=<model id> lines described above
+ docker-compose up -d --build
+ ```
+ 
+@@ -107,7 +125,6 @@ The app will be up and running at http://localhost:5173. Note that you can't dev
+ 
+ - **I'm running into an error when setting up the backend. How can I fix it?** [Try this](https://github.com/abi/screenshot-to-code/issues/3#issuecomment-1814777959). If that still doesn't work, open an issue.
+ - **How do I get an OpenAI API key?** See https://github.com/abi/screenshot-to-code/blob/main/Troubleshooting.md
+-- **How can I configure an OpenAI proxy?** If you're not able to access the OpenAI API directly, for example because of country restrictions, you can try a VPN or configure the OpenAI base URL to use a proxy. Set `OPENAI_BASE_URL` in `backend/.env` or directly in the UI in the settings dialog. Make sure the URL has `v1` in the path, for example: `https://xxx.xxxxx.xxx/v1`.
+ - **How can I update the backend host that my frontend connects to?** Configure `VITE_HTTP_BACKEND_URL` and `VITE_WS_BACKEND_URL` in `frontend/.env.local`. For example, set `VITE_HTTP_BACKEND_URL=http://124.10.20.1:7001`.
+ - **Seeing UTF-8 errors when running the backend?** On Windows, open the `.env` file with Notepad++, then go to Encoding and select UTF-8.
+ - **How can I provide feedback?** For feedback, feature requests, and bug reports, open an issue or ping me on [Twitter](https://twitter.com/_abi_).
+diff --git a/backend/agent/engine.py b/backend/agent/engine.py
+index 11ead96..c13048b 100644
+--- a/backend/agent/engine.py
++++ b/backend/agent/engine.py
+@@ -56,10 +56,7 @@ class AgentEngine:
+             Awaitable[None],
+         ],
+         variant_index: int,
+-        openai_api_key: Optional[str],
+-        openai_base_url: Optional[str],
+-        anthropic_api_key: Optional[str],
+-        gemini_api_key: Optional[str],
++        router_api_key: Optional[str],
+         replicate_api_key: Optional[str],
+         should_generate_images: bool,
+         should_extract_assets: bool = True,
+@@ -71,10 +68,7 @@ class AgentEngine:
+         self.send_message = send_message
+         self.variant_index = variant_index
+         self.recorder = recorder
+-        self.openai_api_key = openai_api_key
+-        self.openai_base_url = openai_base_url
+-        self.anthropic_api_key = anthropic_api_key
+-        self.gemini_api_key = gemini_api_key
++        self.router_api_key = router_api_key
+         self.replicate_api_key = replicate_api_key
+         self.should_generate_images = should_generate_images
+         self.should_extract_assets = should_extract_assets
+@@ -87,9 +81,6 @@ class AgentEngine:
+         self.tool_runtime = AgentToolRuntime(
+             file_state=self.file_state,
+             should_generate_images=should_generate_images,
+-            openai_api_key=openai_api_key,
+-            openai_base_url=openai_base_url,
+-            gemini_api_key=gemini_api_key,
+             replicate_api_key=replicate_api_key,
+             asset_base_url=asset_base_url,
+             option_codes=option_codes,
+@@ -337,10 +328,7 @@ class AgentEngine:
+             model=model,
+             prompt_messages=prompt_messages,
+             should_generate_images=self.should_generate_images,
+-            openai_api_key=self.openai_api_key,
+-            openai_base_url=self.openai_base_url,
+-            anthropic_api_key=self.anthropic_api_key,
+-            gemini_api_key=self.gemini_api_key,
++            router_api_key=self.router_api_key,
+             replicate_api_key=self.replicate_api_key,
+             # Only advertise extraction when the request actually contains a
+             # still image the runtime can crop. In particular, Gemini videos
+diff --git a/backend/agent/providers/anthropic/provider.py b/backend/agent/providers/anthropic/provider.py
+index 26a38c6..c99fda8 100644
+--- a/backend/agent/providers/anthropic/provider.py
++++ b/backend/agent/providers/anthropic/provider.py
+@@ -28,6 +28,7 @@ from agent.tools import CanonicalToolDefinition, ToolCall, parse_json_arguments
+ from fs_logging.agent_runs import AgentRunRecorder
+ from fs_logging.prompt_reports import PromptReportLogger
+ from llm import Llm
++from router_client import get_router_model_id, router_messages_extra_body
+ 
+ THINKING_MODELS: set[str] = set()
+ ADAPTIVE_THINKING_MODELS = {
+@@ -367,7 +368,7 @@ class AnthropicProviderSession(ProviderSession):
+         # call so crossing 20 images cannot leave earlier images above 2000 px.
+         self._ensure_many_image_dimension_limit()
+         stream_kwargs: Dict[str, Any] = {
+-            "model": _get_anthropic_api_model_name(self._model),
++            "model": get_router_model_id(_get_anthropic_api_model_name(self._model)),
+             "max_tokens": 50000,
+             "system": self._system_prompt,
+             "messages": self._messages,
+@@ -390,6 +391,10 @@ class AnthropicProviderSession(ProviderSession):
+         else:
+             stream_kwargs["temperature"] = 0.0
+ 
++        router_extra_body = router_messages_extra_body()
++        if router_extra_body:
++            stream_kwargs["extra_body"] = router_extra_body
++
+         self._prompt_report_logger.record_request(stream_kwargs)
+         if self._recorder is not None:
+             self._recorder.record_llm_request(
+diff --git a/backend/agent/providers/factory.py b/backend/agent/providers/factory.py
+index 767bfb4..33bf9ea 100644
+--- a/backend/agent/providers/factory.py
++++ b/backend/agent/providers/factory.py
+@@ -1,8 +1,5 @@
+ from typing import Optional
+ 
+-from anthropic import AsyncAnthropic
+-from google import genai
+-from openai import AsyncOpenAI
+ from openai.types.chat import ChatCompletionMessageParam
+ 
+ from agent.providers.anthropic import AnthropicProviderSession, serialize_anthropic_tools
+@@ -10,20 +7,21 @@ from agent.providers.base import ProviderSession
+ from agent.providers.gemini import GeminiProviderSession, serialize_gemini_tools
+ from agent.providers.openai import OpenAIProviderSession, serialize_openai_tools
+ from agent.tools import canonical_tool_definitions
+-from config import REPLICATE_API_KEY
++from config import ASSET_EXTRACTION_AVAILABLE, REPLICATE_API_KEY
+ from fs_logging.agent_runs import AgentRunRecorder
+ from llm import ANTHROPIC_MODELS, GEMINI_MODELS, OPENAI_MODELS, Llm
+ from preview_screenshot import is_screenshot_preview_available
++from router_client import (
++    create_router_messages_client,
++    create_router_responses_client,
++)
+ 
+ 
+ def create_provider_session(
+     model: Llm,
+     prompt_messages: list[ChatCompletionMessageParam],
+     should_generate_images: bool,
+-    openai_api_key: Optional[str],
+-    openai_base_url: Optional[str],
+-    anthropic_api_key: Optional[str],
+-    gemini_api_key: Optional[str],
++    router_api_key: Optional[str],
+     replicate_api_key: Optional[str],
+     should_extract_assets: bool = True,
+     recorder: Optional[AgentRunRecorder] = None,
+@@ -32,19 +30,17 @@ def create_provider_session(
+         image_generation_enabled=should_generate_images,
+         # The edit_images tool calls Replicate, so don't offer it without a key.
+         image_editing_enabled=bool(replicate_api_key or REPLICATE_API_KEY),
+-        # The extract_assets tool calls Gemini, so don't offer it without a key.
+-        asset_extraction_enabled=should_extract_assets and bool(gemini_api_key),
++        # The extract_assets tool calls Gemini's native API, which was not
++        # migrated to Router, so it is only offered if that becomes available.
++        asset_extraction_enabled=should_extract_assets and ASSET_EXTRACTION_AVAILABLE,
+         # screenshot_preview needs headless Chromium; skip it if it can't launch.
+         screenshot_enabled=is_screenshot_preview_available(),
+     )
+ 
++    # Every provider is reached through Router with RAMP_ROUTER_API_KEY.
+     if model in OPENAI_MODELS:
+-        if not openai_api_key:
+-            raise Exception("OpenAI API key is missing.")
+-
+-        client = AsyncOpenAI(api_key=openai_api_key, base_url=openai_base_url)
+         return OpenAIProviderSession(
+-            client=client,
++            client=create_router_responses_client(router_api_key),
+             model=model,
+             prompt_messages=prompt_messages,
+             tools=serialize_openai_tools(canonical_tools),
+@@ -52,12 +48,9 @@ def create_provider_session(
+         )
+ 
+     if model in ANTHROPIC_MODELS:
+-        if not anthropic_api_key:
+-            raise Exception("Anthropic API key is missing.")
+-
+-        client = AsyncAnthropic(api_key=anthropic_api_key)
++        # Already on the Anthropic Messages API: use Router's /v1/messages surface.
+         return AnthropicProviderSession(
+-            client=client,
++            client=create_router_messages_client(router_api_key),
+             model=model,
+             prompt_messages=prompt_messages,
+             tools=serialize_anthropic_tools(canonical_tools),
+@@ -65,12 +58,8 @@ def create_provider_session(
+         )
+ 
+     if model in GEMINI_MODELS:
+-        if not gemini_api_key:
+-            raise Exception("Gemini API key is missing.")
+-
+-        client = genai.Client(api_key=gemini_api_key)
+         return GeminiProviderSession(
+-            client=client,
++            client=create_router_responses_client(router_api_key),
+             model=model,
+             prompt_messages=prompt_messages,
+             tools=serialize_gemini_tools(canonical_tools),
+diff --git a/backend/agent/providers/gemini.py b/backend/agent/providers/gemini.py
+index 69a38be..f00d8ae 100644
+--- a/backend/agent/providers/gemini.py
++++ b/backend/agent/providers/gemini.py
+@@ -1,14 +1,24 @@
+ # pyright: reportUnknownVariableType=false
++"""Gemini models served through Ramp's Router (OpenAI Responses schema).
++
++Router does not expose Gemini's native generateContent API, so this session
++speaks the Responses schema to Router, which forwards the request to Gemini.
++The prompt assembly mirrors the previous native-Gemini session: system message
++-> ``instructions``, each later message -> its first text part followed by its
++images, same temperature / max output tokens / thinking level.
++
++Not migrated: video input. The Responses schema has no video content part, so
++video prompts raise ``GeminiVideoInputNotSupportedError`` instead of being sent.
++"""
++
+ import base64
+ import copy
+-import uuid
++import json
++from typing import Any, Dict, List, Optional
+ 
+ import httpx
+-from dataclasses import dataclass, field
+-from typing import Any, Dict, List, Optional, cast
+ 
+-from google import genai
+-from google.genai import types
++from openai import AsyncOpenAI
+ from openai.types.chat import ChatCompletionMessageParam
+ 
+ from agent.providers.base import (
+@@ -16,29 +26,49 @@ from agent.providers.base import (
+     ExecutedToolCall,
+     ProviderSession,
+     ProviderTurn,
+-    StreamEvent,
++)
++from agent.providers.openai import (
++    OpenAIResponsesParseState,
++    _build_provider_turn,
++    parse_event,
+ )
+ from costs.pricing import MODEL_PRICING
+ from costs.token_usage import TokenUsage
+-from agent.tools import CanonicalToolDefinition, ToolCall
++from agent.tools import CanonicalToolDefinition
+ from fs_logging.agent_runs import AgentRunRecorder
+ from fs_logging.prompt_reports import PromptReportLogger
+ from llm import Llm
++from router_client import get_router_model_id, router_responses_extra_body
++
+ 
++# Responses-schema image detail used for Gemini prompt and tool images.
++GEMINI_IMAGE_DETAIL = "high"
+ 
+-DEFAULT_VIDEO_FPS = 10
+ 
++class GeminiVideoInputNotSupportedError(Exception):
++    """Video input cannot be expressed in the Responses schema Router accepts."""
+ 
+-def serialize_gemini_tools(tools: List[CanonicalToolDefinition]) -> List[types.Tool]:
+-    declarations = [
+-        types.FunctionDeclaration(
+-            name=tool.name,
+-            description=tool.description,
+-            parameters_json_schema=copy.deepcopy(tool.parameters),
++    def __init__(self) -> None:
++        super().__init__(
++            "Video input is not supported through Router: the OpenAI Responses "
++            "schema has no video content part. Video mode was not migrated."
+         )
++
++
++def serialize_gemini_tools(
++    tools: List[CanonicalToolDefinition],
++) -> List[Dict[str, Any]]:
++    """Same function declarations Gemini received (raw JSON schema, not strict)."""
++    return [
++        {
++            "type": "function",
++            "name": tool.name,
++            "description": tool.description,
++            "parameters": copy.deepcopy(tool.parameters),
++            "strict": False,
++        }
+         for tool in tools
+     ]
+-    return [types.Tool(function_declarations=declarations)]
+ 
+ 
+ def _get_gemini_api_model_name(model: Llm) -> str:
+@@ -133,11 +163,13 @@ def _detect_mime_type_from_base64(base64_data: str) -> str | None:
+     return None
+ 
+ 
+-def _extract_images_from_content(content: str | List[Dict[str, Any]]) -> List[Dict[str, str]]:
++def _extract_image_urls_from_content(
++    content: str | List[Dict[str, Any]],
++) -> List[str]:
+     if isinstance(content, str):
+         return []
+ 
+-    images: List[Dict[str, str]] = []
++    image_urls: List[str] = []
+     for content_part in content:
+         if content_part.get("type") != "image_url":
+             continue
+@@ -155,150 +187,53 @@ def _extract_images_from_content(content: str | List[Dict[str, Any]]) -> List[Di
+                     print("Warning: Could not detect MIME type for data URL, skipping")
+                     continue
+ 
+-            images.append({"mime_type": mime_type, "data": base64_data})
++            if mime_type.startswith("video/"):
++                raise GeminiVideoInputNotSupportedError()
++
++            image_urls.append(f"data:{mime_type};base64,{base64_data}")
+             continue
+ 
+-        images.append({"uri": image_url})
++        image_urls.append(image_url)
+ 
+-    return images
++    return image_urls
+ 
+ 
+-def _convert_message_to_gemini_content(
++def _convert_message_to_responses_input(
+     message: ChatCompletionMessageParam,
+-) -> types.Content:
++) -> Dict[str, Any]:
+     role = message.get("role", "user")
+     content = message.get("content", "")
+-    gemini_role = "model" if role == "assistant" else "user"
+-
+-    parts: List[types.Part | Dict[str, str]] = []
++    responses_role = "assistant" if role == "assistant" else "user"
+ 
+     text = _extract_text_from_content(content)  # type: ignore
+-    image_data_list = _extract_images_from_content(content)  # type: ignore
++    image_urls = _extract_image_urls_from_content(content)  # type: ignore
+ 
+-    if text:
+-        parts.append({"text": text})
+-
+-    for image_data in image_data_list:
+-        if "data" in image_data:
+-            mime_type = image_data["mime_type"]
+-            media_bytes = base64.b64decode(image_data["data"])
+-            if mime_type.startswith("video/"):
+-                parts.append(
+-                    types.Part(
+-                        inline_data=types.Blob(data=media_bytes, mime_type=mime_type),
+-                        video_metadata=types.VideoMetadata(fps=DEFAULT_VIDEO_FPS),
+-                        media_resolution=types.PartMediaResolutionLevel.MEDIA_RESOLUTION_HIGH,
+-                    )
+-                )
+-                continue
++    if responses_role == "assistant":
++        # Assistant history is text-only in the Responses input schema.
++        return {"role": "assistant", "content": text}
+ 
+-            parts.append(
+-                types.Part.from_bytes(
+-                    data=media_bytes,
+-                    mime_type=mime_type,
+-                    media_resolution=types.PartMediaResolutionLevel.MEDIA_RESOLUTION_ULTRA_HIGH,
+-                )
+-            )
+-            continue
+-
+-        if "uri" in image_data:
+-            parts.append({"file_uri": image_data["uri"]})
+-
+-    return types.Content(role=gemini_role, parts=parts)  # type: ignore
+-
+-
+-@dataclass
+-class GeminiParseState:
+-    assistant_text: str = ""
+-    tool_calls: List[ToolCall] = field(default_factory=list)
+-    model_parts: List[types.Part] = field(default_factory=list)
+-    model_role: str = "model"
+-
+-
+-def _extract_usage(chunk: types.GenerateContentResponse) -> TokenUsage | None:
+-    """Extract unified token usage from a Gemini streaming chunk.
+-
+-    Gemini reports thinking tokens separately; they are folded into ``output``
+-    to match the unified schema used by the other providers.
+-
+-    ``prompt_token_count`` *includes* ``cached_content_token_count``, so we
+-    subtract cached tokens to get the non-cached input count (same approach
+-    as the OpenAI provider).
+-    """
+-    meta = chunk.usage_metadata
+-    if meta is None:
+-        return None
+-    candidates = meta.candidates_token_count or 0
+-    thoughts = meta.thoughts_token_count or 0
+-    prompt_tokens = meta.prompt_token_count or 0
+-    cached_tokens = meta.cached_content_token_count or 0
+-    return TokenUsage(
+-        input=prompt_tokens - cached_tokens,
+-        output=candidates + thoughts,
+-        cache_read=cached_tokens,
+-        cache_write=0,
+-        total=meta.total_token_count or 0,
+-    )
+-
+-
+-async def _parse_chunk(
+-    chunk: types.GenerateContentResponse,
+-    state: GeminiParseState,
+-    on_event: EventSink,
+-) -> None:
+-    if not chunk.candidates:
+-        return
+-
+-    candidate_content = chunk.candidates[0].content
+-    if not candidate_content or not candidate_content.parts:
+-        return
+-
+-    if candidate_content.role:
+-        state.model_role = candidate_content.role
+-
+-    for part in candidate_content.parts:
+-        # Preserve each model part as streamed so thought signatures remain attached.
+-        state.model_parts.append(part)
+-
+-        if getattr(part, "thought", False) and part.text:
+-            await on_event(StreamEvent(type="thinking_delta", text=part.text))
+-            continue
+-
+-        if part.function_call:
+-            args = part.function_call.args or {}
+-            tool_id = part.function_call.id or f"tool-{uuid.uuid4().hex[:6]}"
+-            tool_name = part.function_call.name or "unknown_tool"
+-
+-            await on_event(
+-                StreamEvent(
+-                    type="tool_call_delta",
+-                    tool_call_id=tool_id,
+-                    tool_name=tool_name,
+-                    tool_arguments=args,
+-                )
+-            )
+-
+-            state.tool_calls.append(
+-                ToolCall(
+-                    id=tool_id,
+-                    name=tool_name,
+-                    arguments=args,
+-                )
+-            )
+-            continue
++    parts: List[Dict[str, Any]] = []
++    if text:
++        parts.append({"type": "input_text", "text": text})
++    for image_url in image_urls:
++        parts.append(
++            {
++                "type": "input_image",
++                "image_url": image_url,
++                "detail": GEMINI_IMAGE_DETAIL,
++            }
++        )
+ 
+-        if part.text:
+-            state.assistant_text += part.text
+-            await on_event(StreamEvent(type="assistant_delta", text=part.text))
++    return {"role": "user", "content": parts}
+ 
+ 
+ class GeminiProviderSession(ProviderSession):
+     def __init__(
+         self,
+-        client: genai.Client,
++        client: AsyncOpenAI,
+         model: Llm,
+         prompt_messages: List[ChatCompletionMessageParam],
+-        tools: List[types.Tool],
++        tools: List[Dict[str, Any]],
+         recorder: Optional[AgentRunRecorder] = None,
+     ):
+         self._client = client
+@@ -313,69 +248,47 @@ class GeminiProviderSession(ProviderSession):
+         )
+ 
+         self._system_prompt = str(prompt_messages[0].get("content", ""))
+-        self._contents: List[types.Content] = [
+-            _convert_message_to_gemini_content(msg) for msg in prompt_messages[1:]
++        self._input_items: List[Dict[str, Any]] = [
++            _convert_message_to_responses_input(msg) for msg in prompt_messages[1:]
+         ]
+ 
+     async def stream_turn(self, on_event: EventSink) -> ProviderTurn:
+         thinking_level = _get_thinking_level_for_model(self._model)
+         api_model_name = _get_gemini_api_model_name(self._model)
+-        config = types.GenerateContentConfig(
+-            temperature=1.0,
+-            max_output_tokens=50000,
+-            system_instruction=self._system_prompt,
+-            thinking_config=types.ThinkingConfig(
+-                thinking_level=cast(Any, thinking_level),
+-                include_thoughts=True,
+-            ),
+-            tools=self._tools,
+-        )
+-
+-        request_payload = {
+-            "model": api_model_name,
+-            "contents": self._contents,
+-            "config": config,
++        params: Dict[str, Any] = {
++            "model": get_router_model_id(api_model_name),
++            "instructions": self._system_prompt,
++            "input": self._input_items,
++            "tools": self._tools,
++            "tool_choice": "auto",
++            "stream": True,
++            "temperature": 1.0,
++            "max_output_tokens": 50000,
++            # Gemini thinking_level + include_thoughts in Responses terms.
++            "reasoning": {"effort": thinking_level, "summary": "auto"},
++            "extra_body": router_responses_extra_body("codegen"),
+         }
+-        self._prompt_report_logger.record_request(request_payload)
+-        if self._recorder is not None:
+-            self._recorder.record_llm_request(
+-                "gemini", api_model_name, request_payload
+-            )
+ 
+-        stream = await self._client.aio.models.generate_content_stream(
+-            model=api_model_name,
+-            contents=cast(Any, self._contents),
+-            config=config,
+-        )
++        self._prompt_report_logger.record_request(params)
++        if self._recorder is not None:
++            self._recorder.record_llm_request("gemini", api_model_name, params)
+ 
+-        state = GeminiParseState()
+-        turn_usage: TokenUsage | None = None
+-        async for chunk in stream:
+-            await _parse_chunk(chunk, state, on_event)
+-            chunk_usage = _extract_usage(chunk)
+-            if chunk_usage is not None:
+-                turn_usage = chunk_usage
++        state = OpenAIResponsesParseState()
++        stream = await self._client.responses.create(**params)  # type: ignore
++        async for event in stream:  # type: ignore
++            await parse_event(event, state, on_event)
+ 
++        turn_usage = state.turn_usage
+         if turn_usage is not None:
+             self._prompt_report_logger.record_usage(turn_usage)
+             self._total_usage.accumulate(turn_usage)
+ 
++        turn = _build_provider_turn(state)
+         if self._recorder is not None:
+             self._recorder.record_llm_response(
+-                state.assistant_text, state.tool_calls, turn_usage
++                turn.assistant_text, turn.tool_calls, turn_usage
+             )
+-
+-        assistant_turn = (
+-            types.Content(role=state.model_role, parts=state.model_parts)
+-            if state.model_parts
+-            else None
+-        )
+-
+-        return ProviderTurn(
+-            assistant_text=state.assistant_text,
+-            tool_calls=state.tool_calls,
+-            assistant_turn=assistant_turn,
+-        )
++        return turn
+ 
+     def total_cost_usd(self) -> Optional[float]:
+         pricing = MODEL_PRICING.get(_get_gemini_api_model_name(self._model))
+@@ -385,7 +298,7 @@ class GeminiProviderSession(ProviderSession):
+ 
+     @staticmethod
+     async def _resolve_part_bytes(part: Any) -> tuple[bytes | None, str]:
+-        """Gemini only accepts inline bytes, so download public URLs."""
++        """Tool images were always sent to Gemini inline, so download public URLs."""
+         if part.data is not None:
+             return part.data, part.mime_type
+         if part.image_url:
+@@ -406,42 +319,40 @@ class GeminiProviderSession(ProviderSession):
+         turn: ProviderTurn,
+         executed_tool_calls: list[ExecutedToolCall],
+     ) -> None:
+-        model_content = turn.assistant_turn
+-        if not isinstance(model_content, types.Content) or not model_content.parts:
+-            raise ValueError(
+-                "Gemini step is missing model content. Cannot append tool results without the original model turn."
+-            )
+-
+-        self._contents.append(model_content)
++        # Replay the model's output items (reasoning, function calls) so the
++        # provider-side reasoning state carries across tool turns.
++        assistant_output_items = turn.assistant_turn or []
++        if assistant_output_items:
++            self._input_items.extend(assistant_output_items)
+ 
+-        tool_result_parts: List[types.Part] = []
++        tool_output_items: List[Dict[str, Any]] = []
+         for executed in executed_tool_calls:
+-            multimodal_parts: List[types.FunctionResponsePart] = []
++            result_json = json.dumps(executed.result.result)
++            output: Any = result_json
++            image_parts: List[Dict[str, Any]] = []
+             for part in executed.result.multimodal_parts or []:
+                 data, mime_type = await self._resolve_part_bytes(part)
+                 if data is None:
+                     continue
+-                multimodal_parts.append(
+-                    types.FunctionResponsePart(
+-                        inline_data=types.FunctionResponseBlob(
+-                            mime_type=mime_type,
+-                            display_name=part.display_name,
+-                            data=data,
+-                        )
+-                    )
+-                )
+-            tool_result_parts.append(
+-                types.Part(
+-                    function_response=types.FunctionResponse(
+-                        id=executed.tool_call.id,
+-                        name=executed.tool_call.name,
+-                        response=executed.result.result,
+-                        parts=multimodal_parts,
+-                    )
++                encoded = base64.b64encode(data).decode("ascii")
++                image_parts.append({"type": "input_text", "text": part.display_name})
++                image_parts.append(
++                    {
++                        "type": "input_image",
++                        "detail": GEMINI_IMAGE_DETAIL,
++                        "image_url": f"data:{mime_type};base64,{encoded}",
++                    }
+                 )
++            if image_parts:
++                output = [{"type": "input_text", "text": result_json}, *image_parts]
++            tool_output_items.append(
++                {
++                    "type": "function_call_output",
++                    "call_id": executed.tool_call.id,
++                    "output": output,
++                }
+             )
+-
+-        self._contents.append(types.Content(role="user", parts=tool_result_parts))
++        self._input_items.extend(tool_output_items)
+ 
+     async def close(self) -> None:
+         u = self._total_usage
+@@ -455,3 +366,4 @@ class GeminiProviderSession(ProviderSession):
+             f"cache_read={u.cache_read} cache_write={u.cache_write} "
+             f"total={u.total}{cache_hit_rate_str}{cost_str}"
+         )
++        await self._client.close()
+diff --git a/backend/agent/providers/openai.py b/backend/agent/providers/openai.py
+index cd7d7a6..83d7a2c 100644
+--- a/backend/agent/providers/openai.py
++++ b/backend/agent/providers/openai.py
+@@ -28,6 +28,7 @@ from agent.tools import CanonicalToolDefinition, ToolCall, parse_json_arguments
+ from fs_logging.agent_runs import AgentRunRecorder
+ from fs_logging.prompt_reports import PromptReportLogger
+ from llm import Llm, get_openai_api_name, get_openai_reasoning_effort
++from router_client import get_router_model_id, router_responses_extra_body
+ 
+ 
+ # gpt-6.1-sol rejects "original"-detail images that need more than 30,000
+@@ -523,7 +524,7 @@ class OpenAIProviderSession(ProviderSession):
+         await self._fit_prompt_images()
+         model_name = get_openai_api_name(self._model)
+         params: Dict[str, Any] = {
+-            "model": model_name,
++            "model": get_router_model_id(model_name),
+             "input": self._input_items,
+             "tools": self._tools,
+             "tool_choice": "auto",
+@@ -535,6 +536,7 @@ class OpenAIProviderSession(ProviderSession):
+         reasoning_effort = get_openai_reasoning_effort(self._model)
+         if reasoning_effort:
+             params["reasoning"] = {"effort": reasoning_effort, "summary": "auto"}
++        params["extra_body"] = router_responses_extra_body("codegen")
+ 
+         self._prompt_report_logger.record_request(params)
+         if self._recorder is not None:
+diff --git a/backend/agent/tools/runtime.py b/backend/agent/tools/runtime.py
+index b39956c..6f048e6 100644
+--- a/backend/agent/tools/runtime.py
++++ b/backend/agent/tools/runtime.py
+@@ -30,8 +30,8 @@ class AgentToolRuntime:
+         self,
+         file_state: AgentFileState,
+         should_generate_images: bool,
+-        openai_api_key: Optional[str],
+-        openai_base_url: Optional[str],
++        # Only used by the extract_assets tool, which still calls Gemini's
++        # native API (not migrated to Router). The app no longer supplies it.
+         gemini_api_key: Optional[str] = None,
+         replicate_api_key: Optional[str] = None,
+         input_images: Optional[List[str]] = None,
+@@ -41,8 +41,6 @@ class AgentToolRuntime:
+     ):
+         self.file_state = file_state
+         self.should_generate_images = should_generate_images
+-        self.openai_api_key = openai_api_key
+-        self.openai_base_url = openai_base_url
+         self.gemini_api_key = gemini_api_key
+         self.replicate_api_key = replicate_api_key
+         self.input_images = input_images or []
+diff --git a/backend/config.py b/backend/config.py
+index 6631629..9dd8a95 100644
+--- a/backend/config.py
++++ b/backend/config.py
+@@ -3,11 +3,27 @@ import os
+ NUM_VARIANTS = 4
+ NUM_VARIANTS_VIDEO = 2
+ 
++
++def _optional_float_env(name: str) -> float | None:
++    raw = os.environ.get(name, "").strip()
++    return float(raw) if raw else None
++
++
+ # LLM-related
+-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", None)
+-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", None)
+-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", None)
+-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", None)
++# All LLM traffic goes through Ramp's Router, which holds the provider
++# credentials. Never configure OpenAI/Anthropic/Gemini API keys here.
++ROUTER_BASE_URL = "https://api.router.com/v1"
++RAMP_ROUTER_API_KEY = os.environ.get("RAMP_ROUTER_API_KEY", None)
++# Router model IDs are account-specific (GET /v1/models) and are read per model
++# from ROUTER_MODEL_<NAME> env vars; see router_client.py.
++# Optional Router-only request fields (seconds). Omitted from requests when unset.
++ROUTER_PROVIDER_TIMEOUT = _optional_float_env("ROUTER_PROVIDER_TIMEOUT")
++ROUTER_TIMEOUT_BEFORE_HEADERS = _optional_float_env("ROUTER_TIMEOUT_BEFORE_HEADERS")
++
++# The extract_assets tool calls Gemini's native API (per-part media resolution,
++# bounding-box detection), which Router does not expose. It was not migrated, so
++# it is not offered to the agent. See asset_extraction.py.
++ASSET_EXTRACTION_AVAILABLE = False
+ 
+ # Image generation (optional)
+ REPLICATE_API_KEY = os.environ.get("REPLICATE_API_KEY", None)
+diff --git a/backend/evals/core.py b/backend/evals/core.py
+index f023235..4a97955 100644
+--- a/backend/evals/core.py
++++ b/backend/evals/core.py
+@@ -2,14 +2,11 @@ import uuid
+ from datetime import datetime
+ 
+ from config import (
+-    ANTHROPIC_API_KEY,
+-    GEMINI_API_KEY,
+     LOCAL_ASSET_BASE_URL,
+-    OPENAI_API_KEY,
+-    OPENAI_BASE_URL,
++    RAMP_ROUTER_API_KEY,
+     REPLICATE_API_KEY,
+ )
+-from llm import Llm, OPENAI_MODELS, ANTHROPIC_MODELS, GEMINI_MODELS
++from llm import Llm
+ from agent.runner import Agent
+ from fs_logging.agent_runs import AgentRunRecorder
+ from prompts.create.image import build_image_prompt_messages
+@@ -38,12 +35,9 @@ async def _run_eval_agent(
+         # Evals do not stream tool/assistant messages to a frontend.
+         return None
+ 
+-    if model in ANTHROPIC_MODELS and not ANTHROPIC_API_KEY:
+-        raise Exception("Anthropic API key not found")
+-    if model in GEMINI_MODELS and not GEMINI_API_KEY:
+-        raise Exception("Gemini API key not found")
+-    if model in OPENAI_MODELS and not OPENAI_API_KEY:
+-        raise Exception("OpenAI API key not found")
++    # Every model is served through Router.
++    if not RAMP_ROUTER_API_KEY:
++        raise Exception("Router API key not found (set RAMP_ROUTER_API_KEY)")
+ 
+     print(f"[EVALS] Using agent runner for model: {model.value}")
+ 
+@@ -63,10 +57,7 @@ async def _run_eval_agent(
+     runner = Agent(
+         send_message=send_message,
+         variant_index=0,
+-        openai_api_key=OPENAI_API_KEY,
+-        openai_base_url=OPENAI_BASE_URL,
+-        anthropic_api_key=ANTHROPIC_API_KEY,
+-        gemini_api_key=GEMINI_API_KEY,
++        router_api_key=RAMP_ROUTER_API_KEY,
+         replicate_api_key=REPLICATE_API_KEY,
+         should_generate_images=True,
+         # No websocket to infer the host from, so use the configured base URL;
+diff --git a/backend/router_client.py b/backend/router_client.py
+new file mode 100644
+index 0000000..3298087
+--- /dev/null
++++ b/backend/router_client.py
+@@ -0,0 +1,105 @@
++"""Transport to Ramp's Router (https://api.router.com/v1).
++
++Router exposes one OpenAI Responses-compatible API (``POST /v1/responses``) in
++front of models from multiple providers, plus an Anthropic Messages
++compatibility surface (``POST /v1/messages``). It holds the provider
++credentials, so the only secret the app sends is ``RAMP_ROUTER_API_KEY``.
++
++Router model IDs are account-specific and come from ``GET /v1/models``. The app
++keeps its internal model catalog names (e.g. ``gpt-5.5``, ``claude-opus-5``,
++``gemini-3.6-flash``; used for pricing and logs) and maps each one to a Router
++model ID through an env var named ``ROUTER_MODEL_<CATALOG_NAME>``, e.g.
++``ROUTER_MODEL_GPT_5_5`` or ``ROUTER_MODEL_GEMINI_3_6_FLASH``.
++"""
++
++import os
++import re
++from typing import Any, Dict, Mapping, cast
++
++from anthropic import AsyncAnthropic, Omit
++from openai import AsyncOpenAI
++
++import config
++
++ROUTER_MODEL_ENV_PREFIX = "ROUTER_MODEL_"
++
++
++class RouterConfigError(Exception):
++    """Raised when Router credentials or model IDs are not configured."""
++
++
++def router_model_env_var(catalog_model_name: str) -> str:
++    """Env var holding the Router model ID for an internal catalog model name."""
++    suffix = re.sub(r"[^A-Z0-9]+", "_", catalog_model_name.upper()).strip("_")
++    return f"{ROUTER_MODEL_ENV_PREFIX}{suffix}"
++
++
++def get_router_model_id(catalog_model_name: str) -> str:
++    """Return the configured Router model ID for an internal catalog model name."""
++    env_var = router_model_env_var(catalog_model_name)
++    model_id = os.environ.get(env_var, "").strip()
++    if not model_id:
++        raise RouterConfigError(
++            f"No Router model configured for '{catalog_model_name}'. Set {env_var} "
++            f"to a model ID returned by GET {config.ROUTER_BASE_URL}/models."
++        )
++    return model_id
++
++
++def require_router_api_key(router_api_key: str | None) -> str:
++    if not router_api_key:
++        raise RouterConfigError(
++            "Router API key is missing. Set RAMP_ROUTER_API_KEY in backend/.env."
++        )
++    return router_api_key
++
++
++def create_router_responses_client(router_api_key: str | None) -> AsyncOpenAI:
++    """OpenAI Responses client pointed at Router (Authorization: Bearer <key>)."""
++    return AsyncOpenAI(
++        api_key=require_router_api_key(router_api_key),
++        base_url=config.ROUTER_BASE_URL,
++    )
++
++
++def _router_messages_base_url() -> str:
++    # The Anthropic SDK appends /v1/messages itself.
++    base_url = config.ROUTER_BASE_URL.rstrip("/")
++    return base_url[: -len("/v1")] if base_url.endswith("/v1") else base_url
++
++
++def create_router_messages_client(router_api_key: str | None) -> AsyncAnthropic:
++    """Anthropic Messages client pointed at Router's /v1/messages surface.
++
++    Router authenticates with ``Authorization: Bearer``, so the key goes in
++    ``auth_token``. The ``X-Api-Key`` header is explicitly omitted so an
++    ``ANTHROPIC_API_KEY`` left in the process environment is never forwarded.
++    """
++    return AsyncAnthropic(
++        auth_token=require_router_api_key(router_api_key),
++        base_url=_router_messages_base_url(),
++        default_headers=cast(Mapping[str, str], {"X-Api-Key": Omit()}),
++    )
++
++
++def _router_timeout_fields() -> Dict[str, Any]:
++    fields: Dict[str, Any] = {}
++    if config.ROUTER_PROVIDER_TIMEOUT is not None:
++        fields["provider_timeout"] = config.ROUTER_PROVIDER_TIMEOUT
++    if config.ROUTER_TIMEOUT_BEFORE_HEADERS is not None:
++        fields["timeout_before_headers"] = config.ROUTER_TIMEOUT_BEFORE_HEADERS
++    return fields
++
++
++def router_responses_extra_body(feature: str) -> Dict[str, Any]:
++    """Router-only fields for a /v1/responses request (sent via ``extra_body``)."""
++    return {"metadata": {"feature": feature}, **_router_timeout_fields()}
++
++
++def router_messages_extra_body() -> Dict[str, Any]:
++    """Router-only fields for a /v1/messages request (sent via ``extra_body``).
++
++    ``metadata`` is not sent here: on the Messages surface that field has the
++    Anthropic schema (``user_id``), not Router's spend-attribution labels.
++    """
++    return _router_timeout_fields()
+diff --git a/backend/routes/generate_code.py b/backend/routes/generate_code.py
+index 091874b..99bee90 100644
+--- a/backend/routes/generate_code.py
++++ b/backend/routes/generate_code.py
+@@ -10,14 +10,11 @@ import openai
+ from starlette.websockets import WebSocketDisconnect
+ from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
+ from config import (
+-    ANTHROPIC_API_KEY,
+-    GEMINI_API_KEY,
+     IS_DEBUG_ENABLED,
+     IS_PROD,
+     NUM_VARIANTS,
+     NUM_VARIANTS_VIDEO,
+-    OPENAI_API_KEY,
+-    OPENAI_BASE_URL,
++    RAMP_ROUTER_API_KEY,
+     REPLICATE_API_KEY,
+ )
+ from custom_types import InputMode
+@@ -67,13 +64,6 @@ from routes.model_choice_sets import (
+     ALL_KEYS_MODELS_DEFAULT,
+     ALL_KEYS_MODELS_TEXT_CREATE,
+     ALL_KEYS_MODELS_UPDATE,
+-    ANTHROPIC_ONLY_MODELS,
+-    GEMINI_ANTHROPIC_MODELS,
+-    GEMINI_OPENAI_MODELS,
+-    GEMINI_ONLY_MODELS,
+-    OPENAI_ANTHROPIC_MODELS,
+-    OPENAI_ONLY_MODELS,
+-    VIDEO_VARIANT_MODELS,
+ )
+ 
+ # from utils import pprint_prompt
+@@ -255,11 +245,8 @@ class ExtractedParams:
+     stack: Stack
+     input_mode: InputMode
+     should_generate_images: bool
+-    openai_api_key: str | None
+-    anthropic_api_key: str | None
+-    gemini_api_key: str | None
++    router_api_key: str | None
+     replicate_api_key: str | None
+-    openai_base_url: str | None
+     generation_type: Literal["create", "update"]
+     prompt: UserTurnInput
+     history: List[PromptHistoryMessage]
+@@ -299,31 +286,14 @@ class ParameterExtractionStage:
+             raise ValueError(f"Invalid input mode: {input_mode}")
+         validated_input_mode = cast(InputMode, input_mode)
+ 
+-        openai_api_key = self._get_from_settings_dialog_or_env(
+-            params, "openAiApiKey", OPENAI_API_KEY
+-        )
+-
+-        # If neither is provided, we throw an error later only if Claude is used.
+-        anthropic_api_key = self._get_from_settings_dialog_or_env(
+-            params, "anthropicApiKey", ANTHROPIC_API_KEY
+-        )
+-        gemini_api_key = self._get_from_settings_dialog_or_env(
+-            params, "geminiApiKey", GEMINI_API_KEY
+-        )
++        # All LLM calls go through Router, which holds the provider credentials.
++        # The Router key is server-side only; provider keys (and a custom OpenAI
++        # base URL) sent by older clients' settings dialogs are ignored.
++        router_api_key = RAMP_ROUTER_API_KEY
+         replicate_api_key = self._get_from_settings_dialog_or_env(
+             params, "replicateApiKey", REPLICATE_API_KEY
+         )
+ 
+-        # Base URL for OpenAI API
+-        openai_base_url: str | None = None
+-        # Disable user-specified OpenAI Base URL in prod
+-        if not IS_PROD:
+-            openai_base_url = self._get_from_settings_dialog_or_env(
+-                params, "openAiBaseURL", OPENAI_BASE_URL
+-            )
+-        if not openai_base_url:
+-            print("Using official OpenAI URL")
+-
+         # Feature preferences default to enabled for older clients.
+         should_generate_images = bool(params.get("isImageGenerationEnabled", True))
+         should_extract_assets = bool(params.get("isAssetExtractionEnabled", True))
+@@ -378,11 +348,8 @@ class ParameterExtractionStage:
+             input_mode=validated_input_mode,
+             should_generate_images=should_generate_images,
+             should_extract_assets=should_extract_assets,
+-            openai_api_key=openai_api_key,
+-            anthropic_api_key=anthropic_api_key,
+-            gemini_api_key=gemini_api_key,
++            router_api_key=router_api_key,
+             replicate_api_key=replicate_api_key,
+-            openai_base_url=openai_base_url,
+             generation_type=generation_type,
+             prompt=prompt,
+             history=history,
+@@ -408,8 +375,18 @@ class ParameterExtractionStage:
+         return None
+ 
+ 
++class VideoModeUnavailableError(Exception):
++    """Video input cannot be sent through Router's Responses schema."""
++
++    def __init__(self) -> None:
++        super().__init__(
++            "Video mode is not available: it relies on Gemini video input, which "
++            "cannot be sent through Router's OpenAI Responses schema."
++        )
++
++
+ class ModelSelectionStage:
+-    """Handles selection of variant models based on available API keys and generation type"""
++    """Handles selection of variant models based on Router availability and generation type"""
+ 
+     def __init__(self, throw_error: Callable[[str], Coroutine[Any, Any, None]]):
+         self.throw_error = throw_error
+@@ -418,20 +395,16 @@ class ModelSelectionStage:
+         self,
+         generation_type: Literal["create", "update"],
+         input_mode: InputMode,
+-        openai_api_key: str | None,
+-        anthropic_api_key: str | None,
+-        gemini_api_key: str | None = None,
++        router_api_key: str | None,
+     ) -> List[Llm]:
+-        """Select appropriate models based on available API keys"""
++        """Select appropriate models based on Router availability"""
+         try:
+             num_variants = 2 if generation_type == "update" else NUM_VARIANTS
+             variant_models = self._get_variant_models(
+                 generation_type,
+                 input_mode,
+                 num_variants,
+-                openai_api_key,
+-                anthropic_api_key,
+-                gemini_api_key,
++                router_api_key,
+             )
+ 
+             # Print the variant models (one per line)
+@@ -440,11 +413,14 @@ class ModelSelectionStage:
+                 print(f"Variant {index + 1}: {model.value}")
+ 
+             return variant_models
++        except VideoModeUnavailableError as e:
++            await self.throw_error(str(e))
++            raise
+         except Exception:
+             await self.throw_error(
+-                "No OpenAI, Anthropic, or Gemini API key found. Please add the environment variable "
+-                "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY to backend/.env or in the settings dialog. "
+-                "If you add it to .env, make sure to restart the backend server."
++                "No Router API key found. Please add the environment variable "
++                "RAMP_ROUTER_API_KEY to backend/.env. "
++                "Make sure to restart the backend server after editing .env."
+             )
+             raise Exception("No API key")
+ 
+@@ -453,43 +429,26 @@ class ModelSelectionStage:
+         generation_type: Literal["create", "update"],
+         input_mode: InputMode,
+         num_variants: int,
+-        openai_api_key: str | None,
+-        anthropic_api_key: str | None,
+-        gemini_api_key: str | None,
++        router_api_key: str | None,
+     ) -> List[Llm]:
+         """Simple model cycling that scales with num_variants"""
+ 
+-        # Video mode requires Gemini - 2 variants for comparison
++        # Video mode required Gemini's native video input, which Router's
++        # Responses schema cannot carry. Not migrated.
+         if input_mode == "video":
+-            if not gemini_api_key:
+-                raise Exception(
+-                    "Video mode requires a Gemini API key. "
+-                    "Please add GEMINI_API_KEY to backend/.env or in the settings dialog"
+-                )
+-            return list(VIDEO_VARIANT_MODELS)
+-
+-        # Define models based on available API keys
+-        if gemini_api_key and anthropic_api_key and openai_api_key:
+-            if input_mode == "text" and generation_type == "create":
+-                models = list(ALL_KEYS_MODELS_TEXT_CREATE)
+-            elif generation_type == "update":
+-                models = list(ALL_KEYS_MODELS_UPDATE)
+-            else:
+-                models = list(ALL_KEYS_MODELS_DEFAULT)
+-        elif gemini_api_key and anthropic_api_key:
+-            models = list(GEMINI_ANTHROPIC_MODELS)
+-        elif gemini_api_key and openai_api_key:
+-            models = list(GEMINI_OPENAI_MODELS)
+-        elif openai_api_key and anthropic_api_key:
+-            models = list(OPENAI_ANTHROPIC_MODELS)
+-        elif gemini_api_key:
+-            models = list(GEMINI_ONLY_MODELS)
+-        elif anthropic_api_key:
+-            models = list(ANTHROPIC_ONLY_MODELS)
+-        elif openai_api_key:
+-            models = list(OPENAI_ONLY_MODELS)
++            raise VideoModeUnavailableError()
++
++        if not router_api_key:
++            raise Exception("No Router API key")
++
++        # Router reaches OpenAI, Anthropic, and Gemini models with one key, so
++        # use the model sets that previously required all three provider keys.
++        if input_mode == "text" and generation_type == "create":
++            models = list(ALL_KEYS_MODELS_TEXT_CREATE)
++        elif generation_type == "update":
++            models = list(ALL_KEYS_MODELS_UPDATE)
+         else:
+-            raise Exception("No OpenAI or Anthropic key")
++            models = list(ALL_KEYS_MODELS_DEFAULT)
+ 
+         # Cycle through models: [A, B] with num=5 becomes [A, B, A, B, A]
+         selected_models: List[Llm] = []
+@@ -552,10 +511,7 @@ class AgenticGenerationStage:
+     def __init__(
+         self,
+         send_message: Callable[[MessageType, str | None, int, Dict[str, Any] | None, str | None], Coroutine[Any, Any, None]],
+-        openai_api_key: str | None,
+-        openai_base_url: str | None,
+-        anthropic_api_key: str | None,
+-        gemini_api_key: str | None,
++        router_api_key: str | None,
+         replicate_api_key: str | None,
+         should_generate_images: bool,
+         file_state: Dict[str, str] | None,
+@@ -568,10 +524,7 @@ class AgenticGenerationStage:
+         generation_type: str | None = None,
+     ):
+         self.send_message = send_message
+-        self.openai_api_key = openai_api_key
+-        self.openai_base_url = openai_base_url
+-        self.anthropic_api_key = anthropic_api_key
+-        self.gemini_api_key = gemini_api_key
++        self.router_api_key = router_api_key
+         self.replicate_api_key = replicate_api_key
+         self.should_generate_images = should_generate_images
+         self.should_extract_assets = should_extract_assets
+@@ -643,10 +596,7 @@ class AgenticGenerationStage:
+             runner = Agent(
+                 send_message=send_runner_message,
+                 variant_index=index,
+-                openai_api_key=self.openai_api_key,
+-                openai_base_url=self.openai_base_url,
+-                anthropic_api_key=self.anthropic_api_key,
+-                gemini_api_key=self.gemini_api_key,
++                router_api_key=self.router_api_key,
+                 replicate_api_key=self.replicate_api_key,
+                 should_generate_images=self.should_generate_images,
+                 should_extract_assets=self.should_extract_assets,
+@@ -812,9 +762,7 @@ class CodeGenerationMiddleware(Middleware):
+             context.variant_models = await model_selector.select_models(
+                 generation_type=context.extracted_params.generation_type,
+                 input_mode=context.extracted_params.input_mode,
+-                openai_api_key=context.extracted_params.openai_api_key,
+-                anthropic_api_key=context.extracted_params.anthropic_api_key,
+-                gemini_api_key=context.extracted_params.gemini_api_key,
++                router_api_key=context.extracted_params.router_api_key,
+             )
+             if IS_DEBUG_ENABLED:
+                 await context.send_message(
+@@ -827,10 +775,7 @@ class CodeGenerationMiddleware(Middleware):
+ 
+             generation_stage = AgenticGenerationStage(
+                 send_message=context.send_message,
+-                openai_api_key=context.extracted_params.openai_api_key,
+-                openai_base_url=context.extracted_params.openai_base_url,
+-                anthropic_api_key=context.extracted_params.anthropic_api_key,
+-                gemini_api_key=context.extracted_params.gemini_api_key,
++                router_api_key=context.extracted_params.router_api_key,
+                 replicate_api_key=context.extracted_params.replicate_api_key,
+                 should_generate_images=context.extracted_params.should_generate_images,
+                 should_extract_assets=context.extracted_params.should_extract_assets,
+diff --git a/backend/tests/conftest.py b/backend/tests/conftest.py
+new file mode 100644
+index 0000000..be52d02
+--- /dev/null
++++ b/backend/tests/conftest.py
+@@ -0,0 +1,28 @@
++from typing import Iterator
++
++import pytest
++
++from agent.providers.anthropic.provider import _get_anthropic_api_model_name
++from agent.providers.gemini import _get_gemini_api_model_name
++from llm import ANTHROPIC_MODELS, GEMINI_MODELS, OPENAI_MODELS, get_openai_api_name
++from router_client import router_model_env_var
++
++# Placeholder Router model IDs for offline tests. Real IDs are account-specific
++# and come from GET /v1/models.
++TEST_ROUTER_MODEL_PREFIX = "test-router/"
++
++
++def _catalog_model_names() -> set[str]:
++    names = {get_openai_api_name(model) for model in OPENAI_MODELS}
++    names |= {_get_anthropic_api_model_name(model) for model in ANTHROPIC_MODELS}
++    names |= {_get_gemini_api_model_name(model) for model in GEMINI_MODELS}
++    return names
++
++
++@pytest.fixture(autouse=True)
++def router_model_ids(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
++    for name in _catalog_model_names():
++        monkeypatch.setenv(
++            router_model_env_var(name), f"{TEST_ROUTER_MODEL_PREFIX}{name}"
++        )
++    yield
+diff --git a/backend/tests/test_agent_engine.py b/backend/tests/test_agent_engine.py
+index 7a097ad..a108238 100644
+--- a/backend/tests/test_agent_engine.py
++++ b/backend/tests/test_agent_engine.py
+@@ -89,10 +89,7 @@ async def test_asset_extraction_is_only_offered_for_still_image_inputs(
+     engine = AgentEngine(
+         send_message=send_message,
+         variant_index=0,
+-        openai_api_key=None,
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key="gemini-key",
++        router_api_key="router-key",
+         replicate_api_key=None,
+         should_generate_images=True,
+         should_extract_assets=True,
+diff --git a/backend/tests/test_agent_runs.py b/backend/tests/test_agent_runs.py
+index 46f6266..5dfce86 100644
+--- a/backend/tests/test_agent_runs.py
++++ b/backend/tests/test_agent_runs.py
+@@ -496,10 +496,7 @@ def _make_engine(recorder: AgentRunRecorder) -> Any:
+     return AgentEngine(
+         send_message=send_message,
+         variant_index=0,
+-        openai_api_key="key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key=None,
++        router_api_key="key",
+         replicate_api_key=None,
+         should_generate_images=False,
+         recorder=recorder,
+diff --git a/backend/tests/test_agent_tool_runtime.py b/backend/tests/test_agent_tool_runtime.py
+index 9e26624..d4b6fe8 100644
+--- a/backend/tests/test_agent_tool_runtime.py
++++ b/backend/tests/test_agent_tool_runtime.py
+@@ -22,8 +22,6 @@ def test_edit_file_returns_structured_result_with_diff() -> None:
+             content="<div>before</div>\n<p>keep</p>\n",
+         ),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     result = runtime._edit_file(
+@@ -51,8 +49,6 @@ async def test_execute_edit_file_uses_updated_result_shape() -> None:
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(path="index.html", content="<main>old</main>"),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     result = await runtime.execute(
+@@ -89,8 +85,6 @@ async def test_save_assets_promotes_temporary_asset_id(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     result = await runtime.execute(
+@@ -118,8 +112,6 @@ async def test_extract_assets_requires_gemini_api_key() -> None:
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         input_images=[_data_url(b"source-image")],
+     )
+ 
+@@ -146,8 +138,6 @@ async def test_extract_assets_returns_error_when_extraction_raises(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         gemini_api_key="gemini-key",
+         input_images=[_data_url(b"source-image")],
+     )
+@@ -211,8 +201,6 @@ async def test_extract_assets_returns_mocked_gemini_assets(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         gemini_api_key="gemini-key",
+         input_images=[_data_url(b"source-image")],
+         asset_base_url="http://127.0.0.1:7001",
+@@ -284,8 +272,6 @@ async def test_extract_assets_partial_success_keeps_found_assets(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         gemini_api_key="gemini-key",
+         input_images=[_data_url(b"source-image")],
+         asset_base_url="http://127.0.0.1:7001",
+@@ -336,8 +322,6 @@ async def test_extract_assets_all_missing_returns_error(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         gemini_api_key="gemini-key",
+         input_images=[_data_url(b"source-image")],
+     )
+@@ -361,8 +345,6 @@ async def test_screenshot_preview_requires_file_content() -> None:
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     result = await runtime.execute(
+@@ -399,8 +381,6 @@ async def test_screenshot_preview_returns_image_part(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(path="index.html", content="<main>hi</main>"),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         asset_base_url="http://127.0.0.1:7001",
+     )
+ 
+@@ -477,8 +457,6 @@ async def test_screenshot_preview_reports_capture_failure(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(path="index.html", content="<main>hi</main>"),
+         should_generate_images=False,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     result = await runtime.execute(
+diff --git a/backend/tests/test_agent_tools.py b/backend/tests/test_agent_tools.py
+index fa64d73..0e49963 100644
+--- a/backend/tests/test_agent_tools.py
++++ b/backend/tests/test_agent_tools.py
+@@ -112,15 +112,12 @@ def test_canonical_tool_definitions_exclude_extract_assets_when_disabled() -> No
+     assert "extract_assets" not in tool_names
+ 
+ 
+-def test_provider_session_excludes_extract_assets_without_gemini_key() -> None:
++def test_provider_session_excludes_extract_assets_not_migrated_to_router() -> None:
+     session = create_provider_session(
+         model=Llm.GPT_5_5_HIGH,
+         prompt_messages=[{"role": "user", "content": "Build a page."}],
+         should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key=None,
++        router_api_key="router-key",
+         replicate_api_key=None,
+     )
+ 
+@@ -129,32 +126,12 @@ def test_provider_session_excludes_extract_assets_without_gemini_key() -> None:
+     assert "extract_assets" not in tool_names
+ 
+ 
+-def test_provider_session_includes_extract_assets_with_gemini_key() -> None:
+-    session = create_provider_session(
+-        model=Llm.GPT_5_5_HIGH,
+-        prompt_messages=[{"role": "user", "content": "Build a page."}],
+-        should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key="gemini-key",
+-        replicate_api_key=None,
+-    )
+-
+-    tools = cast(list[dict[str, Any]], getattr(session, "_tools"))
+-    tool_names = [tool["name"] for tool in tools]
+-    assert "extract_assets" in tool_names
+-
+-
+ def test_provider_session_excludes_extract_assets_when_user_disables_it() -> None:
+     session = create_provider_session(
+         model=Llm.GPT_5_5_HIGH,
+         prompt_messages=[{"role": "user", "content": "Build a page."}],
+         should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key="gemini-key",
++        router_api_key="router-key",
+         replicate_api_key=None,
+         should_extract_assets=False,
+     )
+@@ -174,10 +151,7 @@ def test_provider_session_excludes_screenshot_preview_when_chromium_unavailable(
+         model=Llm.GPT_5_5_HIGH,
+         prompt_messages=[{"role": "user", "content": "Build a page."}],
+         should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key=None,
++        router_api_key="router-key",
+         replicate_api_key=None,
+     )
+ 
+@@ -196,10 +170,7 @@ def test_provider_session_includes_screenshot_preview_when_chromium_available(
+         model=Llm.GPT_5_5_HIGH,
+         prompt_messages=[{"role": "user", "content": "Build a page."}],
+         should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+-        anthropic_api_key=None,
+-        gemini_api_key=None,
++        router_api_key="router-key",
+         replicate_api_key=None,
+     )
+ 
+diff --git a/backend/tests/test_batching.py b/backend/tests/test_batching.py
+index 130c3af..6d28d34 100644
+--- a/backend/tests/test_batching.py
++++ b/backend/tests/test_batching.py
+@@ -58,8 +58,6 @@ async def test_remove_backgrounds_batches_calls(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+ 
+     urls = [f"https://example.com/img-{i}.png" for i in range(25)]
+@@ -90,8 +88,6 @@ async def test_remove_backgrounds_accepts_data_urls(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     data_url = "data:image/png;base64,aW1hZ2U="
+ 
+@@ -124,8 +120,6 @@ async def test_remove_backgrounds_converts_localhost_asset_url_to_data_url(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     local_url = "http://127.0.0.1:7001/local-assets/asset_123.png"
+ 
+@@ -171,8 +165,6 @@ async def test_edit_images_batches_independent_edits_and_preserves_order(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     edits: list[dict[str, object]] = [
+         {
+diff --git a/backend/tests/test_gemini_provider_session.py b/backend/tests/test_gemini_provider_session.py
+index 407b242..7a1be3e 100644
+--- a/backend/tests/test_gemini_provider_session.py
++++ b/backend/tests/test_gemini_provider_session.py
+@@ -1,40 +1,150 @@
+-from typing import Any, cast
++import base64
++import copy
++import json
++from typing import Any
+ 
+ import pytest
+-from google.genai import types
+ 
+ from agent.providers.base import ExecutedToolCall, ProviderTurn
+-from agent.providers.gemini import GeminiProviderSession
++from agent.providers.gemini import (
++    GeminiProviderSession,
++    GeminiVideoInputNotSupportedError,
++)
+ from agent.tools.types import ToolCall, ToolExecutionResult, ToolMultimodalPart
+ from llm import Llm
+ 
+ 
++class _EmptyAsyncStream:
++    def __aiter__(self) -> "_EmptyAsyncStream":
++        return self
++
++    async def __anext__(self) -> object:
++        raise StopAsyncIteration
++
++
++class _FakeResponses:
++    def __init__(self) -> None:
++        self.calls: list[dict[str, Any]] = []
++
++    async def create(self, **kwargs: Any) -> _EmptyAsyncStream:
++        self.calls.append(copy.deepcopy(kwargs))
++        return _EmptyAsyncStream()
++
++
++class _FakeRouterClient:
++    def __init__(self) -> None:
++        self.responses = _FakeResponses()
++
++    async def close(self) -> None:
++        return None
++
++
++async def _noop_event_sink(_: Any) -> None:
++    return None
++
++
+ @pytest.mark.asyncio
+-async def test_gemini_provider_appends_multimodal_function_response_parts() -> None:
++async def test_gemini_session_sends_responses_request_to_router_model() -> None:
++    client = _FakeRouterClient()
+     session = GeminiProviderSession(
+-        client=object(),  # type: ignore[arg-type]
+-        model=Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
++        client=client,  # type: ignore[arg-type]
++        model=Llm.GEMINI_3_6_FLASH_LOW,
+         prompt_messages=[
+             {"role": "system", "content": "You are helpful."},
+-            {"role": "user", "content": "Extract the logo."},
++            {
++                "role": "user",
++                "content": [
++                    {
++                        "type": "image_url",
++                        "image_url": {"url": "data:image/png;base64,aW1hZ2U="},
++                    },
++                    {"type": "text", "text": "Build this page."},
++                ],
++            },
+         ],
+         tools=[],
+     )
+-    model_turn = types.Content(
+-        role="model",
+-        parts=[
+-            types.Part.from_function_call(
+-                name="extract_assets",
+-                args={"asset_descriptions": ["logo"]},
+-            )
++
++    await session.stream_turn(_noop_event_sink)
++
++    call = client.responses.calls[0]
++    assert call["model"] == "test-router/gemini-3.6-flash"
++    assert call["instructions"] == "You are helpful."
++    assert call["temperature"] == 1.0
++    assert call["max_output_tokens"] == 50000
++    assert call["reasoning"] == {"effort": "low", "summary": "auto"}
++    assert call["stream"] is True
++    assert call["extra_body"]["metadata"] == {"feature": "codegen"}
++    # Same part order the native Gemini session used: text first, then images.
++    assert call["input"] == [
++        {
++            "role": "user",
++            "content": [
++                {"type": "input_text", "text": "Build this page."},
++                {
++                    "type": "input_image",
++                    "image_url": "data:image/png;base64,aW1hZ2U=",
++                    "detail": "high",
++                },
++            ],
++        }
++    ]
++
++
++def test_gemini_session_rejects_video_input() -> None:
++    with pytest.raises(GeminiVideoInputNotSupportedError):
++        GeminiProviderSession(
++            client=_FakeRouterClient(),  # type: ignore[arg-type]
++            model=Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
++            prompt_messages=[
++                {"role": "system", "content": "sys"},
++                {
++                    "role": "user",
++                    "content": [
++                        {
++                            "type": "image_url",
++                            "image_url": {"url": "data:video/mp4;base64,dmlkZW8="},
++                        },
++                        {"type": "text", "text": "Recreate this app."},
++                    ],
++                },
++            ],
++            tools=[],
++        )
++
++
++@pytest.mark.asyncio
++async def test_gemini_provider_appends_multimodal_function_call_output() -> None:
++    session = GeminiProviderSession(
++        client=_FakeRouterClient(),  # type: ignore[arg-type]
++        model=Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
++        prompt_messages=[
++            {"role": "system", "content": "You are helpful."},
++            {"role": "user", "content": "Extract the logo."},
+         ],
++        tools=[],
+     )
++    function_call_item = {
++        "type": "function_call",
++        "call_id": "call-1",
++        "name": "extract_assets",
++        "arguments": json.dumps({"asset_descriptions": ["logo"]}),
++    }
++    result_payload = {
++        "assets": [
++            {
++                "description": "logo",
++                "image_part_index": 0,
++                "image_display_name": "asset_0.png",
++            }
++        ]
++    }
+ 
+     await session.append_tool_results(
+         ProviderTurn(
+             assistant_text="",
+             tool_calls=[],
+-            assistant_turn=model_turn,
++            assistant_turn=[function_call_item],
+         ),
+         [
+             ExecutedToolCall(
+@@ -45,15 +155,7 @@ async def test_gemini_provider_appends_multimodal_function_response_parts() -> N
+                 ),
+                 result=ToolExecutionResult(
+                     ok=True,
+-                    result={
+-                        "assets": [
+-                            {
+-                                "description": "logo",
+-                                "image_part_index": 0,
+-                                "image_display_name": "asset_0.png",
+-                            }
+-                        ]
+-                    },
++                    result=result_payload,
+                     summary={},
+                     multimodal_parts=[
+                         ToolMultimodalPart(
+@@ -67,27 +169,18 @@ async def test_gemini_provider_appends_multimodal_function_response_parts() -> N
+         ],
+     )
+ 
+-    contents: list[types.Content] = session._contents  # type: ignore[attr-defined]
+-    tool_response_content = contents[-1]
+-    assert tool_response_content.parts is not None
+-    function_response = tool_response_content.parts[0].function_response
+-    assert tool_response_content.role == "user"
+-    assert function_response is not None
+-    assert function_response.id == "call-1"
+-    assert function_response.name == "extract_assets"
+-    assert function_response.response == {
+-        "assets": [
+-            {
+-                "description": "logo",
+-                "image_part_index": 0,
+-                "image_display_name": "asset_0.png",
+-            }
+-        ]
+-    }
+-
+-    response_parts = cast(Any, function_response.parts)
+-    assert len(response_parts) == 1
+-    inline_data = response_parts[0].inline_data
+-    assert inline_data.mime_type == "image/png"
+-    assert inline_data.display_name == "asset_0.png"
+-    assert inline_data.data == b"logo-image"
++    input_items: list[dict[str, Any]] = session._input_items  # type: ignore[attr-defined]
++    assert input_items[-2] == function_call_item
++    tool_output = input_items[-1]
++    assert tool_output["type"] == "function_call_output"
++    assert tool_output["call_id"] == "call-1"
++    assert tool_output["output"] == [
++        {"type": "input_text", "text": json.dumps(result_payload)},
++        {"type": "input_text", "text": "asset_0.png"},
++        {
++            "type": "input_image",
++            "detail": "high",
++            "image_url": "data:image/png;base64,"
++            + base64.b64encode(b"logo-image").decode(),
++        },
++    ]
+diff --git a/backend/tests/test_model_selection.py b/backend/tests/test_model_selection.py
+index 3e0940b..a466324 100644
+--- a/backend/tests/test_model_selection.py
++++ b/backend/tests/test_model_selection.py
+@@ -1,11 +1,11 @@
+ import pytest
+ from unittest.mock import AsyncMock
+-from routes.generate_code import ModelSelectionStage
++from routes.generate_code import ModelSelectionStage, VideoModeUnavailableError
+ from llm import Llm
+ 
+ 
+-class TestModelSelectionAllKeys:
+-    """Test model selection when Gemini, Anthropic, and OpenAI API keys are present."""
++class TestModelSelectionRouter:
++    """Router reaches every provider with one key, so the all-provider sets apply."""
+ 
+     def setup_method(self):
+         """Set up test fixtures."""
+@@ -14,13 +14,11 @@ class TestModelSelectionAllKeys:
+ 
+     @pytest.mark.asyncio
+     async def test_gemini_anthropic_create(self):
+-        """All keys text create: fixed order for four variants."""
++        """Text create: fixed order for four variants."""
+         models = await self.model_selector.select_models(
+             generation_type="create",
+             input_mode="text",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
++            router_api_key="key",
+         )
+ 
+         expected = [
+@@ -33,13 +31,11 @@ class TestModelSelectionAllKeys:
+ 
+     @pytest.mark.asyncio
+     async def test_gemini_anthropic_create_image(self):
+-        """All keys image create: fixed order for four variants."""
++        """Image create: fixed order for four variants."""
+         models = await self.model_selector.select_models(
+             generation_type="create",
+             input_mode="image",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
++            router_api_key="key",
+         )
+ 
+         expected = [
+@@ -52,13 +48,11 @@ class TestModelSelectionAllKeys:
+ 
+     @pytest.mark.asyncio
+     async def test_gemini_anthropic_update_text(self):
+-        """All keys text update: uses two fast edit variants."""
++        """Text update: uses two fast edit variants."""
+         models = await self.model_selector.select_models(
+             generation_type="update",
+             input_mode="text",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
++            router_api_key="key",
+         )
+ 
+         expected = [
+@@ -69,13 +63,11 @@ class TestModelSelectionAllKeys:
+ 
+     @pytest.mark.asyncio
+     async def test_gemini_anthropic_update(self):
+-        """All keys image update: uses two fast edit variants."""
++        """Image update: uses two fast edit variants."""
+         models = await self.model_selector.select_models(
+             generation_type="update",
+             input_mode="image",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
++            router_api_key="key",
+         )
+ 
+         expected = [
+@@ -84,127 +76,29 @@ class TestModelSelectionAllKeys:
+         ]
+         assert models == expected
+ 
+-    @pytest.mark.asyncio
+-    async def test_video_create_prefers_gemini_minimal_then_3_1_high(self):
+-        """Video create always uses two Gemini variants in fixed order."""
+-        models = await self.model_selector.select_models(
+-            generation_type="create",
+-            input_mode="video",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
+-        )
+-
+-        expected = [
+-            Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
+-            Llm.GEMINI_3_1_PRO_PREVIEW_HIGH,
+-        ]
+-        assert models == expected
+-
+-    @pytest.mark.asyncio
+-    async def test_video_update_prefers_gemini_minimal_then_3_1_high(self):
+-        """Video update always uses the same two Gemini variants as video create."""
+-        models = await self.model_selector.select_models(
+-            generation_type="update",
+-            input_mode="video",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key="key",
+-        )
+-
+-        expected = [
+-            Llm.GEMINI_3_FLASH_PREVIEW_MINIMAL,
+-            Llm.GEMINI_3_1_PRO_PREVIEW_HIGH,
+-        ]
+-        assert models == expected
+-
+-
+-class TestModelSelectionOpenAIAnthropic:
+-    """Test model selection when only OpenAI and Anthropic keys are present."""
+-
+-    def setup_method(self):
+-        """Set up test fixtures."""
+-        mock_throw_error = AsyncMock()
+-        self.model_selector = ModelSelectionStage(mock_throw_error)
+-
+-    @pytest.mark.asyncio
+-    async def test_openai_anthropic(self):
+-        """OpenAI + Anthropic: Claude Opus 4.8 medium, GPT 5.5 high, GPT 5.5 low, cycling"""
+-        models = await self.model_selector.select_models(
+-            generation_type="create",
+-            input_mode="text",
+-            openai_api_key="key",
+-            anthropic_api_key="key",
+-            gemini_api_key=None,
+-        )
+-
+-        expected = [
+-            Llm.CLAUDE_OPUS_4_8_MEDIUM,
+-            Llm.GPT_5_5_HIGH,
+-            Llm.GPT_5_5_LOW,
+-            Llm.CLAUDE_OPUS_4_8_MEDIUM,
+-        ]
+-        assert models == expected
+ 
+-
+-class TestModelSelectionAnthropicOnly:
+-    """Test model selection when only Anthropic key is present."""
++class TestModelSelectionVideo:
++    """Video mode relied on Gemini-native video input and was not migrated."""
+ 
+     def setup_method(self):
+         """Set up test fixtures."""
+-        mock_throw_error = AsyncMock()
+-        self.model_selector = ModelSelectionStage(mock_throw_error)
++        self.mock_throw_error = AsyncMock()
++        self.model_selector = ModelSelectionStage(self.mock_throw_error)
+ 
+     @pytest.mark.asyncio
+-    async def test_anthropic_only(self):
+-        """Anthropic only: Claude Opus 4.8 medium and Claude Sonnet 4.6 cycling"""
+-        models = await self.model_selector.select_models(
+-            generation_type="create",
+-            input_mode="text",
+-            openai_api_key=None,
+-            anthropic_api_key="key",
+-            gemini_api_key=None,
+-        )
+-
+-        expected = [
+-            Llm.CLAUDE_OPUS_4_8_MEDIUM,
+-            Llm.CLAUDE_SONNET_4_6,
+-            Llm.CLAUDE_OPUS_4_8_MEDIUM,
+-            Llm.CLAUDE_SONNET_4_6,
+-        ]
+-        assert models == expected
+-
+-
+-class TestModelSelectionOpenAIOnly:
+-    """Test model selection when only OpenAI key is present."""
+-
+-    def setup_method(self):
+-        """Set up test fixtures."""
+-        mock_throw_error = AsyncMock()
+-        self.model_selector = ModelSelectionStage(mock_throw_error)
+-
+-    @pytest.mark.asyncio
+-    async def test_openai_only(self):
+-        """OpenAI only: GPT 5.5 high and low, cycling"""
+-        models = await self.model_selector.select_models(
+-            generation_type="create",
+-            input_mode="text",
+-            openai_api_key="key",
+-            anthropic_api_key=None,
+-            gemini_api_key=None,
+-        )
+-
+-        expected = [
+-            Llm.GPT_5_5_HIGH,
+-            Llm.GPT_5_5_LOW,
+-            Llm.GPT_5_5_HIGH,
+-            Llm.GPT_5_5_LOW,
+-        ]
+-        assert models == expected
++    @pytest.mark.parametrize("generation_type", ["create", "update"])
++    async def test_video_mode_reports_unavailable(self, generation_type: str):
++        with pytest.raises(VideoModeUnavailableError):
++            await self.model_selector.select_models(
++                generation_type=generation_type,  # type: ignore[arg-type]
++                input_mode="video",
++                router_api_key="key",
++            )
++        self.mock_throw_error.assert_awaited_once()
+ 
+ 
+ class TestModelSelectionNoKeys:
+-    """Test model selection when no API keys are present."""
++    """Test model selection when no Router API key is present."""
+ 
+     def setup_method(self):
+         """Set up test fixtures."""
+@@ -213,12 +107,10 @@ class TestModelSelectionNoKeys:
+ 
+     @pytest.mark.asyncio
+     async def test_no_keys_raises_error(self):
+-        """No keys: Should raise an exception"""
++        """No key: Should raise an exception"""
+         with pytest.raises(Exception, match="No API key"):
+             await self.model_selector.select_models(
+                 generation_type="create",
+                 input_mode="text",
+-                openai_api_key=None,
+-                anthropic_api_key=None,
+-                gemini_api_key=None,
++                router_api_key=None,
+             )
+diff --git a/backend/tests/test_openai_provider_session.py b/backend/tests/test_openai_provider_session.py
+index 92efd1d..88cd80e 100644
+--- a/backend/tests/test_openai_provider_session.py
++++ b/backend/tests/test_openai_provider_session.py
+@@ -165,7 +165,7 @@ async def test_openai_provider_session_uses_gpt_5_4_none_reasoning_effort() -> N
+ 
+     first_call = client.responses.calls[0]
+ 
+-    assert first_call["model"] == "gpt-5.4-2026-03-05"
++    assert first_call["model"] == "test-router/gpt-5.4-2026-03-05"
+     assert first_call["prompt_cache_retention"] == "24h"
+     assert first_call["reasoning"] == {"effort": "none", "summary": "auto"}
+ 
+@@ -184,7 +184,7 @@ async def test_openai_provider_session_uses_gpt_5_4_high_reasoning_effort() -> N
+ 
+     first_call = client.responses.calls[0]
+ 
+-    assert first_call["model"] == "gpt-5.4-2026-03-05"
++    assert first_call["model"] == "test-router/gpt-5.4-2026-03-05"
+     assert first_call["prompt_cache_retention"] == "24h"
+     assert first_call["reasoning"] == {"effort": "high", "summary": "auto"}
+ 
+@@ -216,7 +216,7 @@ async def test_openai_provider_session_uses_gpt_5_5_reasoning_effort(
+ 
+     first_call = client.responses.calls[0]
+ 
+-    assert first_call["model"] == "gpt-5.5"
++    assert first_call["model"] == "test-router/gpt-5.5"
+     assert first_call["reasoning"] == {"effort": effort, "summary": "auto"}
+ 
+ 
+@@ -247,7 +247,7 @@ async def test_openai_provider_session_uses_gpt_5_6_sol_reasoning_effort(
+     await session.stream_turn(_noop_event_sink)
+ 
+     first_call = client.responses.calls[0]
+-    assert first_call["model"] == "gpt-5.6-sol"
++    assert first_call["model"] == "test-router/gpt-5.6-sol"
+     assert first_call["reasoning"] == {"effort": effort, "summary": "auto"}
+ 
+ 
+@@ -264,7 +264,7 @@ async def test_openai_provider_session_uses_gpt_5_6_terra_low_reasoning_effort()
+     await session.stream_turn(_noop_event_sink)
+ 
+     first_call = client.responses.calls[0]
+-    assert first_call["model"] == "gpt-5.6-terra"
++    assert first_call["model"] == "test-router/gpt-5.6-terra"
+     assert first_call["reasoning"] == {"effort": "low", "summary": "auto"}
+ 
+ 
+diff --git a/backend/tests/test_parameter_extraction_stage.py b/backend/tests/test_parameter_extraction_stage.py
+index 291f66c..db8831e 100644
+--- a/backend/tests/test_parameter_extraction_stage.py
++++ b/backend/tests/test_parameter_extraction_stage.py
+@@ -28,26 +28,36 @@ async def test_asset_extraction_preference_defaults_on_and_supports_opt_out(
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_extracts_gemini_api_key_from_settings_dialog() -> None:
++async def test_ignores_provider_api_keys_from_settings_dialog(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setattr("routes.generate_code.RAMP_ROUTER_API_KEY", "router-from-env")
+     stage = ParameterExtractionStage(AsyncMock())
+ 
+     extracted = await stage.extract_and_validate(
+         {
+             "generatedCodeConfig": "html_tailwind",
+             "inputMode": "text",
+-            "openAiApiKey": "",
+-            "anthropicApiKey": "",
++            "openAiApiKey": "openai-from-ui",
++            "anthropicApiKey": "anthropic-from-ui",
+             "geminiApiKey": "gemini-from-ui",
++            "openAiBaseURL": "https://proxy.example/v1",
+             "prompt": {"text": "hello"},
+         }
+     )
+ 
+-    assert extracted.gemini_api_key == "gemini-from-ui"
++    assert extracted.router_api_key == "router-from-env"
++    assert not hasattr(extracted, "openai_api_key")
++    assert not hasattr(extracted, "anthropic_api_key")
++    assert not hasattr(extracted, "gemini_api_key")
++    assert not hasattr(extracted, "openai_base_url")
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_extracts_gemini_api_key_from_env_when_not_in_request(monkeypatch: pytest.MonkeyPatch) -> None:
+-    monkeypatch.setattr("routes.generate_code.GEMINI_API_KEY", "gemini-from-env")
++async def test_router_api_key_is_none_when_not_configured(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setattr("routes.generate_code.RAMP_ROUTER_API_KEY", None)
+     stage = ParameterExtractionStage(AsyncMock())
+ 
+     extracted = await stage.extract_and_validate(
+@@ -58,7 +68,7 @@ async def test_extracts_gemini_api_key_from_env_when_not_in_request(monkeypatch:
+         }
+     )
+ 
+-    assert extracted.gemini_api_key == "gemini-from-env"
++    assert extracted.router_api_key is None
+ 
+ 
+ @pytest.mark.asyncio
+diff --git a/backend/tests/test_router_client.py b/backend/tests/test_router_client.py
+new file mode 100644
+index 0000000..b6a5023
+--- /dev/null
++++ b/backend/tests/test_router_client.py
+@@ -0,0 +1,83 @@
++import pytest
++from anthropic import Omit
++
++from router_client import (
++    RouterConfigError,
++    create_router_messages_client,
++    create_router_responses_client,
++    get_router_model_id,
++    router_messages_extra_body,
++    router_model_env_var,
++    router_responses_extra_body,
++)
++
++
++def test_router_model_env_var_normalizes_catalog_names() -> None:
++    assert router_model_env_var("gpt-5.5") == "ROUTER_MODEL_GPT_5_5"
++    assert (
++        router_model_env_var("gpt-5.4-2026-03-05")
++        == "ROUTER_MODEL_GPT_5_4_2026_03_05"
++    )
++    assert router_model_env_var("claude-opus-5-5") == "ROUTER_MODEL_CLAUDE_OPUS_5_5"
++    assert (
++        router_model_env_var("gemini-3.1-pro-preview")
++        == "ROUTER_MODEL_GEMINI_3_1_PRO_PREVIEW"
++    )
++
++
++def test_get_router_model_id_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("ROUTER_MODEL_GPT_5_5", "acct-model-id")
++    assert get_router_model_id("gpt-5.5") == "acct-model-id"
++
++
++def test_get_router_model_id_requires_configuration(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.delenv("ROUTER_MODEL_GPT_5_5", raising=False)
++    with pytest.raises(RouterConfigError, match="ROUTER_MODEL_GPT_5_5"):
++        get_router_model_id("gpt-5.5")
++
++
++def test_clients_require_router_key() -> None:
++    with pytest.raises(RouterConfigError, match="RAMP_ROUTER_API_KEY"):
++        create_router_responses_client(None)
++    with pytest.raises(RouterConfigError, match="RAMP_ROUTER_API_KEY"):
++        create_router_messages_client("")
++
++
++def test_responses_client_points_at_router() -> None:
++    client = create_router_responses_client("router-key")
++    assert str(client.base_url).rstrip("/") == "https://api.router.com/v1"
++    assert client.api_key == "router-key"
++
++
++def test_messages_client_uses_bearer_and_never_sends_provider_key(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setenv("ANTHROPIC_API_KEY", "provider-key-must-not-leak")
++    client = create_router_messages_client("router-key")
++    # The SDK appends /v1/messages to this base URL.
++    assert str(client.base_url).rstrip("/") == "https://api.router.com"
++    assert client.auth_token == "router-key"
++    assert isinstance(client.default_headers.get("X-Api-Key"), Omit)
++
++
++def test_router_extra_body_fields(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setattr("config.ROUTER_PROVIDER_TIMEOUT", None)
++    monkeypatch.setattr("config.ROUTER_TIMEOUT_BEFORE_HEADERS", None)
++    assert router_responses_extra_body("codegen") == {
++        "metadata": {"feature": "codegen"}
++    }
++    assert router_messages_extra_body() == {}
++
++    monkeypatch.setattr("config.ROUTER_PROVIDER_TIMEOUT", 120.0)
++    monkeypatch.setattr("config.ROUTER_TIMEOUT_BEFORE_HEADERS", 30.0)
++    assert router_responses_extra_body("codegen") == {
++        "metadata": {"feature": "codegen"},
++        "provider_timeout": 120.0,
++        "timeout_before_headers": 30.0,
++    }
++    assert router_messages_extra_body() == {
++        "provider_timeout": 120.0,
++        "timeout_before_headers": 30.0,
++    }
+diff --git a/backend/tests/test_status_broadcast.py b/backend/tests/test_status_broadcast.py
+index 9345af7..6f5b84e 100644
+--- a/backend/tests/test_status_broadcast.py
++++ b/backend/tests/test_status_broadcast.py
+@@ -36,11 +36,8 @@ async def test_video_update_broadcasts_two_variants() -> None:
+         stack="html_tailwind",
+         input_mode="video",
+         should_generate_images=True,
+-        openai_api_key=None,
+-        anthropic_api_key=None,
+-        gemini_api_key="key",
++        router_api_key="key",
+         replicate_api_key=None,
+-        openai_base_url=None,
+         generation_type="update",
+         prompt={"text": "Edit this video output", "images": [], "videos": []},
+         history=[],
+@@ -89,11 +86,8 @@ async def test_image_update_broadcasts_two_variants() -> None:
+         stack="html_tailwind",
+         input_mode="image",
+         should_generate_images=True,
+-        openai_api_key="key",
+-        anthropic_api_key="key",
+-        gemini_api_key=None,
++        router_api_key="key",
+         replicate_api_key=None,
+-        openai_base_url=None,
+         generation_type="update",
+         prompt={"text": "Edit this screenshot", "images": ["data:image/png;base64,abc"], "videos": []},
+         history=[],
+diff --git a/backend/tests/test_token_usage.py b/backend/tests/test_token_usage.py
+index 426b322..e8334e6 100644
+--- a/backend/tests/test_token_usage.py
++++ b/backend/tests/test_token_usage.py
+@@ -5,7 +5,6 @@ from types import SimpleNamespace
+ from costs.pricing import MODEL_PRICING, ModelPricing
+ from costs.token_usage import TokenUsage
+ from agent.providers.anthropic import _extract_anthropic_usage
+-from agent.providers.gemini import _extract_usage as _extract_gemini_usage
+ from agent.providers.openai import _extract_openai_usage
+ 
+ 
+@@ -103,66 +102,8 @@ class TestCacheHitRate:
+         assert abs(usage.cache_hit_rate_percent() - 20.0) < 1e-9
+ 
+ 
+-# ---------------------------------------------------------------------------
+-# Gemini: _extract_usage
+-# ---------------------------------------------------------------------------
+-
+-
+-def _gemini_chunk(
+-    prompt: int = 0,
+-    candidates: int = 0,
+-    thoughts: int = 0,
+-    cached: int = 0,
+-    total: int = 0,
+-) -> SimpleNamespace:
+-    """Build a fake Gemini GenerateContentResponse with usage_metadata."""
+-    return SimpleNamespace(
+-        usage_metadata=SimpleNamespace(
+-            prompt_token_count=prompt,
+-            candidates_token_count=candidates,
+-            thoughts_token_count=thoughts,
+-            cached_content_token_count=cached,
+-            total_token_count=total,
+-        )
+-    )
+-
+-
+-class TestGeminiExtract:
+-    def test_normal_response(self) -> None:
+-        chunk = _gemini_chunk(
+-            prompt=1000, candidates=400, thoughts=100, cached=200, total=1500
+-        )
+-        usage = _extract_gemini_usage(chunk)  # type: ignore[arg-type]
+-        assert usage is not None
+-        assert usage.input == 800  # 1000 - 200
+-        assert usage.output == 500  # 400 + 100
+-        assert usage.cache_read == 200
+-        assert usage.cache_write == 0
+-        assert usage.total == 1500
+-
+-    def test_no_cache(self) -> None:
+-        chunk = _gemini_chunk(prompt=500, candidates=200, thoughts=50, total=750)
+-        usage = _extract_gemini_usage(chunk)  # type: ignore[arg-type]
+-        assert usage is not None
+-        assert usage.input == 500
+-        assert usage.cache_read == 0
+-
+-    def test_no_usage_metadata_returns_none(self) -> None:
+-        chunk = SimpleNamespace(usage_metadata=None)
+-        assert _extract_gemini_usage(chunk) is None  # type: ignore[arg-type]
+-
+-    def test_none_subfields_default_to_zero(self) -> None:
+-        chunk = SimpleNamespace(
+-            usage_metadata=SimpleNamespace(
+-                prompt_token_count=None,
+-                candidates_token_count=None,
+-                thoughts_token_count=None,
+-                cached_content_token_count=None,
+-                total_token_count=None,
+-            )
+-        )
+-        usage = _extract_gemini_usage(chunk)  # type: ignore[arg-type]
+-        assert usage == TokenUsage()
++# Gemini models are served through Router's Responses API, so their usage is
++# parsed by _extract_openai_usage (covered below).
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/backend/tests/test_tool_image_outputs.py b/backend/tests/test_tool_image_outputs.py
+index 3c442dd..48f845d 100644
+--- a/backend/tests/test_tool_image_outputs.py
++++ b/backend/tests/test_tool_image_outputs.py
+@@ -1,12 +1,12 @@
+ """Tool images reach every provider: public URLs go straight to Anthropic/OpenAI,
+-local bytes are base64'd, and Gemini always gets inline bytes (fetching URLs)."""
++local bytes are base64'd, and Gemini (via Router) always gets inline bytes
++(fetching URLs)."""
+ 
+ import base64
+ from pathlib import Path
+ from typing import Any, List, cast
+ 
+ import pytest
+-from google.genai import types
+ 
+ from agent.providers.anthropic.provider import AnthropicProviderSession
+ from agent.providers.base import ExecutedToolCall, ProviderTurn
+@@ -180,21 +180,28 @@ async def test_gemini_inlines_local_bytes_and_fetches_public_url(
+         ],
+         tools=[],
+     )
+-    model_turn = types.Content(
+-        role="model",
+-        parts=[types.Part.from_function_call(name="extract_assets", args={})],
+-    )
++    model_turn = [
++        {
++            "type": "function_call",
++            "call_id": "t1",
++            "name": "extract_assets",
++            "arguments": "{}",
++        }
++    ]
+     await session.append_tool_results(
+         ProviderTurn(assistant_text="", tool_calls=[], assistant_turn=model_turn),
+         [_executed([PUBLIC, LOCAL])],
+     )
+-    parts = cast(Any, session._contents[-1].parts)
+-    response_parts = cast(Any, parts[0].function_response).parts
++    output = cast(Any, session._input_items[-1])["output"]
++    images = [p for p in output if p["type"] == "input_image"]
+     # Public URL was downloaded; content-type header drives the mime.
+-    assert response_parts[0].inline_data.data == b"fetched-bytes"
+-    assert response_parts[0].inline_data.mime_type == "image/webp"
++    assert images[0]["image_url"] == (
++        "data:image/webp;base64," + base64.b64encode(b"fetched-bytes").decode()
++    )
+     # Local bytes inlined as-is.
+-    assert response_parts[1].inline_data.data == LOCAL_IMAGE_BYTES
++    assert images[1]["image_url"] == (
++        "data:image/png;base64," + base64.b64encode(LOCAL_IMAGE_BYTES).decode()
++    )
+ 
+ 
+ @pytest.mark.asyncio
+@@ -212,8 +219,6 @@ async def test_generate_images_emits_url_parts(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     result = await runtime.execute(
+         ToolCall(id="t", name="generate_images", arguments={"prompts": ["a logo"]})
+@@ -232,8 +237,6 @@ async def test_generate_images_does_not_fallback_to_openai_key(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key="openai-key",
+-        openai_base_url=None,
+     )
+     result = await runtime.execute(
+         ToolCall(id="t", name="generate_images", arguments={"prompts": ["a logo"]})
+@@ -263,8 +266,6 @@ async def test_generate_images_uses_replicate_key_from_settings(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         replicate_api_key="replicate-from-ui",
+     )
+     result = await runtime.execute(
+@@ -292,8 +293,6 @@ async def test_edit_images_summary_preserves_full_prompt_and_source_urls(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     prompt = " ".join(["Preserve every detail in the source image."] * 10)
+     source_url = f"https://images.example.com/{'source-path/' * 12}image.png"
+@@ -329,8 +328,6 @@ async def test_edit_images_error_summary_preserves_full_prompt_and_source_urls(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+     )
+     prompt = " ".join(["Keep the image-editing instruction intact."] * 10)
+     source_url = f"https://images.example.com/{'source-path/' * 12}image.png"
+@@ -368,8 +365,6 @@ async def test_edit_images_uses_replicate_key_from_settings(
+     runtime = AgentToolRuntime(
+         file_state=AgentFileState(),
+         should_generate_images=True,
+-        openai_api_key=None,
+-        openai_base_url=None,
+         replicate_api_key="replicate-from-ui",
+     )
+ 
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 3b3bcec..81b36a1 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -12,7 +12,8 @@ services:
+     # or 
+     # environment:
+       #- BACKEND_PORT=7001   # if you change the port, make sure to also change the VITE_WS_BACKEND_URL at frontend/.env.local
+-      # - OPENAI_API_KEY=your_openai_api_key
++      # - RAMP_ROUTER_API_KEY=your_router_api_key
++      # - ROUTER_MODEL_GPT_5_6_SOL=model_id_from_router_v1_models
+     
+     ports:
+       - "${BACKEND_PORT:-7001}:${BACKEND_PORT:-7001}"
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 1cbab73..7fe0e03 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -88,11 +88,7 @@ function App() {
+   // Settings
+   const [settings, setSettings] = usePersistedState<Settings>(
+     {
+-      openAiApiKey: null,
+-      openAiBaseURL: null,
+       replicateApiKey: null,
+-      anthropicApiKey: null,
+-      geminiApiKey: null,
+       screenshotOneApiKey: null,
+       isImageGenerationEnabled: true,
+       editorTheme: EditorTheme.COBALT,
+@@ -329,9 +325,21 @@ function App() {
+       (designSystem) => designSystem.id === settings.selectedDesignSystemId
+     );
+ 
+-    // Merge settings with params
++    // Merge settings with params. Provider API keys / base URL that older
++    // versions persisted in localStorage are dropped: LLM calls go through
++    // Router, configured on the backend, and provider keys are never sent.
++    const legacyProviderSettingKeys = [
++      "openAiApiKey",
++      "openAiBaseURL",
++      "anthropicApiKey",
++      "geminiApiKey",
++    ];
++    const currentSettings: Settings = { ...settings };
++    for (const key of legacyProviderSettingKeys) {
++      delete (currentSettings as unknown as Record<string, unknown>)[key];
++    }
+     const updatedParams = {
+-      ...settings,
++      ...currentSettings,
+       ...requestParams,
+       designSystem: selectedDesignSystem?.content ?? null,
+     };
+@@ -889,7 +897,7 @@ function App() {
+               </div>
+             ) : (
+               <>
+-                {IS_RUNNING_ON_CLOUD && !settings.openAiApiKey && (
++                {IS_RUNNING_ON_CLOUD && (
+                   <div className="px-6 mt-4">
+                     <OnboardingNote />
+                   </div>
+diff --git a/frontend/src/components/settings/SettingsTab.tsx b/frontend/src/components/settings/SettingsTab.tsx
+index 6f9a503..205f4d6 100644
+--- a/frontend/src/components/settings/SettingsTab.tsx
++++ b/frontend/src/components/settings/SettingsTab.tsx
+@@ -127,104 +127,19 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
+           </div>
+ 
+           {/* API Keys */}
+-          <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+-            <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
+-              <h2 className="text-sm font-medium text-gray-900 dark:text-white">
+-                API Keys
+-              </h2>
+-            </div>
+-            <div className="space-y-4 p-4">
+-              <div>
+-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+-                  OpenAI API key
+-                </p>
+-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+-                  Only stored in your browser. Never stored on servers. Overrides
+-                  your .env config.
+-                </p>
+-                <Input
+-                  id="openai-api-key"
+-                  className="mt-2"
+-                  placeholder="OpenAI API key"
+-                  value={settings.openAiApiKey || ""}
+-                  onChange={(e) =>
+-                    setSettings((s) => ({
+-                      ...s,
+-                      openAiApiKey: e.target.value,
+-                    }))
+-                  }
+-                />
+-              </div>
+-
+-              {!IS_RUNNING_ON_CLOUD && (
+-                <div>
+-                  <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+-                    OpenAI Base URL (optional)
+-                  </p>
+-                  <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+-                    Replace with a proxy URL if you don't want to use the
+-                    default.
+-                  </p>
+-                  <Input
+-                    id="openai-base-url"
+-                    className="mt-2"
+-                    placeholder="OpenAI Base URL"
+-                    value={settings.openAiBaseURL || ""}
+-                    onChange={(e) =>
+-                      setSettings((s) => ({
+-                        ...s,
+-                        openAiBaseURL: e.target.value,
+-                      }))
+-                    }
+-                  />
+-                </div>
+-              )}
+-
+-              <div>
+-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+-                  Anthropic API key
+-                </p>
+-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+-                  Only stored in your browser. Never stored on servers. Overrides
+-                  your .env config.
+-                </p>
+-                <Input
+-                  id="anthropic-api-key"
+-                  className="mt-2"
+-                  placeholder="Anthropic API key"
+-                  value={settings.anthropicApiKey || ""}
+-                  onChange={(e) =>
+-                    setSettings((s) => ({
+-                      ...s,
+-                      anthropicApiKey: e.target.value,
+-                    }))
+-                  }
+-                />
++          {!IS_RUNNING_ON_CLOUD && (
++            <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
++              <div className="border-b border-gray-100 px-4 py-3 dark:border-zinc-700">
++                <h2 className="text-sm font-medium text-gray-900 dark:text-white">
++                  API Keys
++                </h2>
+               </div>
+-
+-              <div>
+-                <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+-                  Gemini API key
+-                </p>
+-                <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
+-                  Only stored in your browser. Never stored on servers. Overrides
+-                  your .env config.
++              <div className="space-y-4 p-4">
++                <p className="text-xs text-gray-500 dark:text-zinc-400">
++                  Code generation models are reached through Router. Set
++                  RAMP_ROUTER_API_KEY in backend/.env; provider API keys are not
++                  used.
+                 </p>
+-                <Input
+-                  id="gemini-api-key"
+-                  className="mt-2"
+-                  placeholder="Gemini API key"
+-                  value={settings.geminiApiKey || ""}
+-                  onChange={(e) =>
+-                    setSettings((s) => ({
+-                      ...s,
+-                      geminiApiKey: e.target.value,
+-                    }))
+-                  }
+-                />
+-              </div>
+-
+-              {!IS_RUNNING_ON_CLOUD && (
+                 <div>
+                   <p className="text-sm font-medium text-gray-700 dark:text-zinc-300">
+                     Replicate API key
+@@ -246,9 +161,9 @@ function SettingsTab({ settings, setSettings, appTheme, setAppTheme }: Props) {
+                     }
+                   />
+                 </div>
+-              )}
++              </div>
+             </div>
+-          </div>
++          )}
+ 
+           {/* Image Generation */}
+           <div className="rounded-lg border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-800/60">
+diff --git a/frontend/src/tests/qa.test.ts b/frontend/src/tests/qa.test.ts
+index b289a1b..0f6fdf2 100644
+--- a/frontend/src/tests/qa.test.ts
++++ b/frontend/src/tests/qa.test.ts
+@@ -214,9 +214,6 @@ class App {
+ 
+   async setupLocalStorage() {
+     const setting = {
+-      openAiApiKey: "test-openai-key",
+-      openAiBaseURL: null,
+-      anthropicApiKey: "test-anthropic-key",
+       screenshotOneApiKey: "test-screenshotone-key",
+       isImageGenerationEnabled: true,
+       editorTheme: "cobalt",
+diff --git a/frontend/src/types.ts b/frontend/src/types.ts
+index 70dd12d..8cc0483 100644
+--- a/frontend/src/types.ts
++++ b/frontend/src/types.ts
+@@ -13,8 +13,8 @@ export enum AppTheme {
+ }
+ 
+ export interface Settings {
+-  openAiApiKey: string | null;
+-  openAiBaseURL: string | null;
++  // LLM access goes through Router and is configured on the backend
++  // (RAMP_ROUTER_API_KEY); the browser never holds provider API keys.
+   replicateApiKey: string | null;
+   screenshotOneApiKey: string | null;
+   isImageGenerationEnabled: boolean;
+@@ -24,8 +24,6 @@ export interface Settings {
+   selectedDesignSystemId: string | null;
+   // Only relevant for hosted version
+   isTermOfServiceAccepted: boolean;
+-  anthropicApiKey: string | null;
+-  geminiApiKey: string | null;
+ }
+ 
+ export interface DesignSystem {

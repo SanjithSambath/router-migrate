@@ -1,0 +1,2807 @@
+diff --git a/integrations/hermes-plugin-mem0/_openai_llm.py b/integrations/hermes-plugin-mem0/_openai_llm.py
+index ed129636..ddd82dc7 100644
+--- a/integrations/hermes-plugin-mem0/_openai_llm.py
++++ b/integrations/hermes-plugin-mem0/_openai_llm.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import json
+ import logging
+ from typing import Dict, List, Optional, Union
+ 
+@@ -9,6 +10,7 @@ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.base import LLMBase
+ from mem0.llms.openai import OpenAILLM
++from mem0.memory.utils import extract_json
+ 
+ # BaseLlmConfig fields copied into OpenAIConfig; the last two may be absent on older mem0.
+ _COPIED_FIELDS = ("model", "temperature", "api_key", "max_tokens", "top_p", "top_k", "enable_vision", "vision_details", "http_client_proxies")
+@@ -46,6 +48,16 @@ class DirectOpenAILLM(OpenAILLM):
+         from openai import OpenAI
+         self.client = OpenAI(api_key=api_key, base_url=self.config.openai_base_url or get_secret("OPENAI_API_BASE", "") or get_secret("OPENAI_BASE_URL", "") or "https://api.openai.com/v1", timeout=120.0)
+ 
++    def _parse_response(self, response, tools):
++        # mem0's OpenAILLM now parses Router Responses API objects; this adapter still
++        # calls Chat Completions directly, so it keeps the Chat Completions parsing.
++        message = response.choices[0].message
++        if not tools:
++            return message.content
++        tool_calls = [{"name": call.function.name, "arguments": json.loads(extract_json(call.function.arguments))}
++                      for call in (message.tool_calls or [])]
++        return {"content": message.content, "tool_calls": tool_calls}
++
+     def generate_response(self, messages: List[Dict[str, str]], response_format=None, tools: Optional[List[Dict]] = None, tool_choice: str = "auto", **kwargs):
+         params = self._get_supported_params(messages=messages, **kwargs)
+         params.update({"model": self.config.model, "messages": messages})
+diff --git a/mem0-ts/src/oss/.env.example b/mem0-ts/src/oss/.env.example
+index 1aad1812..322313cf 100644
+--- a/mem0-ts/src/oss/.env.example
++++ b/mem0-ts/src/oss/.env.example
+@@ -1,9 +1,15 @@
+-# OpenAI API Key
+-OPENAI_API_KEY=your-api-key-here
++# Ramp Router (LLM calls; Router holds the provider credentials)
++RAMP_ROUTER_API_KEY=
++# Router model ID — must be one returned by Router's GET /v1/models for your account
++RAMP_ROUTER_MODEL=
++# Optional: comma-separated fallback list of provider:provider-model candidates
++# RAMP_ROUTER_MODELS=
+ 
+-# Optional: Custom model names
++# OpenAI key for embeddings only (Router does not serve embeddings)
++OPENAI_API_KEY=
++
++# Optional: Custom embedding model name
+ OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+-OPENAI_COMPLETION_MODEL=gpt-4-turbo-preview
+ 
+ # PGVector Configuration (optional)
+ # Uncomment and set these values to use PGVector
+diff --git a/mem0-ts/src/oss/src/config/defaults.ts b/mem0-ts/src/oss/src/config/defaults.ts
+index 81a6ae44..a4611a72 100644
+--- a/mem0-ts/src/oss/src/config/defaults.ts
++++ b/mem0-ts/src/oss/src/config/defaults.ts
+@@ -18,11 +18,12 @@ export const DEFAULT_MEMORY_CONFIG: MemoryConfig = {
+     },
+   },
+   llm: {
++    // The OpenAI provider talks to Ramp's Router (Responses API). It authenticates
++    // with RAMP_ROUTER_API_KEY and, when no model is configured, uses the
++    // RAMP_ROUTER_MODEL env var (a model ID from Router's GET /v1/models).
+     provider: "openai",
+     config: {
+-      baseURL: "https://api.openai.com/v1",
+-      apiKey: process.env.OPENAI_API_KEY || "",
+-      model: "gpt-5-mini",
++      model: undefined,
+       modelProperties: undefined,
+     },
+   },
+diff --git a/mem0-ts/src/oss/src/llms/anthropic.ts b/mem0-ts/src/oss/src/llms/anthropic.ts
+index 0fcf4328..82d13911 100644
+--- a/mem0-ts/src/oss/src/llms/anthropic.ts
++++ b/mem0-ts/src/oss/src/llms/anthropic.ts
+@@ -2,28 +2,46 @@ import type Anthropic from "@anthropic-ai/sdk";
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
+ import { loadPeer } from "../utils/load_peer";
++import {
++  ROUTER_ANTHROPIC_BASE_URL,
++  ROUTER_API_KEY_ENV,
++  getRouterApiKey,
++  missingRouterModelError,
++  resolveRouterModel,
++} from "./router";
+ 
+ export class AnthropicLLM implements LLM {
+   private client!: Anthropic;
+-  private readonly clientArgs: { apiKey: string; baseURL?: string };
++  private readonly clientArgs: {
++    apiKey: null;
++    authToken: string;
++    baseURL: string;
++  };
+   private model: string;
+   private maxTokens: number;
+   private temperature?: number;
+   private topP?: number;
+ 
+   constructor(config: LLMConfig) {
+-    const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
+-    if (!apiKey) {
+-      throw new Error("Anthropic API key is required");
++    const routerKey = getRouterApiKey();
++    if (!routerKey) {
++      throw new Error(`${ROUTER_API_KEY_ENV} is required`);
+     }
+-    // Forward baseURL to the client when set so proxy/gateway users are
+-    // honored (parity with the OpenAI provider and the Python fix in #5626).
+-    const clientArgs: { apiKey: string; baseURL?: string } = { apiKey };
+-    if (config.baseURL) {
+-      clientArgs.baseURL = config.baseURL;
++    // Point the Anthropic client at Router's Anthropic Messages compatibility
++    // surface (POST /v1/messages). Router holds the provider credentials, so only
++    // RAMP_ROUTER_API_KEY is sent, as `Authorization: Bearer ...`. apiKey is
++    // explicitly null so the SDK never falls back to ANTHROPIC_API_KEY.
++    this.clientArgs = {
++      apiKey: null,
++      authToken: routerKey,
++      baseURL: ROUTER_ANTHROPIC_BASE_URL,
++    };
++    // Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++    const model = resolveRouterModel(config.model);
++    if (!model) {
++      throw missingRouterModelError();
+     }
+-    this.clientArgs = clientArgs;
+-    this.model = config.model || "claude-sonnet-4-6";
++    this.model = model;
+     // Defaults mirror the Python provider's AnthropicConfig
+     // (max_tokens=2000, temperature=0.1, top_p omitted).
+     this.maxTokens = config.maxTokens ?? 2000;
+diff --git a/mem0-ts/src/oss/src/llms/openai.ts b/mem0-ts/src/oss/src/llms/openai.ts
+index 41644ca3..c322c2d4 100644
+--- a/mem0-ts/src/oss/src/llms/openai.ts
++++ b/mem0-ts/src/oss/src/llms/openai.ts
+@@ -1,18 +1,60 @@
+ import OpenAI from "openai";
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
++import {
++  ROUTER_BASE_URL,
++  buildRouterExtraBody,
++  extractToolCalls,
++  requireRouterApiKey,
++  missingRouterModelError,
++  resolveRouterModel,
++  resolveRouterModels,
++  toResponsesInput,
++  toResponsesTextFormat,
++  toResponsesTools,
++} from "./router";
+ 
++/** OpenAI Responses client pointed at Ramp's Router (`RAMP_ROUTER_API_KEY`). */
+ export class OpenAILLM implements LLM {
+   private openai: OpenAI;
+-  private model: string;
++  private model?: string;
++  private models?: string[];
++  private extraBody: Record<string, unknown>;
+ 
+   constructor(config: LLMConfig) {
++    // Router holds the provider credentials: only RAMP_ROUTER_API_KEY is sent.
+     this.openai = new OpenAI({
+-      apiKey: config.apiKey,
+-      baseURL: config.baseURL,
++      apiKey: requireRouterApiKey(),
++      baseURL: ROUTER_BASE_URL,
+       ...(config.timeout != null && { timeout: config.timeout }),
+     });
+-    this.model = config.model || "gpt-5-mini";
++    // Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++    this.model = resolveRouterModel(config.model);
++    this.models = resolveRouterModels(config.models);
++    if (!this.model && !this.models) {
++      throw missingRouterModelError();
++    }
++    this.extraBody = buildRouterExtraBody(config, this.models);
++  }
++
++  /** `model` and Router's `models` fallback list are mutually exclusive. */
++  private modelParams(): Record<string, unknown> {
++    return {
++      ...(this.models ? {} : { model: this.model }),
++      ...this.extraBody,
++    };
++  }
++
++  private toInput(messages: Message[]) {
++    return toResponsesInput(
++      messages.map((msg) => ({
++        role: msg.role,
++        content:
++          typeof msg.content === "string"
++            ? msg.content
++            : JSON.stringify(msg.content),
++      })),
++    );
+   }
+ 
+   async generateResponse(
+@@ -20,56 +62,35 @@ export class OpenAILLM implements LLM {
+     responseFormat?: { type: string },
+     tools?: any[],
+   ): Promise<string | LLMResponse> {
+-    const completion = await this.openai.chat.completions.create({
+-      messages: messages.map((msg) => {
+-        const role = msg.role as "system" | "user" | "assistant";
+-        return {
+-          role,
+-          content:
+-            typeof msg.content === "string"
+-              ? msg.content
+-              : JSON.stringify(msg.content),
+-        };
+-      }),
+-      model: this.model,
+-      response_format: responseFormat as { type: "text" | "json_object" },
+-      ...(tools && { tools, tool_choice: "auto" }),
+-    });
++    const text = toResponsesTextFormat(responseFormat);
++    const response = await this.openai.responses.create({
++      ...this.toInput(messages),
++      ...this.modelParams(),
++      ...(text && { text }),
++      ...(tools && { tools: toResponsesTools(tools), tool_choice: "auto" }),
++    } as OpenAI.Responses.ResponseCreateParamsNonStreaming);
+ 
+-    const response = completion.choices[0].message;
++    const toolCalls = extractToolCalls(response.output);
+ 
+-    if (response.tool_calls) {
++    if (toolCalls.length > 0) {
+       return {
+-        content: response.content || "",
+-        role: response.role,
+-        toolCalls: response.tool_calls.map((call) => ({
+-          name: call.function.name,
+-          arguments: call.function.arguments,
+-        })),
++        content: response.output_text || "",
++        role: "assistant",
++        toolCalls,
+       };
+     }
+ 
+-    return response.content || "";
++    return response.output_text || "";
+   }
+ 
+   async generateChat(messages: Message[]): Promise<LLMResponse> {
+-    const completion = await this.openai.chat.completions.create({
+-      messages: messages.map((msg) => {
+-        const role = msg.role as "system" | "user" | "assistant";
+-        return {
+-          role,
+-          content:
+-            typeof msg.content === "string"
+-              ? msg.content
+-              : JSON.stringify(msg.content),
+-        };
+-      }),
+-      model: this.model,
+-    });
+-    const response = completion.choices[0].message;
++    const response = await this.openai.responses.create({
++      ...this.toInput(messages),
++      ...this.modelParams(),
++    } as OpenAI.Responses.ResponseCreateParamsNonStreaming);
+     return {
+-      content: response.content || "",
+-      role: response.role,
++      content: response.output_text || "",
++      role: "assistant",
+     };
+   }
+ }
+diff --git a/mem0-ts/src/oss/src/llms/openai_structured.ts b/mem0-ts/src/oss/src/llms/openai_structured.ts
+index 9c6b9063..853821ac 100644
+--- a/mem0-ts/src/oss/src/llms/openai_structured.ts
++++ b/mem0-ts/src/oss/src/llms/openai_structured.ts
+@@ -1,86 +1,111 @@
+ import OpenAI from "openai";
+ import { LLM, LLMResponse } from "./base";
+ import { LLMConfig, Message } from "../types";
++import {
++  ROUTER_BASE_URL,
++  buildRouterExtraBody,
++  extractToolCalls,
++  requireRouterApiKey,
++  missingRouterModelError,
++  resolveRouterModel,
++  resolveRouterModels,
++  toResponsesInput,
++  toResponsesTextFormat,
++  toResponsesTools,
++} from "./router";
+ 
++/** Structured-output OpenAI Responses client pointed at Ramp's Router (`RAMP_ROUTER_API_KEY`). */
+ export class OpenAIStructuredLLM implements LLM {
+   private openai: OpenAI;
+-  private model: string;
++  private model?: string;
++  private models?: string[];
++  private extraBody: Record<string, unknown>;
+ 
+   constructor(config: LLMConfig) {
++    // Router holds the provider credentials: only RAMP_ROUTER_API_KEY is sent.
+     this.openai = new OpenAI({
+-      apiKey: config.apiKey,
+-      baseURL: config.baseURL,
++      apiKey: requireRouterApiKey(),
++      baseURL: ROUTER_BASE_URL,
+       ...(config.timeout != null && { timeout: config.timeout }),
+     });
+-    this.model = config.model || "gpt-5-mini";
++    // Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++    this.model = resolveRouterModel(config.model);
++    this.models = resolveRouterModels(config.models);
++    if (!this.model && !this.models) {
++      throw missingRouterModelError();
++    }
++    this.extraBody = buildRouterExtraBody(config, this.models);
+   }
+ 
+-  async generateResponse(
+-    messages: Message[],
+-    responseFormat?: { type: string } | null,
+-    tools?: any[],
+-  ): Promise<string | LLMResponse> {
+-    const completion = await this.openai.chat.completions.create({
+-      messages: messages.map((msg) => ({
+-        role: msg.role as "system" | "user" | "assistant",
++  /** `model` and Router's `models` fallback list are mutually exclusive. */
++  private modelParams(): Record<string, unknown> {
++    return {
++      ...(this.models ? {} : { model: this.model }),
++      ...this.extraBody,
++    };
++  }
++
++  private toInput(messages: Message[]) {
++    return toResponsesInput(
++      messages.map((msg) => ({
++        role: msg.role,
+         content:
+           typeof msg.content === "string"
+             ? msg.content
+             : JSON.stringify(msg.content),
+       })),
+-      model: this.model,
++    );
++  }
++
++  async generateResponse(
++    messages: Message[],
++    responseFormat?: { type: string } | null,
++    tools?: any[],
++  ): Promise<string | LLMResponse> {
++    const text = toResponsesTextFormat(responseFormat);
++    const response = await this.openai.responses.create({
++      ...this.toInput(messages),
++      ...this.modelParams(),
+       ...(tools
+         ? {
+-            tools: tools.map((tool) => ({
+-              type: "function",
+-              function: {
+-                name: tool.function.name,
+-                description: tool.function.description,
+-                parameters: tool.function.parameters,
+-              },
+-            })),
++            tools: toResponsesTools(
++              tools.map((tool) => ({
++                type: "function",
++                function: {
++                  name: tool.function.name,
++                  description: tool.function.description,
++                  parameters: tool.function.parameters,
++                },
++              })),
++            ),
+             tool_choice: "auto" as const,
+           }
+-        : responseFormat
+-          ? {
+-              response_format: {
+-                type: responseFormat.type as "text" | "json_object",
+-              },
+-            }
++        : text
++          ? { text }
+           : {}),
+-    });
++    } as OpenAI.Responses.ResponseCreateParamsNonStreaming);
+ 
+-    const response = completion.choices[0].message;
++    const toolCalls = extractToolCalls(response.output);
+ 
+-    if (response.tool_calls) {
++    if (toolCalls.length > 0) {
+       return {
+-        content: response.content || "",
+-        role: response.role,
+-        toolCalls: response.tool_calls.map((call) => ({
+-          name: call.function.name,
+-          arguments: call.function.arguments,
+-        })),
++        content: response.output_text || "",
++        role: "assistant",
++        toolCalls,
+       };
+     }
+ 
+-    return response.content || "";
++    return response.output_text || "";
+   }
+ 
+   async generateChat(messages: Message[]): Promise<LLMResponse> {
+-    const completion = await this.openai.chat.completions.create({
+-      messages: messages.map((msg) => ({
+-        role: msg.role as "system" | "user" | "assistant",
+-        content:
+-          typeof msg.content === "string"
+-            ? msg.content
+-            : JSON.stringify(msg.content),
+-      })),
+-      model: this.model,
+-    });
+-    const response = completion.choices[0].message;
++    const response = await this.openai.responses.create({
++      ...this.toInput(messages),
++      ...this.modelParams(),
++    } as OpenAI.Responses.ResponseCreateParamsNonStreaming);
+     return {
+-      content: response.content || "",
+-      role: response.role,
++      content: response.output_text || "",
++      role: "assistant",
+     };
+   }
+ }
+diff --git a/mem0-ts/src/oss/src/llms/router.ts b/mem0-ts/src/oss/src/llms/router.ts
+new file mode 100644
+index 00000000..15d1ad22
+--- /dev/null
++++ b/mem0-ts/src/oss/src/llms/router.ts
+@@ -0,0 +1,156 @@
++/**
++ * Shared helpers for sending LLM requests through Ramp's Router.
++ *
++ * Router is a gateway that exposes one OpenAI Responses-compatible API
++ * (`POST /v1/responses`) in front of models from multiple providers. Router
++ * holds the provider credentials, so the application only ever sends
++ * `RAMP_ROUTER_API_KEY`.
++ *
++ * Model IDs are account-specific and must come from `GET /v1/models`. They are
++ * read from configuration / environment variables and never hardcoded here.
++ */
++import { LLMConfig } from "../types";
++
++export const ROUTER_BASE_URL = "https://api.router.com/v1";
++/** Root of the Anthropic Messages compatibility surface (the SDK appends `/v1/messages`). */
++export const ROUTER_ANTHROPIC_BASE_URL = "https://api.router.com";
++
++export const ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY";
++/** Single model ID (from `GET /v1/models`) used when no `model` is configured. */
++export const ROUTER_MODEL_ENV = "RAMP_ROUTER_MODEL";
++/** Optional comma-separated `provider:provider-model` fallback list (1-15 entries). */
++export const ROUTER_MODELS_ENV = "RAMP_ROUTER_MODELS";
++
++export function getRouterApiKey(): string | undefined {
++  return process.env[ROUTER_API_KEY_ENV] || undefined;
++}
++
++/**
++ * Router key for OpenAI SDK clients. Throws when unset: given an undefined
++ * apiKey, the OpenAI SDK falls back to OPENAI_API_KEY and would send a
++ * provider key to Router.
++ */
++export function requireRouterApiKey(): string {
++  const key = getRouterApiKey();
++  if (!key) {
++    throw new Error(`${ROUTER_API_KEY_ENV} is required to call Router.`);
++  }
++  return key;
++}
++
++export function resolveRouterModel(model?: string): string | undefined {
++  return model || process.env[ROUTER_MODEL_ENV] || undefined;
++}
++
++export function resolveRouterModels(models?: string[]): string[] | undefined {
++  if (models && models.length > 0) return [...models];
++  const raw = process.env[ROUTER_MODELS_ENV];
++  if (!raw) return undefined;
++  const parsed = raw
++    .split(",")
++    .map((m) => m.trim())
++    .filter(Boolean);
++  return parsed.length > 0 ? parsed : undefined;
++}
++
++export function missingRouterModelError(): Error {
++  return new Error(
++    `No Router model configured. Set ${ROUTER_MODEL_ENV} to a model ID returned by ` +
++      "Router's GET /v1/models, or pass `model` (or a `models` fallback list) in the LLM config.",
++  );
++}
++
++/**
++ * Router-only request fields. The OpenAI Node SDK forwards unknown body
++ * fields as-is, which is its equivalent of Python's `extra_body`. Fields are
++ * only included when explicitly configured (`allowFlexTier` returns 400 for
++ * ineligible models, so it is omitted by default).
++ */
++export function buildRouterExtraBody(
++  config: LLMConfig,
++  models?: string[],
++): Record<string, unknown> {
++  const extra: Record<string, unknown> = {};
++  if (models && models.length > 0) extra.models = models;
++  if (config.allowFlexTier != null) extra.allow_flex_tier = config.allowFlexTier;
++  if (config.providerTimeout != null)
++    extra.provider_timeout = config.providerTimeout;
++  if (config.timeoutBeforeHeaders != null)
++    extra.timeout_before_headers = config.timeoutBeforeHeaders;
++  if (config.routerMetadata != null) extra.metadata = config.routerMetadata;
++  return extra;
++}
++
++/**
++ * Split chat-style messages into Responses `instructions` (leading system
++ * messages) and `input` (everything else, in original order).
++ */
++export function toResponsesInput(
++  messages: Array<{ role: string; content: string }>,
++): {
++  instructions?: string;
++  input: Array<{
++    role: "system" | "user" | "assistant";
++    content: string;
++  }>;
++} {
++  const instructions: string[] = [];
++  const input: Array<{
++    role: "system" | "user" | "assistant";
++    content: string;
++  }> = [];
++  for (const msg of messages) {
++    if (msg.role === "system" && input.length === 0) {
++      instructions.push(msg.content);
++      continue;
++    }
++    input.push({
++      role: msg.role as "system" | "user" | "assistant",
++      content: msg.content,
++    });
++  }
++  return {
++    ...(instructions.length > 0 && { instructions: instructions.join("\n\n") }),
++    input,
++  };
++}
++
++/** Reshape Chat Completions function tools into Responses function tools (definitions unchanged). */
++export function toResponsesTools(tools: any[]): any[] {
++  return tools.map((tool) => {
++    if (tool?.type === "function" && tool.function) {
++      return {
++        type: "function",
++        name: tool.function.name,
++        ...(tool.function.description !== undefined && {
++          description: tool.function.description,
++        }),
++        ...(tool.function.parameters !== undefined && {
++          parameters: tool.function.parameters,
++        }),
++        // Chat Completions defaults to non-strict tools; Responses defaults to strict.
++        strict: tool.function.strict ?? false,
++      };
++    }
++    return tool;
++  });
++}
++
++/** Convert a Chat Completions `response_format` into a Responses `text` config. */
++export function toResponsesTextFormat(
++  responseFormat?: { type: string } | null,
++): { format: { type: "text" | "json_object" } } | undefined {
++  if (!responseFormat) return undefined;
++  return {
++    format: { type: responseFormat.type as "text" | "json_object" },
++  };
++}
++
++/** Collect `function_call` items from a Responses `output` array. */
++export function extractToolCalls(
++  output: any[] | undefined,
++): Array<{ name: string; arguments: string }> {
++  return (output || [])
++    .filter((item) => item?.type === "function_call")
++    .map((item) => ({ name: item.name, arguments: item.arguments }));
++}
+diff --git a/mem0-ts/src/oss/src/types/index.ts b/mem0-ts/src/oss/src/types/index.ts
+index fb3e5b39..4dd404bb 100644
+--- a/mem0-ts/src/oss/src/types/index.ts
++++ b/mem0-ts/src/oss/src/types/index.ts
+@@ -72,6 +72,17 @@ export interface LLMConfig {
+   temperature?: number;
+   topP?: number;
+   maxTokens?: number;
++  // Router-only request fields (OpenAI providers; sent only when set).
++  /** Ordered fallback list of 1-15 `provider:provider-model` candidates. Mutually exclusive with `model`. */
++  models?: string[];
++  /** Opt in/out of Flex capacity. Returns 400 for ineligible models; leave unset unless supported. */
++  allowFlexTier?: boolean;
++  /** Seconds allowed per provider call. */
++  providerTimeout?: number;
++  /** Seconds to wait for the first streaming event. */
++  timeoutBeforeHeaders?: number;
++  /** Short string labels (e.g. feature, team) for spend attribution. */
++  routerMetadata?: Record<string, string>;
+   // AWS Bedrock provider config (used when provider === "aws_bedrock").
+   // Credentials otherwise resolve via the standard AWS credential chain.
+   awsRegion?: string;
+diff --git a/mem0-ts/src/oss/src/utils/factory.test.ts b/mem0-ts/src/oss/src/utils/factory.test.ts
+index 0a358ca4..8cfbe718 100644
+--- a/mem0-ts/src/oss/src/utils/factory.test.ts
++++ b/mem0-ts/src/oss/src/utils/factory.test.ts
+@@ -11,13 +11,24 @@ import { ZeroEntropyReranker } from "../rerankers/zeroentropy";
+ import { CrossEncoderReranker } from "../rerankers/cross_encoder";
+ 
+ describe("RerankerFactory", () => {
+-  const originalOpenAiKey = process.env.OPENAI_API_KEY;
++  const originalRouterKey = process.env.RAMP_ROUTER_API_KEY;
++  const originalRouterModel = process.env.RAMP_ROUTER_MODEL;
++
++  beforeEach(() => {
++    process.env.RAMP_ROUTER_API_KEY = "test-router-key";
++    process.env.RAMP_ROUTER_MODEL = "test-router-model";
++  });
+ 
+   afterEach(() => {
+-    if (originalOpenAiKey === undefined) {
+-      delete process.env.OPENAI_API_KEY;
+-    } else {
+-      process.env.OPENAI_API_KEY = originalOpenAiKey;
++    for (const [name, value] of [
++      ["RAMP_ROUTER_API_KEY", originalRouterKey],
++      ["RAMP_ROUTER_MODEL", originalRouterModel],
++    ] as const) {
++      if (value === undefined) {
++        delete process.env[name];
++      } else {
++        process.env[name] = value;
++      }
+     }
+   });
+ 
+@@ -73,7 +84,7 @@ describe("RerankerFactory", () => {
+   });
+ 
+   it("throws for the 'llm_reranker' provider when the default LLM has no API key available", () => {
+-    delete process.env.OPENAI_API_KEY;
++    delete process.env.RAMP_ROUTER_API_KEY;
+ 
+     expect(() => RerankerFactory.create("llm_reranker", {})).toThrow();
+   });
+diff --git a/mem0-ts/src/oss/src/utils/factory.ts b/mem0-ts/src/oss/src/utils/factory.ts
+index 16de0301..6f00ffc3 100644
+--- a/mem0-ts/src/oss/src/utils/factory.ts
++++ b/mem0-ts/src/oss/src/utils/factory.ts
+@@ -250,7 +250,8 @@ export class RerankerFactory {
+       llmProvider = nested.provider || config.provider || "openai";
+       llmConfig = { ...(nested.config || {}) };
+       if (llmConfig.model === undefined) {
+-        llmConfig.model = config.model ?? "gpt-5-mini";
++        // Undefined falls back to RAMP_ROUTER_MODEL (Router model ID) in the OpenAI provider.
++        llmConfig.model = config.model;
+       }
+       if (llmConfig.temperature === undefined) {
+         llmConfig.temperature = config.temperature ?? 0.0;
+@@ -264,7 +265,8 @@ export class RerankerFactory {
+     } else {
+       llmProvider = config.provider || "openai";
+       llmConfig = {
+-        model: config.model ?? "gpt-5-mini",
++        // Undefined falls back to RAMP_ROUTER_MODEL (Router model ID) in the OpenAI provider.
++        model: config.model,
+         temperature: config.temperature ?? 0.0,
+         maxTokens: config.maxTokens ?? 100,
+       };
+diff --git a/mem0-ts/src/oss/src/utils/memory.ts b/mem0-ts/src/oss/src/utils/memory.ts
+index 26c18c73..39d0e68a 100644
+--- a/mem0-ts/src/oss/src/utils/memory.ts
++++ b/mem0-ts/src/oss/src/utils/memory.ts
+@@ -2,9 +2,8 @@ import { OpenAILLM } from "../llms/openai";
+ import { Message } from "../types";
+ 
+ const get_image_description = async (image_url: string) => {
+-  const llm = new OpenAILLM({
+-    apiKey: process.env.OPENAI_API_KEY,
+-  });
++  // Router-backed client: authenticates with RAMP_ROUTER_API_KEY and uses RAMP_ROUTER_MODEL.
++  const llm = new OpenAILLM({});
+   const response = await llm.generateResponse([
+     {
+       role: "user",
+diff --git a/mem0-ts/src/oss/tests/anthropic-llm.test.ts b/mem0-ts/src/oss/tests/anthropic-llm.test.ts
+index af126200..0c711729 100644
+--- a/mem0-ts/src/oss/tests/anthropic-llm.test.ts
++++ b/mem0-ts/src/oss/tests/anthropic-llm.test.ts
+@@ -16,42 +16,47 @@ jest.mock("@anthropic-ai/sdk", () => {
+ import { AnthropicLLM } from "../src/llms/anthropic";
+ 
+ describe("AnthropicLLM (unit)", () => {
++  const originalEnv = { ...process.env };
++
+   beforeEach(() => {
+     mockCreate.mockClear();
+     mockConstructor.mockClear();
++    process.env.RAMP_ROUTER_API_KEY = "test-router-key";
++    process.env.RAMP_ROUTER_MODEL = "test-router-model";
++  });
++
++  afterAll(() => {
++    process.env = originalEnv;
+   });
+ 
+-  // Regression #5665: a configured baseURL must reach the Anthropic client so
+-  // proxy/gateway users are not silently bypassed (TS parity with #5626).
++  // The client targets Router's Anthropic Messages surface with the Router key
++  // as a bearer token; provider keys and custom base URLs are never used.
+   // The client is constructed lazily on first use, so drive generateResponse.
+-  it("forwards baseURL to the Anthropic client when set", async () => {
++  it("points the Anthropic client at Router with the Router key only", async () => {
+     mockCreate.mockResolvedValueOnce({
+       content: [{ type: "text", text: "ok" }],
+     });
+     const llm = new AnthropicLLM({
+-      apiKey: "test-key",
++      apiKey: "provider-key-must-not-be-sent",
+       baseURL: "https://proxy.example/v1",
+     });
+     await llm.generateResponse([{ role: "user", content: "Hi" }]);
+ 
+     expect(mockConstructor).toHaveBeenCalledTimes(1);
+     const ctorArgs = mockConstructor.mock.calls[0][0];
+-    expect(ctorArgs.apiKey).toBe("test-key");
+-    expect(ctorArgs.baseURL).toBe("https://proxy.example/v1");
++    expect(ctorArgs.apiKey).toBeNull();
++    expect(ctorArgs.authToken).toBe("test-router-key");
++    expect(ctorArgs.baseURL).toBe("https://api.router.com");
+   });
+ 
+-  // When no baseURL is configured the client must not receive a baseURL key
+-  // (so the SDK default endpoint is used).
+-  it("does NOT set baseURL when none is configured", async () => {
+-    mockCreate.mockResolvedValueOnce({
+-      content: [{ type: "text", text: "ok" }],
+-    });
+-    const llm = new AnthropicLLM({ apiKey: "test-key" });
+-    await llm.generateResponse([{ role: "user", content: "Hi" }]);
++  it("throws when RAMP_ROUTER_API_KEY is not set", () => {
++    delete process.env.RAMP_ROUTER_API_KEY;
++    expect(() => new AnthropicLLM({})).toThrow(/RAMP_ROUTER_API_KEY/);
++  });
+ 
+-    expect(mockConstructor).toHaveBeenCalledTimes(1);
+-    const ctorArgs = mockConstructor.mock.calls[0][0];
+-    expect(ctorArgs.baseURL).toBeUndefined();
++  it("throws when no Router model is configured", () => {
++    delete process.env.RAMP_ROUTER_MODEL;
++    expect(() => new AnthropicLLM({})).toThrow(/RAMP_ROUTER_MODEL/);
+   });
+ 
+   it("returns text when no tools are provided and model returns a text block", async () => {
+@@ -277,7 +282,7 @@ describe("AnthropicLLM (unit)", () => {
+   });
+ 
+   // Parity with the Python provider's AnthropicConfig defaults:
+-  // model claude-sonnet-4-6, max_tokens 2000, temperature 0.1, top_p omitted.
++  // model from RAMP_ROUTER_MODEL, max_tokens 2000, temperature 0.1, top_p omitted.
+   it("sends Python-parity defaults (model, max_tokens, temperature)", async () => {
+     mockCreate.mockResolvedValueOnce({
+       content: [{ type: "text", text: "ok" }],
+@@ -287,7 +292,7 @@ describe("AnthropicLLM (unit)", () => {
+     await llm.generateResponse([{ role: "user", content: "Hi" }]);
+ 
+     const callArgs = mockCreate.mock.calls[0][0];
+-    expect(callArgs.model).toBe("claude-sonnet-4-6");
++    expect(callArgs.model).toBe("test-router-model");
+     expect(callArgs.max_tokens).toBe(2000);
+     expect(callArgs.temperature).toBe(0.1);
+     expect(callArgs.top_p).toBeUndefined();
+diff --git a/mem0-ts/src/oss/tests/config-manager.test.ts b/mem0-ts/src/oss/tests/config-manager.test.ts
+index b3304509..a1286b6a 100644
+--- a/mem0-ts/src/oss/tests/config-manager.test.ts
++++ b/mem0-ts/src/oss/tests/config-manager.test.ts
+@@ -394,16 +394,17 @@ describe("ConfigManager", () => {
+       expect(cfg.llm.config.model).toBeUndefined();
+     });
+ 
+-    it("still applies the OpenAI defaults for the OpenAI providers", () => {
++    it("does not hardcode a model or base URL for the Router-backed OpenAI providers", () => {
+       for (const provider of ["openai", "openai_structured"]) {
+         const cfg = ConfigManager.mergeConfig({
+           embedder: baseEmbedder,
+           vectorStore: { provider: "memory", config: {} },
+-          llm: { provider, config: { apiKey: "k" } },
++          llm: { provider, config: {} },
+         });
+ 
+-        expect(cfg.llm.config.baseURL).toBe("https://api.openai.com/v1");
+-        expect(cfg.llm.config.model).toBe("gpt-5-mini");
++        // The provider resolves RAMP_ROUTER_MODEL and Router's base URL itself.
++        expect(cfg.llm.config.baseURL).toBeUndefined();
++        expect(cfg.llm.config.model).toBeUndefined();
+       }
+     });
+ 
+diff --git a/mem0-ts/src/oss/tests/openai-llm.test.ts b/mem0-ts/src/oss/tests/openai-llm.test.ts
+index 5b584f23..c43e4c9e 100644
+--- a/mem0-ts/src/oss/tests/openai-llm.test.ts
++++ b/mem0-ts/src/oss/tests/openai-llm.test.ts
+@@ -1,6 +1,6 @@
+ /// <reference types="jest" />
+ /**
+- * OpenAI LLM — unit tests (mocked openai).
++ * OpenAI LLM (Router Responses client) — unit tests (mocked openai).
+  *
+  * Regression tests for #4707: timeout config was silently ignored,
+  * causing add() to hang indefinitely on slow LLM responses.
+@@ -13,105 +13,118 @@ jest.mock("openai", () => {
+   return jest.fn().mockImplementation((args: any) => {
+     capturedConstructorArgs = args;
+     return {
+-      chat: { completions: { create: mockCreate } },
++      responses: { create: mockCreate },
+     };
+   });
+ });
+ 
+ import { OpenAILLM } from "../src/llms/openai";
++import { ROUTER_BASE_URL } from "../src/llms/router";
+ 
+ describe("OpenAILLM (unit)", () => {
++  const originalEnv = { ...process.env };
++
+   beforeEach(() => {
+     capturedConstructorArgs = undefined;
+     mockCreate.mockClear();
++    process.env.RAMP_ROUTER_API_KEY = "test-router-key";
++    delete process.env.RAMP_ROUTER_MODEL;
++    delete process.env.RAMP_ROUTER_MODELS;
+   });
+ 
+-  it("forwards timeout to the OpenAI client constructor", () => {
++  afterAll(() => {
++    process.env = originalEnv;
++  });
++
++  it("points the client at Router with the Router key only", () => {
+     new OpenAILLM({
+-      apiKey: "test-key",
++      apiKey: "provider-key-must-not-be-sent",
+       baseURL: "http://localhost:8080/v1",
+-      timeout: 5000,
++      model: "test-router-model",
+     });
+ 
+     expect(capturedConstructorArgs).toMatchObject({
+-      apiKey: "test-key",
+-      baseURL: "http://localhost:8080/v1",
+-      timeout: 5000,
++      apiKey: "test-router-key",
++      baseURL: ROUTER_BASE_URL,
+     });
+   });
+ 
+-  it("forwards timeout: 0 to the OpenAI client (explicit zero is valid)", () => {
+-    new OpenAILLM({
+-      apiKey: "test-key",
+-      baseURL: "http://localhost:8080/v1",
+-      timeout: 0,
+-    });
++  it("forwards timeout to the OpenAI client constructor", () => {
++    new OpenAILLM({ model: "test-router-model", timeout: 5000 });
++    expect(capturedConstructorArgs.timeout).toBe(5000);
++  });
+ 
++  it("forwards timeout: 0 to the OpenAI client (explicit zero is valid)", () => {
++    new OpenAILLM({ model: "test-router-model", timeout: 0 });
+     expect(capturedConstructorArgs.timeout).toBe(0);
+   });
+ 
+   it("omits timeout from the OpenAI client when not configured", () => {
+-    new OpenAILLM({
+-      apiKey: "test-key",
+-      baseURL: "http://localhost:8080/v1",
+-    });
+-
+-    expect(capturedConstructorArgs).toMatchObject({
+-      apiKey: "test-key",
+-      baseURL: "http://localhost:8080/v1",
+-    });
++    new OpenAILLM({ model: "test-router-model" });
+     expect(capturedConstructorArgs).not.toHaveProperty("timeout");
+   });
+ 
+-  it("generateResponse() returns text content", async () => {
++  it("reads the model from RAMP_ROUTER_MODEL", async () => {
++    process.env.RAMP_ROUTER_MODEL = "env-router-model";
++    mockCreate.mockResolvedValueOnce({ output_text: "ok", output: [] });
++
++    const llm = new OpenAILLM({});
++    await llm.generateResponse([{ role: "user", content: "Hi" }]);
++
++    expect(mockCreate.mock.calls[0][0].model).toBe("env-router-model");
++  });
++
++  it("throws when no Router model is configured", () => {
++    expect(() => new OpenAILLM({})).toThrow(/RAMP_ROUTER_MODEL/);
++  });
++
++  it("generateResponse() sends a Responses request and returns text", async () => {
+     mockCreate.mockResolvedValueOnce({
+-      choices: [
+-        {
+-          message: {
+-            content: '{"facts": ["hello"]}',
+-            role: "assistant",
+-            tool_calls: null,
+-          },
+-        },
+-      ],
++      output_text: '{"facts": ["hello"]}',
++      output: [{ type: "message" }],
+     });
+ 
+-    const llm = new OpenAILLM({ apiKey: "test-key" });
+-    const result = await llm.generateResponse([
+-      { role: "user", content: "Hi" },
+-    ]);
++    const llm = new OpenAILLM({ model: "test-router-model" });
++    const result = await llm.generateResponse(
++      [
++        { role: "system", content: "Extract facts." },
++        { role: "user", content: "Hi" },
++      ],
++      { type: "json_object" },
++    );
+ 
+     expect(mockCreate).toHaveBeenCalledTimes(1);
++    expect(mockCreate.mock.calls[0][0]).toEqual({
++      model: "test-router-model",
++      instructions: "Extract facts.",
++      input: [{ role: "user", content: "Hi" }],
++      text: { format: { type: "json_object" } },
++    });
+     expect(result).toBe('{"facts": ["hello"]}');
+   });
+ 
+   it("generateResponse() handles tool calls", async () => {
+     mockCreate.mockResolvedValueOnce({
+-      choices: [
++      output_text: "",
++      output: [
+         {
+-          message: {
+-            content: "",
+-            role: "assistant",
+-            tool_calls: [
+-              {
+-                function: {
+-                  name: "get_weather",
+-                  arguments: '{"city": "London"}',
+-                },
+-              },
+-            ],
+-          },
++          type: "function_call",
++          name: "get_weather",
++          arguments: '{"city": "London"}',
+         },
+       ],
+     });
+ 
+-    const llm = new OpenAILLM({ apiKey: "test-key" });
++    const llm = new OpenAILLM({ model: "test-router-model" });
+     const result = await llm.generateResponse(
+       [{ role: "user", content: "What is the weather?" }],
+       undefined,
+       [{ type: "function", function: { name: "get_weather" } }],
+     );
+ 
++    expect(mockCreate.mock.calls[0][0].tools).toEqual([
++      { type: "function", name: "get_weather", strict: false },
++    ]);
+     expect(result).toEqual({
+       content: "",
+       role: "assistant",
+@@ -119,16 +132,31 @@ describe("OpenAILLM (unit)", () => {
+     });
+   });
+ 
++  it("sends Router-only fields and omits model when a fallback list is set", async () => {
++    mockCreate.mockResolvedValueOnce({ output_text: "ok", output: [] });
++
++    const llm = new OpenAILLM({
++      models: ["provider-a:model-a", "provider-b:model-b"],
++      providerTimeout: 30,
++      routerMetadata: { feature: "memory" },
++    });
++    await llm.generateResponse([{ role: "user", content: "Hi" }]);
++
++    const body = mockCreate.mock.calls[0][0];
++    expect(body).not.toHaveProperty("model");
++    expect(body.models).toEqual(["provider-a:model-a", "provider-b:model-b"]);
++    expect(body.provider_timeout).toBe(30);
++    expect(body.metadata).toEqual({ feature: "memory" });
++    expect(body).not.toHaveProperty("allow_flex_tier");
++  });
++
+   it("generateChat() returns LLMResponse shape", async () => {
+     mockCreate.mockResolvedValueOnce({
+-      choices: [
+-        {
+-          message: { content: "I can help.", role: "assistant" },
+-        },
+-      ],
++      output_text: "I can help.",
++      output: [{ type: "message" }],
+     });
+ 
+-    const llm = new OpenAILLM({ apiKey: "test-key" });
++    const llm = new OpenAILLM({ model: "test-router-model" });
+     const result = await llm.generateChat([
+       { role: "user", content: "Help me" },
+     ]);
+diff --git a/mem0-ts/src/oss/tests/openai-structured-llm.test.ts b/mem0-ts/src/oss/tests/openai-structured-llm.test.ts
+index f8ddc576..5658a09d 100644
+--- a/mem0-ts/src/oss/tests/openai-structured-llm.test.ts
++++ b/mem0-ts/src/oss/tests/openai-structured-llm.test.ts
+@@ -1,6 +1,6 @@
+ /// <reference types="jest" />
+ /**
+- * OpenAI Structured LLM — unit tests (mocked openai).
++ * OpenAI Structured LLM (Router Responses client) — unit tests (mocked openai).
+  *
+  * Sibling fix for #4707: OpenAIStructuredLLM had the same timeout gap.
+  */
+@@ -12,48 +12,71 @@ jest.mock("openai", () => {
+   return jest.fn().mockImplementation((args: any) => {
+     capturedConstructorArgs = args;
+     return {
+-      chat: { completions: { create: mockCreate } },
++      responses: { create: mockCreate },
+     };
+   });
+ });
+ 
+ import { OpenAIStructuredLLM } from "../src/llms/openai_structured";
++import { ROUTER_BASE_URL } from "../src/llms/router";
+ 
+ describe("OpenAIStructuredLLM (unit)", () => {
++  const originalEnv = { ...process.env };
++
+   beforeEach(() => {
+     capturedConstructorArgs = undefined;
+     mockCreate.mockClear();
++    process.env.RAMP_ROUTER_API_KEY = "test-router-key";
++    process.env.RAMP_ROUTER_MODEL = "test-router-model";
++    delete process.env.RAMP_ROUTER_MODELS;
++  });
++
++  afterAll(() => {
++    process.env = originalEnv;
+   });
+ 
+   it("forwards timeout to the OpenAI client constructor", () => {
+     new OpenAIStructuredLLM({
+-      apiKey: "test-key",
++      apiKey: "provider-key-must-not-be-sent",
+       timeout: 15000,
+     });
+ 
+     expect(capturedConstructorArgs).toMatchObject({
+-      apiKey: "test-key",
++      apiKey: "test-router-key",
++      baseURL: ROUTER_BASE_URL,
+       timeout: 15000,
+     });
+   });
+ 
+   it("forwards timeout: 0 to the OpenAI client (explicit zero is valid)", () => {
+-    new OpenAIStructuredLLM({
+-      apiKey: "test-key",
+-      timeout: 0,
+-    });
++    new OpenAIStructuredLLM({ timeout: 0 });
+ 
+     expect(capturedConstructorArgs.timeout).toBe(0);
+   });
+ 
+   it("omits timeout from the OpenAI client when not configured", () => {
+-    new OpenAIStructuredLLM({
+-      apiKey: "test-key",
+-    });
++    new OpenAIStructuredLLM({});
+ 
+     expect(capturedConstructorArgs).toMatchObject({
+-      apiKey: "test-key",
++      apiKey: "test-router-key",
+     });
+     expect(capturedConstructorArgs).not.toHaveProperty("timeout");
+   });
++
++  it("maps response_format to Responses text.format", async () => {
++    mockCreate.mockResolvedValueOnce({ output_text: "{}", output: [] });
++
++    const llm = new OpenAIStructuredLLM({});
++    const result = await llm.generateResponse(
++      [{ role: "user", content: "json" }],
++      { type: "json_object" },
++    );
++
++    expect(mockCreate.mock.calls[0][0]).toEqual({
++      model: "test-router-model",
++      input: [{ role: "user", content: "json" }],
++      text: { format: { type: "json_object" } },
++    });
++    expect(result).toBe("{}");
++  });
+ });
+diff --git a/mem0/configs/llms/anthropic.py b/mem0/configs/llms/anthropic.py
+index 7c04ebf2..428acb60 100644
+--- a/mem0/configs/llms/anthropic.py
++++ b/mem0/configs/llms/anthropic.py
+@@ -29,16 +29,18 @@ class AnthropicConfig(BaseLlmConfig):
+         Initialize Anthropic configuration.
+ 
+         Args:
+-            model: Anthropic model to use, defaults to None
++            model: Router model ID (from Router's GET /v1/models). Defaults to None,
++                in which case the RAMP_ROUTER_MODEL environment variable is used.
+             temperature: Controls randomness, defaults to 0.1
+-            api_key: Anthropic API key, defaults to None
++            api_key: Ignored. Requests go to Router's Anthropic Messages surface and
++                authenticate with the RAMP_ROUTER_API_KEY environment variable.
+             max_tokens: Maximum tokens to generate, defaults to 2000
+             top_p: Nucleus sampling parameter, defaults to None (omitted to avoid conflict with temperature)
+             top_k: Top-k sampling parameter, defaults to 1
+             enable_vision: Enable vision capabilities, defaults to False
+             vision_details: Vision detail level, defaults to "auto"
+             http_client_proxies: HTTP client proxy settings, defaults to None
+-            anthropic_base_url: Anthropic API base URL, defaults to None
++            anthropic_base_url: Deprecated and ignored; requests always go to Router.
+             enable_sampling_parameters: Enable sampling parameters, defaults to None
+         """
+         # Initialize base parameters
+diff --git a/mem0/configs/llms/openai.py b/mem0/configs/llms/openai.py
+index 94f8a11f..77d126b0 100644
+--- a/mem0/configs/llms/openai.py
++++ b/mem0/configs/llms/openai.py
+@@ -1,12 +1,12 @@
+-from typing import Any, Callable, List, Optional
++from typing import Any, Callable, Dict, List, Optional
+ 
+ from mem0.configs.llms.base import BaseLlmConfig
+ 
+ 
+ class OpenAIConfig(BaseLlmConfig):
+     """
+-    Configuration class for OpenAI and OpenRouter-specific parameters.
+-    Inherits from BaseLlmConfig and adds OpenAI-specific settings.
++    Configuration class for the OpenAI Responses client pointed at Ramp's Router.
++    Inherits from BaseLlmConfig and adds Router-specific settings.
+     """
+ 
+     def __init__(
+@@ -31,6 +31,11 @@ class OpenAIConfig(BaseLlmConfig):
+         site_url: Optional[str] = None,
+         app_name: Optional[str] = None,
+         store: Optional[bool] = None,
++        # Router-only request fields (sent via ``extra_body`` only when set)
++        allow_flex_tier: Optional[bool] = None,
++        provider_timeout: Optional[float] = None,
++        timeout_before_headers: Optional[float] = None,
++        router_metadata: Optional[Dict[str, str]] = None,
+         # Response monitoring callback
+         response_callback: Optional[Callable[[Any, dict, dict], None]] = None,
+     ):
+@@ -38,9 +43,11 @@ class OpenAIConfig(BaseLlmConfig):
+         Initialize OpenAI configuration.
+ 
+         Args:
+-            model: OpenAI model to use, defaults to None
++            model: Router model ID (from Router's GET /v1/models). Defaults to None,
++                in which case the RAMP_ROUTER_MODEL environment variable is used.
+             temperature: Controls randomness, defaults to 0.1
+-            api_key: OpenAI API key, defaults to None
++            api_key: Ignored by the Router-backed client. Authentication always uses
++                the RAMP_ROUTER_API_KEY environment variable; provider keys are never sent.
+             max_tokens: Maximum tokens to generate, defaults to 2000
+             top_p: Nucleus sampling parameter, defaults to 0.1
+             top_k: Top-k sampling parameter, defaults to 1
+@@ -51,18 +58,26 @@ class OpenAIConfig(BaseLlmConfig):
+             is_reasoning_model: Explicit override for reasoning-model detection.
+                 None (default) uses the name-based heuristic. Set True to drop
+                 max_tokens/temperature, or False to force standard params.
+-            openai_base_url: OpenAI API base URL, defaults to None
+-            models: List of models for OpenRouter, defaults to None
+-            route: OpenRouter route strategy, defaults to "fallback"
+-            openrouter_base_url: OpenRouter base URL, defaults to None
+-            site_url: Site URL for OpenRouter, defaults to None
+-            app_name: Application name for OpenRouter, defaults to None
++            openai_base_url: Deprecated and ignored; requests always go to Router.
++            models: Router ordered fallback list of 1-15 ``provider:provider-model``
++                candidates. Mutually exclusive with ``model``; when set, ``model`` is
++                not sent. Falls back to the comma-separated RAMP_ROUTER_MODELS env var.
++            route: Deprecated (OpenRouter-only) and ignored.
++            openrouter_base_url: Deprecated (OpenRouter-only) and ignored.
++            site_url: Deprecated (OpenRouter-only) and ignored.
++            app_name: Deprecated (OpenRouter-only) and ignored.
+             store: Whether to store the conversation on OpenAI's server. Opt-in;
+                 defaults to None (not sent). Set to True or False only if you
+                 want the value forwarded to the OpenAI API. Leaving it None
+                 avoids leaking the field into OpenAI-compatible backends that
+                 reject unknown fields (Gemini, Groq, vLLM, etc.).
+-            response_callback: Optional callback for monitoring LLM responses.
++            allow_flex_tier: Router-only. Opt in/out of lower-cost Flex capacity. Returns 400
++                for ineligible models, so leave None (omitted) unless the model supports it.
++            provider_timeout: Router-only. Seconds allowed per provider call.
++            timeout_before_headers: Router-only. Seconds to wait for the first streaming event.
++            router_metadata: Router-only. Short string labels (e.g. feature, team) for spend attribution.
++            response_callback: Optional callback for monitoring LLM responses. Receives the
++                Responses API response object and the request parameters.
+         """
+         # Initialize base parameters
+         super().__init__(
+@@ -88,5 +103,11 @@ class OpenAIConfig(BaseLlmConfig):
+         self.app_name = app_name
+         self.store = store
+ 
++        # Router-only request fields
++        self.allow_flex_tier = allow_flex_tier
++        self.provider_timeout = provider_timeout
++        self.timeout_before_headers = timeout_before_headers
++        self.router_metadata = router_metadata
++
+         # Response monitoring
+         self.response_callback = response_callback
+diff --git a/mem0/configs/rerankers/llm.py b/mem0/configs/rerankers/llm.py
+index 8c398c43..720365e2 100644
+--- a/mem0/configs/rerankers/llm.py
++++ b/mem0/configs/rerankers/llm.py
+@@ -10,7 +10,7 @@ class LLMRerankerConfig(BaseRerankerConfig):
+     Configuration for LLM-based reranker.
+     
+     Attributes:
+-        model (str): LLM model to use for reranking. Defaults to "gpt-5-mini".
++        model (str): LLM model to use for reranking. Defaults to the RAMP_ROUTER_MODEL env var.
+         api_key (str): API key for the LLM provider.
+         provider (str): LLM provider. Defaults to "openai".
+         top_k (int): Number of top documents to return after reranking.
+@@ -19,9 +19,10 @@ class LLMRerankerConfig(BaseRerankerConfig):
+         scoring_prompt (str): Custom prompt template for scoring documents.
+     """
+     
+-    model: str = Field(
+-        default="gpt-5-mini",
+-        description="LLM model to use for reranking"
++    model: Optional[str] = Field(
++        default=None,
++        description="LLM model to use for reranking. Defaults to the RAMP_ROUTER_MODEL environment variable "
++        "(a model ID from Router's GET /v1/models)."
+     )
+     api_key: Optional[str] = Field(
+         default=None,
+diff --git a/mem0/llms/anthropic.py b/mem0/llms/anthropic.py
+index e0e08346..3b8a85eb 100644
+--- a/mem0/llms/anthropic.py
++++ b/mem0/llms/anthropic.py
+@@ -1,4 +1,3 @@
+-import os
+ from typing import Dict, List, Optional, Union
+ 
+ try:
+@@ -9,6 +8,12 @@ except ImportError:
+ from mem0.configs.llms.anthropic import AnthropicConfig
+ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.llms.base import LLMBase
++from mem0.llms.router import (
++    ROUTER_ANTHROPIC_BASE_URL,
++    ROUTER_MODEL_ENV,
++    get_router_api_key,
++    resolve_router_model,
++)
+ 
+ 
+ class AnthropicLLM(LLMBase):
+@@ -34,15 +39,24 @@ class AnthropicLLM(LLMBase):
+ 
+         super().__init__(config)
+ 
++        # Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++        self.config.model = resolve_router_model(self.config.model)
+         if not self.config.model:
+-            self.config.model = "claude-sonnet-4-6"
+-
+-        api_key = self.config.api_key or os.getenv("ANTHROPIC_API_KEY")
+-        base_url = self.config.anthropic_base_url or os.getenv("ANTHROPIC_BASE_URL")
+-        client_kwargs = {"api_key": api_key}
+-        if base_url:
+-            client_kwargs["base_url"] = base_url
+-        self.client = anthropic.Anthropic(**client_kwargs)
++            raise ValueError(
++                f"No Router model configured. Set {ROUTER_MODEL_ENV} to a model ID returned by "
++                "Router's GET /v1/models, or pass `model` in the LLM config."
++            )
++
++        # Point the Anthropic client at Router's Anthropic Messages compatibility surface
++        # (POST /v1/messages). Router holds the provider credentials, so only
++        # RAMP_ROUTER_API_KEY is sent, as `Authorization: Bearer ...`.
++        self.client = anthropic.Anthropic(
++            auth_token=get_router_api_key(),
++            base_url=ROUTER_ANTHROPIC_BASE_URL,
++        )
++        # The SDK falls back to ANTHROPIC_API_KEY from the environment when api_key is None;
++        # clear it so a provider key is never sent alongside the Router key.
++        self.client.api_key = None
+ 
+     def _enable_sampling_parameters(self):
+         """Return whether the configured model supports sampling parameters."""
+diff --git a/mem0/llms/openai.py b/mem0/llms/openai.py
+index 5fb2864c..c0256ac4 100644
+--- a/mem0/llms/openai.py
++++ b/mem0/llms/openai.py
+@@ -1,17 +1,25 @@
+ import json
+ import logging
+-import os
+ from typing import Dict, List, Optional, Union
+ 
+-from openai import OpenAI
+-
+ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.base import LLMBase
++from mem0.llms.router import (
++    ROUTER_MODEL_ENV,
++    build_responses_params,
++    build_router_extra_body,
++    create_router_client,
++    extract_function_calls,
++    resolve_router_model,
++    resolve_router_models,
++)
+ from mem0.memory.utils import extract_json
+ 
+ 
+ class OpenAILLM(LLMBase):
++    """OpenAI Responses client pointed at Ramp's Router (``RAMP_ROUTER_API_KEY``)."""
++
+     def __init__(self, config: Optional[Union[BaseLlmConfig, OpenAIConfig, Dict]] = None):
+         # Convert to OpenAIConfig if needed
+         if config is None:
+@@ -36,28 +44,28 @@ class OpenAILLM(LLMBase):
+ 
+         super().__init__(config)
+ 
+-        if not self.config.model:
+-            self.config.model = "gpt-5-mini"
+-
+-        if os.environ.get("OPENROUTER_API_KEY"):  # Use OpenRouter
+-            self.client = OpenAI(
+-                api_key=os.environ.get("OPENROUTER_API_KEY"),
+-                base_url=self.config.openrouter_base_url
+-                or os.getenv("OPENROUTER_API_BASE")
+-                or "https://openrouter.ai/api/v1",
++        # Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++        self.config.model = resolve_router_model(self.config.model)
++        self.config.models = resolve_router_models(self.config.models)
++        if not self.config.model and not self.config.models:
++            raise ValueError(
++                f"No Router model configured. Set {ROUTER_MODEL_ENV} to a model ID returned by "
++                "Router's GET /v1/models, or pass `model` (or a `models` fallback list) in the LLM config."
+             )
+-        else:
+-            api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
+-            base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+ 
+-            self.client = OpenAI(api_key=api_key, base_url=base_url)
++        # Router holds the provider credentials: only RAMP_ROUTER_API_KEY is sent.
++        self.client = create_router_client()
++
++    def _is_reasoning_model(self, model: str) -> bool:
++        # Router model IDs may be absent (``models`` fallback list) or carry a ``provider:`` prefix.
++        return super()._is_reasoning_model((model or "").rsplit(":", 1)[-1])
+ 
+     def _parse_response(self, response, tools):
+         """
+         Process the response based on whether tools are used or not.
+ 
+         Args:
+-            response: The raw response from API.
++            response: The raw Responses API response.
+             tools: The list of tools provided in the request.
+ 
+         Returns:
+@@ -65,22 +73,21 @@ class OpenAILLM(LLMBase):
+         """
+         if tools:
+             processed_response = {
+-                "content": response.choices[0].message.content,
++                "content": response.output_text or None,
+                 "tool_calls": [],
+             }
+ 
+-            if response.choices[0].message.tool_calls:
+-                for tool_call in response.choices[0].message.tool_calls:
+-                    processed_response["tool_calls"].append(
+-                        {
+-                            "name": tool_call.function.name,
+-                            "arguments": json.loads(extract_json(tool_call.function.arguments)),
+-                        }
+-                    )
++            for tool_call in extract_function_calls(response):
++                processed_response["tool_calls"].append(
++                    {
++                        "name": tool_call.name,
++                        "arguments": json.loads(extract_json(tool_call.arguments)),
++                    }
++                )
+ 
+             return processed_response
+         else:
+-            return response.choices[0].message.content
++            return response.output_text
+ 
+     def generate_response(
+         self,
+@@ -91,54 +98,45 @@ class OpenAILLM(LLMBase):
+         **kwargs,
+     ):
+         """
+-        Generate a JSON response based on the given messages using OpenAI.
++        Generate a JSON response based on the given messages using Router's Responses API.
+ 
+         Args:
+             messages (list): List of message dicts containing 'role' and 'content'.
+             response_format (str or object, optional): Format of the response. Defaults to "text".
+             tools (list, optional): List of tools that the model can call. Defaults to None.
+             tool_choice (str, optional): Tool choice method. Defaults to "auto".
+-            **kwargs: Additional OpenAI-specific parameters.
++            **kwargs: Additional request parameters.
+ 
+         Returns:
+             json: The generated response.
+         """
+         params = self._get_supported_params(messages=messages, **kwargs)
+-        
++
+         params.update({
+             "model": self.config.model,
+             "messages": messages,
+         })
+ 
+-        if os.getenv("OPENROUTER_API_KEY"):
+-            openrouter_params = {}
+-            if self.config.models:
+-                openrouter_params["models"] = self.config.models
+-                openrouter_params["route"] = self.config.route
+-                params.pop("model")
+-
+-            if self.config.site_url and self.config.app_name:
+-                extra_headers = {
+-                    "HTTP-Referer": self.config.site_url,
+-                    "X-Title": self.config.app_name,
+-                }
+-                openrouter_params["extra_headers"] = extra_headers
+-
+-            params.update(**openrouter_params)
+-        
+-        else:
+-            # Only send OpenAI-specific parameters when the user has explicitly
+-            # configured them. OpenAI-compatible backends (Gemini, Groq, vLLM, etc.)
+-            # reject unknown fields, so `store` must be opt-in, not opt-out.
+-            if self.config.store is not None:
+-                params["store"] = self.config.store
++        # Only send ``store`` when the user has explicitly configured it.
++        if self.config.store is not None:
++            params["store"] = self.config.store
+ 
+         if response_format:
+             params["response_format"] = response_format
+         if tools:  # TODO: Remove tools if no issues found with new memory addition logic
+             params["tools"] = tools
+             params["tool_choice"] = tool_choice
+-        response = self.client.chat.completions.create(**params)
++
++        params = build_responses_params(params)
++
++        extra_body = build_router_extra_body(self.config, self.config.models)
++        if "models" in extra_body:
++            # ``models`` (ordered fallback list) is mutually exclusive with ``model``.
++            params.pop("model", None)
++        if extra_body:
++            params["extra_body"] = extra_body
++
++        response = self.client.responses.create(**params)
+         parsed_response = self._parse_response(response, tools)
+         if self.config.response_callback:
+             try:
+diff --git a/mem0/llms/openai_structured.py b/mem0/llms/openai_structured.py
+index 5642da30..f4c56a03 100644
+--- a/mem0/llms/openai_structured.py
++++ b/mem0/llms/openai_structured.py
+@@ -1,22 +1,38 @@
+-import os
+ from typing import Dict, List, Optional
+ 
+-from openai import OpenAI
+-
+ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.llms.base import LLMBase
++from mem0.llms.router import (
++    ROUTER_MODEL_ENV,
++    build_responses_params,
++    build_router_extra_body,
++    create_router_client,
++    resolve_router_model,
++    resolve_router_models,
++)
+ 
+ 
+ class OpenAIStructuredLLM(LLMBase):
++    """Structured-output OpenAI Responses client pointed at Ramp's Router (``RAMP_ROUTER_API_KEY``)."""
++
+     def __init__(self, config: Optional[BaseLlmConfig] = None):
+         super().__init__(config)
+ 
+-        if not self.config.model:
+-            self.config.model = "gpt-5-mini"
++        # Model IDs are account-specific (GET /v1/models on Router); never hardcode one here.
++        self.config.model = resolve_router_model(self.config.model)
++        self._router_models = resolve_router_models(getattr(self.config, "models", None))
++        if not self.config.model and not self._router_models:
++            raise ValueError(
++                f"No Router model configured. Set {ROUTER_MODEL_ENV} to a model ID returned by "
++                "Router's GET /v1/models, or pass `model` (or a `models` fallback list) in the LLM config."
++            )
++
++        # Router holds the provider credentials: only RAMP_ROUTER_API_KEY is sent.
++        self.client = create_router_client()
+ 
+-        api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
+-        base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+-        self.client = OpenAI(api_key=api_key, base_url=base_url)
++    def _is_reasoning_model(self, model: str) -> bool:
++        # Router model IDs may be absent (``models`` fallback list) or carry a ``provider:`` prefix.
++        return super()._is_reasoning_model((model or "").rsplit(":", 1)[-1])
+ 
+     def generate_response(
+         self,
+@@ -26,7 +42,7 @@ class OpenAIStructuredLLM(LLMBase):
+         tool_choice: str = "auto",
+     ) -> str:
+         """
+-        Generate a response based on the given messages using OpenAI.
++        Generate a response based on the given messages using Router's Responses API.
+ 
+         Args:
+             messages (List[Dict[str, str]]): A list of dictionaries, each containing a 'role' and 'content' key.
+@@ -39,11 +55,27 @@ class OpenAIStructuredLLM(LLMBase):
+         params = self._get_supported_params(messages=messages)
+         params["model"] = self.config.model
+ 
+-        if response_format:
++        text_format = None
++        if isinstance(response_format, type):
++            # Pydantic model: parsed via responses.parse(text_format=...), as beta.chat.completions.parse did.
++            text_format = response_format
++        elif response_format:
+             params["response_format"] = response_format
+         if tools:
+             params["tools"] = tools
+             params["tool_choice"] = tool_choice
+ 
+-        response = self.client.beta.chat.completions.parse(**params)
+-        return response.choices[0].message.content
++        params = build_responses_params(params)
++
++        extra_body = build_router_extra_body(self.config, self._router_models)
++        if "models" in extra_body:
++            # ``models`` (ordered fallback list) is mutually exclusive with ``model``.
++            params.pop("model", None)
++        if extra_body:
++            params["extra_body"] = extra_body
++
++        if text_format is not None:
++            response = self.client.responses.parse(text_format=text_format, **params)
++        else:
++            response = self.client.responses.create(**params)
++        return response.output_text
+diff --git a/mem0/llms/router.py b/mem0/llms/router.py
+new file mode 100644
+index 00000000..95b279f4
+--- /dev/null
++++ b/mem0/llms/router.py
+@@ -0,0 +1,241 @@
++"""Shared helpers for sending LLM requests through Ramp's Router.
++
++Router is a gateway that exposes one OpenAI Responses-compatible API
++(``POST /v1/responses``) in front of models from multiple providers. Router holds
++the provider credentials, so the application only ever sends ``RAMP_ROUTER_API_KEY``.
++
++Model IDs are account-specific and must come from ``GET /v1/models``. They are read
++from configuration / environment variables and are never hardcoded here.
++"""
++
++import json
++import os
++from typing import Any, Dict, List, Optional, Tuple
++
++from openai import OpenAI
++
++ROUTER_BASE_URL = "https://api.router.com/v1"
++# Root of the Anthropic Messages compatibility surface (the Anthropic SDK appends ``/v1/messages``).
++ROUTER_ANTHROPIC_BASE_URL = "https://api.router.com"
++
++ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY"
++# Single model ID (from ``GET /v1/models``) used when no ``model`` is configured.
++ROUTER_MODEL_ENV = "RAMP_ROUTER_MODEL"
++# Optional comma-separated ``provider:provider-model`` fallback list (1-15 entries).
++ROUTER_MODELS_ENV = "RAMP_ROUTER_MODELS"
++
++
++def get_router_api_key() -> Optional[str]:
++    return os.getenv(ROUTER_API_KEY_ENV)
++
++
++def resolve_router_model(model: Optional[str]) -> Optional[str]:
++    """Return the configured model, falling back to ``RAMP_ROUTER_MODEL``."""
++    return model or os.getenv(ROUTER_MODEL_ENV) or None
++
++
++def resolve_router_models(models: Optional[List[str]]) -> Optional[List[str]]:
++    """Return the configured fallback list, falling back to ``RAMP_ROUTER_MODELS``."""
++    if models:
++        return list(models)
++    raw = os.getenv(ROUTER_MODELS_ENV)
++    if raw:
++        parsed = [m.strip() for m in raw.split(",") if m.strip()]
++        return parsed or None
++    return None
++
++
++def create_router_client(**client_kwargs):
++    """Build an OpenAI SDK client pointed at Router, authenticated with ``RAMP_ROUTER_API_KEY``."""
++    api_key = get_router_api_key()
++    if not api_key:
++        # Fail loudly: with api_key=None the OpenAI SDK would fall back to OPENAI_API_KEY
++        # and send a provider key to Router.
++        raise ValueError(f"{ROUTER_API_KEY_ENV} is required to call Router.")
++    return OpenAI(api_key=api_key, base_url=ROUTER_BASE_URL, **client_kwargs)
++
++
++def build_router_extra_body(config: Any, models: Optional[List[str]] = None) -> Dict[str, Any]:
++    """Collect Router-only request fields, sent through the SDK's ``extra_body``.
++
++    Fields are only included when explicitly configured so that the request shape
++    is unchanged by default (``allow_flex_tier`` in particular returns 400 for
++    ineligible models).
++    """
++    extra_body: Dict[str, Any] = {}
++    if models:
++        extra_body["models"] = list(models)
++    for attr, key in (
++        ("allow_flex_tier", "allow_flex_tier"),
++        ("provider_timeout", "provider_timeout"),
++        ("timeout_before_headers", "timeout_before_headers"),
++        ("router_metadata", "metadata"),
++    ):
++        value = getattr(config, attr, None)
++        if value is not None:
++            extra_body[key] = value
++    return extra_body
++
++
++def _convert_content(content: Any, role: str) -> Any:
++    """Convert Chat Completions message content into Responses input content."""
++    if content is None:
++        return ""
++    if isinstance(content, str):
++        return content
++
++    parts = content if isinstance(content, list) else [content]
++    text_type = "output_text" if role == "assistant" else "input_text"
++    converted = []
++    for part in parts:
++        if not isinstance(part, dict):
++            converted.append(part)
++            continue
++        part_type = part.get("type")
++        if part_type == "text":
++            converted.append({"type": text_type, "text": part.get("text", "")})
++        elif part_type == "image_url":
++            image = part.get("image_url")
++            url = image.get("url") if isinstance(image, dict) else image
++            detail = (image.get("detail") if isinstance(image, dict) else None) or "auto"
++            converted.append({"type": "input_image", "image_url": url, "detail": detail})
++        else:
++            converted.append(part)
++    return converted
++
++
++def to_responses_input(messages: List[Dict[str, Any]]) -> Tuple[Optional[str], List[Dict[str, Any]]]:
++    """Split Chat Completions ``messages`` into Responses ``instructions`` and ``input``.
++
++    Leading system messages become ``instructions``; everything else keeps its
++    original order in ``input``.
++    """
++    instructions: List[str] = []
++    items: List[Dict[str, Any]] = []
++    for message in messages or []:
++        role = message.get("role")
++        content = message.get("content")
++
++        if role == "system" and not items and isinstance(content, str):
++            instructions.append(content)
++            continue
++
++        if role == "tool":
++            items.append(
++                {
++                    "type": "function_call_output",
++                    "call_id": message.get("tool_call_id"),
++                    "output": content if isinstance(content, str) else json.dumps(content),
++                }
++            )
++            continue
++
++        if role == "assistant" and message.get("tool_calls"):
++            if content:
++                items.append({"role": "assistant", "content": _convert_content(content, role)})
++            for tool_call in message["tool_calls"]:
++                function = tool_call.get("function") or {}
++                items.append(
++                    {
++                        "type": "function_call",
++                        "call_id": tool_call.get("id"),
++                        "name": function.get("name"),
++                        "arguments": function.get("arguments") or "",
++                    }
++                )
++            continue
++
++        items.append({"role": role, "content": _convert_content(content, role)})
++
++    return ("\n\n".join(instructions) if instructions else None), items
++
++
++def to_responses_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    """Reshape Chat Completions function tools into Responses function tools (definitions unchanged)."""
++    converted = []
++    for tool in tools:
++        function = tool.get("function") if isinstance(tool, dict) else None
++        if isinstance(tool, dict) and tool.get("type") == "function" and isinstance(function, dict):
++            item = {"type": "function", "name": function.get("name")}
++            if "description" in function:
++                item["description"] = function["description"]
++            if "parameters" in function:
++                item["parameters"] = function["parameters"]
++            # Chat Completions defaults to non-strict tools; Responses defaults to strict.
++            item["strict"] = function.get("strict", False)
++            converted.append(item)
++        else:
++            converted.append(tool)
++    return converted
++
++
++def to_responses_tool_choice(tool_choice: Any) -> Any:
++    if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
++        function = tool_choice.get("function")
++        if isinstance(function, dict) and "name" in function:
++            return {"type": "function", "name": function["name"]}
++    return tool_choice
++
++
++def to_responses_text_format(response_format: Any) -> Any:
++    """Convert a Chat Completions ``response_format`` into a Responses ``text`` config."""
++    if isinstance(response_format, dict):
++        format_type = response_format.get("type")
++        if format_type == "json_schema" and isinstance(response_format.get("json_schema"), dict):
++            json_schema = response_format["json_schema"]
++            fmt = {"type": "json_schema", "name": json_schema.get("name", "response")}
++            for key in ("schema", "strict", "description"):
++                if key in json_schema:
++                    fmt[key] = json_schema[key]
++            return {"format": fmt}
++        if format_type in ("text", "json_object"):
++            return {"format": {"type": format_type}}
++        return {"format": response_format}
++    return response_format
++
++
++def build_responses_params(chat_params: Dict[str, Any]) -> Dict[str, Any]:
++    """Translate a Chat Completions parameter dict into a Responses request.
++
++    messages -> input / instructions, max_tokens -> max_output_tokens,
++    response_format -> text.format, reasoning_effort -> reasoning.effort.
++    Remaining keys (model, temperature, top_p, store, ...) pass through unchanged.
++    """
++    params = dict(chat_params)
++    request: Dict[str, Any] = {}
++
++    instructions, input_items = to_responses_input(params.pop("messages", []))
++    if instructions is not None:
++        request["instructions"] = instructions
++    request["input"] = input_items
++
++    max_tokens = params.pop("max_tokens", None)
++    max_completion_tokens = params.pop("max_completion_tokens", None)
++    if max_completion_tokens is not None:
++        request["max_output_tokens"] = max_completion_tokens
++    elif max_tokens is not None:
++        request["max_output_tokens"] = max_tokens
++
++    reasoning_effort = params.pop("reasoning_effort", None)
++    if reasoning_effort:
++        request["reasoning"] = {"effort": reasoning_effort}
++
++    response_format = params.pop("response_format", None)
++    if response_format:
++        request["text"] = to_responses_text_format(response_format)
++
++    tools = params.pop("tools", None)
++    if tools:
++        request["tools"] = to_responses_tools(tools)
++    if "tool_choice" in params:
++        tool_choice = params.pop("tool_choice")
++        if tools:
++            request["tool_choice"] = to_responses_tool_choice(tool_choice)
++
++    request.update(params)
++    return request
++
++
++def extract_function_calls(response: Any) -> List[Any]:
++    """Return the ``function_call`` items from a Responses ``output`` list."""
++    return [item for item in (getattr(response, "output", None) or []) if getattr(item, "type", None) == "function_call"]
+diff --git a/mem0/reranker/llm_reranker.py b/mem0/reranker/llm_reranker.py
+index c5fecb14..b91d7745 100644
+--- a/mem0/reranker/llm_reranker.py
++++ b/mem0/reranker/llm_reranker.py
+@@ -27,7 +27,7 @@ class LLMReranker(BaseReranker):
+             # Convert BaseRerankerConfig to LLMRerankerConfig with defaults
+             config = LLMRerankerConfig(
+                 provider=getattr(config, 'provider', 'openai'),
+-                model=getattr(config, 'model', 'gpt-5-mini'),
++                model=getattr(config, 'model', None),
+                 api_key=getattr(config, 'api_key', None),
+                 top_k=getattr(config, 'top_k', None),
+                 temperature=0.0,  # Default for reranking
+diff --git a/server/.env.example b/server/.env.example
+index 3e44034a..151fbc27 100644
+--- a/server/.env.example
++++ b/server/.env.example
+@@ -1,7 +1,15 @@
+-OPENAI_API_KEY=
++# LLM calls go through Ramp's Router (https://api.router.com/v1). Router holds the
++# provider credentials; only the Router key is sent.
++RAMP_ROUTER_API_KEY=
++# Router model ID — must be one returned by Router's GET /v1/models for your account.
++RAMP_ROUTER_MODEL=
++# Optional: comma-separated Router fallback list of provider:provider-model candidates
++# (used instead of RAMP_ROUTER_MODEL when set).
++# RAMP_ROUTER_MODELS=
+ 
+-# Optional: other bundled LLM/embedder providers (set the key for the one you want to use)
+-# ANTHROPIC_API_KEY=
++# Embeddings are not served by Router: the OpenAI embedder still needs its own key.
++OPENAI_API_KEY=
++# Optional: Gemini embedder key (only if you switch the embedder to gemini)
+ # GOOGLE_API_KEY=
+ 
+ # Postgres — POSTGRES_PASSWORD is required; docker-compose will not start without it.
+@@ -21,7 +29,8 @@ APP_DB_NAME=mem0_app
+ 
+ # Default LLM and embedder models. Provider must be in BUNDLED_*_PROVIDERS
+ # (see server/main.py). Override to pin a specific model without editing code.
+-MEM0_DEFAULT_LLM_MODEL=gpt-5-mini
++# MEM0_DEFAULT_LLM_MODEL overrides RAMP_ROUTER_MODEL for the server's LLM (Router model ID).
++MEM0_DEFAULT_LLM_MODEL=
+ MEM0_DEFAULT_EMBEDDER_MODEL=text-embedding-3-small
+ 
+ # Anonymous telemetry. Sends a single onboarding event per install
+diff --git a/server/README.md b/server/README.md
+index 941d2601..261ed552 100644
+--- a/server/README.md
++++ b/server/README.md
+@@ -17,7 +17,8 @@ Copy the example env file and set a Postgres password (required):
+ ```bash
+ cd server
+ cp .env.example .env
+-# Edit .env — at minimum set POSTGRES_PASSWORD and OPENAI_API_KEY
++# Edit .env — at minimum set POSTGRES_PASSWORD, RAMP_ROUTER_API_KEY, RAMP_ROUTER_MODEL
++# (a model ID from Router's GET /v1/models) and OPENAI_API_KEY (embeddings only)
+ ```
+ 
+ ### Agent-first
+diff --git a/server/main.py b/server/main.py
+index 20059fb8..391c8eca 100644
+--- a/server/main.py
++++ b/server/main.py
+@@ -112,9 +112,12 @@ POSTGRES_USER = os.environ.get("POSTGRES_USER", "postgres")
+ POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "postgres")
+ POSTGRES_COLLECTION_NAME = os.environ.get("POSTGRES_COLLECTION_NAME", "memories")
+ 
++# Used only by the OpenAI embedder: Router does not serve embeddings. LLM calls go through
++# Router and authenticate with RAMP_ROUTER_API_KEY (read by mem0's OpenAI LLM client).
+ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+ HISTORY_DB_PATH = os.environ.get("HISTORY_DB_PATH", "/app/history/history.db")
+-DEFAULT_LLM_MODEL = os.environ.get("MEM0_DEFAULT_LLM_MODEL", "gpt-5-mini")
++# Router model ID (from Router's GET /v1/models). When unset, mem0 falls back to RAMP_ROUTER_MODEL.
++DEFAULT_LLM_MODEL = os.environ.get("MEM0_DEFAULT_LLM_MODEL") or os.environ.get("RAMP_ROUTER_MODEL")
+ DEFAULT_EMBEDDER_MODEL = os.environ.get("MEM0_DEFAULT_EMBEDDER_MODEL", "text-embedding-3-small")
+ 
+ DEFAULT_CONFIG = {
+@@ -132,7 +135,7 @@ DEFAULT_CONFIG = {
+     },
+     "llm": {
+         "provider": "openai",
+-        "config": {"api_key": OPENAI_API_KEY, "temperature": 0.2, "model": DEFAULT_LLM_MODEL},
++        "config": {"temperature": 0.2, "model": DEFAULT_LLM_MODEL},
+     },
+     "embedder": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "model": DEFAULT_EMBEDDER_MODEL}},
+     "history_db_path": HISTORY_DB_PATH,
+diff --git a/server/scripts/seed.sh b/server/scripts/seed.sh
+index 889e6f6e..865543af 100755
+--- a/server/scripts/seed.sh
++++ b/server/scripts/seed.sh
+@@ -71,9 +71,9 @@ echo ""
+ echo "Open your dashboard at $DASHBOARD_URL to see and manage your memories in your browser."
+ echo ""
+ 
+-if ! grep -qE '^(OPENAI|ANTHROPIC|GOOGLE)_API_KEY=.' .env 2>/dev/null; then
+-  echo "!! No LLM provider API key set in server/.env."
+-  echo "   Set OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_API_KEY), then:"
++if ! grep -qE '^RAMP_ROUTER_API_KEY=.' .env 2>/dev/null; then
++  echo "!! No Router API key set in server/.env."
++  echo "   Set RAMP_ROUTER_API_KEY and RAMP_ROUTER_MODEL (a model ID from Router's GET /v1/models), then:"
+   echo "     docker compose up -d --force-recreate mem0"
+   echo "   The curl below will return provider_auth_failed until you do."
+   echo ""
+diff --git a/tests/llms/test_anthropic.py b/tests/llms/test_anthropic.py
+index 1dac2607..86f94a77 100644
+--- a/tests/llms/test_anthropic.py
++++ b/tests/llms/test_anthropic.py
+@@ -83,37 +83,38 @@ def test_both_set_prefers_temperature_over_top_p(mock_anthropic_client):
+     assert "top_p" not in call_kwargs
+ 
+ 
+-def test_configured_base_url_is_passed_to_client():
+-    """A configured anthropic_base_url must reach the Anthropic client constructor."""
++def test_client_points_at_router_messages_surface(monkeypatch):
++    """The Anthropic client targets Router's Messages surface with the Router key only."""
++    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "test-router-key")
++    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
+     with patch("mem0.llms.anthropic.anthropic") as mock_anthropic:
+         config = AnthropicConfig(
+             model="claude-opus-4-6",
+-            api_key="test-key",
++            api_key="provider-key-must-not-be-sent",
+             anthropic_base_url="https://proxy.example.com",
+         )
+-        AnthropicLLM(config)
++        llm = AnthropicLLM(config)
+ 
+-    assert mock_anthropic.Anthropic.call_args[1]["base_url"] == "https://proxy.example.com"
++    kwargs = mock_anthropic.Anthropic.call_args[1]
++    assert kwargs["base_url"] == "https://api.router.com"
++    assert kwargs["auth_token"] == "test-router-key"
++    assert "api_key" not in kwargs
++    assert llm.client.api_key is None
+ 
+ 
+-def test_base_url_falls_back_to_env(monkeypatch):
+-    """When no base_url is configured, ANTHROPIC_BASE_URL is used."""
+-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example.com")
+-    with patch("mem0.llms.anthropic.anthropic") as mock_anthropic:
+-        config = AnthropicConfig(model="claude-opus-4-6", api_key="test-key")
+-        AnthropicLLM(config)
++def test_model_read_from_router_env(monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_MODEL", "env-router-model")
++    with patch("mem0.llms.anthropic.anthropic"):
++        llm = AnthropicLLM(AnthropicConfig())
+ 
+-    assert mock_anthropic.Anthropic.call_args[1]["base_url"] == "https://env.example.com"
++    assert llm.config.model == "env-router-model"
+ 
+ 
+-def test_base_url_omitted_when_unset(monkeypatch):
+-    """With no base_url anywhere, base_url must not be forced to None on the client."""
+-    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+-    with patch("mem0.llms.anthropic.anthropic") as mock_anthropic:
+-        config = AnthropicConfig(model="claude-opus-4-6", api_key="test-key")
+-        AnthropicLLM(config)
+-
+-    assert "base_url" not in mock_anthropic.Anthropic.call_args[1]
++def test_missing_model_raises(monkeypatch):
++    monkeypatch.delenv("RAMP_ROUTER_MODEL", raising=False)
++    with patch("mem0.llms.anthropic.anthropic"):
++        with pytest.raises(ValueError, match="RAMP_ROUTER_MODEL"):
++            AnthropicLLM(AnthropicConfig())
+ 
+ 
+ def test_base_config_conversion_does_not_send_both(mock_anthropic_client):
+diff --git a/tests/llms/test_openai.py b/tests/llms/test_openai.py
+index 42fe845c..88deb84c 100644
+--- a/tests/llms/test_openai.py
++++ b/tests/llms/test_openai.py
+@@ -1,4 +1,3 @@
+-import os
+ from unittest.mock import Mock, patch
+ 
+ import httpx
+@@ -7,100 +6,128 @@ import pytest
+ from mem0.configs.llms.base import BaseLlmConfig
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.openai import OpenAILLM
++from mem0.llms.router import ROUTER_BASE_URL
++
++TEST_MODEL = "test-router-model"
++
++
++@pytest.fixture(autouse=True)
++def router_env(monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "test-router-key")
++    monkeypatch.delenv("RAMP_ROUTER_MODEL", raising=False)
++    monkeypatch.delenv("RAMP_ROUTER_MODELS", raising=False)
+ 
+ 
+ @pytest.fixture
+ def mock_openai_client():
+-    with patch("mem0.llms.openai.OpenAI") as mock_openai:
++    with patch("mem0.llms.router.OpenAI") as mock_openai:
+         mock_client = Mock()
+         mock_openai.return_value = mock_client
++        mock_client.constructor = mock_openai
+         yield mock_client
+ 
+ 
+-def test_openai_llm_base_url():
+-    # case1: default config: with openai official base url
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
+-    llm = OpenAILLM(config)
+-    # Note: openai client will parse the raw base_url into a URL object, which will have a trailing slash
+-    assert str(llm.client.base_url) == "https://api.openai.com/v1/"
++def _text_response(text):
++    return Mock(output_text=text, output=[Mock(type="message")])
+ 
+-    # case2: with env variable OPENAI_API_BASE
+-    provider_base_url = "https://api.provider.com/v1"
+-    os.environ["OPENAI_BASE_URL"] = provider_base_url
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key")
+-    llm = OpenAILLM(config)
+-    # Note: openai client will parse the raw base_url into a URL object, which will have a trailing slash
+-    assert str(llm.client.base_url) == provider_base_url + "/"
+ 
+-    # case3: with config.openai_base_url
+-    config_base_url = "https://api.config.com/v1"
+-    config = OpenAIConfig(
+-        model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0, api_key="api_key", openai_base_url=config_base_url
+-    )
++def _function_call(name, arguments):
++    item = Mock(type="function_call", arguments=arguments)
++    item.name = name
++    return item
++
++
++def test_client_points_at_router_with_router_key():
++    config = OpenAIConfig(model=TEST_MODEL, api_key="provider-key-must-not-be-sent")
+     llm = OpenAILLM(config)
+     # Note: openai client will parse the raw base_url into a URL object, which will have a trailing slash
+-    assert str(llm.client.base_url) == config_base_url + "/"
++    assert str(llm.client.base_url) == ROUTER_BASE_URL + "/"
++    assert llm.client.api_key == "test-router-key"
++
++
++def test_model_read_from_env(mock_openai_client, monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_MODEL", "env-router-model")
++    llm = OpenAILLM(OpenAIConfig())
++    assert llm.config.model == "env-router-model"
++
++
++def test_missing_model_raises(mock_openai_client):
++    with pytest.raises(ValueError, match="RAMP_ROUTER_MODEL"):
++        OpenAILLM(OpenAIConfig())
+ 
+ 
+ def test_generate_response_without_tools(mock_openai_client):
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0)
++    config = OpenAIConfig(model=TEST_MODEL, temperature=0.7, max_tokens=100, top_p=1.0)
+     llm = OpenAILLM(config)
+     messages = [
+         {"role": "system", "content": "You are a helpful assistant."},
+         {"role": "user", "content": "Hello, how are you?"},
+     ]
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="I'm doing well, thank you for asking!"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++    mock_openai_client.responses.create.return_value = _text_response("I'm doing well, thank you for asking!")
+ 
+     response = llm.generate_response(messages)
+ 
+-    mock_openai_client.chat.completions.create.assert_called_once_with(
+-        model="gpt-4.1-nano-2025-04-14", messages=messages, temperature=0.7, max_tokens=100, top_p=1.0
++    mock_openai_client.responses.create.assert_called_once_with(
++        model=TEST_MODEL,
++        instructions="You are a helpful assistant.",
++        input=[{"role": "user", "content": "Hello, how are you?"}],
++        temperature=0.7,
++        max_output_tokens=100,
++        top_p=1.0,
+     )
+     assert response == "I'm doing well, thank you for asking!"
+ 
+ 
++def test_json_response_format_maps_to_text_format(mock_openai_client):
++    llm = OpenAILLM(OpenAIConfig(model=TEST_MODEL))
++    mock_openai_client.responses.create.return_value = _text_response('{"facts": []}')
++
++    llm.generate_response([{"role": "user", "content": "json please"}], response_format={"type": "json_object"})
++
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert call_kwargs["text"] == {"format": {"type": "json_object"}}
++    assert "response_format" not in call_kwargs
++
++
+ def test_generate_response_with_tools(mock_openai_client):
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0)
++    config = OpenAIConfig(model=TEST_MODEL, temperature=0.7, max_tokens=100, top_p=1.0)
+     llm = OpenAILLM(config)
+     messages = [
+         {"role": "system", "content": "You are a helpful assistant."},
+         {"role": "user", "content": "Add a new memory: Today is a sunny day."},
+     ]
++    parameters = {
++        "type": "object",
++        "properties": {"data": {"type": "string", "description": "Data to add to memory"}},
++        "required": ["data"],
++    }
+     tools = [
+         {
+             "type": "function",
+-            "function": {
+-                "name": "add_memory",
+-                "description": "Add a memory",
+-                "parameters": {
+-                    "type": "object",
+-                    "properties": {"data": {"type": "string", "description": "Data to add to memory"}},
+-                    "required": ["data"],
+-                },
+-            },
++            "function": {"name": "add_memory", "description": "Add a memory", "parameters": parameters},
+         }
+     ]
+ 
+-    mock_response = Mock()
+-    mock_message = Mock()
+-    mock_message.content = "I've added the memory for you."
+-
+-    mock_tool_call = Mock()
+-    mock_tool_call.function.name = "add_memory"
+-    mock_tool_call.function.arguments = '{"data": "Today is a sunny day."}'
+-
+-    mock_message.tool_calls = [mock_tool_call]
+-    mock_response.choices = [Mock(message=mock_message)]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++    mock_response = Mock(
++        output_text="I've added the memory for you.",
++        output=[_function_call("add_memory", '{"data": "Today is a sunny day."}')],
++    )
++    mock_openai_client.responses.create.return_value = mock_response
+ 
+     response = llm.generate_response(messages, tools=tools)
+ 
+-    mock_openai_client.chat.completions.create.assert_called_once_with(
+-        model="gpt-4.1-nano-2025-04-14", messages=messages, temperature=0.7, max_tokens=100, top_p=1.0, tools=tools, tool_choice="auto"
+-    )
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert call_kwargs["tools"] == [
++        {
++            "type": "function",
++            "name": "add_memory",
++            "description": "Add a memory",
++            "parameters": parameters,
++            "strict": False,
++        }
++    ]
++    assert call_kwargs["tool_choice"] == "auto"
+ 
+     assert response["content"] == "I've added the memory for you."
+     assert len(response["tool_calls"]) == 1
+@@ -108,357 +135,170 @@ def test_generate_response_with_tools(mock_openai_client):
+     assert response["tool_calls"][0]["arguments"] == {"data": "Today is a sunny day."}
+ 
+ 
+-def test_response_callback_invocation(mock_openai_client):
+-    # Setup mock callback
+-    mock_callback = Mock()
+-    
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", response_callback=mock_callback)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Test callback"}]
+-    
+-    # Mock response
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-    
+-    # Call method
+-    llm.generate_response(messages)
+-    
+-    # Verify callback called with correct arguments
+-    mock_callback.assert_called_once()
+-    args = mock_callback.call_args[0]
+-    assert args[0] is llm  # llm_instance
+-    assert args[1] == mock_response  # raw_response
+-    assert "messages" in args[2]  # params
+-
+-
+-def test_no_response_callback(mock_openai_client):
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14")
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Test no callback"}]
+-    
+-    # Mock response
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-    
+-    # Should complete without calling any callback
+-    response = llm.generate_response(messages)
+-    assert response == "Response"
+-    
+-    # Verify no callback is set
+-    assert llm.config.response_callback is None
++def test_image_content_converted_to_input_image(mock_openai_client):
++    llm = OpenAILLM(OpenAIConfig(model=TEST_MODEL))
++    mock_openai_client.responses.create.return_value = _text_response("a cat")
++    messages = [
++        {
++            "role": "user",
++            "content": [
++                {"type": "text", "text": "Describe"},
++                {"type": "image_url", "image_url": {"url": "https://example.com/cat.png", "detail": "low"}},
++            ],
++        }
++    ]
+ 
++    llm.generate_response(messages)
+ 
+-def test_callback_exception_handling(mock_openai_client):
+-    # Callback that raises exception
+-    def faulty_callback(*args):
+-        raise ValueError("Callback error")
+-    
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", response_callback=faulty_callback)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Test exception"}]
+-    
+-    # Mock response
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Expected response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-    
+-    # Should complete without raising
+-    response = llm.generate_response(messages)
+-    assert response == "Expected response"
+-    
+-    # Verify callback was called (even though it raised an exception)
+-    assert llm.config.response_callback is faulty_callback
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert call_kwargs["input"] == [
++        {
++            "role": "user",
++            "content": [
++                {"type": "input_text", "text": "Describe"},
++                {"type": "input_image", "image_url": "https://example.com/cat.png", "detail": "low"},
++            ],
++        }
++    ]
+ 
+ 
+-def test_reasoning_model_with_reasoning_effort(mock_openai_client):
+-    """Test that reasoning_effort is passed to the API for reasoning models."""
+-    config = OpenAIConfig(model="o3-mini", reasoning_effort="low")
++def test_router_fields_sent_via_extra_body(mock_openai_client):
++    config = OpenAIConfig(
++        models=["provider-a:model-a", "provider-b:model-b"],
++        provider_timeout=30,
++        timeout_before_headers=10,
++        router_metadata={"feature": "memory-extraction"},
++    )
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+-
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response from o3-mini"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-
+-    response = llm.generate_response(messages)
++    mock_openai_client.responses.create.return_value = _text_response("ok")
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args
+-    assert call_kwargs[1]["reasoning_effort"] == "low"
+-    assert "temperature" not in call_kwargs[1]  # reasoning models don't get temperature
+-    assert response == "Response from o3-mini"
++    llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert "model" not in call_kwargs  # mutually exclusive with `models`
++    assert call_kwargs["extra_body"] == {
++        "models": ["provider-a:model-a", "provider-b:model-b"],
++        "provider_timeout": 30,
++        "timeout_before_headers": 10,
++        "metadata": {"feature": "memory-extraction"},
++    }
+ 
+-def test_reasoning_model_without_reasoning_effort(mock_openai_client):
+-    """Test that reasoning_effort is not passed when not configured."""
+-    config = OpenAIConfig(model="o3-mini")
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++def test_no_extra_body_by_default(mock_openai_client):
++    llm = OpenAILLM(OpenAIConfig(model=TEST_MODEL))
++    mock_openai_client.responses.create.return_value = _text_response("ok")
+ 
+-    llm.generate_response(messages)
++    llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args
+-    assert "reasoning_effort" not in call_kwargs[1]
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert "extra_body" not in call_kwargs
+ 
+ 
+-def test_non_reasoning_model_ignores_reasoning_effort(mock_openai_client):
+-    """Test that reasoning_effort is not passed for non-reasoning models."""
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", reasoning_effort="high")
++def test_response_callback_invocation(mock_openai_client):
++    mock_callback = Mock()
++    config = OpenAIConfig(model=TEST_MODEL, response_callback=mock_callback)
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
++    messages = [{"role": "user", "content": "Test callback"}]
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++    mock_response = _text_response("Response")
++    mock_openai_client.responses.create.return_value = mock_response
+ 
+     llm.generate_response(messages)
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args
+-    # Non-reasoning models use common params path, reasoning_effort not added there
+-    assert "reasoning_effort" not in call_kwargs[1]
+-
+-
+-def test_reasoning_effort_config_values():
+-    """Test that reasoning_effort can be set to all valid values."""
+-    for effort in ["low", "medium", "high"]:
+-        config = OpenAIConfig(model="o3", reasoning_effort=effort)
+-        assert config.reasoning_effort == effort
++    mock_callback.assert_called_once()
++    args = mock_callback.call_args[0]
++    assert args[0] is llm  # llm_instance
++    assert args[1] == mock_response  # raw_response
++    assert "input" in args[2]  # params
+ 
+-    config = OpenAIConfig(model="o3")
+-    assert config.reasoning_effort is None
+ 
++def test_callback_exception_handling(mock_openai_client):
++    def faulty_callback(*args):
++        raise ValueError("Callback error")
+ 
+-def test_store_not_sent_by_default(mock_openai_client):
+-    """`store` must NOT be injected into requests when the user has not
+-    explicitly configured it. Regression test for issue #4709, where
+-    `store=False` was unconditionally sent and rejected by OpenAI-compatible
+-    backends such as Google Gemini."""
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.1)
+-    assert config.store is None  # new opt-in default
++    config = OpenAIConfig(model=TEST_MODEL, response_callback=faulty_callback)
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
++    mock_openai_client.responses.create.return_value = _text_response("Expected response")
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-
+-    llm.generate_response(messages)
+-
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+-    assert "store" not in call_kwargs
++    response = llm.generate_response([{"role": "user", "content": "Test exception"}])
++    assert response == "Expected response"
+ 
+ 
+-def test_store_sent_when_explicitly_true(mock_openai_client):
+-    """When the user explicitly sets `store=True`, the field must be forwarded."""
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", store=True)
++def test_reasoning_model_with_reasoning_effort(mock_openai_client):
++    """reasoning_effort maps to Responses `reasoning.effort` for reasoning models."""
++    config = OpenAIConfig(model="o3-mini", reasoning_effort="low")
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
++    mock_openai_client.responses.create.return_value = _text_response("Response from o3-mini")
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-
+-    llm.generate_response(messages)
++    response = llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+-    assert call_kwargs["store"] is True
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert call_kwargs["reasoning"] == {"effort": "low"}
++    assert "temperature" not in call_kwargs  # reasoning models don't get temperature
++    assert "max_output_tokens" not in call_kwargs
++    assert response == "Response from o3-mini"
+ 
+ 
+-def test_store_sent_when_explicitly_false(mock_openai_client):
+-    """When the user explicitly sets `store=False`, the field must still be
+-    forwarded — explicit opt-out is a valid configuration for users who rely on
+-    it for OpenAI's zero-data-retention behavior."""
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", store=False)
++def test_non_reasoning_model_ignores_reasoning_effort(mock_openai_client):
++    config = OpenAIConfig(model=TEST_MODEL, reasoning_effort="high")
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
++    mock_openai_client.responses.create.return_value = _text_response("Response")
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++    llm.generate_response([{"role": "user", "content": "Hello"}])
++
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert "reasoning" not in call_kwargs
+ 
+-    llm.generate_response(messages)
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args.kwargs
+-    assert call_kwargs["store"] is False
++def test_store_not_sent_by_default(mock_openai_client):
++    config = OpenAIConfig(model=TEST_MODEL, temperature=0.1)
++    assert config.store is None
++    llm = OpenAILLM(config)
++    mock_openai_client.responses.create.return_value = _text_response("Response")
+ 
++    llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-def test_gpt5_mini_not_classified_as_reasoning(mock_openai_client):
+-    """Test that gpt-5.4-mini is NOT treated as a reasoning model.
++    assert "store" not in mock_openai_client.responses.create.call_args.kwargs
+ 
+-    gpt-5.4-mini supports temperature and other standard params.
+-    The previous substring match on "gpt-5" incorrectly stripped these.
+-    Regression test for https://github.com/mem0ai/mem0/issues/4738
+-    """
+-    config = OpenAIConfig(model="gpt-5.4-mini", temperature=0.1)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+ 
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="Response"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++def test_store_sent_when_explicitly_set(mock_openai_client):
++    for value in (True, False):
++        llm = OpenAILLM(OpenAIConfig(model=TEST_MODEL, store=value))
++        mock_openai_client.responses.create.return_value = _text_response("Response")
+ 
+-    llm.generate_response(messages)
++        llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args
+-    # gpt-5.4-mini should pass through temperature, not strip it
+-    assert call_kwargs[1].get("temperature") == 0.1
++        assert mock_openai_client.responses.create.call_args.kwargs["store"] is value
+ 
+ 
+ def test_is_reasoning_model_classification(mock_openai_client):
+-    """Test _is_reasoning_model correctly classifies known models."""
+-    config = OpenAIConfig(model="gpt-4.1")
+-    llm = OpenAILLM(config)
++    llm = OpenAILLM(OpenAIConfig(model=TEST_MODEL))
+ 
+-    # Reasoning models — should return True
+     assert llm._is_reasoning_model("o1") is True
+     assert llm._is_reasoning_model("o3-mini") is True
+-    assert llm._is_reasoning_model("o3") is True
+-    assert llm._is_reasoning_model("gpt-5") is True
+-    assert llm._is_reasoning_model("o1-preview") is True
+-    assert llm._is_reasoning_model("o1-2024-12-17") is True
+     assert llm._is_reasoning_model("openai/o3-mini") is True
++    assert llm._is_reasoning_model("openai:o3-mini") is True
++    assert llm._is_reasoning_model(None) is False
+ 
+-    # Non-reasoning models — should return False
+     assert llm._is_reasoning_model("gpt-5.4-mini") is False
+-    assert llm._is_reasoning_model("gpt-5.4") is False
+-    assert llm._is_reasoning_model("gpt-4.1") is False
+-    assert llm._is_reasoning_model("gpt-4.1-nano-2025-04-14") is False
+-
+-
+-def test_is_reasoning_model_explicit_override(mock_openai_client):
+-    """Explicit is_reasoning_model overrides the name-based heuristic both ways.
+-
+-    See https://github.com/mem0ai/mem0/issues/5296 — deployments with custom or
+-    versioned names need to opt in/out without relying on string matching.
+-    None (default) must preserve the existing heuristic.
+-    """
+-    # Force True: a name the heuristic would reject is now reasoning.
+-    config_true = OpenAIConfig(model="gpt-5.4-nano-2026-03-17", is_reasoning_model=True)
+-    llm_true = OpenAILLM(config_true)
+-    assert llm_true._is_reasoning_model("gpt-5.4-nano-2026-03-17") is True
+-
+-    # Force False: an o-series name the heuristic would accept is now standard.
+-    config_false = OpenAIConfig(model="o3-mini", is_reasoning_model=False)
+-    llm_false = OpenAILLM(config_false)
+-    assert llm_false._is_reasoning_model("o3-mini") is False
+-
+-    # None (default) preserves the existing heuristic.
+-    config_none = OpenAIConfig(model="gpt-4.1")
+-    llm_none = OpenAILLM(config_none)
+-    assert config_none.is_reasoning_model is None
+-    assert llm_none._is_reasoning_model("o3-mini") is True
+-    assert llm_none._is_reasoning_model("gpt-5.4-mini") is False
++    assert llm._is_reasoning_model(TEST_MODEL) is False
+ 
+ 
+ def test_is_reasoning_model_override_generates_correct_params(mock_openai_client):
+-    """End-to-end: is_reasoning_model=True drops max_tokens/temperature from the actual API call."""
+-    config = OpenAIConfig(
+-        model="gpt-5.4-nano-2026-03-17",
+-        temperature=0.7,
+-        max_tokens=100,
+-        is_reasoning_model=True,
+-    )
++    config = OpenAIConfig(model=TEST_MODEL, temperature=0.7, max_tokens=100, is_reasoning_model=True)
+     llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+-
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="ok"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
++    mock_openai_client.responses.create.return_value = _text_response("ok")
+ 
+-    llm.generate_response(messages)
++    llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+-    assert "max_tokens" not in call_kwargs
++    call_kwargs = mock_openai_client.responses.create.call_args.kwargs
++    assert "max_output_tokens" not in call_kwargs
+     assert "temperature" not in call_kwargs
+ 
+ 
+-def test_gpt5_uses_max_completion_tokens(mock_openai_client):
+-    """gpt-5.x (non-reasoning) must send max_completion_tokens, not max_tokens.
+-
+-    The GPT-5 family rejects the legacy max_tokens param on Chat Completions and
+-    requires max_completion_tokens. Regression test for
+-    https://github.com/mem0ai/mem0/issues/5054
+-    """
+-    config = OpenAIConfig(model="gpt-5.4-mini", temperature=0.7, max_tokens=100, top_p=1.0)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+-
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="ok"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-
+-    llm.generate_response(messages)
+-
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+-    assert call_kwargs.get("max_completion_tokens") == 100
+-    assert "max_tokens" not in call_kwargs
+-
+-
+-def test_gpt4_uses_max_tokens(mock_openai_client):
+-    """Older models (gpt-4.x) keep using max_tokens — guards against regressions."""
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", temperature=0.7, max_tokens=100, top_p=1.0)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Hello"}]
+-
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content="ok"))]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-
+-    llm.generate_response(messages)
+-
+-    call_kwargs = mock_openai_client.chat.completions.create.call_args[1]
+-    assert call_kwargs.get("max_tokens") == 100
+-    assert "max_completion_tokens" not in call_kwargs
+-
+-
+-def test_callback_with_tools(mock_openai_client):
+-    mock_callback = Mock()
+-    config = OpenAIConfig(model="gpt-4.1-nano-2025-04-14", response_callback=mock_callback)
+-    llm = OpenAILLM(config)
+-    messages = [{"role": "user", "content": "Test tools"}]
+-    tools = [
+-        {
+-            "type": "function",
+-            "function": {
+-                "name": "test_tool",
+-                "description": "A test tool",
+-                "parameters": {
+-                    "type": "object",
+-                    "properties": {"param1": {"type": "string"}},
+-                    "required": ["param1"],
+-                },
+-            }
+-        }
+-    ]
+-    
+-    # Mock tool response
+-    mock_response = Mock()
+-    mock_message = Mock()
+-    mock_message.content = "Tool response"
+-    mock_tool_call = Mock()
+-    mock_tool_call.function.name = "test_tool"
+-    mock_tool_call.function.arguments = '{"param1": "value1"}'
+-    mock_message.tool_calls = [mock_tool_call]
+-    mock_response.choices = [Mock(message=mock_message)]
+-    mock_openai_client.chat.completions.create.return_value = mock_response
+-    
+-    llm.generate_response(messages, tools=tools)
+-    
+-    # Verify callback called with tool response
+-    mock_callback.assert_called_once()
+-    # Check that tool_calls exists in the message
+-    assert hasattr(mock_callback.call_args[0][1].choices[0].message, 'tool_calls')
+-
+-
+ def test_openai_llm_preserves_proxies_from_base_config(mock_openai_client):
+     config = BaseLlmConfig(
+-        model="gpt-4.1-nano-2025-04-14",
+-        api_key="api_key",
++        model=TEST_MODEL,
+         http_client_proxies="http://proxy.local:8080",
+     )
+     llm = OpenAILLM(config)
+diff --git a/tests/llms/test_openai_structured.py b/tests/llms/test_openai_structured.py
+index 823f1c06..f897f59d 100644
+--- a/tests/llms/test_openai_structured.py
++++ b/tests/llms/test_openai_structured.py
+@@ -4,59 +4,67 @@ import pytest
+ 
+ from mem0.configs.llms.openai import OpenAIConfig
+ from mem0.llms.openai_structured import OpenAIStructuredLLM
++from mem0.llms.router import ROUTER_BASE_URL
++
++
++@pytest.fixture(autouse=True)
++def router_env(monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "test-router-key")
++    monkeypatch.delenv("RAMP_ROUTER_MODEL", raising=False)
++    monkeypatch.delenv("RAMP_ROUTER_MODELS", raising=False)
+ 
+ 
+ @pytest.fixture
+ def mock_openai_client():
+-    with patch("mem0.llms.openai_structured.OpenAI") as mock_openai:
++    with patch("mem0.llms.router.OpenAI") as mock_openai:
+         mock_client = Mock()
+         mock_openai.return_value = mock_client
+         yield mock_client
+ 
+ 
+-def _mock_parse(mock_client, content="ok"):
+-    mock_response = Mock()
+-    mock_response.choices = [Mock(message=Mock(content=content))]
+-    mock_client.beta.chat.completions.parse.return_value = mock_response
++def _mock_create(mock_client, content="ok"):
++    mock_client.responses.create.return_value = Mock(output_text=content)
+ 
+ 
+ def test_reasoning_model_drops_temperature(mock_openai_client):
+     """Reasoning models reject `temperature`; structured output must not send it."""
+     config = OpenAIConfig(model="o3-mini", reasoning_effort="low")
+     llm = OpenAIStructuredLLM(config)
+-    _mock_parse(mock_openai_client)
++    _mock_create(mock_openai_client)
+ 
+     llm.generate_response([{"role": "user", "content": "Hello"}])
+ 
+-    call_kwargs = mock_openai_client.beta.chat.completions.parse.call_args[1]
++    call_kwargs = mock_openai_client.responses.create.call_args[1]
+     assert "temperature" not in call_kwargs  # reasoning models don't accept temperature
+-    assert "max_tokens" not in call_kwargs  # also dropped for reasoning models
++    assert "max_output_tokens" not in call_kwargs  # also dropped for reasoning models
+     assert "top_p" not in call_kwargs  # also dropped for reasoning models
+-    assert call_kwargs["reasoning_effort"] == "low"
++    assert call_kwargs["reasoning"] == {"effort": "low"}
+     assert call_kwargs["model"] == "o3-mini"
+ 
+ 
+ def test_regular_model_sends_sampling_params(mock_openai_client):
+     """Regular models still receive the standard sampling params."""
+-    config = OpenAIConfig(model="gpt-4o", temperature=0.3)
++    config = OpenAIConfig(model="test-router-model", temperature=0.3)
+     llm = OpenAIStructuredLLM(config)
+-    _mock_parse(mock_openai_client)
++    _mock_create(mock_openai_client)
+ 
+-    llm.generate_response([{"role": "user", "content": "Hello"}])
++    result = llm.generate_response([{"role": "user", "content": "Hello"}], response_format={"type": "json_object"})
+ 
+-    call_kwargs = mock_openai_client.beta.chat.completions.parse.call_args[1]
++    call_kwargs = mock_openai_client.responses.create.call_args[1]
+     assert call_kwargs["temperature"] == 0.3
+-    assert "max_tokens" in call_kwargs  # standard sampling params still forwarded
++    assert "max_output_tokens" in call_kwargs  # standard sampling params still forwarded
+     assert "top_p" in call_kwargs
+-    assert call_kwargs["model"] == "gpt-4o"
++    assert call_kwargs["model"] == "test-router-model"
++    assert call_kwargs["text"] == {"format": {"type": "json_object"}}
++    assert result == "ok"
+ 
+ 
+-def test_uses_openai_base_url_environment_variable(monkeypatch):
+-    base_url = "https://gateway.example/v1"
+-    monkeypatch.setenv("OPENAI_API_BASE", "https://legacy.example/v1")
+-    monkeypatch.setenv("OPENAI_BASE_URL", base_url)
++def test_client_points_at_router(monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_MODEL", "env-router-model")
++    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.example/v1")
+ 
+-    with patch("mem0.llms.openai_structured.OpenAI") as mock_openai:
+-        OpenAIStructuredLLM(OpenAIConfig(api_key="test-api-key"))
++    with patch("mem0.llms.router.OpenAI") as mock_openai:
++        llm = OpenAIStructuredLLM(OpenAIConfig(api_key="provider-key-must-not-be-sent"))
+ 
+-    mock_openai.assert_called_once_with(api_key="test-api-key", base_url=base_url)
++    mock_openai.assert_called_once_with(api_key="test-router-key", base_url=ROUTER_BASE_URL)
++    assert llm.config.model == "env-router-model"
+diff --git a/tests/rerankers/test_llm_reranker_config.py b/tests/rerankers/test_llm_reranker_config.py
+index 69f4df96..e5b1f68e 100644
+--- a/tests/rerankers/test_llm_reranker_config.py
++++ b/tests/rerankers/test_llm_reranker_config.py
+@@ -6,7 +6,7 @@ from mem0.reranker.llm_reranker import LLMReranker
+ class TestLLMRerankerConfig:
+     def test_default_config(self):
+         config = LLMRerankerConfig()
+-        assert config.model == "gpt-5-mini"
++        assert config.model is None  # resolved from RAMP_ROUTER_MODEL by the OpenAI (Router) LLM
+         assert config.provider == "openai"
+         assert config.temperature == 0.0
+         assert config.max_tokens == 100
+diff --git a/tests/test_proxy.py b/tests/test_proxy.py
+index 26209695..cddaa6e2 100644
+--- a/tests/test_proxy.py
++++ b/tests/test_proxy.py
+@@ -26,8 +26,10 @@ def mock_openai_embedding_client():
+ 
+ 
+ @pytest.fixture
+-def mock_openai_llm_client():
+-    with patch("mem0.llms.openai.OpenAI") as mock_openai:
++def mock_openai_llm_client(monkeypatch):
++    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "test-router-key")
++    monkeypatch.setenv("RAMP_ROUTER_MODEL", "test-router-model")
++    with patch("mem0.llms.router.OpenAI") as mock_openai:
+         mock_client = Mock()
+         mock_openai.return_value = mock_client
+         yield mock_client

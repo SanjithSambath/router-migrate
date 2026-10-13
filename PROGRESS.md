@@ -57,4 +57,16 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
 - Metric: replay counts unique request shapes with each site's literal kwargs; Router-on suites that mock HTTP show N/A.
 - Tests: 187 passing; rule registry 83 rules, all mapped to existing tests.
 
-(continued below as milestones complete)
+## M9 final eval + full baseline
+- All 15 repos were re-run after the fixes, with live replay against api.router.com:
+  - 48 of 170 sites migrated (75% of eligible first-party sites);
+  - tests and typecheck unchanged in 15 of 15 repos;
+  - router-sim replay 24/24 unique shapes valid;
+  - live replay 100% in all 12 repos with migrated sites, for $0.000042.
+- Baseline (the docs prompt, run by Claude agents) is now scored on all 15 repos: 90 sites moved, regressions in 8 of 15 repos,
+  32 sites moved in the repos it left intact.
+- Two TS over-claims caught by reading the chatbot-ui results were fixed:
+  - per-user `apiKey: profile.*` is now flagged per-tenant;
+  - a `baseURL` taken from a user-defined object is now kept.
+- The baseline scorer now resolves absolute Python imports (screenshot-to-code: 0 -> 3 moved, in the baseline's favour).
+- WRITEUP.md, EMAIL_TO_KEDAR.md (draft, not sent) and the README results section are written.

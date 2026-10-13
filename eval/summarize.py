@@ -18,6 +18,24 @@ for r in rows:
 print("\nby sdk/surface:")
 for k, v in sorted(agg.items(), key=lambda kv: -sum(kv[1].values())):
     print("  %-40s %s" % (k, dict(v)))
+# Router-eligible sites split by who serves them today: a site on another vendor's endpoint, Azure or another gateway can only move
+# by changing vendor/model (a product decision); first-party sites call OpenAI/Anthropic directly.
+import glob
+import re
+OTHER = re.compile(r"another vendor|Azure|azure|groq SDK|other SDK|Vercel AI Gateway|-specific module|cloud-hosted|endpoint chosen at runtime")
+fp = collections.Counter()
+for f in glob.glob(os.path.join(E, "logs", "*.plan.json")):
+    if ".baseline." in f:
+        continue
+    for x in json.load(open(f))["sites"]:
+        if x.get("prod") and (x.get("router_eligible") or x["outcome"] in ("migrated", "handoff", "flagged")):  # plan.summarize definition
+            k = "migrated" if x["outcome"] == "migrated" else ("other_vendor" if OTHER.search(x["reason"]) else
+                                                              "per_tenant" if "per-tenant" in x["reason"] else "first_party_not_moved")
+            fp[k] += 1
+first = fp["migrated"] + fp["per_tenant"] + fp["first_party_not_moved"]
+print("\nRouter-eligible sites: %d on other vendors/Azure/other gateways (kept or handoff); %d first-party (OpenAI/Anthropic direct): "
+      "%d migrated (%.0f%%), %d per-tenant keys flagged, %d other flagged (beta header, models outside the catalog)" % (
+          fp["other_vendor"], first, fp["migrated"], 100.0 * fp["migrated"] / max(1, first), fp["per_tenant"], fp["first_party_not_moved"]))
 rep = [r for r in rows if r.get("replay_unique_requests") is not None]
 print("\nrouter-sim replay (unique request shapes, site literal kwargs): %d ok of %d | Router-on test runs that reached the sim: %d of %d repos" % (
     sum(r.get("replay_ok") or 0 for r in rep), sum(r["replay_unique_requests"] for r in rep),
