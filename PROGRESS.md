@@ -70,3 +70,28 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   - a `baseURL` taken from a user-defined object is now kept.
 - The baseline scorer now resolves absolute Python imports (screenshot-to-code: 0 -> 3 moved, in the baseline's favour).
 - WRITEUP.md, EMAIL_TO_KEDAR.md (draft, not sent) and the README results section are written.
+
+## v2 MVP (2026-10-13)
+- **M0:** live measurements for $0.0004, written up in research/m0_measurements.md and DECISIONS D11.
+  - Flex costs 50% of default on gpt-5.4-mini, and eligibility is per model.
+  - Router's `models` fallback list works through raw HTTP and both SDKs.
+  - Jev is unmeasured; Switchyard works from app code.
+- **Policy:** `router.policy.json` is compiled into `router_policy.py` / `routerPolicy.ts`.
+  - It supports precedence, a capability guard, and v1 behaviour when the policy is invalid or turned off.
+  - The same 21 fixtures pass in both runtimes against router-sim.
+- **Recommend:**
+  - Signals: latency_class, model_owner, resolved_model.
+  - Rules: unlock.vendor_endpoint, unlock.stated_loss, attr.metadata, cache.key, tier.flex_background and fallback.candidates.
+  - Model cards (deprecated, newer_cheaper, right_size) are cards only, for owned models only.
+  - Every rejected lever goes on a "considered, not recommended" list.
+- **Decisions:** decisions.json with etags, plus `decide`, `apply --decisions`, `status` and `up --agent` (exit 2 while cards
+  are undecided). RECOMMENDATIONS.md is rendered one-way.
+- **Dashboard:** a stdlib server on 127.0.0.1 (session token, Host/Origin checks, body cap) serving one page with five tabs in
+  the Ryu cement tokens. REPORT.html is the frozen copy, and eval/screenshots/ holds Playwright shots of every tab, light and
+  dark.
+- **Eval v2:**
+  - 48 sites lossless (equal to v1) and 49 with unlocks.
+  - 0 repos with worse tests after approving every unlock and same-model card.
+  - 30 cards; 20 meet their evidence bar.
+  - Live spend $0.000795. There is a REPORT.html for every repo.
+- **Tests:** 270 passing.

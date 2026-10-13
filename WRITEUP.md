@@ -1,106 +1,90 @@
-# router-migrate: results
+# router-migrate: results (v1 migrate, v2 MVP unlock + improve)
 
 **For:** Kedar Thakkar.
 
-**What I built:** a CLI with `scan` / `plan` / `apply` / `verify` / `report`, plus a skill so a coding agent can run it. It moves a codebase's
-production OpenAI/Anthropic/LangChain/Vercel AI SDK/LiteLLM traffic onto Router without breaking anything. Every number below is
-from `eval/scoreboard.json` and `eval/baseline.json` (printed by `eval/summarize.py`); none are typed by hand.
+**What it is:** a CLI with a coding-agent skill and a local dashboard (`router-migrate up`).
+- **v1** moves a codebase's production OpenAI, Anthropic, LangChain, AI SDK and LiteLLM traffic onto Router, losslessly and
+  automatically.
+- **v2** adds an Improve phase:
+  - cards that *unlock* more traffic once you accept a mapping or a stated loss;
+  - same-model improvements (spend tags, cache keys, Flex for background jobs, fallbacks), applied through a compiled
+    per-feature policy;
+  - model-change recommendations, which are never applied automatically;
+  - a Router setup checklist.
 
-## The design choice that matters
-- **Translate below the call sites.** Instead of rewriting call sites to the Responses API (what the docs' migration prompt asks
-  for), router-migrate puts a small vendored runtime *under* each SDK client. It translates `chat.completions` to Router's
-  `/v1/responses` and back, SSE included, and passes `/responses` and `/messages` straight through.
-- **Edit only constructors.** Codemods change client constructions only (`OpenAI()` becomes `_router_wrap_openai(OpenAI())`). Code that
-  reads `.choices[0]`, stream loops and tool-call handling never changes.
-- **Off by default, per-request when on.** The runtime is inert until `RAMP_ROUTER_API_KEY` is set. When it is set, each request
-  goes to Router only if Router can serve it *exactly*. Everything else (embeddings, `n>1`, `seed`, models outside the catalog,
-  provider-side vector stores, beta headers) stays on the original provider, unchanged.
-- **Rules come from the live API, not the docs.** Every rule is backed by a live API measurement (`~/code/router-live-check`), and
-  router-sim enforces the same rules in tests.
+Every number below is from `eval/scoreboard.json`, `eval/scoreboard_v2.json` and `eval/heldout/audit.json`.
 
-## Results: 15 pinned open-source repos (9 Python, 6 TS)
+## Results on the 15 pinned repos (9 Python, 6 TS)
 
-| | router-migrate |
+| | v1 (automatic) | v2 MVP (every unlock and same-model card approved) |
+|---|---|---|
+| production LLM sites moved to Router | **48 of 170** (lossless) | **49** with unlocks, reported beside the lossless 48 and never summed |
+| repos where tests or typecheck got worse (Router off) | 0 of 15 | **0 of 15**, after `apply --decisions` and a re-run of every suite |
+| live verification | 12 of 12 repos replayed at 100% | unlocked site served live by Router (mem0 xAI `grok-4.3` through `unlock_hosts`) |
+| live spend | $0.000042 | **$0.000795** for all of v2 (M0 + unlock replay; cap $5) |
+
+**v2 cards: 30 in total, and 20 meet their lever's evidence bar.**
+
+| Lever | Cards |
 |---|---|
-| production LLM sites found | 170 |
-| migrated to Router | **48**: 28% of all sites and 45% of Router-eligible sites. Of the 64 eligible sites that call OpenAI/Anthropic directly, 75% were migrated |
-| repos where tests or typecheck got worse (Router off) | **0 of 15** (same counts before and after in every repo) |
-| replay through the vendored runtime | router-sim: 24 of 24 unique request shapes valid. **Live Router: 12 of 12 repos with migrated sites at 100%**, total spend $0.000042 |
-| diff size | 402 lines across all 15 repos (median 11 per repo) |
+| `attr.metadata` | 10 |
+| `fallback.candidates` | 9 |
+| `model.newer_cheaper_same_family` | 10 (recommendations only) |
+| `unlock.vendor_endpoint` | 1 |
+| `cache.key`, `tier.flex_background`, `unlock.stated_loss`, `model.deprecated`, `model.right_size` | 0 each |
 
-**Why the rest was not moved.**
-- **Not Router traffic.** Of the 107 Router-eligible sites, 43 point at another vendor's endpoint, Azure, or another gateway: DeepSeek,
-  OpenRouter, Groq, Mistral, vLLM, Vercel AI Gateway... Moving them changes the vendor and the model, which is a product decision,
-  so they are kept or handed off with the exact reason. Embeddings (35 sites) have no Router endpoint.
-- **Per-tenant keys (8 sites).** These clients use a key that each user supplies (chatbot-ui, screenshot-to-code). Moving them would
-  bill every tenant to one Router key, so they are flagged rather than silently consolidated.
-- **Other flags.** The rest are Anthropic beta headers and runtime-chosen models whose names are not in Router's catalog
-  (chatbot-ui's Claude 2/3 list, TaskWeaver's `claude-3-opus-20240229`).
+- **Unfired rules** are covered by a synthetic test repo. Every rejected lever is listed per repo under "Considered, not
+  recommended", with its reason.
+- **Card precision is unmeasured.** The cards were not adjudicated against a blind rubric.
 
-## Versus the baseline (the docs' migration prompt, run by a Claude agent on a fresh copy of each repo)
-Both tools are scored per original call site, with the same tests. The baseline scorer is deliberately generous: a site counts as
-moved if its file reaches `api.router.com` or `RAMP_ROUTER_*` in any way.
-- **Sites moved:** across all 15 repos, the baseline moved 90 of 170 sites to router-migrate's 48.
-- **Regressions:** the baseline left failing tests or new type errors in **8 of 15 repos**:
-  - llm: 1208 → 1014 passing, 306 failing;
-  - llm-anthropic: 123 → 44;
-  - shell_gpt: 29 → 0;
-  - opencommit: 243 → 181;
-  - aicommits: 79 → 72;
-  - gpt-researcher: 570 → 552;
-  - mem0: 2007 → 1960 passing, 44 failing;
-  - ai-chatbot: new type error.
+## Why the v2 gain is small, and why that's the right answer
+- **Unlocks.** Of the 43 dev-set sites on another vendor's endpoint, one is on a model Router serves under the same id:
+  mem0's xAI client defaults to `grok-4.3`. DeepSeek `deepseek-chat`, MiniMax `MiniMax-M2.7` and the rest are not catalog ids,
+  so moving them would change the model. All 6 beta-header sites need betas that can't be dropped (code execution, computer
+  use, MCP), use per-user keys, or both.
+- **Flex and cache.** No dev repo has a clear background job (worker, cron, batch) or a long static system prompt beside its
+  call, so the engine proposes neither. It lists why per feature instead of guessing.
+- **Model changes.** 39 of the 48 migrated sites choose the model at runtime from user config, a CLI flag or a library
+  parameter. Model cards appear only where the app or its operator owns the model: 10 cards, in 3 repos.
 
-  Counting only repos it left intact, the baseline moved 32 sites. router-migrate moved 48 and broke none.
-- **Where the extra sites came from:** the baseline swapped vendors and models. chatbot-ui's Groq, Mistral and Perplexity routes, and
-  gpt-researcher's 11 alternative providers, were pointed at Router behind an empty model map it asked the customer to fill in.
-- **Diff size:** median 565 lines per repo for the baseline, 11 for router-migrate.
-- **What it could not see:** shell_gpt asserts the exact kwargs of each completion call, and llm-anthropic replays VCR cassettes
-  keyed to api.anthropic.com. Rewriting call sites breaks both, even when the new code is correct.
+## What M0 measured live (`research/m0_measurements.md`)
+- **Flex:** costs exactly **50%** of default on gpt-5.4-mini (n=5 per arm). It is per model: 17 models have it, and
+  gpt-4o-mini returns 400. One flex call took **61 s**, which is why `tier.flex_background` is for the background latency
+  class only.
+- **Fallbacks:** Router's `models` list works through raw HTTP, openai-python `extra_body` and openai-node. It advances past a
+  403 or an unknown model.
+- **Jev:** unmeasured. It's off on the account, and turning it on is a setting change.
+- **Switchyard:** `model: "switchyard"` from app code returned 200 (gpt-5.6-luna at flex) with routing toggled off.
 
-## Flags I would want a reviewer to know
-- `tests after` is measured with Router **off**, which is exactly what the zero-breakage claim covers.
-  - With Router **on**, no repo's test suite sends even one request to router-sim: they all mock the SDK or HTTP by URL. So the
-    Router-on correctness evidence is the runtime's own tests through the real SDKs (openai 2.x/3.x, anthropic, LangChain, AI SDK)
-    plus static-kwarg replays of each migrated site against router-sim and live Router.
-  - The replays use synthetic prompts, not the repos' own code paths.
-- An independent adversarial review (`research/adversarial_review.md`) found 3 critical and 6 high issues in my first version.
-  Every one is fixed and regression-tested, and the planner over-claims it found are why "migrated" dropped from 57 to 48.
-  - The worst one: Responses chains split across Router and OpenAI on turn 2.
-  - The full list is in DECISIONS D10.
-- `previous_response_id` chains that start on Router are continued in process memory, with the history sent inline. On a
-  multi-process server, a turn that lands on another worker gets a clear error; the planner keeps stateful Responses clients off
-  Router for that reason.
-- Live verification costs almost nothing: the whole live replay cost $0.000042. The live checks behind the rules cost about $0.15.
+## Overfitting check: the frozen v1 tool on 30 held-out repos (`eval/heldout/AUDIT.md`)
+- **Method:** blind, rubric-based inventories, with all 94 disagreements adjudicated against the code.
+- **Results:**
+  - **Migrated claims:** **53%** correct (the dev-set review audit found 89%).
+  - **Coverage:** 63% of the sites that should move do; the scanner finds 71% of Router-relevant sites.
+- **Impact:** 27 of the 33 wrong "migrated" claims would never move traffic, because the runtime only reroutes requests
+  addressed to OpenAI or Anthropic. 4 would move per-user-key traffic onto the operator's Router key.
+- **Breakage:** one held-out regression, a TS import suffix in node-DeepResearch. The tool also patched scaffold templates
+  in gpt-pilot.
+- **Status:** the held-out run is incomplete. 15 of 29 repos have test results, and the fixes have not been made.
 
-## Router issues found (live, against api.router.com)
-1. **No server-side state.**
-   - `store:true` returns 400, and `previous_response_id` returns 400 on OpenAI models and is silently ignored on others.
-   - `responses.retrieve` returns 404, and conversations are unavailable.
-   - Any Responses app that chains turns breaks on turn 2 unless something replays history. router-migrate does that replay for
-     you; the docs prompt doesn't mention it.
-2. **Flex tier is the account default and was applied without opt-in** (gpt-5-nano was flex 5 of 5 times). It also flipped tier
-   between turns of one conversation. router-migrate sends `service_tier: "default"` unless the caller chose a tier.
-3. **The catalog lists models the key can't call:** `gpt-5.3-codex` returns 403 `data_residency_mismatch`. The runtime falls back to
-   the provider once and remembers the refusal.
-4. **Claude via Responses only caches with `prompt_cache_key`:** 0 cached tokens without it, about 90% cheaper with it. The runtime
-   adds it per feature.
-5. **Dated model ids return 404,** so pinned snapshots can't move without a mapping. router-migrate maps only the 22 equivalences
-   Router itself reported.
-6. **`reasoning.effort` on Claude returns 400 when `max_output_tokens` < ~1100** (thinking budget ≥ 1024 doesn't fit).
-7. **Timeouts return a plain-text 504 with no request id.** Messages responses carry no `usage.cost`. Fireworks-served models report
-   `input_tokens: 1` on Messages.
-8. **Python's stdlib `urllib` User-Agent gets Cloudflare 1010.**
-9. **Switchyard changed model family mid-conversation:** gpt-5.6-luna on turns 1–2, claude-sonnet-4-5 from turn 3. It works as
-   `model: "switchyard"` once a strategy is saved. Callers can't rely on one model's behavior across turns.
+## Router issues found
+1. **No server-side state:** `store: true` returns 400; `previous_response_id` and `retrieve` don't work.
+2. **Flex on by default:** applied without opt-in and can change mid-conversation.
+3. **Catalog vs access:** the catalog lists models the key gets 403 on (`gpt-5.3-codex`).
+4. **Claude caching:** via Responses, Claude caches only with `prompt_cache_key`.
+5. **Silent flex drop:** `allow_flex_tier` is silently ignored with a `models` list, and a list with no tier is served at flex.
+6. **Zero usage:** incomplete replies report **0 tokens and $0** (gpt-5-nano, `max_output_tokens` hit), so their cost can't
+   be measured.
+7. **Bare 504s:** timeouts return a plain-text 504 with no request id. Messages replies have no `usage.cost`.
+8. **Switchyard:** changes model family mid-conversation.
 
 ## Next steps
-1. **Move per-tenant traffic.** Router per-tenant keys or sub-accounts would let the 8 flagged per-tenant sites move without
-   collapsing billing. That is a Router feature request, not a tool change.
-2. **Map gateway and vendor models.** A model-mapping UX for other gateways and vendors: show each alternative-vendor site with the
-   closest Router model and let the customer accept per model. That is the 43-site pool.
-3. **Shared chain store.** Replace the in-process chain memory with a pluggable store (Redis) for multi-worker servers. Better: Router
-   supporting `previous_response_id` itself.
-4. **Live replay through the repos' own code paths.** Import the patched module and call the site's function with recorded inputs,
-   instead of synthetic requests built from literal kwargs.
-5. **More eval repos.** Add Go and Java SDK codemods, and run a larger repo sample (the 15 pinned repos skew toward demo apps).
+1. **Fix the held-out findings first.** That means scanner patterns (aliased imports, wrapper functions, subclasses),
+   resolving config defaults, the TS import-suffix rule and template detection. Then measure on a fresh held-out set.
+2. **Build the evidence ladder, so model cards can climb from L1 to L2:** L2 replay with a judge, the shadow-config generator,
+   and observe mode for real per-feature cost.
+3. **Azure mapping unlock**, once the customer confirms the deployment-to-model mapping.
+4. **Policy and docs plumbing:** client-id selectors baked into wraps, and two-way sync between RECOMMENDATIONS.md and
+   decisions.json.
+5. **More repo types:** app-style repos with hard-coded models in production routes, where model cards matter most.
+6. **Rollout:** Jev/Switchyard automation and guarded rollouts, both needing account-setting work.
