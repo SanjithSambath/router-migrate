@@ -1,0 +1,4430 @@
+diff --git a/README.md b/README.md
+index 6f95287..63efc1c 100644
+--- a/README.md
++++ b/README.md
+@@ -28,15 +28,22 @@ You can use OpenCommit by simply running it via the CLI like this `oco`. 2 secon
+    npm install -g opencommit
+    ```
+ 
+-2. Get your API key from [OpenAI](https://platform.openai.com/account/api-keys) or other supported LLM providers (we support them all). Make sure that you add your OpenAI payment details to your account, so the API works.
++2. OpenCommit sends hosted-model requests through Router (`https://api.router.com/v1`), a gateway with one OpenAI Responses-compatible API in front of OpenAI, Anthropic, Gemini and other providers. Router holds the provider credentials. Export your Router API key in your shell:
+ 
+-3. Set the key to OpenCommit config:
++   ```sh
++   export RAMP_ROUTER_API_KEY=<your_router_api_key>
++   ```
++
++   OpenCommit reads the key from the environment only. It does not store it.
++
++3. Pick a model. Model IDs are specific to your Router account, so list them first:
+ 
+    ```sh
+-   oco config set OCO_API_KEY=<your_api_key>
++   oco models --refresh
++   oco config set OCO_MODEL=<model_id_from_the_list>
+    ```
+ 
+-   Your API key is stored locally in the `~/.opencommit` config file.
++   `oco setup` runs the same steps interactively.
+ 
+ ## Usage
+ 
+@@ -141,9 +148,9 @@ Create a `.env` file and add OpenCommit config variables there like this:
+ 
+ ```env
+ ...
+-OCO_AI_PROVIDER=<openai (default), anthropic, azure, ollama, llamacpp, gemini, flowise, deepseek, aimlapi, openrouter, orcarouter>
+-OCO_API_KEY=<your OpenAI API token> // or other LLM provider API token
+-OCO_API_URL=<may be used to set proxy path to OpenAI api>
++OCO_AI_PROVIDER=<router (default), ollama, llamacpp, mlx, flowise>
++OCO_API_KEY=<Flowise chatflow ID; not used by Router>
++OCO_API_URL=<custom endpoint; Router default: https://api.router.com/v1>
+ OCO_API_CUSTOM_HEADERS=<JSON string of custom HTTP headers to include in API requests>
+ OCO_TOKENS_MAX_INPUT=<max model token limit (default: 4096)>
+ OCO_TOKENS_MAX_OUTPUT=<max response tokens (default: 500)>
+@@ -152,14 +159,14 @@ OCO_REASONING_MAX_TOKENS=<max completion token budget for reasoning models, incl
+ OCO_DESCRIPTION=<postface a message with ~3 sentences description of the changes>
+ OCO_EMOJI=<boolean, add GitMoji>
+ OCO_EMOJI_POSITION_BEFORE_DESCRIPTION=<boolean, place GitMoji immediately before the commit subject; default: false>
+-OCO_MODEL=<either 'gpt-4o-mini' (default), 'gpt-4o', 'gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-3.5-turbo-0125', 'gpt-4-1106-preview', 'gpt-4-turbo-preview' or 'gpt-4-0125-preview' or any Anthropic or Ollama model or any string basically, but it should be a valid model name>
++OCO_MODEL=<a Router model ID from `oco models --refresh` (GET /v1/models), or a local model name for Ollama, llama.cpp or MLX>
+ OCO_LANGUAGE=<locale, scroll to the bottom to see options>
+ OCO_MESSAGE_TEMPLATE_PLACEHOLDER=<message template placeholder, default: '$msg'>
+ OCO_PROMPT_MODULE=<either conventional-commit or @commitlint, default: conventional-commit>
+ OCO_ONE_LINE_COMMIT=<one line commit message, default: false>
+ ```
+ 
+-Global configs are same as local configs, but they are stored in the global `~/.opencommit` config file and set with `oco config set` command, e.g. `oco config set OCO_MODEL=gpt-4o`.
++Global configs are same as local configs, but they are stored in the global `~/.opencommit` config file and set with `oco config set` command, e.g. `oco config set OCO_MODEL=<model_id>`.
+ 
+ ### Global config for all repos
+ 
+@@ -168,7 +175,7 @@ Local config still has more priority than Global config, but you may set `OCO_MO
+ Simply set any of the variables above like this:
+ 
+ ```sh
+-oco config set OCO_MODEL=gpt-4o-mini
++oco config set OCO_MODEL=<model_id>
+ ```
+ 
+ To see all available configuration parameters and their accepted values:
+@@ -226,25 +233,13 @@ To make this perform accurate we must store 'what files do' in some kind of an i
+ oco config set OCO_WHY=true
+ ```
+ 
+-### Switch to GPT-4 or other models
+-
+-By default, OpenCommit uses `gpt-4o-mini` model.
+-
+-You may switch to gpt-4o which performs better, but costs more 🤠
+-
+-```sh
+-oco config set OCO_MODEL=gpt-4o
+-```
+-
+-or for as a cheaper option:
++### Switch to other models
+ 
+-```sh
+-oco config set OCO_MODEL=gpt-3.5-turbo
+-```
++OpenCommit has no default hosted model. Router model IDs are specific to your account, so set `OCO_MODEL` to an ID that `GET /v1/models` returns.
+ 
+ ### Model Management
+ 
+-OpenCommit automatically fetches available models from your provider when you run `oco setup`. Models are cached for 7 days to reduce API calls.
++OpenCommit fetches available models from your provider (`GET /v1/models` on Router) when you run `oco setup`. Models are cached for 7 days to reduce API calls.
+ 
+ To see available models for your current provider:
+ 
+@@ -261,18 +256,16 @@ oco models --refresh
+ To see models for a specific provider:
+ 
+ ```sh
+-oco models --provider anthropic
++oco models --provider ollama
+ ```
+ 
+-### Switch to other LLM providers with a custom URL
++### Switch to local providers with a custom URL
+ 
+-By default OpenCommit uses [OpenAI](https://openai.com).
++By default OpenCommit sends requests to Router (`https://api.router.com/v1`) with the OpenAI Responses API. Hosted providers such as OpenAI, Anthropic, Azure OpenAI, Gemini, Groq, Mistral, DeepSeek, AI/ML API, OpenRouter and OrcaRouter are reached through Router; OpenCommit no longer sends provider API keys. Earlier `OCO_AI_PROVIDER` values for these providers are migrated to `router` on the first run, and the stored provider key, endpoint and model are removed.
+ 
+-You could switch to [Azure OpenAI Service](https://learn.microsoft.com/azure/cognitive-services/openai/) or Flowise or Ollama or llama.cpp.
++You could switch to Flowise or Ollama or llama.cpp.
+ 
+ ```sh
+-oco config set OCO_AI_PROVIDER=azure OCO_API_KEY=<your_azure_api_key> OCO_API_URL=<your_azure_endpoint>
+-
+ oco config set OCO_AI_PROVIDER=flowise OCO_API_KEY=<your_flowise_api_key> OCO_API_URL=<your_flowise_endpoint>
+ 
+ oco config set OCO_AI_PROVIDER=ollama OCO_API_KEY=<your_ollama_api_key> OCO_API_URL=<your_ollama_endpoint>
+@@ -280,20 +273,6 @@ oco config set OCO_AI_PROVIDER=ollama OCO_API_KEY=<your_ollama_api_key> OCO_API_
+ oco config set OCO_AI_PROVIDER=llamacpp OCO_API_URL=<your_llamacpp_endpoint>
+ ```
+ 
+-### Use OrcaRouter as the model gateway
+-
+-By default OpenCommit uses [OpenAI](https://openai.com).
+-
+-You could switch to [OrcaRouter](https://www.orcarouter.ai), an OpenAI-compatible gateway that supports direct provider models and automatic model routing. It can also provide optional gateway-level guardrails and firewall policies for prompts, responses, and tool calls. Enabling and configuring those controls is a separate step on the OrcaRouter side: the recommended `balanced` posture is primarily audit-based, while `tight` applies default-deny enforcement. OpenCommit itself does not configure them — it simply calls the gateway like any OpenAI-compatible API.
+-
+-```sh
+-oco config set OCO_AI_PROVIDER=orcarouter OCO_API_KEY=<your_orcarouter_api_key>
+-
+-oco config set OCO_AI_PROVIDER=orcarouter OCO_API_KEY=<your_orcarouter_api_key> OCO_MODEL=orcarouter/auto
+-```
+-
+-The default model is `orcarouter/auto`, which lets OrcaRouter pick the best model for your request automatically.
+-
+ ### Use with Proxy
+ 
+ If you are behind a proxy, you can set it in the config:
+@@ -438,7 +417,7 @@ Once users have generated their desired commit message, they can proceed to comm
+ 
+ ### Ignore files
+ 
+-You can remove files from being sent to OpenAI by creating ignore files. OpenCommit supports both local and global ignore files:
++You can remove files from being sent to the model by creating ignore files. OpenCommit supports both local and global ignore files:
+ 
+ #### Local ignore file
+ 
+@@ -536,19 +515,18 @@ jobs:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+ 
+         env:
+-          # set openAI api key in repo actions secrets,
+-          # for openAI keys go to: https://platform.openai.com/account/api-keys
++          # set the Router API key in repo actions secrets,
+           # for repo secret go to: <your_repo_url>/settings/secrets/actions
+-          OCO_API_KEY: ${{ secrets.OCO_API_KEY }}
++          RAMP_ROUTER_API_KEY: ${{ secrets.RAMP_ROUTER_API_KEY }}
+ 
+           # customization
+           OCO_TOKENS_MAX_INPUT: 4096
+           OCO_TOKENS_MAX_OUTPUT: 500
+-          OCO_OPENAI_BASE_PATH: ''
+           OCO_DESCRIPTION: false
+           OCO_EMOJI: false
+           OCO_EMOJI_POSITION_BEFORE_DESCRIPTION: false
+-          OCO_MODEL: gpt-4o
++          # a model ID from GET /v1/models for your Router account
++          OCO_MODEL: ${{ vars.OCO_MODEL }}
+           OCO_LANGUAGE: en
+           OCO_PROMPT_MODULE: conventional-commit
+ ```
+@@ -561,10 +539,6 @@ Interactive rebase (`rebase -i`) changes commits' SHA, so the commit history in
+ 
+ ## Payments
+ 
+-You pay for your requests to OpenAI API on your own.
+-
+-OpenCommit stores your key locally.
+-
+-OpenCommit by default uses 3.5-turbo model, it should not exceed $0.10 per casual working day.
++Requests to hosted models are billed to your Router account.
+ 
+-You may switch to gpt-4, it's better, but more expensive.
++OpenCommit reads your Router key from the `RAMP_ROUTER_API_KEY` environment variable and does not store it.
+diff --git a/package.json b/package.json
+index a9d8af3..6146238 100644
+--- a/package.json
++++ b/package.json
+@@ -62,7 +62,7 @@
+     "test:e2e:smoke": "npm run build && npm run test:e2e:smoke:run",
+     "test:e2e:smoke:run": "OCO_TEST_SKIP_VERSION_CHECK=true jest test/e2e/smoke.test.ts",
+     "test:e2e:core": "npm run build && npm run test:e2e:core:run",
+-    "test:e2e:core:run": "OCO_TEST_SKIP_VERSION_CHECK=true jest test/e2e/cliBehavior.test.ts test/e2e/anthropicBehavior.test.ts test/e2e/geminiBehavior.test.ts test/e2e/gitPush.test.ts test/e2e/oneFile.test.ts test/e2e/noChanges.test.ts",
++    "test:e2e:core:run": "OCO_TEST_SKIP_VERSION_CHECK=true jest test/e2e/cliBehavior.test.ts test/e2e/gitPush.test.ts test/e2e/oneFile.test.ts test/e2e/noChanges.test.ts",
+     "test:e2e:setup": "npm run test:e2e:prompt-module:setup",
+     "test:e2e:prompt-module:setup": "sh test/e2e/setup.sh",
+     "test:e2e:prompt-module": "npm run build && npm run test:e2e:prompt-module:run",
+diff --git a/src/commands/commit.ts b/src/commands/commit.ts
+index 77bb056..21b1d3b 100644
+--- a/src/commands/commit.ts
++++ b/src/commands/commit.ts
+@@ -21,7 +21,7 @@ import {
+ } from '../utils/git';
+ import { buildGitPushArgs, GitPushOptions } from '../utils/gitPush';
+ import { trytm } from '../utils/trytm';
+-import { getConfig } from './config';
++import { getConfig, OCO_AI_PROVIDER_ENUM } from './config';
+ 
+ const config = getConfig();
+ 
+@@ -263,7 +263,8 @@ ${chalk.grey('——————————————————')}`
+     );
+ 
+     const errorConfig = getConfig();
+-    const provider = errorConfig.OCO_AI_PROVIDER || 'openai';
++    const provider =
++      errorConfig.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.ROUTER;
+     const formatted = formatUserFriendlyError(error, provider, {
+       baseURL: errorConfig.OCO_API_URL
+     });
+diff --git a/src/commands/config.ts b/src/commands/config.ts
+index f403386..aa711ac 100644
+--- a/src/commands/config.ts
++++ b/src/commands/config.ts
+@@ -45,575 +45,6 @@ export enum CONFIG_MODES {
+   describe = 'describe'
+ }
+ 
+-export const MODEL_LIST = {
+-  openai: [
+-    'gpt-4o-mini',
+-    'gpt-3.5-turbo',
+-    'gpt-3.5-turbo-instruct',
+-    'gpt-3.5-turbo-0613',
+-    'gpt-3.5-turbo-0301',
+-    'gpt-3.5-turbo-1106',
+-    'gpt-3.5-turbo-0125',
+-    'gpt-3.5-turbo-16k',
+-    'gpt-3.5-turbo-16k-0613',
+-    'gpt-3.5-turbo-16k-0301',
+-    'gpt-4',
+-    'gpt-4-0314',
+-    'gpt-4-0613',
+-    'gpt-4-1106-preview',
+-    'gpt-4-0125-preview',
+-    'gpt-4-turbo-preview',
+-    'gpt-4-vision-preview',
+-    'gpt-4-1106-vision-preview',
+-    'gpt-4-turbo',
+-    'gpt-4-turbo-2024-04-09',
+-    'gpt-4-32k',
+-    'gpt-4-32k-0314',
+-    'gpt-4-32k-0613',
+-    'gpt-4o',
+-    'gpt-4o-2024-05-13',
+-    'gpt-4o-mini-2024-07-18'
+-  ],
+-
+-  anthropic: [
+-    'claude-sonnet-4-6',
+-    'claude-opus-4-8',
+-    'claude-sonnet-4-5-20250929',
+-    'claude-haiku-4-5-20251001',
+-    'claude-haiku-5-5'
+-  ],
+-
+-  gemini: [
+-    'gemini-1.5-flash',
+-    'gemini-1.5-pro',
+-    'gemini-1.0-pro',
+-    'gemini-pro-vision',
+-    'text-embedding-004'
+-  ],
+-
+-  groq: [
+-    'llama3-70b-8192', // Meta Llama 3 70B (default one, no daily token limit and 14 400 reqs/day)
+-    'llama3-8b-8192', // Meta Llama 3 8B
+-    'llama-guard-3-8b', // Llama Guard 3 8B
+-    'llama-3.1-8b-instant', // Llama 3.1 8B (Preview)
+-    'llama-3.1-70b-versatile', // Llama 3.1 70B (Preview)
+-    'gemma-7b-it', // Gemma 7B
+-    'gemma2-9b-it' // Gemma 2 9B
+-  ],
+-
+-  mistral: [
+-    'ministral-3b-2410',
+-    'ministral-3b-latest',
+-    'ministral-8b-2410',
+-    'ministral-8b-latest',
+-    'open-mistral-7b',
+-    'mistral-tiny',
+-    'mistral-tiny-2312',
+-    'open-mistral-nemo',
+-    'open-mistral-nemo-2407',
+-    'mistral-tiny-2407',
+-    'mistral-tiny-latest',
+-    'open-mixtral-8x7b',
+-    'mistral-small',
+-    'mistral-small-2312',
+-    'open-mixtral-8x22b',
+-    'open-mixtral-8x22b-2404',
+-    'mistral-small-2402',
+-    'mistral-small-2409',
+-    'mistral-small-latest',
+-    'mistral-medium-2312',
+-    'mistral-medium',
+-    'mistral-medium-latest',
+-    'mistral-large-2402',
+-    'mistral-large-2407',
+-    'mistral-large-2411',
+-    'mistral-large-latest',
+-    'pixtral-large-2411',
+-    'pixtral-large-latest',
+-    'codestral-2405',
+-    'codestral-latest',
+-    'codestral-mamba-2407',
+-    'open-codestral-mamba',
+-    'codestral-mamba-latest',
+-    'pixtral-12b-2409',
+-    'pixtral-12b',
+-    'pixtral-12b-latest',
+-    'mistral-embed',
+-    'mistral-moderation-2411',
+-    'mistral-moderation-latest'
+-  ],
+-  deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+-
+-  // AI/ML API available chat-completion models
+-  // https://api.aimlapi.com/v1/models
+-  aimlapi: [
+-    'openai/gpt-4o',
+-    'gpt-4o-2024-08-06',
+-    'gpt-4o-2024-05-13',
+-    'gpt-4o-mini',
+-    'gpt-4o-mini-2024-07-18',
+-    'chatgpt-4o-latest',
+-    'gpt-4-turbo',
+-    'gpt-4-turbo-2024-04-09',
+-    'gpt-4',
+-    'gpt-4-0125-preview',
+-    'gpt-4-1106-preview',
+-    'gpt-3.5-turbo',
+-    'gpt-3.5-turbo-0125',
+-    'gpt-3.5-turbo-1106',
+-    'o1-preview',
+-    'o1-preview-2024-09-12',
+-    'o1-mini',
+-    'o1-mini-2024-09-12',
+-    'o3-mini',
+-    'gpt-4o-audio-preview',
+-    'gpt-4o-mini-audio-preview',
+-    'gpt-4o-search-preview',
+-    'gpt-4o-mini-search-preview',
+-    'openai/gpt-4.1-2025-04-14',
+-    'openai/gpt-4.1-mini-2025-04-14',
+-    'openai/gpt-4.1-nano-2025-04-14',
+-    'openai/o4-mini-2025-04-16',
+-    'openai/o3-2025-04-16',
+-    'o1',
+-    'openai/o3-pro',
+-    'meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo',
+-    'google/gemma-2-27b-it',
+-    'meta-llama/Llama-Vision-Free',
+-    'Qwen/Qwen2-72B-Instruct',
+-    'mistralai/Mixtral-8x7B-Instruct-v0.1',
+-    'nvidia/Llama-3.1-Nemotron-70B-Instruct-HF',
+-    'NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO',
+-    'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+-    'meta-llama/Llama-3.2-3B-Instruct-Turbo',
+-    'meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo',
+-    'meta-llama/Llama-Guard-3-11B-Vision-Turbo',
+-    'Qwen/Qwen2.5-7B-Instruct-Turbo',
+-    'Qwen/Qwen2.5-Coder-32B-Instruct',
+-    'meta-llama/Meta-Llama-3-8B-Instruct-Lite',
+-    'meta-llama/Llama-3-8b-chat-hf',
+-    'meta-llama/Llama-3-70b-chat-hf',
+-    'Qwen/Qwen2.5-72B-Instruct-Turbo',
+-    'Qwen/QwQ-32B',
+-    'meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo',
+-    'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+-    'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
+-    'mistralai/Mistral-7B-Instruct-v0.2',
+-    'meta-llama/LlamaGuard-2-8b',
+-    'mistralai/Mistral-7B-Instruct-v0.1',
+-    'mistralai/Mistral-7B-Instruct-v0.3',
+-    'meta-llama/Meta-Llama-Guard-3-8B',
+-    'meta-llama/llama-4-scout',
+-    'meta-llama/llama-4-maverick',
+-    'Qwen/Qwen3-235B-A22B-fp8-tput',
+-    'claude-3-opus-20240229',
+-    'claude-3-haiku-20240307',
+-    'claude-3-5-sonnet-20240620',
+-    'claude-3-5-sonnet-20241022',
+-    'claude-3-5-haiku-20241022',
+-    'claude-3-7-sonnet-20250219',
+-    'claude-sonnet-4-20250514',
+-    'claude-opus-4-20250514',
+-    'google/gemini-2.0-flash-exp',
+-    'google/gemini-2.0-flash',
+-    'google/gemini-2.5-pro',
+-    'google/gemini-2.5-flash',
+-    'deepseek-chat',
+-    'deepseek-reasoner',
+-    'qwen-max',
+-    'qwen-plus',
+-    'qwen-turbo',
+-    'qwen-max-2025-01-25',
+-    'mistralai/mistral-tiny',
+-    'mistralai/mistral-nemo',
+-    'anthracite-org/magnum-v4-72b',
+-    'nvidia/llama-3.1-nemotron-70b-instruct',
+-    'cohere/command-r-plus',
+-    'mistralai/codestral-2501',
+-    'google/gemma-3-4b-it',
+-    'google/gemma-3-12b-it',
+-    'google/gemma-3-27b-it',
+-    'google/gemini-2.5-flash-lite-preview',
+-    'deepseek/deepseek-prover-v2',
+-    'google/gemma-3n-e4b-it',
+-    'cohere/command-a',
+-    'minimax/minimax-m3',
+-    'MiniMax-Text-01',
+-    'abab6.5s-chat',
+-    'bagoodex/bagoodex-search-v1',
+-    'moonshot/kimi-k2-preview',
+-    'perplexity/sonar',
+-    'perplexity/sonar-pro',
+-    'x-ai/grok-4-07-09',
+-    'x-ai/grok-3-beta',
+-    'x-ai/grok-3-mini-beta'
+-  ],
+-
+-  // OpenRouter available models
+-  // input_modalities: 'text'
+-  // output_modalities: 'text'
+-  // https://openrouter.ai/api/v1/models
+-  openrouter: [
+-    'openai/gpt-4o-mini', // used by default
+-    '01-ai/yi-large',
+-    'aetherwiing/mn-starcannon-12b',
+-    'agentica-org/deepcoder-14b-preview:free',
+-    'ai21/jamba-1.6-large',
+-    'ai21/jamba-1.6-mini',
+-    'aion-labs/aion-1.0',
+-    'aion-labs/aion-1.0-mini',
+-    'aion-labs/aion-rp-llama-3.1-8b',
+-    'alfredpros/codellama-7b-instruct-solidity',
+-    'all-hands/openhands-lm-32b-v0.1',
+-    'alpindale/goliath-120b',
+-    'alpindale/magnum-72b',
+-    'amazon/nova-lite-v1',
+-    'amazon/nova-micro-v1',
+-    'amazon/nova-pro-v1',
+-    'anthracite-org/magnum-v2-72b',
+-    'anthracite-org/magnum-v4-72b',
+-    'anthropic/claude-2',
+-    'anthropic/claude-2.0',
+-    'anthropic/claude-2.0:beta',
+-    'anthropic/claude-2.1',
+-    'anthropic/claude-2.1:beta',
+-    'anthropic/claude-2:beta',
+-    'anthropic/claude-3-haiku',
+-    'anthropic/claude-3-haiku:beta',
+-    'anthropic/claude-3-opus',
+-    'anthropic/claude-3-opus:beta',
+-    'anthropic/claude-3-sonnet',
+-    'anthropic/claude-3-sonnet:beta',
+-    'anthropic/claude-3.5-haiku',
+-    'anthropic/claude-3.5-haiku-20241022',
+-    'anthropic/claude-3.5-haiku-20241022:beta',
+-    'anthropic/claude-3.5-haiku:beta',
+-    'anthropic/claude-3.5-sonnet',
+-    'anthropic/claude-3.5-sonnet-20240620',
+-    'anthropic/claude-3.5-sonnet-20240620:beta',
+-    'anthropic/claude-3.5-sonnet:beta',
+-    'anthropic/claude-3.7-sonnet',
+-    'anthropic/claude-3.7-sonnet:beta',
+-    'anthropic/claude-3.7-sonnet:thinking',
+-    'anthropic/claude-opus-4',
+-    'anthropic/claude-sonnet-4',
+-    'arcee-ai/arcee-blitz',
+-    'arcee-ai/caller-large',
+-    'arcee-ai/coder-large',
+-    'arcee-ai/maestro-reasoning',
+-    'arcee-ai/spotlight',
+-    'arcee-ai/virtuoso-large',
+-    'arcee-ai/virtuoso-medium-v2',
+-    'arliai/qwq-32b-arliai-rpr-v1:free',
+-    'cognitivecomputations/dolphin-mixtral-8x22b',
+-    'cognitivecomputations/dolphin3.0-mistral-24b:free',
+-    'cognitivecomputations/dolphin3.0-r1-mistral-24b:free',
+-    'cohere/command',
+-    'cohere/command-a',
+-    'cohere/command-r',
+-    'cohere/command-r-03-2024',
+-    'cohere/command-r-08-2024',
+-    'cohere/command-r-plus',
+-    'cohere/command-r-plus-04-2024',
+-    'cohere/command-r-plus-08-2024',
+-    'cohere/command-r7b-12-2024',
+-    'deepseek/deepseek-chat',
+-    'deepseek/deepseek-chat-v3-0324',
+-    'deepseek/deepseek-chat-v3-0324:free',
+-    'deepseek/deepseek-chat:free',
+-    'deepseek/deepseek-prover-v2',
+-    'deepseek/deepseek-prover-v2:free',
+-    'deepseek/deepseek-r1',
+-    'deepseek/deepseek-r1-0528',
+-    'deepseek/deepseek-r1-0528-qwen3-8b',
+-    'deepseek/deepseek-r1-0528-qwen3-8b:free',
+-    'deepseek/deepseek-r1-0528:free',
+-    'deepseek/deepseek-r1-distill-llama-70b',
+-    'deepseek/deepseek-r1-distill-llama-70b:free',
+-    'deepseek/deepseek-r1-distill-llama-8b',
+-    'deepseek/deepseek-r1-distill-qwen-1.5b',
+-    'deepseek/deepseek-r1-distill-qwen-14b',
+-    'deepseek/deepseek-r1-distill-qwen-14b:free',
+-    'deepseek/deepseek-r1-distill-qwen-32b',
+-    'deepseek/deepseek-r1-distill-qwen-32b:free',
+-    'deepseek/deepseek-r1-distill-qwen-7b',
+-    'deepseek/deepseek-r1-zero:free',
+-    'deepseek/deepseek-r1:free',
+-    'deepseek/deepseek-v3-base:free',
+-    'eleutherai/llemma_7b',
+-    'eva-unit-01/eva-llama-3.33-70b',
+-    'eva-unit-01/eva-qwen-2.5-32b',
+-    'eva-unit-01/eva-qwen-2.5-72b',
+-    'featherless/qwerky-72b:free',
+-    'google/gemini-2.0-flash-001',
+-    'google/gemini-2.0-flash-exp:free',
+-    'google/gemini-2.0-flash-lite-001',
+-    'google/gemini-2.5-flash-preview',
+-    'google/gemini-2.5-flash-preview-05-20',
+-    'google/gemini-2.5-flash-preview-05-20:thinking',
+-    'google/gemini-2.5-flash-preview:thinking',
+-    'google/gemini-2.5-pro-exp-03-25',
+-    'google/gemini-2.5-pro-preview',
+-    'google/gemini-2.5-pro-preview-05-06',
+-    'google/gemini-flash-1.5',
+-    'google/gemini-flash-1.5-8b',
+-    'google/gemini-pro-1.5',
+-    'google/gemma-2-27b-it',
+-    'google/gemma-2-9b-it',
+-    'google/gemma-2-9b-it:free',
+-    'google/gemma-3-12b-it',
+-    'google/gemma-3-12b-it:free',
+-    'google/gemma-3-1b-it:free',
+-    'google/gemma-3-27b-it',
+-    'google/gemma-3-27b-it:free',
+-    'google/gemma-3-4b-it',
+-    'google/gemma-3-4b-it:free',
+-    'google/gemma-3n-e4b-it:free',
+-    'gryphe/mythomax-l2-13b',
+-    'inception/mercury-coder-small-beta',
+-    'infermatic/mn-inferor-12b',
+-    'inflection/inflection-3-pi',
+-    'inflection/inflection-3-productivity',
+-    'liquid/lfm-3b',
+-    'liquid/lfm-40b',
+-    'liquid/lfm-7b',
+-    'mancer/weaver',
+-    'meta-llama/llama-2-70b-chat',
+-    'meta-llama/llama-3-70b-instruct',
+-    'meta-llama/llama-3-8b-instruct',
+-    'meta-llama/llama-3.1-405b',
+-    'meta-llama/llama-3.1-405b-instruct',
+-    'meta-llama/llama-3.1-405b:free',
+-    'meta-llama/llama-3.1-70b-instruct',
+-    'meta-llama/llama-3.1-8b-instruct',
+-    'meta-llama/llama-3.1-8b-instruct:free',
+-    'meta-llama/llama-3.2-11b-vision-instruct',
+-    'meta-llama/llama-3.2-11b-vision-instruct:free',
+-    'meta-llama/llama-3.2-1b-instruct',
+-    'meta-llama/llama-3.2-1b-instruct:free',
+-    'meta-llama/llama-3.2-3b-instruct',
+-    'meta-llama/llama-3.2-3b-instruct:free',
+-    'meta-llama/llama-3.2-90b-vision-instruct',
+-    'meta-llama/llama-3.3-70b-instruct',
+-    'meta-llama/llama-3.3-70b-instruct:free',
+-    'meta-llama/llama-3.3-8b-instruct:free',
+-    'meta-llama/llama-4-maverick',
+-    'meta-llama/llama-4-maverick:free',
+-    'meta-llama/llama-4-scout',
+-    'meta-llama/llama-4-scout:free',
+-    'meta-llama/llama-guard-2-8b',
+-    'meta-llama/llama-guard-3-8b',
+-    'meta-llama/llama-guard-4-12b',
+-    'microsoft/mai-ds-r1:free',
+-    'microsoft/phi-3-medium-128k-instruct',
+-    'microsoft/phi-3-mini-128k-instruct',
+-    'microsoft/phi-3.5-mini-128k-instruct',
+-    'microsoft/phi-4',
+-    'microsoft/phi-4-multimodal-instruct',
+-    'microsoft/phi-4-reasoning-plus',
+-    'microsoft/phi-4-reasoning-plus:free',
+-    'microsoft/phi-4-reasoning:free',
+-    'microsoft/wizardlm-2-8x22b',
+-    'minimax/minimax-m3',
+-    'mistralai/codestral-2501',
+-    'mistralai/devstral-small',
+-    'mistralai/devstral-small:free',
+-    'mistralai/magistral-medium-2506',
+-    'mistralai/magistral-medium-2506:thinking',
+-    'mistralai/magistral-small-2506',
+-    'mistralai/ministral-3b',
+-    'mistralai/ministral-8b',
+-    'mistralai/mistral-7b-instruct',
+-    'mistralai/mistral-7b-instruct-v0.1',
+-    'mistralai/mistral-7b-instruct-v0.2',
+-    'mistralai/mistral-7b-instruct-v0.3',
+-    'mistralai/mistral-7b-instruct:free',
+-    'mistralai/mistral-large',
+-    'mistralai/mistral-large-2407',
+-    'mistralai/mistral-large-2411',
+-    'mistralai/mistral-medium',
+-    'mistralai/mistral-medium-3',
+-    'mistralai/mistral-nemo',
+-    'mistralai/mistral-nemo:free',
+-    'mistralai/mistral-saba',
+-    'mistralai/mistral-small',
+-    'mistralai/mistral-small-24b-instruct-2501',
+-    'mistralai/mistral-small-24b-instruct-2501:free',
+-    'mistralai/mistral-small-3.1-24b-instruct',
+-    'mistralai/mistral-small-3.1-24b-instruct:free',
+-    'mistralai/mistral-tiny',
+-    'mistralai/mixtral-8x22b-instruct',
+-    'mistralai/mixtral-8x7b-instruct',
+-    'mistralai/pixtral-12b',
+-    'mistralai/pixtral-large-2411',
+-    'moonshotai/kimi-vl-a3b-thinking:free',
+-    'moonshotai/moonlight-16b-a3b-instruct:free',
+-    'neversleep/llama-3-lumimaid-70b',
+-    'neversleep/llama-3-lumimaid-8b',
+-    'neversleep/llama-3.1-lumimaid-70b',
+-    'neversleep/llama-3.1-lumimaid-8b',
+-    'neversleep/noromaid-20b',
+-    'nothingiisreal/mn-celeste-12b',
+-    'nousresearch/deephermes-3-llama-3-8b-preview:free',
+-    'nousresearch/deephermes-3-mistral-24b-preview:free',
+-    'nousresearch/hermes-2-pro-llama-3-8b',
+-    'nousresearch/hermes-3-llama-3.1-405b',
+-    'nousresearch/hermes-3-llama-3.1-70b',
+-    'nousresearch/nous-hermes-2-mixtral-8x7b-dpo',
+-    'nvidia/llama-3.1-nemotron-70b-instruct',
+-    'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+-    'nvidia/llama-3.1-nemotron-ultra-253b-v1:free',
+-    'nvidia/llama-3.3-nemotron-super-49b-v1',
+-    'nvidia/llama-3.3-nemotron-super-49b-v1:free',
+-    'open-r1/olympiccoder-32b:free',
+-    'openai/chatgpt-4o-latest',
+-    'openai/codex-mini',
+-    'openai/gpt-3.5-turbo',
+-    'openai/gpt-3.5-turbo-0125',
+-    'openai/gpt-3.5-turbo-0613',
+-    'openai/gpt-3.5-turbo-1106',
+-    'openai/gpt-3.5-turbo-16k',
+-    'openai/gpt-3.5-turbo-instruct',
+-    'openai/gpt-4',
+-    'openai/gpt-4-0314',
+-    'openai/gpt-4-1106-preview',
+-    'openai/gpt-4-turbo',
+-    'openai/gpt-4-turbo-preview',
+-    'openai/gpt-4.1',
+-    'openai/gpt-4.1-mini',
+-    'openai/gpt-4.1-nano',
+-    'openai/gpt-4.5-preview',
+-    'openai/gpt-4o',
+-    'openai/gpt-4o-2024-05-13',
+-    'openai/gpt-4o-2024-08-06',
+-    'openai/gpt-4o-2024-11-20',
+-    'openai/gpt-4o-mini-2024-07-18',
+-    'openai/gpt-4o-mini-search-preview',
+-    'openai/gpt-4o-search-preview',
+-    'openai/gpt-4o:extended',
+-    'openai/o1',
+-    'openai/o1-mini',
+-    'openai/o1-mini-2024-09-12',
+-    'openai/o1-preview',
+-    'openai/o1-preview-2024-09-12',
+-    'openai/o1-pro',
+-    'openai/o3',
+-    'openai/o3-mini',
+-    'openai/o3-mini-high',
+-    'openai/o3-pro',
+-    'openai/o4-mini',
+-    'openai/o4-mini-high',
+-    'opengvlab/internvl3-14b:free',
+-    'opengvlab/internvl3-2b:free',
+-    'openrouter/auto',
+-    'perplexity/llama-3.1-sonar-large-128k-online',
+-    'perplexity/llama-3.1-sonar-small-128k-online',
+-    'perplexity/r1-1776',
+-    'perplexity/sonar',
+-    'perplexity/sonar-deep-research',
+-    'perplexity/sonar-pro',
+-    'perplexity/sonar-reasoning',
+-    'perplexity/sonar-reasoning-pro',
+-    'pygmalionai/mythalion-13b',
+-    'qwen/qwen-2-72b-instruct',
+-    'qwen/qwen-2.5-72b-instruct',
+-    'qwen/qwen-2.5-72b-instruct:free',
+-    'qwen/qwen-2.5-7b-instruct',
+-    'qwen/qwen-2.5-7b-instruct:free',
+-    'qwen/qwen-2.5-coder-32b-instruct',
+-    'qwen/qwen-2.5-coder-32b-instruct:free',
+-    'qwen/qwen-2.5-vl-7b-instruct',
+-    'qwen/qwen-2.5-vl-7b-instruct:free',
+-    'qwen/qwen-max',
+-    'qwen/qwen-plus',
+-    'qwen/qwen-turbo',
+-    'qwen/qwen-vl-max',
+-    'qwen/qwen-vl-plus',
+-    'qwen/qwen2.5-vl-32b-instruct',
+-    'qwen/qwen2.5-vl-32b-instruct:free',
+-    'qwen/qwen2.5-vl-3b-instruct:free',
+-    'qwen/qwen2.5-vl-72b-instruct',
+-    'qwen/qwen2.5-vl-72b-instruct:free',
+-    'qwen/qwen3-14b',
+-    'qwen/qwen3-14b:free',
+-    'qwen/qwen3-235b-a22b',
+-    'qwen/qwen3-235b-a22b:free',
+-    'qwen/qwen3-30b-a3b',
+-    'qwen/qwen3-30b-a3b:free',
+-    'qwen/qwen3-32b',
+-    'qwen/qwen3-32b:free',
+-    'qwen/qwen3-8b',
+-    'qwen/qwen3-8b:free',
+-    'qwen/qwq-32b',
+-    'qwen/qwq-32b-preview',
+-    'qwen/qwq-32b:free',
+-    'raifle/sorcererlm-8x22b',
+-    'rekaai/reka-flash-3:free',
+-    'sao10k/fimbulvetr-11b-v2',
+-    'sao10k/l3-euryale-70b',
+-    'sao10k/l3-lunaris-8b',
+-    'sao10k/l3.1-euryale-70b',
+-    'sao10k/l3.3-euryale-70b',
+-    'sarvamai/sarvam-m:free',
+-    'scb10x/llama3.1-typhoon2-70b-instruct',
+-    'sentientagi/dobby-mini-unhinged-plus-llama-3.1-8b',
+-    'shisa-ai/shisa-v2-llama3.3-70b:free',
+-    'sophosympatheia/midnight-rose-70b',
+-    'thedrummer/anubis-pro-105b-v1',
+-    'thedrummer/rocinante-12b',
+-    'thedrummer/skyfall-36b-v2',
+-    'thedrummer/unslopnemo-12b',
+-    'thedrummer/valkyrie-49b-v1',
+-    'thudm/glm-4-32b',
+-    'thudm/glm-4-32b:free',
+-    'thudm/glm-z1-32b',
+-    'thudm/glm-z1-32b:free',
+-    'thudm/glm-z1-rumination-32b',
+-    'tngtech/deepseek-r1t-chimera:free',
+-    'undi95/remm-slerp-l2-13b',
+-    'undi95/toppy-m-7b',
+-    'x-ai/grok-2-1212',
+-    'x-ai/grok-2-vision-1212',
+-    'x-ai/grok-3-beta',
+-    'x-ai/grok-3-mini-beta',
+-    'x-ai/grok-beta',
+-    'x-ai/grok-vision-beta'
+-  ],
+-
+-  // OrcaRouter available models
+-  // https://api.orcarouter.ai/v1/models
+-  orcarouter: ['orcarouter/auto']
+-};
+-
+-const getDefaultModel = (provider: string | undefined): string => {
+-  switch (provider) {
+-    case 'ollama':
+-      return '';
+-    case 'llamacpp':
+-      return '';
+-    case 'mlx':
+-      return '';
+-    case 'anthropic':
+-      return MODEL_LIST.anthropic[0];
+-    case 'gemini':
+-      return MODEL_LIST.gemini[0];
+-    case 'groq':
+-      return MODEL_LIST.groq[0];
+-    case 'mistral':
+-      return MODEL_LIST.mistral[0];
+-    case 'deepseek':
+-      return MODEL_LIST.deepseek[0];
+-    case 'aimlapi':
+-      return MODEL_LIST.aimlapi[0];
+-    case 'openrouter':
+-      return MODEL_LIST.openrouter[0];
+-    case 'orcarouter':
+-      return MODEL_LIST.orcarouter[0];
+-    default:
+-      return MODEL_LIST.openai[0];
+-  }
+-};
+-
+ export enum DEFAULT_TOKEN_LIMITS {
+   DEFAULT_MAX_TOKENS_INPUT = 4096,
+   DEFAULT_MAX_TOKENS_OUTPUT = 500,
+@@ -650,21 +81,9 @@ const parsePositiveInteger = (value: unknown): number | undefined => {
+ };
+ 
+ export const configValidators = {
+-  [CONFIG_KEYS.OCO_API_KEY](value: any, config: any = {}) {
+-    if (config.OCO_AI_PROVIDER !== 'openai') return value;
+-
+-    validateConfig(
+-      'OCO_API_KEY',
+-      typeof value === 'string' && value.length > 0,
+-      'Empty value is not allowed'
+-    );
+-
+-    validateConfig(
+-      'OCO_API_KEY',
+-      value,
+-      'You need to provide the OCO_API_KEY when OCO_AI_PROVIDER set to "openai" (default) or "ollama" or "mlx" or "azure" or "gemini" or "flowise" or "anthropic" or "deepseek" or "orcarouter". Run `oco config set OCO_API_KEY=your_key OCO_AI_PROVIDER=openai`'
+-    );
+-
++  [CONFIG_KEYS.OCO_API_KEY](value: any) {
++    // Only Flowise reads OCO_API_KEY. Router reads RAMP_ROUTER_API_KEY from
++    // the environment.
+     return value;
+   },
+ 
+@@ -777,15 +196,11 @@ export const configValidators = {
+     return value;
+   },
+ 
+-  [CONFIG_KEYS.OCO_MODEL](value: any, config: any = {}) {
++  [CONFIG_KEYS.OCO_MODEL](value: any) {
+     validateConfig(
+       CONFIG_KEYS.OCO_MODEL,
+       typeof value === 'string',
+-      `${value} is not supported yet, use:\n\n ${[
+-        ...MODEL_LIST.openai,
+-        ...MODEL_LIST.anthropic,
+-        ...MODEL_LIST.gemini
+-      ].join('\n')}`
++      `${value} is not a valid model ID. Run \`oco models --refresh\` to list the Router model IDs for your account`
+     );
+     return value;
+   },
+@@ -819,27 +234,14 @@ export const configValidators = {
+   },
+ 
+   [CONFIG_KEYS.OCO_AI_PROVIDER](value: any) {
+-    if (!value) value = 'openai';
++    if (!value) value = OCO_AI_PROVIDER_ENUM.ROUTER;
+ 
+     validateConfig(
+       CONFIG_KEYS.OCO_AI_PROVIDER,
+-      [
+-        'openai',
+-        'mistral',
+-        'anthropic',
+-        'gemini',
+-        'azure',
+-        'test',
+-        'flowise',
+-        'groq',
+-        'deepseek',
+-        'aimlapi',
+-        'openrouter',
+-        'orcarouter'
+-      ].includes(value) ||
++      (Object.values(OCO_AI_PROVIDER_ENUM) as string[]).includes(value) ||
+         value.startsWith('ollama') ||
+         value.startsWith('llamacpp'),
+-      `${value} is not supported yet, use 'ollama', 'llamacpp', 'mlx', 'anthropic', 'azure', 'gemini', 'flowise', 'mistral', 'deepseek', 'aimlapi', 'orcarouter' or 'openai' (default)`
++      `${value} is not supported. Hosted models are served through Router: use 'router' (default). Local options: 'ollama', 'llamacpp', 'mlx', 'flowise'`
+     );
+ 
+     return value;
+@@ -909,37 +311,6 @@ export const configValidators = {
+   }
+ };
+ 
+-export const PROVIDER_API_KEY_URLS: Record<string, string | null> = {
+-  [OCO_AI_PROVIDER_ENUM.OPENAI]: 'https://platform.openai.com/api-keys',
+-  [OCO_AI_PROVIDER_ENUM.ANTHROPIC]:
+-    'https://console.anthropic.com/settings/keys',
+-  [OCO_AI_PROVIDER_ENUM.GEMINI]: 'https://aistudio.google.com/app/apikey',
+-  [OCO_AI_PROVIDER_ENUM.GROQ]: 'https://console.groq.com/keys',
+-  [OCO_AI_PROVIDER_ENUM.MISTRAL]: 'https://console.mistral.ai/api-keys/',
+-  [OCO_AI_PROVIDER_ENUM.DEEPSEEK]: 'https://platform.deepseek.com/api_keys',
+-  [OCO_AI_PROVIDER_ENUM.OPENROUTER]: 'https://openrouter.ai/keys',
+-  [OCO_AI_PROVIDER_ENUM.ORCAROUTER]: 'https://www.orcarouter.ai',
+-  [OCO_AI_PROVIDER_ENUM.AIMLAPI]: 'https://aimlapi.com/app/keys',
+-  [OCO_AI_PROVIDER_ENUM.AZURE]: 'https://portal.azure.com/',
+-  [OCO_AI_PROVIDER_ENUM.OLLAMA]: null,
+-  [OCO_AI_PROVIDER_ENUM.LLAMACPP]: null,
+-  [OCO_AI_PROVIDER_ENUM.MLX]: null,
+-  [OCO_AI_PROVIDER_ENUM.FLOWISE]: null,
+-  [OCO_AI_PROVIDER_ENUM.TEST]: null
+-};
+-
+-export const RECOMMENDED_MODELS: Record<string, string> = {
+-  [OCO_AI_PROVIDER_ENUM.OPENAI]: 'gpt-4o-mini',
+-  [OCO_AI_PROVIDER_ENUM.ANTHROPIC]: 'claude-sonnet-4-6',
+-  [OCO_AI_PROVIDER_ENUM.GEMINI]: 'gemini-1.5-flash',
+-  [OCO_AI_PROVIDER_ENUM.GROQ]: 'llama3-70b-8192',
+-  [OCO_AI_PROVIDER_ENUM.MISTRAL]: 'mistral-small-latest',
+-  [OCO_AI_PROVIDER_ENUM.DEEPSEEK]: 'deepseek-v4-flash',
+-  [OCO_AI_PROVIDER_ENUM.OPENROUTER]: 'openai/gpt-4o-mini',
+-  [OCO_AI_PROVIDER_ENUM.ORCAROUTER]: 'orcarouter/auto',
+-  [OCO_AI_PROVIDER_ENUM.AIMLAPI]: 'gpt-4o-mini'
+-};
+-
+ export type ConfigType = {
+   [CONFIG_KEYS.OCO_API_KEY]?: string;
+   [CONFIG_KEYS.OCO_TOKENS_MAX_INPUT]: number;
+@@ -1004,11 +375,13 @@ export const DEFAULT_CONFIG = {
+   OCO_DESCRIPTION: false,
+   OCO_EMOJI: false,
+   OCO_EMOJI_POSITION_BEFORE_DESCRIPTION: false,
+-  OCO_MODEL: getDefaultModel('openai'),
++  // Router model IDs are account-specific; `oco setup` or `oco models`
++  // lists them from GET /v1/models.
++  OCO_MODEL: '',
+   OCO_LANGUAGE: 'en',
+   OCO_MESSAGE_TEMPLATE_PLACEHOLDER: '$msg',
+   OCO_PROMPT_MODULE: OCO_PROMPT_MODULE_ENUM.CONVENTIONAL_COMMIT,
+-  OCO_AI_PROVIDER: OCO_AI_PROVIDER_ENUM.OPENAI,
++  OCO_AI_PROVIDER: OCO_AI_PROVIDER_ENUM.ROUTER,
+   OCO_ONE_LINE_COMMIT: false,
+   OCO_TEST_MOCK_TYPE: 'commit-message',
+   OCO_WHY: false,
+@@ -1193,8 +566,9 @@ function getConfigKeyDetails(key) {
+   switch (key) {
+     case CONFIG_KEYS.OCO_MODEL:
+       return {
+-        description: 'The AI model to use for generating commit messages',
+-        values: MODEL_LIST
++        description:
++          'The AI model to use for generating commit messages. With Router, use an account-specific model ID from `oco models --refresh`',
++        values: ['String (Router model ID, or the local model name)']
+       };
+     case CONFIG_KEYS.OCO_AI_PROVIDER:
+       return {
+@@ -1267,13 +641,14 @@ function getConfigKeyDetails(key) {
+       };
+     case CONFIG_KEYS.OCO_API_KEY:
+       return {
+-        description: 'API key for the selected provider',
+-        values: ['String (required for most providers)']
++        description:
++          'Flowise chatflow ID. Router does not use it: export RAMP_ROUTER_API_KEY instead',
++        values: ['String (Flowise only)']
+       };
+     case CONFIG_KEYS.OCO_API_URL:
+       return {
+         description:
+-          'Custom API URL - may be used to set proxy path to OpenAI API',
++          'Custom API URL. Defaults to https://api.router.com/v1 for Router; set it for local providers or a proxy in front of Router',
+         values: ["URL string (must start with 'http://' or 'https://')"]
+       };
+     case CONFIG_KEYS.OCO_PROXY:
+@@ -1392,7 +767,7 @@ export const configCommand = command(
+         'Describe all config parameters: oco config describe',
+         'Describe a specific parameter: oco config describe OCO_MODEL',
+         'Get a config value: oco config get OCO_MODEL',
+-        'Set a config value: oco config set OCO_MODEL=gpt-4'
++        'Set a config value: oco config set OCO_MODEL=<model-id>'
+       ]
+     }
+   },
+diff --git a/src/commands/models.ts b/src/commands/models.ts
+index bd594a2..a5942bd 100644
+--- a/src/commands/models.ts
++++ b/src/commands/models.ts
+@@ -2,7 +2,7 @@ import { intro, outro, spinner } from '@clack/prompts';
+ import chalk from 'chalk';
+ import { command } from 'cleye';
+ import { COMMANDS } from './ENUMS';
+-import { MODEL_LIST, OCO_AI_PROVIDER_ENUM, getConfig } from './config';
++import { OCO_AI_PROVIDER_ENUM, getConfig } from './config';
+ import {
+   fetchModelsForProvider,
+   clearModelCache,
+@@ -32,31 +32,24 @@ async function listModels(
+   useCache: boolean = true
+ ): Promise<void> {
+   const config = getConfig();
+-  const apiKey = config.OCO_API_KEY;
+   const currentModel = config.OCO_MODEL;
+ 
+-  // Get cached models or fetch new ones
+-  let models: string[] = [];
+-
+-  if (useCache) {
+-    const cached = getCachedModels(provider);
+-    if (cached) {
+-      models = cached;
+-    }
+-  }
+-
+-  if (models.length === 0) {
+-    // Fallback to hardcoded list
+-    const providerKey = provider.toLowerCase() as keyof typeof MODEL_LIST;
+-    models = MODEL_LIST[providerKey] || [];
+-  }
++  // Model IDs come from the provider (GET /v1/models for Router); there is
++  // no hardcoded fallback list.
++  const models = (useCache && getCachedModels(provider)) || [];
+ 
+   console.log(
+     `\n${chalk.bold('Available models for')} ${chalk.cyan(provider)}:\n`
+   );
+ 
+   if (models.length === 0) {
+-    console.log(chalk.dim('  No models found'));
++    console.log(
++      chalk.dim(
++        `  No cached models. Run ${chalk.cyan(
++          'oco models --refresh'
++        )} to fetch them`
++      )
++    );
+   } else {
+     models.forEach((model) => {
+       const isCurrent = model === currentModel;
+@@ -70,9 +63,6 @@ async function listModels(
+ }
+ 
+ async function refreshModels(provider: string): Promise<void> {
+-  const config = getConfig();
+-  const apiKey = config.OCO_API_KEY;
+-
+   const loadingSpinner = spinner();
+   loadingSpinner.start(`Fetching models from ${provider}...`);
+ 
+@@ -80,12 +70,7 @@ async function refreshModels(provider: string): Promise<void> {
+   clearModelCache();
+ 
+   try {
+-    const models = await fetchModelsForProvider(
+-      provider,
+-      apiKey,
+-      undefined,
+-      true
+-    );
++    const models = await fetchModelsForProvider(provider, undefined, true);
+     loadingSpinner.stop(`${chalk.green('+')} Fetched ${models.length} models`);
+ 
+     // List the models
+@@ -123,7 +108,7 @@ export const modelsCommand = command(
+   async ({ flags }) => {
+     const config = getConfig();
+     const provider =
+-      flags.provider || config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.OPENAI;
++      flags.provider || config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.ROUTER;
+ 
+     intro(chalk.bgCyan(' OpenCommit Models '));
+ 
+diff --git a/src/commands/prepare-commit-msg-hook.ts b/src/commands/prepare-commit-msg-hook.ts
+index 6ce93c0..880c235 100644
+--- a/src/commands/prepare-commit-msg-hook.ts
++++ b/src/commands/prepare-commit-msg-hook.ts
+@@ -5,7 +5,11 @@ import { intro, outro, spinner } from '@clack/prompts';
+ 
+ import { generateCommitMessageByDiff } from '../generateCommitMessageFromGitDiff';
+ import { getChangedFiles, getDiff, getStagedFiles, gitAdd } from '../utils/git';
+-import { getProviderConfigRequirement } from '../utils/provider';
++import {
++  getProviderConfigRequirement,
++  isRouterProvider
++} from '../utils/provider';
++import { getRouterApiKey, RouterApiKeyMissingError } from '../utils/router';
+ import { getConfig } from './config';
+ 
+ const [messageFilePath, commitSource] = process.argv.slice(2);
+@@ -50,6 +54,11 @@ export const prepareCommitMessageHook = async (
+       return;
+     }
+ 
++    if (isRouterProvider(config.OCO_AI_PROVIDER) && !getRouterApiKey()) {
++      outro(new RouterApiKeyMissingError().message);
++      return;
++    }
++
+     const spin = spinner();
+     spin.start('Generating commit message');
+ 
+diff --git a/src/commands/setup.ts b/src/commands/setup.ts
+index 7125cab..06b737c 100644
+--- a/src/commands/setup.ts
++++ b/src/commands/setup.ts
+@@ -3,23 +3,27 @@ import chalk from 'chalk';
+ import { command } from 'cleye';
+ import { COMMANDS } from './ENUMS';
+ import {
+-  CONFIG_KEYS,
+-  MODEL_LIST,
+   OCO_AI_PROVIDER_ENUM,
+   getConfig,
+   setGlobalConfig,
+   getGlobalConfig,
+   getIsGlobalConfigFileExist,
+-  DEFAULT_CONFIG,
+-  PROVIDER_API_KEY_URLS,
+-  RECOMMENDED_MODELS
++  DEFAULT_CONFIG
+ } from './config';
+ import {
+   fetchModelsForProvider,
+   fetchOllamaModels,
+   getCacheInfo
+ } from '../utils/modelCache';
+-import { getProviderConfigRequirement } from '../utils/provider';
++import {
++  getProviderConfigRequirement,
++  isRouterProvider
++} from '../utils/provider';
++import {
++  getRouterApiKey,
++  ROUTER_API_KEY_ENV,
++  RouterApiKeyMissingError
++} from '../utils/router';
+ 
+ type ProviderSelectionGroup = 'primary' | 'other' | 'hidden';
+ 
+@@ -31,13 +35,8 @@ interface SetupProviderDefinition {
+ 
+ const SETUP_PROVIDERS: SetupProviderDefinition[] = [
+   {
+-    provider: OCO_AI_PROVIDER_ENUM.OPENAI,
+-    displayName: 'OpenAI (GPT)',
+-    selectionGroup: 'primary'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.ANTHROPIC,
+-    displayName: 'Anthropic (Claude Sonnet, Opus)',
++    provider: OCO_AI_PROVIDER_ENUM.ROUTER,
++    displayName: 'Router (OpenAI, Anthropic, Gemini and more through one API)',
+     selectionGroup: 'primary'
+   },
+   {
+@@ -50,47 +49,6 @@ const SETUP_PROVIDERS: SetupProviderDefinition[] = [
+     displayName: 'llama.cpp (Free, runs locally)',
+     selectionGroup: 'primary'
+   },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.GEMINI,
+-    displayName: 'Google Gemini',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.GROQ,
+-    displayName: 'Groq (Fast inference, free tier)',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.MISTRAL,
+-    displayName: 'Mistral AI',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.DEEPSEEK,
+-    displayName: 'DeepSeek',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.OPENROUTER,
+-    displayName: 'OpenRouter (Multiple providers)',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.ORCAROUTER,
+-    displayName: 'OrcaRouter (Smart routing gateway)',
+-    selectionGroup: 'other',
+-    firstRunRequirement: 'apiKey'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.AIMLAPI,
+-    displayName: 'AI/ML API',
+-    selectionGroup: 'other'
+-  },
+-  {
+-    provider: OCO_AI_PROVIDER_ENUM.AZURE,
+-    displayName: 'Azure OpenAI',
+-    selectionGroup: 'other'
+-  },
+   {
+     provider: OCO_AI_PROVIDER_ENUM.MLX,
+     displayName: 'MLX (Apple Silicon, local)',
+@@ -155,16 +113,8 @@ async function selectProvider(): Promise<string | symbol> {
+ }
+ 
+ async function getApiKey(provider: string): Promise<string | symbol> {
+-  const url =
+-    PROVIDER_API_KEY_URLS[provider as keyof typeof PROVIDER_API_KEY_URLS];
+-
+-  let message = `Enter your ${provider} API key:`;
+-  if (url) {
+-    message = `Enter your API key:\n${chalk.dim(`  Get your key at: ${url}`)}`;
+-  }
+-
+   return await text({
+-    message,
++    message: `Enter your ${provider} API key:`,
+     placeholder: 'sk-...',
+     validate: (value) => {
+       if (!value || value.trim().length === 0) {
+@@ -189,34 +139,40 @@ function formatCacheAge(timestamp: number | null): string {
+   return 'just now';
+ }
+ 
+-async function selectModel(
+-  provider: string,
+-  apiKey?: string
+-): Promise<string | symbol> {
++async function enterModelName(message: string): Promise<string | symbol> {
++  return await text({
++    message,
++    validate: (value) => {
++      if (!value || value.trim().length === 0) {
++        return 'Model name is required';
++      }
++      return undefined;
++    }
++  });
++}
++
++async function selectModel(provider: string): Promise<string | symbol> {
+   const providerDisplayName =
+     getProviderDisplayName(provider).split(' (')[0] || provider;
+   const loadingSpinner = spinner();
+   loadingSpinner.start(`Fetching models from ${providerDisplayName}...`);
+ 
+   let models: string[] = [];
+-  let usedFallback = false;
++  let fetchError: string | null = null;
+ 
+   try {
+-    models = await fetchModelsForProvider(provider, apiKey);
+-  } catch {
+-    // Fall back to hardcoded list
+-    usedFallback = true;
+-    const providerKey = provider.toLowerCase() as keyof typeof MODEL_LIST;
+-    models = MODEL_LIST[providerKey] || [];
++    models = await fetchModelsForProvider(provider);
++  } catch (error) {
++    fetchError = error instanceof Error ? error.message : String(error);
+   }
+ 
+   // Check cache info for display
+   const cacheInfo = getCacheInfo();
+   const cacheAge = formatCacheAge(cacheInfo.timestamp);
+ 
+-  if (usedFallback) {
++  if (fetchError) {
+     loadingSpinner.stop(
+-      chalk.yellow('Could not fetch models from API. Using default list.')
++      chalk.yellow(`Could not fetch models from API: ${fetchError}`)
+     );
+   } else if (cacheAge) {
+     loadingSpinner.stop(`Models loaded ${chalk.dim(`(cached ${cacheAge})`)}`);
+@@ -225,48 +181,19 @@ async function selectModel(
+   }
+ 
+   if (models.length === 0) {
+-    // Providers without API keys can accept a local model name directly.
+-    if (getProviderConfigRequirement(provider) !== 'apiKey') {
+-      return await text({
+-        message: 'Enter model name (e.g., llama3:8b, mistral):',
+-        placeholder: 'llama3:8b',
+-        validate: (value) => {
+-          if (!value || value.trim().length === 0) {
+-            return 'Model name is required';
+-          }
+-          return undefined;
+-        }
+-      });
+-    }
+-
+-    // Use default from config
+-    const providerKey = provider.toLowerCase() as keyof typeof MODEL_LIST;
+-    return MODEL_LIST[providerKey]?.[0] || 'gpt-4o-mini';
+-  }
+-
+-  // Get recommended model for this provider
+-  const recommended =
+-    RECOMMENDED_MODELS[provider as keyof typeof RECOMMENDED_MODELS];
+-
+-  // Build options with recommended first
+-  const options: Array<{ value: string; label: string }> = [];
+-
+-  if (recommended && models.includes(recommended)) {
+-    options.push({
+-      value: recommended,
+-      label: `${recommended} (Recommended)`
+-    });
++    // Router model IDs are account-specific; never guess one.
++    return await enterModelName(
++      'Enter a model ID from GET /v1/models for your Router account:'
++    );
+   }
+ 
+-  // Add other models (first 10, excluding recommended)
+-  const otherModels = models.filter((m) => m !== recommended).slice(0, 10);
+-
+-  otherModels.forEach((model) => {
+-    options.push({ value: model, label: model });
+-  });
++  // Show the first 10 models
++  const options: Array<{ value: string; label: string }> = models
++    .slice(0, 10)
++    .map((model) => ({ value: model, label: model }));
+ 
+   // Add option to see all or enter custom
+-  if (models.length > 11) {
++  if (models.length > 10) {
+     options.push({ value: '__show_all__', label: 'Show all models...' });
+   }
+   options.push({ value: '__custom__', label: 'Enter custom model...' });
+@@ -281,7 +208,7 @@ async function selectModel(
+   if (selection === '__show_all__') {
+     const allOptions = models.map((model) => ({
+       value: model,
+-      label: model === recommended ? `${model} (Recommended)` : model
++      label: model
+     }));
+ 
+     return await select({
+@@ -291,15 +218,7 @@ async function selectModel(
+   }
+ 
+   if (selection === '__custom__') {
+-    return await text({
+-      message: 'Enter model name:',
+-      validate: (value) => {
+-        if (!value || value.trim().length === 0) {
+-          return 'Model name is required';
+-        }
+-        return undefined;
+-      }
+-    });
++    return await enterModelName('Enter model name:');
+   }
+ 
+   return selection;
+@@ -486,14 +405,16 @@ export async function runSetup(): Promise<boolean> {
+       OCO_API_KEY: 'llamacpp' // Placeholder
+     };
+   } else {
+-    // Standard provider flow: API key then model
+-    const apiKey = await getApiKey(provider as string);
+-    if (isCancel(apiKey)) {
+-      outro('Setup cancelled');
++    // Router flow: the key comes from the environment, then pick a model
++    // from GET /v1/models.
++    if (!getRouterApiKey()) {
++      outro(
++        `${chalk.red('✖')} ${ROUTER_API_KEY_ENV} is not set. Export your Router API key, then run \`oco setup\` again.`
++      );
+       return false;
+     }
+ 
+-    const model = await selectModel(provider as string, apiKey as string);
++    const model = await selectModel(provider as string);
+     if (isCancel(model)) {
+       outro('Setup cancelled');
+       return false;
+@@ -501,7 +422,6 @@ export async function runSetup(): Promise<boolean> {
+ 
+     config = {
+       OCO_AI_PROVIDER: provider,
+-      OCO_API_KEY: apiKey,
+       OCO_MODEL: model
+     };
+   }
+@@ -511,11 +431,18 @@ export async function runSetup(): Promise<boolean> {
+     ? getGlobalConfig()
+     : DEFAULT_CONFIG;
+ 
+-  const newConfig = {
++  const newConfig: Record<string, unknown> = {
+     ...existingConfig,
+     ...config
+   };
+ 
++  if (provider === OCO_AI_PROVIDER_ENUM.ROUTER) {
++    // Router authenticates with RAMP_ROUTER_API_KEY. Drop the key and
++    // endpoint of a previous provider so that they never reach Router.
++    delete newConfig.OCO_API_KEY;
++    delete newConfig.OCO_API_URL;
++  }
++
+   setGlobalConfig(newConfig as any);
+ 
+   outro(
+@@ -533,7 +460,7 @@ export function isFirstRun(): boolean {
+   const hasGlobalConfig = getIsGlobalConfigFileExist();
+   const config = getConfig();
+ 
+-  const provider = config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.OPENAI;
++  const provider = config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.ROUTER;
+ 
+   const requirement = getProviderConfigRequirement(provider);
+   const hasRequiredConfig =
+@@ -549,7 +476,18 @@ export function isFirstRun(): boolean {
+ 
+ export async function promptForMissingApiKey(): Promise<boolean> {
+   const config = getConfig();
+-  const provider = config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.OPENAI;
++  const provider = config.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.ROUTER;
++
++  if (isRouterProvider(provider)) {
++    // The Router key comes from the environment only; it is never prompted
++    // for or stored.
++    if (getRouterApiKey()) return true;
++
++    console.log(
++      chalk.yellow(`\n${new RouterApiKeyMissingError().message}\n`)
++    );
++    return false;
++  }
+ 
+   if (getProviderConfigRequirement(provider) !== 'apiKey') {
+     return true; // No API key needed
+diff --git a/src/engine/Engine.ts b/src/engine/Engine.ts
+index 7204437..70680cd 100644
+--- a/src/engine/Engine.ts
++++ b/src/engine/Engine.ts
+@@ -1,12 +1,8 @@
+-import AnthropicClient from '@anthropic-ai/sdk';
+-import { OpenAIClient as AzureOpenAIClient } from '@azure/openai';
+-import { GoogleGenerativeAI as GeminiClient } from '@google/generative-ai';
+ import { AxiosInstance as RawAxiosClient } from 'axios';
+ import { OpenAI as OpenAIClient } from 'openai';
+-import { Mistral as MistralClient } from '@mistralai/mistralai';
+ 
+ export interface AiEngineConfig {
+-  apiKey: string;
++  apiKey?: string;
+   model: string;
+   maxTokensOutput: number;
+   maxTokensInput: number;
+@@ -18,13 +14,7 @@ export interface AiEngineConfig {
+   ollamaThink?: boolean;
+ }
+ 
+-type Client =
+-  | OpenAIClient
+-  | AzureOpenAIClient
+-  | AnthropicClient
+-  | RawAxiosClient
+-  | GeminiClient
+-  | MistralClient;
++type Client = OpenAIClient | RawAxiosClient;
+ 
+ export interface AiEngine {
+   config: AiEngineConfig;
+diff --git a/src/engine/router.ts b/src/engine/router.ts
+new file mode 100644
+index 0000000..cc3ed1e
+--- /dev/null
++++ b/src/engine/router.ts
+@@ -0,0 +1,144 @@
++import { OpenAI } from 'openai';
++import { normalizeEngineError } from '../utils/engineErrorHandler';
++import { GenerateCommitMessageErrorEnum } from '../utils/generateCommitMessageErrors';
++import { isReasoningModel } from '../utils/reasoningModel';
++import { removeContentTags } from '../utils/removeContentTags';
++import { createRouterClient } from '../utils/router';
++import { tokenCount } from '../utils/tokenCount';
++import { AiEngine, AiEngineConfig } from './Engine';
++
++export interface RouterConfig extends AiEngineConfig {}
++
++// The installed OpenAI SDK (4.57) has no typed `responses` resource, so these
++// types cover the subset of the OpenAI Responses schema that this engine uses.
++interface ResponsesInputMessage {
++  role: 'user' | 'assistant';
++  content: string;
++}
++
++interface ResponsesCreateParams {
++  model: string;
++  input: ResponsesInputMessage[];
++  instructions?: string;
++  max_output_tokens: number;
++  temperature?: number;
++  top_p?: number;
++}
++
++interface ResponsesOutputContent {
++  type: string;
++  text?: string;
++  refusal?: string;
++}
++
++interface ResponsesOutputItem {
++  type: string;
++  content?: ResponsesOutputContent[];
++}
++
++interface ResponsesResponse {
++  output?: ResponsesOutputItem[];
++}
++
++/**
++ * Reads the assistant text from `response.output`. Reasoning items and other
++ * non-message items carry no commit message text, so the loop skips them.
++ */
++function extractOutputText(response: ResponsesResponse): string | null {
++  const textParts: string[] = [];
++
++  for (const item of response.output ?? []) {
++    if (item.type !== 'message') continue;
++
++    for (const part of item.content ?? []) {
++      if (part.type === 'refusal') {
++        throw new Error(
++          `Router model refused to generate a commit message: ${part.refusal}`
++        );
++      }
++      if (part.type === 'output_text' && typeof part.text === 'string') {
++        textParts.push(part.text);
++      }
++    }
++  }
++
++  return textParts.length > 0 ? textParts.join('') : null;
++}
++
++export class RouterEngine implements AiEngine {
++  config: RouterConfig;
++  client: OpenAI;
++
++  constructor(config: RouterConfig) {
++    this.config = config;
++    this.client = createRouterClient({
++      baseURL: config.baseURL,
++      proxy: config.proxy,
++      customHeaders: config.customHeaders
++    });
++  }
++
++  public generateCommitMessage = async (
++    messages: Array<OpenAI.Chat.Completions.ChatCompletionMessageParam>
++  ): Promise<string | null> => {
++    const isReasoning = isReasoningModel(
++      this.config.model,
++      this.config.isReasoning
++    );
++    const reasoningTokens = this.config.tokensMaxReasoning || 1000;
++
++    const systemMessages = messages
++      .filter((msg) => msg.role === 'system')
++      .map((msg) => msg.content as string);
++
++    const input = messages
++      .filter((msg) => msg.role !== 'system')
++      .map((msg) => ({
++        role: msg.role as ResponsesInputMessage['role'],
++        content: msg.content as string
++      }));
++
++    const params: ResponsesCreateParams = {
++      model: this.config.model,
++      input,
++      ...(systemMessages.length > 0
++        ? { instructions: systemMessages.join('\n') }
++        : {}),
++      ...(isReasoning
++        ? { max_output_tokens: reasoningTokens }
++        : {
++            temperature: 0,
++            top_p: 0.1,
++            max_output_tokens: this.config.maxTokensOutput
++          })
++    };
++
++    try {
++      if (!this.config.model) {
++        throw new Error(
++          'OCO_MODEL is not set. Run `oco models --refresh` to list the Router model IDs for your account, then run `oco config set OCO_MODEL=<model-id>`.'
++        );
++      }
++
++      const REQUEST_TOKENS = messages
++        .map((msg) => tokenCount(msg.content as string) + 4)
++        .reduce((a, b) => a + b, 0);
++
++      const maxOutputLimit = isReasoning
++        ? reasoningTokens
++        : this.config.maxTokensOutput;
++
++      if (REQUEST_TOKENS > this.config.maxTokensInput - maxOutputLimit)
++        throw new Error(GenerateCommitMessageErrorEnum.tooMuchTokens);
++
++      const response = await this.client.post<
++        ResponsesCreateParams,
++        ResponsesResponse
++      >('/responses', { body: params });
++
++      return removeContentTags(extractOutputText(response), 'think');
++    } catch (error) {
++      throw normalizeEngineError(error, 'router', this.config.model);
++    }
++  };
++}
+diff --git a/src/generateCommitMessageFromGitDiff.ts b/src/generateCommitMessageFromGitDiff.ts
+index ab9975c..d3adfd4 100644
+--- a/src/generateCommitMessageFromGitDiff.ts
++++ b/src/generateCommitMessageFromGitDiff.ts
+@@ -6,8 +6,7 @@ import {
+   getConfig,
+   setGlobalConfig,
+   getGlobalConfig,
+-  MODEL_LIST,
+-  RECOMMENDED_MODELS
++  OCO_AI_PROVIDER_ENUM
+ } from './commands/config';
+ import { getMainCommitPrompt } from './prompts';
+ import { getEngine } from './utils/engine';
+@@ -18,6 +17,7 @@ import {
+ } from './utils/errors';
+ import { GenerateCommitMessageErrorEnum } from './utils/generateCommitMessageErrors';
+ import { mergeDiffs } from './utils/mergeDiffs';
++import { isReasoningModel } from './utils/reasoningModel';
+ import {
+   AsyncTask,
+   runTasksWithConcurrency
+@@ -57,8 +57,6 @@ async function handleModelNotFoundError(
+   console.log(chalk.red(`\n✖ Model '${currentModel}' not found\n`));
+ 
+   const suggestedModels = getSuggestedModels(provider, currentModel);
+-  const recommended =
+-    RECOMMENDED_MODELS[provider as keyof typeof RECOMMENDED_MODELS];
+ 
+   if (suggestedModels.length === 0) {
+     console.log(
+@@ -69,22 +67,10 @@ async function handleModelNotFoundError(
+     return null;
+   }
+ 
+-  const options: Array<{ value: string; label: string }> = [];
+-
+-  // Add recommended first if available
+-  if (recommended && suggestedModels.includes(recommended)) {
+-    options.push({
+-      value: recommended,
+-      label: `${recommended} (Recommended)`
+-    });
+-  }
+-
+-  // Add other suggestions
+-  suggestedModels
+-    .filter((m) => m !== recommended)
+-    .forEach((model) => {
+-      options.push({ value: model, label: model });
+-    });
++  const options = suggestedModels.map((model) => ({
++    value: model,
++    label: model
++  }));
+ 
+   options.push({ value: '__custom__', label: 'Enter custom model...' });
+ 
+@@ -146,7 +132,8 @@ export const generateCommitMessageByDiff = async (
+   retryWithModel?: string
+ ): Promise<string> => {
+   const currentConfig = getConfig();
+-  const provider = currentConfig.OCO_AI_PROVIDER || 'openai';
++  const provider =
++    currentConfig.OCO_AI_PROVIDER || OCO_AI_PROVIDER_ENUM.ROUTER;
+   const currentModel = retryWithModel || currentConfig.OCO_MODEL;
+ 
+   try {
+@@ -159,16 +146,16 @@ export const generateCommitMessageByDiff = async (
+       (msg) => tokenCount(msg.content as string) + 4
+     ).reduce((a, b) => a + b, 0);
+ 
+-    const isReasoningModel =
+-      typeof currentConfig.OCO_REASONING === 'boolean'
+-        ? currentConfig.OCO_REASONING
+-        : /^(o[1-9]|gpt-5)/.test(currentModel);
++    const usesReasoningBudget = isReasoningModel(
++      currentModel,
++      currentConfig.OCO_REASONING
++    );
+ 
+     const maxInputTokens =
+       currentConfig.OCO_TOKENS_MAX_INPUT ??
+       DEFAULT_TOKEN_LIMITS.DEFAULT_MAX_TOKENS_INPUT;
+ 
+-    const maxOutputTokens = isReasoningModel
++    const maxOutputTokens = usesReasoningBudget
+       ? currentConfig.OCO_REASONING_MAX_TOKENS ??
+         DEFAULT_TOKEN_LIMITS.DEFAULT_MAX_REASONING
+       : currentConfig.OCO_TOKENS_MAX_OUTPUT ??
+diff --git a/src/migrations/00_use_single_api_key_and_url.ts b/src/migrations/00_use_single_api_key_and_url.ts
+index a927f7b..d1761d0 100644
+--- a/src/migrations/00_use_single_api_key_and_url.ts
++++ b/src/migrations/00_use_single_api_key_and_url.ts
+@@ -8,7 +8,9 @@ import {
+ export default function () {
+   const config = getConfig({ setDefaultValues: false });
+ 
+-  const aiProvider = config.OCO_AI_PROVIDER;
++  // This migration predates Router. It compares against the provider names
++  // that existed when it was written.
++  const aiProvider: string = config.OCO_AI_PROVIDER;
+ 
+   let apiKey: string | undefined;
+   let apiUrl: string | undefined;
+@@ -16,16 +18,16 @@ export default function () {
+   if (aiProvider === OCO_AI_PROVIDER_ENUM.OLLAMA) {
+     apiKey = config['OCO_OLLAMA_API_KEY'];
+     apiUrl = config['OCO_OLLAMA_API_URL'];
+-  } else if (aiProvider === OCO_AI_PROVIDER_ENUM.ANTHROPIC) {
++  } else if (aiProvider === 'anthropic') {
+     apiKey = config['OCO_ANTHROPIC_API_KEY'];
+     apiUrl = config['OCO_ANTHROPIC_BASE_PATH'];
+-  } else if (aiProvider === OCO_AI_PROVIDER_ENUM.OPENAI) {
++  } else if (aiProvider === 'openai') {
+     apiKey = config['OCO_OPENAI_API_KEY'];
+     apiUrl = config['OCO_OPENAI_BASE_PATH'];
+-  } else if (aiProvider === OCO_AI_PROVIDER_ENUM.AZURE) {
++  } else if (aiProvider === 'azure') {
+     apiKey = config['OCO_AZURE_API_KEY'];
+     apiUrl = config['OCO_AZURE_ENDPOINT'];
+-  } else if (aiProvider === OCO_AI_PROVIDER_ENUM.GEMINI) {
++  } else if (aiProvider === 'gemini') {
+     apiKey = config['OCO_GEMINI_API_KEY'];
+     apiUrl = config['OCO_GEMINI_BASE_PATH'];
+   } else if (aiProvider === OCO_AI_PROVIDER_ENUM.FLOWISE) {
+diff --git a/src/migrations/03_move_hosted_providers_to_router.ts b/src/migrations/03_move_hosted_providers_to_router.ts
+new file mode 100644
+index 0000000..5c4cdc0
+--- /dev/null
++++ b/src/migrations/03_move_hosted_providers_to_router.ts
+@@ -0,0 +1,38 @@
++import {
++  ConfigType,
++  getGlobalConfig,
++  OCO_AI_PROVIDER_ENUM,
++  setGlobalConfig
++} from '../commands/config';
++import { LEGACY_HOSTED_PROVIDERS } from '../utils/provider';
++
++/**
++ * Moves configs from hosted providers (OpenAI, Anthropic, Gemini, ...) to
++ * Router. Router holds the provider credentials, so the stored provider API
++ * key and provider endpoint are deleted. Provider model names are not valid
++ * Router model IDs, so OCO_MODEL is cleared until the user picks a model from
++ * `oco models --refresh` or `oco setup`.
++ */
++export default function () {
++  const globalConfig = getGlobalConfig() as ConfigType;
++  const provider: string | undefined = globalConfig.OCO_AI_PROVIDER;
++
++  const isLegacyHostedProvider =
++    !provider ||
++    (LEGACY_HOSTED_PROVIDERS as readonly string[]).includes(provider);
++
++  if (!isLegacyHostedProvider && provider !== OCO_AI_PROVIDER_ENUM.ROUTER) {
++    return;
++  }
++
++  const migratedConfig: ConfigType = { ...globalConfig };
++  delete migratedConfig.OCO_API_KEY;
++  delete migratedConfig.OCO_API_URL;
++
++  if (isLegacyHostedProvider) {
++    migratedConfig.OCO_AI_PROVIDER = OCO_AI_PROVIDER_ENUM.ROUTER;
++    migratedConfig.OCO_MODEL = '';
++  }
++
++  setGlobalConfig(migratedConfig);
++}
+diff --git a/src/migrations/_migrations.ts b/src/migrations/_migrations.ts
+index 9f2b7bf..cce5f1e 100644
+--- a/src/migrations/_migrations.ts
++++ b/src/migrations/_migrations.ts
+@@ -1,6 +1,7 @@
+ import migration00 from './00_use_single_api_key_and_url';
+ import migration01 from './01_remove_obsolete_config_keys_from_global_file';
+ import migration02 from './02_set_missing_default_values';
++import migration03 from './03_move_hosted_providers_to_router';
+ 
+ export const migrations = [
+   {
+@@ -14,5 +15,17 @@ export const migrations = [
+   {
+     name: '02_set_missing_default_values',
+     run: migration02
++  },
++  {
++    name: '03_move_hosted_providers_to_router',
++    run: migration03
+   }
+ ];
++
++// Migration 00 knows only the providers that existed when it was written.
++// Configs for other providers skip migrations 00-02 and run the later ones.
++export const LEGACY_MIGRATION_NAMES = [
++  '00_use_single_api_key_and_url',
++  '01_remove_obsolete_config_keys_from_global_file',
++  '02_set_missing_default_values'
++];
+diff --git a/src/migrations/_run.ts b/src/migrations/_run.ts
+index 7ceb3c9..918aa69 100644
+--- a/src/migrations/_run.ts
++++ b/src/migrations/_run.ts
+@@ -1,7 +1,7 @@
+ import fs from 'fs';
+ import { homedir } from 'os';
+ import { join as pathJoin } from 'path';
+-import { migrations } from './_migrations';
++import { LEGACY_MIGRATION_NAMES, migrations } from './_migrations';
+ import { outro } from '@clack/prompts';
+ import chalk from 'chalk';
+ import {
+@@ -36,26 +36,31 @@ export const runMigrations = async () => {
+   const config = getConfig();
+   if (config.OCO_AI_PROVIDER === OCO_AI_PROVIDER_ENUM.TEST) return;
+ 
+-  // skip unhandled providers in migration00
+-  if (
+-    [
+-      OCO_AI_PROVIDER_ENUM.DEEPSEEK,
+-      OCO_AI_PROVIDER_ENUM.GROQ,
+-      OCO_AI_PROVIDER_ENUM.MISTRAL,
+-      OCO_AI_PROVIDER_ENUM.MLX,
+-      OCO_AI_PROVIDER_ENUM.OPENROUTER,
+-      OCO_AI_PROVIDER_ENUM.LLAMACPP,
+-      OCO_AI_PROVIDER_ENUM.AIMLAPI
+-    ].includes(config.OCO_AI_PROVIDER)
+-  ) {
+-    return;
+-  }
++  // Skip migrations 00-02 for providers that migration00 does not handle.
++  const skipLegacyMigrations = [
++    'deepseek',
++    'groq',
++    'mistral',
++    'openrouter',
++    'aimlapi',
++    'orcarouter',
++    OCO_AI_PROVIDER_ENUM.MLX,
++    OCO_AI_PROVIDER_ENUM.LLAMACPP,
++    OCO_AI_PROVIDER_ENUM.ROUTER
++  ].includes(config.OCO_AI_PROVIDER);
+ 
+   const completedMigrations = getCompletedMigrations();
+ 
+   let isMigrated = false;
+ 
+   for (const migration of migrations) {
++    if (
++      skipLegacyMigrations &&
++      LEGACY_MIGRATION_NAMES.includes(migration.name)
++    ) {
++      continue;
++    }
++
+     if (!completedMigrations.includes(migration.name)) {
+       try {
+         console.log('Applying migration', migration.name);
+diff --git a/src/utils/engine.ts b/src/utils/engine.ts
+index d54571e..479cfa1 100644
+--- a/src/utils/engine.ts
++++ b/src/utils/engine.ts
+@@ -1,20 +1,11 @@
+ import { getConfig, OCO_AI_PROVIDER_ENUM } from '../commands/config';
+-import { AnthropicEngine } from '../engine/anthropic';
+-import { AzureEngine } from '../engine/azure';
+ import { AiEngine } from '../engine/Engine';
+ import { FlowiseEngine } from '../engine/flowise';
+-import { GeminiEngine } from '../engine/gemini';
+ import { LlamaCppEngine } from '../engine/llamacpp';
+ import { OllamaEngine } from '../engine/ollama';
+-import { OpenAiEngine } from '../engine/openAi';
+-import { MistralAiEngine } from '../engine/mistral';
++import { RouterEngine } from '../engine/router';
+ import { TestAi, TestMockType } from '../engine/testAi';
+-import { GroqEngine } from '../engine/groq';
+ import { MLXEngine } from '../engine/mlx';
+-import { DeepseekEngine } from '../engine/deepseek';
+-import { AimlApiEngine } from '../engine/aimlapi';
+-import { OpenRouterEngine } from '../engine/openrouter';
+-import { OrcaRouterEngine } from '../engine/orcarouter';
+ import { parseCustomHeaders } from './customHeaders';
+ import { resolveProxy } from './proxy';
+ 
+@@ -30,7 +21,6 @@ export function getEngine(config = getConfig()): AiEngine {
+     maxTokensInput: config.OCO_TOKENS_MAX_INPUT!,
+     baseURL: config.OCO_API_URL!,
+     proxy: resolvedProxy,
+-    apiKey: config.OCO_API_KEY!,
+     isReasoning: config.OCO_REASONING,
+     tokensMaxReasoning: config.OCO_REASONING_MAX_TOKENS,
+     customHeaders
+@@ -46,43 +36,22 @@ export function getEngine(config = getConfig()): AiEngine {
+     case OCO_AI_PROVIDER_ENUM.LLAMACPP:
+       return new LlamaCppEngine(DEFAULT_CONFIG);
+ 
+-    case OCO_AI_PROVIDER_ENUM.ANTHROPIC:
+-      return new AnthropicEngine(DEFAULT_CONFIG);
++    case OCO_AI_PROVIDER_ENUM.MLX:
++      return new MLXEngine(DEFAULT_CONFIG);
+ 
+     case OCO_AI_PROVIDER_ENUM.TEST:
+       return new TestAi(config.OCO_TEST_MOCK_TYPE as TestMockType);
+ 
+-    case OCO_AI_PROVIDER_ENUM.GEMINI:
+-      return new GeminiEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.AZURE:
+-      return new AzureEngine(DEFAULT_CONFIG);
+-
+     case OCO_AI_PROVIDER_ENUM.FLOWISE:
+-      return new FlowiseEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.GROQ:
+-      return new GroqEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.MISTRAL:
+-      return new MistralAiEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.MLX:
+-      return new MLXEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.DEEPSEEK:
+-      return new DeepseekEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.AIMLAPI:
+-      return new AimlApiEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.OPENROUTER:
+-      return new OpenRouterEngine(DEFAULT_CONFIG);
+-
+-    case OCO_AI_PROVIDER_ENUM.ORCAROUTER:
+-      return new OrcaRouterEngine(DEFAULT_CONFIG);
++      // Flowise uses OCO_API_KEY as the chatflow ID in its endpoint path.
++      return new FlowiseEngine({
++        ...DEFAULT_CONFIG,
++        apiKey: config.OCO_API_KEY
++      });
+ 
+     default:
+-      return new OpenAiEngine(DEFAULT_CONFIG);
++      // Router authenticates with RAMP_ROUTER_API_KEY only. OCO_API_KEY is
++      // never sent to Router.
++      return new RouterEngine(DEFAULT_CONFIG);
+   }
+ }
+diff --git a/src/utils/errors.ts b/src/utils/errors.ts
+index 40925cd..b0bbbc1 100644
+--- a/src/utils/errors.ts
++++ b/src/utils/errors.ts
+@@ -1,22 +1,13 @@
+ import chalk from 'chalk';
+-import { MODEL_LIST, OCO_AI_PROVIDER_ENUM } from '../commands/config';
++import { OCO_AI_PROVIDER_ENUM } from '../commands/config';
++import { getCachedModels } from './modelCache';
+ 
+-// Provider billing/help URLs for common errors
++// Provider billing/help URLs for common errors. Router holds the provider
++// accounts for hosted models, and local providers have no billing.
+ export const PROVIDER_BILLING_URLS: Record<string, string | null> = {
+-  [OCO_AI_PROVIDER_ENUM.ANTHROPIC]:
+-    'https://console.anthropic.com/settings/billing',
+-  [OCO_AI_PROVIDER_ENUM.OPENAI]:
+-    'https://platform.openai.com/settings/organization/billing',
+-  [OCO_AI_PROVIDER_ENUM.GEMINI]: 'https://aistudio.google.com/app/plan',
+-  [OCO_AI_PROVIDER_ENUM.GROQ]: 'https://console.groq.com/settings/billing',
+-  [OCO_AI_PROVIDER_ENUM.MISTRAL]: 'https://console.mistral.ai/billing/',
+-  [OCO_AI_PROVIDER_ENUM.DEEPSEEK]: 'https://platform.deepseek.com/usage',
+-  [OCO_AI_PROVIDER_ENUM.OPENROUTER]: 'https://openrouter.ai/credits',
+-  [OCO_AI_PROVIDER_ENUM.ORCAROUTER]: 'https://www.orcarouter.ai',
+-  [OCO_AI_PROVIDER_ENUM.AIMLAPI]: 'https://aimlapi.com/app/billing',
+-  [OCO_AI_PROVIDER_ENUM.AZURE]:
+-    'https://portal.azure.com/#view/Microsoft_Azure_CostManagement',
++  [OCO_AI_PROVIDER_ENUM.ROUTER]: null,
+   [OCO_AI_PROVIDER_ENUM.OLLAMA]: null,
++  [OCO_AI_PROVIDER_ENUM.LLAMACPP]: null,
+   [OCO_AI_PROVIDER_ENUM.MLX]: null,
+   [OCO_AI_PROVIDER_ENUM.FLOWISE]: null,
+   [OCO_AI_PROVIDER_ENUM.TEST]: null
+@@ -179,8 +170,9 @@ export function getSuggestedModels(
+   provider: string,
+   failedModel: string
+ ): string[] {
+-  const providerKey = provider.toLowerCase() as keyof typeof MODEL_LIST;
+-  const models = MODEL_LIST[providerKey];
++  // Suggestions come from the provider's model list (GET /v1/models for
++  // Router), cached by `oco setup` and `oco models --refresh`.
++  const models = getCachedModels(provider);
+ 
+   if (!models || !Array.isArray(models)) {
+     return [];
+@@ -190,46 +182,19 @@ export function getSuggestedModels(
+   return models.filter((m) => m !== failedModel).slice(0, 5);
+ }
+ 
+-export function getRecommendedModel(provider: string): string | null {
+-  switch (provider.toLowerCase()) {
+-    case OCO_AI_PROVIDER_ENUM.OPENAI:
+-      return 'gpt-4o-mini';
+-    case OCO_AI_PROVIDER_ENUM.ANTHROPIC:
+-      return 'claude-sonnet-4-20250514';
+-    case OCO_AI_PROVIDER_ENUM.GEMINI:
+-      return 'gemini-1.5-flash';
+-    case OCO_AI_PROVIDER_ENUM.GROQ:
+-      return 'llama3-70b-8192';
+-    case OCO_AI_PROVIDER_ENUM.MISTRAL:
+-      return 'mistral-small-latest';
+-    case OCO_AI_PROVIDER_ENUM.DEEPSEEK:
+-      return 'deepseek-v4-flash';
+-    case OCO_AI_PROVIDER_ENUM.OPENROUTER:
+-      return 'openai/gpt-4o-mini';
+-    case OCO_AI_PROVIDER_ENUM.ORCAROUTER:
+-      return 'orcarouter/auto';
+-    case OCO_AI_PROVIDER_ENUM.AIMLAPI:
+-      return 'gpt-4o-mini';
+-    default:
+-      return null;
+-  }
+-}
+-
+ export function formatErrorWithRecovery(
+   error: Error,
+   provider: string,
+   model: string
+ ): string {
+   const suggestions = getSuggestedModels(provider, model);
+-  const recommended = getRecommendedModel(provider);
+ 
+   let message = `\n${error.message}\n`;
+ 
+   if (suggestions.length > 0) {
+     message += '\nSuggested alternatives:\n';
+     suggestions.forEach((m, i) => {
+-      const isRecommended = m === recommended;
+-      message += `  ${i + 1}. ${m}${isRecommended ? ' (Recommended)' : ''}\n`;
++      message += `  ${i + 1}. ${m}\n`;
+     });
+   }
+ 
+@@ -432,7 +397,10 @@ function formatAuthenticationError(
+     title: 'Authentication Failed',
+     message: `Your ${provider} API key is invalid or expired.`,
+     helpUrl: billingUrl,
+-    suggestion: 'Run `oco setup` to configure a valid API key.'
++    suggestion:
++      provider === OCO_AI_PROVIDER_ENUM.ROUTER
++        ? 'Export a valid Router API key in RAMP_ROUTER_API_KEY.'
++        : 'Run `oco setup` to configure a valid API key.'
+   };
+ }
+ 
+diff --git a/src/utils/modelCache.ts b/src/utils/modelCache.ts
+index 7d7f388..5d29194 100644
+--- a/src/utils/modelCache.ts
++++ b/src/utils/modelCache.ts
+@@ -1,7 +1,10 @@
+ import { existsSync, readFileSync, writeFileSync } from 'fs';
+ import { homedir } from 'os';
+ import { join as pathJoin } from 'path';
+-import { MODEL_LIST, OCO_AI_PROVIDER_ENUM } from '../commands/config';
++import { getConfig, OCO_AI_PROVIDER_ENUM } from '../commands/config';
++import { parseCustomHeaders } from './customHeaders';
++import { resolveProxy } from './proxy';
++import { fetchRouterModelIds } from './router';
+ 
+ const MODEL_CACHE_PATH = pathJoin(homedir(), '.opencommit-models.json');
+ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+@@ -42,9 +45,6 @@ function isCacheValid(cache: ModelCache | null): boolean {
+ 
+ interface ModelListItem {
+   id: string;
+-  architecture?: {
+-    output_modalities?: string[];
+-  };
+ }
+ 
+ interface ModelListResponse {
+@@ -55,25 +55,19 @@ interface OllamaModelListResponse {
+   models?: Array<{ name: string }>;
+ }
+ 
+-interface OpenRouterModelListResponse {
+-  data?: Array<ModelListItem & { context_length?: number }>;
+-}
+-
+ interface FetchModelListOptions {
+   url: string;
+-  headers?: Record<string, string>;
+   fallback: string[];
+   mapModels: (data: unknown) => string[] | undefined;
+ }
+ 
+ async function fetchModelList({
+   url,
+-  headers,
+   fallback,
+   mapModels
+ }: FetchModelListOptions): Promise<string[]> {
+   try {
+-    const response = headers ? await fetch(url, { headers }) : await fetch(url);
++    const response = await fetch(url);
+ 
+     if (!response.ok) {
+       return fallback;
+@@ -86,25 +80,6 @@ async function fetchModelList({
+   }
+ }
+ 
+-export async function fetchOpenAIModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.openai.com/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.openai,
+-    mapModels: (data) =>
+-      (data as Required<ModelListResponse>).data
+-        .map((model) => model.id)
+-        .filter(
+-          (id) =>
+-            id.startsWith('gpt-') ||
+-            id.startsWith('o1') ||
+-            id.startsWith('o3') ||
+-            id.startsWith('o4')
+-        )
+-        .sort()
+-  });
+-}
+-
+ export async function fetchOllamaModels(
+   baseUrl: string = 'http://localhost:11434'
+ ): Promise<string[]> {
+@@ -127,88 +102,8 @@ export async function fetchLlamaCppModels(
+   });
+ }
+ 
+-export async function fetchAnthropicModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.anthropic.com/v1/models',
+-    headers: {
+-      'x-api-key': apiKey,
+-      'anthropic-version': '2023-06-01'
+-    },
+-    fallback: MODEL_LIST.anthropic,
+-    mapModels: (data) =>
+-      (data as ModelListResponse).data
+-        ?.map((model) => model.id)
+-        .filter((id) => id.startsWith('claude-'))
+-        .sort()
+-  });
+-}
+-
+-export async function fetchMistralModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.mistral.ai/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.mistral,
+-    mapModels: (data) =>
+-      (data as ModelListResponse).data?.map((model) => model.id).sort()
+-  });
+-}
+-
+-export async function fetchGroqModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.groq.com/openai/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.groq,
+-    mapModels: (data) =>
+-      (data as ModelListResponse).data?.map((model) => model.id).sort()
+-  });
+-}
+-
+-export async function fetchOpenRouterModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://openrouter.ai/api/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.openrouter,
+-    mapModels: (data) =>
+-      (data as OpenRouterModelListResponse).data
+-        // Keep only text-capable models (exclude image/audio models).
+-        ?.filter((model) => model.context_length && model.context_length > 0)
+-        .map((model) => model.id)
+-        .sort()
+-  });
+-}
+-
+-export async function fetchDeepSeekModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.deepseek.com/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.deepseek,
+-    mapModels: (data) =>
+-      (data as ModelListResponse).data?.map((model) => model.id).sort()
+-  });
+-}
+-
+-export async function fetchOrcaRouterModels(apiKey: string): Promise<string[]> {
+-  return fetchModelList({
+-    url: 'https://api.orcarouter.ai/v1/models',
+-    headers: { Authorization: `Bearer ${apiKey}` },
+-    fallback: MODEL_LIST.orcarouter,
+-    mapModels: (data) =>
+-      (data as ModelListResponse).data
+-        // The catalog also contains image, audio, and video generators. Keep
+-        // text-output models plus entries whose older metadata omits the
+-        // modality field, while preserving provider-prefixed chat model IDs.
+-        ?.filter((model) => {
+-          const outputModalities = model.architecture?.output_modalities;
+-          return !outputModalities || outputModalities.includes('text');
+-        })
+-        ?.map((model) => model.id)
+-        .sort()
+-  });
+-}
+-
+ export async function fetchModelsForProvider(
+   provider: string,
+-  apiKey?: string,
+   baseUrl?: string,
+   forceRefresh: boolean = false
+ ): Promise<string[]> {
+@@ -222,13 +117,17 @@ export async function fetchModelsForProvider(
+   let models: string[] = [];
+ 
+   switch (provider.toLowerCase()) {
+-    case OCO_AI_PROVIDER_ENUM.OPENAI:
+-      if (apiKey) {
+-        models = await fetchOpenAIModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.openai;
+-      }
++    case OCO_AI_PROVIDER_ENUM.ROUTER: {
++      // Router model IDs are account-specific. A failure here (for example a
++      // missing RAMP_ROUTER_API_KEY) propagates so that the caller can show it.
++      const config = getConfig();
++      models = await fetchRouterModelIds({
++        baseURL: baseUrl || config.OCO_API_URL,
++        proxy: resolveProxy(config.OCO_PROXY),
++        customHeaders: parseCustomHeaders(config.OCO_API_CUSTOM_HEADERS)
++      });
+       break;
++    }
+ 
+     case OCO_AI_PROVIDER_ENUM.OLLAMA:
+       models = await fetchOllamaModels(baseUrl);
+@@ -238,65 +137,8 @@ export async function fetchModelsForProvider(
+       models = await fetchLlamaCppModels(baseUrl);
+       break;
+ 
+-    case OCO_AI_PROVIDER_ENUM.ANTHROPIC:
+-      if (apiKey) {
+-        models = await fetchAnthropicModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.anthropic;
+-      }
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.GEMINI:
+-      // Google's API doesn't easily list generative models, use hardcoded list
+-      models = MODEL_LIST.gemini;
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.GROQ:
+-      if (apiKey) {
+-        models = await fetchGroqModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.groq;
+-      }
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.MISTRAL:
+-      if (apiKey) {
+-        models = await fetchMistralModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.mistral;
+-      }
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.DEEPSEEK:
+-      if (apiKey) {
+-        models = await fetchDeepSeekModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.deepseek;
+-      }
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.AIMLAPI:
+-      models = MODEL_LIST.aimlapi;
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.OPENROUTER:
+-      if (apiKey) {
+-        models = await fetchOpenRouterModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.openrouter;
+-      }
+-      break;
+-
+-    case OCO_AI_PROVIDER_ENUM.ORCAROUTER:
+-      if (apiKey) {
+-        models = await fetchOrcaRouterModels(apiKey);
+-      } else {
+-        models = MODEL_LIST.orcarouter;
+-      }
+-      break;
+-
+     default:
+-      models = MODEL_LIST.openai;
++      models = [];
+   }
+ 
+   // Update cache
+@@ -307,11 +149,6 @@ export async function fetchModelsForProvider(
+   return models;
+ }
+ 
+-export function getModelsForProvider(provider: string): string[] {
+-  const providerKey = provider.toLowerCase() as keyof typeof MODEL_LIST;
+-  return MODEL_LIST[providerKey] || MODEL_LIST.openai;
+-}
+-
+ export function clearModelCache(): void {
+   try {
+     if (existsSync(MODEL_CACHE_PATH)) {
+diff --git a/src/utils/provider.ts b/src/utils/provider.ts
+index 710ea79..3edc7d4 100644
+--- a/src/utils/provider.ts
++++ b/src/utils/provider.ts
+@@ -1,45 +1,60 @@
+ export enum OCO_AI_PROVIDER_ENUM {
++  ROUTER = 'router',
+   OLLAMA = 'ollama',
+   LLAMACPP = 'llamacpp',
+-  OPENAI = 'openai',
+-  ANTHROPIC = 'anthropic',
+-  GEMINI = 'gemini',
+-  AZURE = 'azure',
+-  TEST = 'test',
+-  FLOWISE = 'flowise',
+-  GROQ = 'groq',
+-  MISTRAL = 'mistral',
+   MLX = 'mlx',
+-  DEEPSEEK = 'deepseek',
+-  AIMLAPI = 'aimlapi',
+-  OPENROUTER = 'openrouter',
+-  ORCAROUTER = 'orcarouter'
++  FLOWISE = 'flowise',
++  TEST = 'test'
+ }
+ 
++/**
++ * Provider values that earlier versions sent to a hosted provider API with a
++ * provider API key. Router now serves these models. Migration 03 moves
++ * configs that still name one of these providers to Router.
++ */
++export const LEGACY_HOSTED_PROVIDERS = [
++  'openai',
++  'anthropic',
++  'gemini',
++  'azure',
++  'groq',
++  'mistral',
++  'deepseek',
++  'aimlapi',
++  'openrouter',
++  'orcarouter'
++] as const;
++
+ export type ProviderConfigRequirement = 'apiKey' | 'model' | 'none';
+ 
+ const PROVIDER_CONFIG_REQUIREMENTS: Record<
+   OCO_AI_PROVIDER_ENUM,
+   ProviderConfigRequirement
+ > = {
+-  [OCO_AI_PROVIDER_ENUM.OPENAI]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.ANTHROPIC]: 'apiKey',
++  // Router reads its key from RAMP_ROUTER_API_KEY in the environment. The
++  // config must name an account-specific model ID from GET /v1/models.
++  [OCO_AI_PROVIDER_ENUM.ROUTER]: 'model',
+   [OCO_AI_PROVIDER_ENUM.OLLAMA]: 'model',
+   [OCO_AI_PROVIDER_ENUM.LLAMACPP]: 'model',
+-  [OCO_AI_PROVIDER_ENUM.GEMINI]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.GROQ]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.MISTRAL]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.DEEPSEEK]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.OPENROUTER]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.ORCAROUTER]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.AIMLAPI]: 'apiKey',
+-  [OCO_AI_PROVIDER_ENUM.AZURE]: 'apiKey',
+   [OCO_AI_PROVIDER_ENUM.MLX]: 'model',
+   [OCO_AI_PROVIDER_ENUM.FLOWISE]: 'apiKey',
+   [OCO_AI_PROVIDER_ENUM.TEST]: 'none'
+ };
+ 
++/**
++ * Returns true when requests for this provider go to Router: the Router
++ * provider itself, a missing provider (the default), and the legacy hosted
++ * providers that Router now serves.
++ */
++export const isRouterProvider = (provider?: string): boolean =>
++  !provider ||
++  provider === OCO_AI_PROVIDER_ENUM.ROUTER ||
++  (LEGACY_HOSTED_PROVIDERS as readonly string[]).includes(provider);
++
+ export const getProviderConfigRequirement = (
+-  provider: string = OCO_AI_PROVIDER_ENUM.OPENAI
++  provider: string = OCO_AI_PROVIDER_ENUM.ROUTER
+ ): ProviderConfigRequirement =>
+-  PROVIDER_CONFIG_REQUIREMENTS[provider as OCO_AI_PROVIDER_ENUM] || 'apiKey';
++  isRouterProvider(provider)
++    ? PROVIDER_CONFIG_REQUIREMENTS[OCO_AI_PROVIDER_ENUM.ROUTER]
++    : PROVIDER_CONFIG_REQUIREMENTS[provider as OCO_AI_PROVIDER_ENUM] ||
++      'apiKey';
+diff --git a/src/utils/reasoningModel.ts b/src/utils/reasoningModel.ts
+new file mode 100644
+index 0000000..4d03a34
+--- /dev/null
++++ b/src/utils/reasoningModel.ts
+@@ -0,0 +1,15 @@
++// Router model IDs can carry a provider prefix (for example `provider:model`),
++// so the reasoning-family check applies after an optional prefix.
++const REASONING_MODEL_PATTERN = /^(?:[^:/]+[:/])?(o[1-9]|gpt-5)/;
++
++/**
++ * Returns true when the model needs a reasoning token budget instead of
++ * sampling settings. OCO_REASONING overrides the automatic detection.
++ */
++export const isReasoningModel = (
++  model: string | undefined,
++  override?: boolean
++): boolean =>
++  typeof override === 'boolean'
++    ? override
++    : REASONING_MODEL_PATTERN.test(model ?? '');
+diff --git a/src/utils/router.ts b/src/utils/router.ts
+new file mode 100644
+index 0000000..821989a
+--- /dev/null
++++ b/src/utils/router.ts
+@@ -0,0 +1,70 @@
++import { HttpsProxyAgent } from 'https-proxy-agent';
++import { OpenAI } from 'openai';
++
++export const ROUTER_BASE_URL = 'https://api.router.com/v1';
++export const ROUTER_API_KEY_ENV = 'RAMP_ROUTER_API_KEY';
++
++export class RouterApiKeyMissingError extends Error {
++  constructor() {
++    super(
++      `${ROUTER_API_KEY_ENV} is not set. Export your Router API key in ${ROUTER_API_KEY_ENV} before you run oco.`
++    );
++    this.name = 'RouterApiKeyMissingError';
++  }
++}
++
++export const getRouterApiKey = (): string | undefined =>
++  process.env[ROUTER_API_KEY_ENV] || undefined;
++
++export interface RouterClientOptions {
++  baseURL?: string;
++  proxy?: string | null;
++  customHeaders?: Record<string, string>;
++}
++
++/**
++ * Creates an OpenAI SDK client for Router. Router holds the provider
++ * credentials, so the only credential sent is RAMP_ROUTER_API_KEY.
++ */
++export function createRouterClient({
++  baseURL,
++  proxy,
++  customHeaders
++}: RouterClientOptions = {}): OpenAI {
++  const apiKey = getRouterApiKey();
++  if (!apiKey) throw new RouterApiKeyMissingError();
++
++  const clientOptions: OpenAI.ClientOptions = {
++    apiKey,
++    baseURL: baseURL || ROUTER_BASE_URL
++  };
++
++  if (proxy) {
++    clientOptions.httpAgent = new HttpsProxyAgent(proxy);
++  }
++
++  if (customHeaders && Object.keys(customHeaders).length > 0) {
++    clientOptions.defaultHeaders = customHeaders;
++  }
++
++  // The OpenAI SDK's internal fetch may resolve before globalThis.fetch is
++  // available in some Node.js versions, causing premature connection errors.
++  // Binding globalThis.fetch defers resolution to call time.
++  if (typeof globalThis.fetch === 'function') {
++    clientOptions.fetch = (...args) => globalThis.fetch(...args);
++  }
++
++  return new OpenAI(clientOptions);
++}
++
++/**
++ * Lists the model IDs that this Router account can use (GET /v1/models).
++ * Model IDs are account-specific, so this is the only valid source for them.
++ */
++export async function fetchRouterModelIds(
++  options: RouterClientOptions = {}
++): Promise<string[]> {
++  const client = createRouterClient(options);
++  const page = await client.models.list();
++  return page.data.map((model) => model.id).sort();
++}
+diff --git a/test/e2e/cliBehavior.test.ts b/test/e2e/cliBehavior.test.ts
+index 5488fa7..de3a402 100644
+--- a/test/e2e/cliBehavior.test.ts
++++ b/test/e2e/cliBehavior.test.ts
+@@ -12,7 +12,10 @@ import {
+   assertGitStatus,
+   assertHeadCommit,
+   getHeadCommitFiles,
+-  getMockOpenAiEnv,
++  getMockRouterEnv,
++  getRequestLastTurn,
++  getRequestPromptParts,
++  mockResponsesBody,
+   prepareEnvironment,
+   prepareRepo,
+   prepareSubmoduleEnvironment,
+@@ -23,6 +26,8 @@ import {
+   seedMigrations,
+   seedModelCache,
+   startMockOpenAiServer,
++  TEST_ROUTER_API_KEY,
++  TEST_ROUTER_MODEL,
+   waitForExit,
+   writeGlobalConfig,
+   writeRepoFile
+@@ -45,7 +50,7 @@ it('cli flow passes --context through to the model prompt and skips confirmation
+ 
+     const oco = await runCli(['--yes', '--context=production-incident'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -57,16 +62,13 @@ it('cli flow passes --context through to the model prompt and skips confirmation
+     expect(await waitForExit(oco)).toBe(0);
+     await assertHeadCommit(gitDir, 'fix(context): handle production incident');
+ 
+-    const requestPayload = server.requestBodies[
+-      server.requestBodies.length - 1
+-    ] as { messages: Array<{ content: string }> };
+-    const requestContents = requestPayload.messages
+-      .map((message) => message.content)
+-      .join('\n');
++    const requestContents = getRequestPromptParts(
++      server.requestBodies[server.requestBodies.length - 1]
++    ).join('\n');
+ 
+     expect(requestContents).toContain('<context>production-incident</context>');
+     expect(requestContents).toContain('console.log("Hello World");');
+-    expect(server.authHeaders).toContain('Bearer test-openai-key');
++    expect(server.authHeaders).toContain('Bearer test-router-key');
+   } finally {
+     await server.cleanup();
+     await cleanup();
+@@ -90,7 +92,7 @@ it('cli flow passes --fgm through to the full GitMoji prompt', async () => {
+ 
+     const oco = await runCli(['--fgm', '--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(await waitForExit(oco)).toBe(0);
+@@ -99,12 +101,9 @@ it('cli flow passes --fgm through to the full GitMoji prompt', async () => {
+       'feat(fgm): use the extended gitmoji specification'
+     );
+ 
+-    const requestPayload = server.requestBodies[
+-      server.requestBodies.length - 1
+-    ] as { messages: Array<{ content: string }> };
+-    const requestContents = requestPayload.messages
+-      .map((message) => message.content)
+-      .join('\n');
++    const requestContents = getRequestPromptParts(
++      server.requestBodies[server.requestBodies.length - 1]
++    ).join('\n');
+ 
+     expect(requestContents).toContain(
+       '🎨, Improve structure / format of the code;'
+@@ -134,7 +133,7 @@ it('cli flow processes a large minified diff without stalling', async () => {
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl, {
++      env: getMockRouterEnv(server.baseUrl, {
+         OCO_TOKENS_MAX_INPUT: '4096',
+         OCO_TOKENS_MAX_OUTPUT: '500'
+       })
+@@ -145,9 +144,7 @@ it('cli flow processes a large minified diff without stalling', async () => {
+     expect(server.requestBodies.length).toBeGreaterThan(1);
+     expect(server.maxActiveRequests).toBe(3);
+     const requestDiffs = server.requestBodies.map((body) => {
+-      const messages = (body as { messages: Array<{ content: string }> })
+-        .messages;
+-      return messages[messages.length - 1].content;
++      return getRequestLastTurn(body);
+     });
+     expect(
+       requestDiffs.every((diff) =>
+@@ -179,7 +176,7 @@ it('cli flow preserves changed-line boundaries when splitting a multiline diff',
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl, {
++      env: getMockRouterEnv(server.baseUrl, {
+         OCO_TOKENS_MAX_INPUT: '4096',
+         OCO_TOKENS_MAX_OUTPUT: '500'
+       })
+@@ -189,9 +186,7 @@ it('cli flow preserves changed-line boundaries when splitting a multiline diff',
+     expect(server.requestBodies.length).toBeGreaterThan(1);
+ 
+     const changedLines = server.requestBodies.flatMap((body) => {
+-      const messages = (body as { messages: Array<{ content: string }> })
+-        .messages;
+-      return messages[messages.length - 1].content
++      return getRequestLastTurn(body)
+         .split('\n')
+         .filter((line) => line.startsWith('+const value'));
+     });
+@@ -224,7 +219,7 @@ it('cli flow preserves every file marker when grouping a multi-file diff', async
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl, {
++      env: getMockRouterEnv(server.baseUrl, {
+         OCO_TOKENS_MAX_INPUT: '4096',
+         OCO_TOKENS_MAX_OUTPUT: '500'
+       })
+@@ -234,9 +229,7 @@ it('cli flow preserves every file marker when grouping a multi-file diff', async
+     expect(server.requestBodies.length).toBeGreaterThan(1);
+ 
+     const fileMarkers = server.requestBodies.flatMap((body) => {
+-      const messages = (body as { messages: Array<{ content: string }> })
+-        .messages;
+-      return messages[messages.length - 1].content
++      return getRequestLastTurn(body)
+         .split('\n')
+         .filter((line) => line.startsWith('diff --git '));
+     });
+@@ -268,7 +261,7 @@ it('cli flow allows editing the generated commit message before committing', asy
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -312,7 +305,7 @@ it('cli flow cancels when editing the generated commit message is interrupted',
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -341,18 +334,11 @@ it('cli flow cancels when editing the generated commit message is interrupted',
+ it('cli flow regenerates the message when the user rejects the first suggestion', async () => {
+   const { gitDir, cleanup } = await prepareEnvironment();
+   const server = await startMockOpenAiServer(({ requestIndex }) => ({
+-    body: {
+-      choices: [
+-        {
+-          message: {
+-            content:
+-              requestIndex === 0
+-                ? 'fix(cli): first generated message'
+-                : 'fix(cli): regenerated message after retry'
+-          }
+-        }
+-      ]
+-    }
++    body: mockResponsesBody(
++      requestIndex === 0
++        ? 'fix(cli): first generated message'
++        : 'fix(cli): regenerated message after retry'
++    )
+   }));
+ 
+   try {
+@@ -366,7 +352,7 @@ it('cli flow regenerates the message when the user rejects the first suggestion'
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -412,7 +398,7 @@ it('cli flow lets the user select only specific unstaged files', async () => {
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(await oco.findByText('No files are staged')).toBeInTheConsole();
+@@ -460,7 +446,7 @@ it('cli applies the documented message template placeholder from extra args', as
+ 
+     const oco = await runCli(["'$msg #205'"], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -600,7 +586,7 @@ it('prepare-commit-msg hook writes the generated message into the commit message
+ 
+     const hookRun = await runProcess(hookPath, [messageFile], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(await hookRun.findByText('Done')).toBeInTheConsole();
+@@ -667,7 +653,7 @@ it('prepare-commit-msg hook supports llama.cpp without an API key', async () =>
+   }
+ });
+ 
+-it('prepare-commit-msg hook preserves the message when OpenAI has no API key', async () => {
++it('prepare-commit-msg hook preserves the message when RAMP_ROUTER_API_KEY is missing', async () => {
+   const { gitDir, cleanup } = await prepareEnvironment();
+   const homeDir = await prepareTempDir();
+   const hookPath = resolve(gitDir, '.git/hooks/prepare-commit-msg');
+@@ -690,14 +676,14 @@ it('prepare-commit-msg hook preserves the message when OpenAI has no API key', a
+ 
+     const hookRun = await runProcess(hookPath, [messageFile], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv('http://127.0.0.1:1/v1', {
++      env: getMockRouterEnv('http://127.0.0.1:1/v1', {
+         HOME: homeDir,
+-        OCO_API_KEY: ''
++        RAMP_ROUTER_API_KEY: ''
+       })
+     });
+ 
+     expect(
+-      await hookRun.findByText('No OCO_API_KEY is set')
++      await hookRun.findByText('RAMP_ROUTER_API_KEY is not set')
+     ).toBeInTheConsole();
+     expect(await waitForExit(hookRun)).toBe(0);
+     expect(readFileSync(messageFile, 'utf8')).toBe(originalMessage);
+@@ -707,17 +693,15 @@ it('prepare-commit-msg hook preserves the message when OpenAI has no API key', a
+   }
+ });
+ 
+-it('cli flow prompts for a missing API key, saves it, and completes the commit', async () => {
++it('cli flow stops before generation when RAMP_ROUTER_API_KEY is missing', async () => {
+   const { gitDir, cleanup } = await prepareEnvironment();
+   const homeDir = await prepareTempDir();
+-  const server = await startMockOpenAiServer(
+-    'fix(api): recovered after prompt'
+-  );
++  const server = await startMockOpenAiServer('fix(api): must not be generated');
+ 
+   try {
+     const configPath = writeGlobalConfig(homeDir, [
+-      'OCO_AI_PROVIDER=openai',
+-      'OCO_MODEL=gpt-4o-mini',
++      'OCO_AI_PROVIDER=router',
++      `OCO_MODEL=${TEST_ROUTER_MODEL}`,
+       `OCO_API_URL=${server.baseUrl}`,
+       'OCO_GITPUSH=false'
+     ]);
+@@ -734,29 +718,17 @@ it('cli flow prompts for a missing API key, saves it, and completes the commit',
+     const oco = await runCli([], {
+       cwd: gitDir,
+       env: {
+-        HOME: homeDir
++        HOME: homeDir,
++        RAMP_ROUTER_API_KEY: ''
+       }
+     });
+ 
+     expect(
+-      await oco.findByText("API key missing for openai. Let's set it up.")
++      await oco.findByText('RAMP_ROUTER_API_KEY is not set')
+     ).toBeInTheConsole();
+-    expect(await oco.findByText('Enter your API key:')).toBeInTheConsole();
+-    oco.userEvent.keyboard('test-openai-key[Enter]');
+-
+-    expect(await oco.findByText('API key saved')).toBeInTheConsole();
+-    expect(
+-      await oco.findByText('Confirm the commit message?')
+-    ).toBeInTheConsole();
+-    oco.userEvent.keyboard('[Enter]');
+-
+-    expect(await oco.findByText('Successfully committed')).toBeInTheConsole();
+-    expect(await waitForExit(oco)).toBe(0);
+-    await assertHeadCommit(gitDir, 'fix(api): recovered after prompt');
+-    expect(server.authHeaders).toContain('Bearer test-openai-key');
+-    expect(readFileSync(configPath, 'utf8')).toContain(
+-      'OCO_API_KEY=test-openai-key'
+-    );
++    expect(await waitForExit(oco)).toBe(1);
++    expect(server.requestBodies).toHaveLength(0);
++    expect(readFileSync(configPath, 'utf8')).not.toContain('OCO_API_KEY');
+   } finally {
+     await server.cleanup();
+     rmSync(homeDir, { force: true, recursive: true });
+@@ -785,8 +757,9 @@ it('cli ignores files listed in .opencommitignore when they are the only staged
+     const oco = await runCli([], {
+       cwd: gitDir,
+       env: {
+-        OCO_AI_PROVIDER: 'openai',
+-        OCO_API_KEY: 'dummy-openai-key',
++        OCO_AI_PROVIDER: 'router',
++        RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY,
++        OCO_MODEL: TEST_ROUTER_MODEL,
+         OCO_GITPUSH: 'false'
+       }
+     });
+@@ -823,7 +796,7 @@ it('cli excludes .opencommitignore files from the generated prompt while still c
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -834,12 +807,9 @@ it('cli excludes .opencommitignore files from the generated prompt while still c
+     expect(await oco.findByText('Successfully committed')).toBeInTheConsole();
+     expect(await waitForExit(oco)).toBe(0);
+ 
+-    const requestPayload = server.requestBodies[
+-      server.requestBodies.length - 1
+-    ] as { messages: Array<{ content: string }> };
+-    const requestContents = requestPayload.messages
+-      .map((message) => message.content)
+-      .join('\n');
++    const requestContents = getRequestPromptParts(
++      server.requestBodies[server.requestBodies.length - 1]
++    ).join('\n');
+ 
+     expect(requestContents).toContain('kept.ts');
+     expect(requestContents).toContain('console.log("kept");');
+@@ -863,7 +833,7 @@ it('first run launches setup, saves config, and completes a commit with the conf
+     const configPath = resolve(homeDir, '.opencommit');
+ 
+     await seedModelCache(homeDir, {
+-      openai: ['gpt-4o-mini', 'gpt-4o']
++      router: [TEST_ROUTER_MODEL, 'other-router-model']
+     });
+     seedMigrations(homeDir);
+ 
+@@ -879,6 +849,7 @@ it('first run launches setup, saves config, and completes a commit with the conf
+       cwd: gitDir,
+       env: {
+         HOME: homeDir,
++        RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY,
+         OCO_API_URL: server.baseUrl,
+         OCO_GITPUSH: 'false'
+       }
+@@ -887,9 +858,6 @@ it('first run launches setup, saves config, and completes a commit with the conf
+     expect(await oco.findByText('Select your AI provider:')).toBeInTheConsole();
+     oco.userEvent.keyboard('[Enter]');
+ 
+-    expect(await oco.findByText('Enter your API key:')).toBeInTheConsole();
+-    oco.userEvent.keyboard('first-run-openai-key[Enter]');
+-
+     expect(await oco.findByText('Select a model:')).toBeInTheConsole();
+     oco.userEvent.keyboard('[Enter]');
+ 
+@@ -908,13 +876,16 @@ it('first run launches setup, saves config, and completes a commit with the conf
+       'feat(setup): finish first run successfully'
+     );
+     expect(readFileSync(configPath, 'utf8')).toContain(
+-      'OCO_AI_PROVIDER=openai'
++      'OCO_AI_PROVIDER=router'
+     );
+     expect(readFileSync(configPath, 'utf8')).toContain(
+-      'OCO_API_KEY=first-run-openai-key'
++      `OCO_MODEL=${TEST_ROUTER_MODEL}`
++    );
++    expect(readFileSync(configPath, 'utf8')).not.toContain('OCO_API_KEY');
++    expect(readFileSync(configPath, 'utf8')).not.toContain(
++      TEST_ROUTER_API_KEY
+     );
+-    expect(readFileSync(configPath, 'utf8')).toContain('OCO_MODEL=gpt-4o-mini');
+-    expect(server.authHeaders).toContain('Bearer first-run-openai-key');
++    expect(server.authHeaders).toContain(`Bearer ${TEST_ROUTER_API_KEY}`);
+   } finally {
+     await server.cleanup();
+     rmSync(homeDir, { force: true, recursive: true });
+@@ -940,27 +911,21 @@ it('cli recovers from a missing model by prompting for an alternative and retryi
+     }
+ 
+     return {
+-      body: {
+-        choices: [
+-          {
+-            message: {
+-              content: 'fix(model): recover from invalid default model'
+-            }
+-          }
+-        ]
+-      }
++      body: mockResponsesBody('fix(model): recover from invalid default model')
+     };
+   });
+ 
+   try {
+     const configPath = writeGlobalConfig(homeDir, [
+-      'OCO_AI_PROVIDER=openai',
+-      'OCO_API_KEY=test-openai-key',
++      'OCO_AI_PROVIDER=router',
+       'OCO_MODEL=missing-model',
+       `OCO_API_URL=${server.baseUrl}`,
+       'OCO_GITPUSH=false'
+     ]);
+     seedMigrations(homeDir);
++    await seedModelCache(homeDir, {
++      router: ['missing-model', TEST_ROUTER_MODEL]
++    });
+ 
+     await prepareRepo(
+       gitDir,
+@@ -973,7 +938,8 @@ it('cli recovers from a missing model by prompting for an alternative and retryi
+     const oco = await runCli([], {
+       cwd: gitDir,
+       env: {
+-        HOME: homeDir
++        HOME: homeDir,
++        RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY
+       }
+     });
+ 
+@@ -1002,9 +968,11 @@ it('cli recovers from a missing model by prompting for an alternative and retryi
+     );
+     expect(server.requestBodies.map((request) => request.model)).toEqual([
+       'missing-model',
+-      'gpt-4o-mini'
++      TEST_ROUTER_MODEL
+     ]);
+-    expect(readFileSync(configPath, 'utf8')).toContain('OCO_MODEL=gpt-4o-mini');
++    expect(readFileSync(configPath, 'utf8')).toContain(
++      `OCO_MODEL=${TEST_ROUTER_MODEL}`
++    );
+   } finally {
+     await server.cleanup();
+     rmSync(homeDir, { force: true, recursive: true });
+@@ -1032,7 +1000,7 @@ it('cli excludes lockfiles and assets from the generated prompt while still comm
+ 
+     const oco = await runCli([], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(
+@@ -1043,12 +1011,9 @@ it('cli excludes lockfiles and assets from the generated prompt while still comm
+     expect(await oco.findByText('Successfully committed')).toBeInTheConsole();
+     expect(await waitForExit(oco)).toBe(0);
+ 
+-    const requestPayload = server.requestBodies[
+-      server.requestBodies.length - 1
+-    ] as { messages: Array<{ content: string }> };
+-    const requestContents = requestPayload.messages
+-      .map((message) => message.content)
+-      .join('\n');
++    const requestContents = getRequestPromptParts(
++      server.requestBodies[server.requestBodies.length - 1]
++    ).join('\n');
+ 
+     expect(requestContents).toContain('kept.ts');
+     expect(requestContents).toContain('console.log("kept");');
+@@ -1074,8 +1039,9 @@ it('fails with a non-zero exit code outside a git repository', async () => {
+     const oco = await runCli([], {
+       cwd: tempDir,
+       env: {
+-        OCO_AI_PROVIDER: 'openai',
+-        OCO_API_KEY: 'dummy-openai-key',
++        OCO_AI_PROVIDER: 'router',
++        RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY,
++        OCO_MODEL: TEST_ROUTER_MODEL,
+         OCO_GITPUSH: 'false'
+       }
+     });
+diff --git a/test/e2e/gitPush.test.ts b/test/e2e/gitPush.test.ts
+index 5e1e95d..f94573a 100644
+--- a/test/e2e/gitPush.test.ts
++++ b/test/e2e/gitPush.test.ts
+@@ -2,7 +2,7 @@ import 'cli-testing-library/extend-expect';
+ import {
+   assertHeadCommit,
+   getCurrentBranchName,
+-  getMockOpenAiEnv,
++  getMockRouterEnv,
+   getRemoteBranchHeadSubject,
+   prepareEnvironment,
+   prepareRepo,
+@@ -30,7 +30,7 @@ describe('cli flow to push git branch', () => {
+ 
+       const oco = await runCli(['--yes'], {
+         cwd: gitDir,
+-        env: getMockOpenAiEnv(server.baseUrl, {
++        env: getMockRouterEnv(server.baseUrl, {
+           OCO_GITPUSH: 'false'
+         })
+       });
+@@ -63,7 +63,7 @@ describe('cli flow to push git branch', () => {
+ 
+       const oco = await runCli(['--yes'], {
+         cwd: gitDir,
+-        env: getMockOpenAiEnv(server.baseUrl, {
++        env: getMockRouterEnv(server.baseUrl, {
+           OCO_GITPUSH: 'true'
+         })
+       });
+@@ -98,7 +98,7 @@ describe('cli flow to push git branch', () => {
+ 
+       const oco = await runCli(['--yes'], {
+         cwd: gitDir,
+-        env: getMockOpenAiEnv(server.baseUrl, {
++        env: getMockRouterEnv(server.baseUrl, {
+           OCO_GITPUSH: 'true'
+         })
+       });
+@@ -144,7 +144,7 @@ describe('cli flow to push git branch', () => {
+ 
+       const oco = await runCli(['--yes'], {
+         cwd: gitDir,
+-        env: getMockOpenAiEnv(server.baseUrl, {
++        env: getMockRouterEnv(server.baseUrl, {
+           OCO_GITPUSH: 'true'
+         })
+       });
+@@ -189,7 +189,7 @@ describe('cli flow to push git branch', () => {
+ 
+       const oco = await runCli(['--yes'], {
+         cwd: gitDir,
+-        env: getMockOpenAiEnv(server.baseUrl, {
++        env: getMockRouterEnv(server.baseUrl, {
+           OCO_GITPUSH: 'true'
+         })
+       });
+diff --git a/test/e2e/noChanges.test.ts b/test/e2e/noChanges.test.ts
+index d160333..521e768 100644
+--- a/test/e2e/noChanges.test.ts
++++ b/test/e2e/noChanges.test.ts
+@@ -1,5 +1,11 @@
+ import 'cli-testing-library/extend-expect';
+-import { prepareEnvironment, runCli, waitForExit } from './utils';
++import {
++  prepareEnvironment,
++  runCli,
++  TEST_ROUTER_API_KEY,
++  TEST_ROUTER_MODEL,
++  waitForExit
++} from './utils';
+ 
+ it('cli flow when there are no changes', async () => {
+   const { gitDir, cleanup } = await prepareEnvironment();
+@@ -8,8 +14,9 @@ it('cli flow when there are no changes', async () => {
+     const oco = await runCli([], {
+       cwd: gitDir,
+       env: {
+-        OCO_AI_PROVIDER: 'openai',
+-        OCO_API_KEY: 'dummy-openai-key',
++        OCO_AI_PROVIDER: 'router',
++        RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY,
++        OCO_MODEL: TEST_ROUTER_MODEL,
+         OCO_GITPUSH: 'false'
+       }
+     });
+diff --git a/test/e2e/oneFile.test.ts b/test/e2e/oneFile.test.ts
+index 1a1053c..99e757f 100644
+--- a/test/e2e/oneFile.test.ts
++++ b/test/e2e/oneFile.test.ts
+@@ -2,8 +2,9 @@ import 'cli-testing-library/extend-expect';
+ import {
+   assertHeadCommit,
+   getCurrentBranchName,
+-  getMockOpenAiEnv,
++  getMockRouterEnv,
+   getRemoteBranchHeadSubject,
++  getRequestPromptParts,
+   prepareEnvironment,
+   prepareRepo,
+   runCli,
+@@ -31,7 +32,7 @@ it('cli flow to generate commit message for 1 new file (staged)', async () => {
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl, {
++      env: getMockRouterEnv(server.baseUrl, {
+         OCO_GITPUSH: 'true'
+       })
+     });
+@@ -91,7 +92,7 @@ it('cli ignores configured external diff tools when generating the prompt', asyn
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl)
++      env: getMockRouterEnv(server.baseUrl)
+     });
+ 
+     expect(await waitForExit(oco)).toBe(0);
+@@ -101,11 +102,7 @@ it('cli ignores configured external diff tools when generating the prompt', asyn
+     );
+ 
+     const requestContents = server.requestBodies
+-      .flatMap(
+-        (body) =>
+-          (body as { messages?: Array<{ content: string }> }).messages ?? []
+-      )
+-      .map((message) => message.content)
++      .flatMap((body) => getRequestPromptParts(body))
+       .join('\n');
+ 
+     expect(requestContents).toContain('-console.log("before");');
+@@ -138,7 +135,7 @@ it('cli flow to generate commit message for 1 changed file (not staged)', async
+ 
+     const oco = await runCli(['--yes'], {
+       cwd: gitDir,
+-      env: getMockOpenAiEnv(server.baseUrl, {
++      env: getMockRouterEnv(server.baseUrl, {
+         OCO_GITPUSH: 'true'
+       })
+     });
+diff --git a/test/e2e/utils.ts b/test/e2e/utils.ts
+index 5af5afc..b1e83d5 100644
+--- a/test/e2e/utils.ts
++++ b/test/e2e/utils.ts
+@@ -31,7 +31,8 @@ const DEFAULT_TEST_ENV = {
+ const COMPLETED_MIGRATIONS = [
+   '00_use_single_api_key_and_url',
+   '01_remove_obsolete_config_keys_from_global_file',
+-  '02_set_missing_default_values'
++  '02_set_missing_default_values',
++  '03_move_hosted_providers_to_router'
+ ];
+ 
+ type ProcessOptions = {
+@@ -267,30 +268,62 @@ export const seedModelCache = async (
+   );
+ };
+ 
+-export const getMockOpenAiEnv = (
++export const TEST_ROUTER_API_KEY = 'test-router-key';
++export const TEST_ROUTER_MODEL = 'test-router-model';
++
++export const getMockRouterEnv = (
+   baseUrl: string,
+   overrides: NodeJS.ProcessEnv = {}
+ ): NodeJS.ProcessEnv => ({
+-  OCO_AI_PROVIDER: 'openai',
+-  OCO_API_KEY: 'test-openai-key',
+-  OCO_MODEL: 'gpt-4o-mini',
++  OCO_AI_PROVIDER: 'router',
++  RAMP_ROUTER_API_KEY: TEST_ROUTER_API_KEY,
++  OCO_MODEL: TEST_ROUTER_MODEL,
+   OCO_API_URL: baseUrl,
+   OCO_GITPUSH: 'false',
+   ...overrides
+ });
+ 
+-export const getMockGeminiEnv = (
+-  baseUrl: string,
+-  overrides: NodeJS.ProcessEnv = {}
+-): NodeJS.ProcessEnv => ({
+-  OCO_AI_PROVIDER: 'gemini',
+-  OCO_API_KEY: 'test-gemini-key',
+-  OCO_MODEL: 'gemini-1.5-flash',
+-  OCO_API_URL: baseUrl,
+-  OCO_GITPUSH: 'false',
+-  ...overrides
++/** Builds an OpenAI Responses body whose output is one text message. */
++export const mockResponsesBody = (text: string): Record<string, any> => ({
++  object: 'response',
++  status: 'completed',
++  output: [
++    {
++      type: 'message',
++      role: 'assistant',
++      content: [{ type: 'output_text', text }]
++    }
++  ]
++});
++
++const mockChatCompletionsBody = (text: string): Record<string, any> => ({
++  choices: [{ message: { content: text } }]
+ });
+ 
++/**
++ * Returns the prompt text of a captured request: Responses `instructions`
++ * and `input`, or Chat Completions `messages` (local providers).
++ */
++export const getRequestPromptParts = (
++  body: Record<string, any> | undefined
++): string[] => {
++  if (!body) return [];
++
++  const turns: Array<{ content: string }> = body.input ?? body.messages ?? [];
++  return [
++    ...(body.instructions ? [body.instructions as string] : []),
++    ...turns.map((turn) => turn.content)
++  ];
++};
++
++/** Returns the last user turn (the diff) of a captured request. */
++export const getRequestLastTurn = (
++  body: Record<string, any> | undefined
++): string => {
++  const parts = getRequestPromptParts(body);
++  return parts[parts.length - 1] ?? '';
++};
++
+ export const wait = (ms: number) =>
+   new Promise((resolve) => setTimeout(resolve, ms));
+ 
+@@ -468,7 +501,15 @@ export const startMockOpenAiServer = async (
+         }
+       }
+ 
+-      if (req.method === 'POST' && req.url?.includes('/chat/completions')) {
++      const isResponsesRequest = Boolean(req.url?.endsWith('/responses'));
++      const isChatCompletionsRequest = Boolean(
++        req.url?.includes('/chat/completions')
++      );
++
++      if (
++        req.method === 'POST' &&
++        (isResponsesRequest || isChatCompletionsRequest)
++      ) {
+         activeRequests += 1;
+         maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+ 
+@@ -477,15 +518,9 @@ export const startMockOpenAiServer = async (
+             typeof response === 'string'
+               ? {
+                   status: 200,
+-                  body: {
+-                    choices: [
+-                      {
+-                        message: {
+-                          content: response
+-                        }
+-                      }
+-                    ]
+-                  }
++                  body: isResponsesRequest
++                    ? mockResponsesBody(response)
++                    : mockChatCompletionsBody(response)
+                 }
+               : response({
+                   authorization: Array.isArray(authorization)
+@@ -538,158 +573,3 @@ export const startMockOpenAiServer = async (
+       })
+   };
+ };
+-
+-export const startMockAnthropicServer = async (response: {
+-  content: unknown[];
+-  stop_reason: string;
+-}): Promise<{
+-  apiKeys: string[];
+-  requestBodies: Array<Record<string, unknown>>;
+-  baseUrl: string;
+-  cleanup: () => Promise<void>;
+-}> => {
+-  const apiKeys: string[] = [];
+-  const requestBodies: Array<Record<string, unknown>> = [];
+-  const server = http.createServer((req, res) => {
+-    if (req.method !== 'POST' || req.url !== '/v1/messages') {
+-      res.writeHead(404);
+-      res.end();
+-      return;
+-    }
+-
+-    const apiKey = req.headers['x-api-key'];
+-    if (typeof apiKey === 'string') apiKeys.push(apiKey);
+-
+-    const chunks: Buffer[] = [];
+-    req.on('data', (chunk) => {
+-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+-    });
+-    req.on('end', () => {
+-      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+-      requestBodies.push(body);
+-      res.writeHead(200, { 'Content-Type': 'application/json' });
+-      res.end(
+-        JSON.stringify({
+-          id: 'msg_test',
+-          type: 'message',
+-          role: 'assistant',
+-          model: body.model,
+-          stop_sequence: null,
+-          usage: { input_tokens: 100, output_tokens: 20 },
+-          ...response
+-        })
+-      );
+-    });
+-  });
+-
+-  await new Promise<void>((resolve) => {
+-    server.listen(0, '127.0.0.1', () => resolve());
+-  });
+-  const { port } = server.address() as AddressInfo;
+-
+-  return {
+-    apiKeys,
+-    requestBodies,
+-    baseUrl: `http://127.0.0.1:${port}`,
+-    cleanup: () =>
+-      new Promise<void>((resolve, reject) => {
+-        server.close((error) => (error ? reject(error) : resolve()));
+-      })
+-  };
+-};
+-
+-export const startMockGeminiServer = async (
+-  response:
+-    | Record<string, any>
+-    | ((request: {
+-        apiKey?: string;
+-        body: Record<string, any> | undefined;
+-        requestIndex: number;
+-      }) => {
+-        status?: number;
+-        body: Record<string, any>;
+-        headers?: Record<string, string>;
+-      })
+-): Promise<{
+-  apiKeys: string[];
+-  requestBodies: Array<Record<string, any>>;
+-  baseUrl: string;
+-  cleanup: () => Promise<void>;
+-}> => {
+-  const apiKeys: string[] = [];
+-  const requestBodies: Array<Record<string, any>> = [];
+-
+-  const server = http.createServer((req, res) => {
+-    const apiKeyHeader = req.headers['x-goog-api-key'];
+-    if (apiKeyHeader) {
+-      apiKeys.push(
+-        Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader
+-      );
+-    }
+-
+-    const chunks: Buffer[] = [];
+-    req.on('data', (chunk) => {
+-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+-    });
+-    req.on('end', () => {
+-      const rawBody = Buffer.concat(chunks).toString('utf8');
+-      let parsedBody: Record<string, any> | undefined;
+-      if (rawBody) {
+-        try {
+-          parsedBody = JSON.parse(rawBody);
+-          requestBodies.push(parsedBody);
+-        } catch {
+-          requestBodies.push({ rawBody });
+-        }
+-      }
+-
+-      if (req.method === 'POST' && req.url?.includes(':generateContent')) {
+-        const payload =
+-          typeof response === 'function'
+-            ? response({
+-                apiKey: Array.isArray(apiKeyHeader)
+-                  ? apiKeyHeader[0]
+-                  : apiKeyHeader,
+-                body: parsedBody,
+-                requestIndex: requestBodies.length - 1
+-              })
+-            : {
+-                status: 200,
+-                body: response
+-              };
+-
+-        res.writeHead(payload.status ?? 200, {
+-          'Content-Type': 'application/json',
+-          ...payload.headers
+-        });
+-        res.end(JSON.stringify(payload.body));
+-        return;
+-      }
+-
+-      res.writeHead(404, { 'Content-Type': 'application/json' });
+-      res.end(JSON.stringify({ error: 'not found' }));
+-    });
+-  });
+-
+-  await new Promise<void>((resolve) => {
+-    server.listen(0, '127.0.0.1', () => resolve());
+-  });
+-
+-  const { port } = server.address() as AddressInfo;
+-
+-  return {
+-    apiKeys,
+-    requestBodies,
+-    baseUrl: `http://127.0.0.1:${port}`,
+-    cleanup: () =>
+-      new Promise<void>((resolve, reject) => {
+-        server.close((error) => {
+-          if (error) {
+-            reject(error);
+-            return;
+-          }
+-          resolve();
+-        });
+-      })
+-  };
+-};
+diff --git a/test/unit/errors.test.ts b/test/unit/errors.test.ts
+index f375b39..8c9b846 100644
+--- a/test/unit/errors.test.ts
++++ b/test/unit/errors.test.ts
+@@ -3,22 +3,22 @@ import {
+   formatUserFriendlyError,
+   InsufficientCreditsError,
+   ModelNotFoundError,
+-  PROVIDER_BILLING_URLS,
+   RateLimitError,
+   ServiceUnavailableError
+ } from '../../src/utils/errors';
+ 
+-const OPENAI_BILLING_URL = PROVIDER_BILLING_URLS.openai;
++const ROUTER_AUTH_SUGGESTION =
++  'Export a valid Router API key in RAMP_ROUTER_API_KEY.';
+ 
+ describe('formatUserFriendlyError', () => {
+   it.each([
+-    ['typed', new InsufficientCreditsError('openai')],
++    ['typed', new InsufficientCreditsError('router')],
+     ['raw', new Error('quota exceeded')]
+   ])('formats %s insufficient-credit errors', (_, error) => {
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Insufficient Credits',
+-      message: 'Your openai account has insufficient credits or quota.',
+-      helpUrl: OPENAI_BILLING_URL,
++      message: 'Your router account has insufficient credits or quota.',
++      helpUrl: null,
+       suggestion: 'Add credits to your account to continue using the service.'
+     });
+   });
+@@ -26,29 +26,29 @@ describe('formatUserFriendlyError', () => {
+   it('keeps insufficient-credit detection ahead of raw rate-limit detection', () => {
+     const error = new Error('quota exceeded: too many requests');
+ 
+-    expect(formatUserFriendlyError(error, 'openai').title).toBe(
++    expect(formatUserFriendlyError(error, 'router').title).toBe(
+       'Insufficient Credits'
+     );
+   });
+ 
+   it('uses the outer provider when formatting a typed error', () => {
+-    const error = new AuthenticationError('anthropic');
++    const error = new AuthenticationError('ollama');
+ 
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Authentication Failed',
+-      message: 'Your openai API key is invalid or expired.',
+-      helpUrl: OPENAI_BILLING_URL,
+-      suggestion: 'Run `oco setup` to configure a valid API key.'
++      message: 'Your router API key is invalid or expired.',
++      helpUrl: null,
++      suggestion: ROUTER_AUTH_SUGGESTION
+     });
+   });
+ 
+   it('preserves a positive typed rate-limit retry delay', () => {
+     expect(
+-      formatUserFriendlyError(new RateLimitError('openai', 12), 'openai')
++      formatUserFriendlyError(new RateLimitError('router', 12), 'router')
+     ).toEqual({
+       title: 'Rate Limit Exceeded',
+-      message: "You've made too many requests to openai.",
+-      helpUrl: OPENAI_BILLING_URL,
++      message: "You've made too many requests to router.",
++      helpUrl: null,
+       suggestion: 'Please wait 12 seconds before retrying.'
+     });
+   });
+@@ -58,13 +58,13 @@ describe('formatUserFriendlyError', () => {
+     (retryAfter) => {
+       expect(
+         formatUserFriendlyError(
+-          new RateLimitError('openai', retryAfter),
+-          'openai'
++          new RateLimitError('router', retryAfter),
++          'router'
+         )
+       ).toEqual({
+         title: 'Rate Limit Exceeded',
+-        message: "You've made too many requests to openai.",
+-        helpUrl: OPENAI_BILLING_URL,
++        message: "You've made too many requests to router.",
++        helpUrl: null,
+         suggestion: 'Please wait a moment before retrying.'
+       });
+     }
+@@ -75,33 +75,33 @@ describe('formatUserFriendlyError', () => {
+       retryAfter: 30
+     });
+ 
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Rate Limit Exceeded',
+-      message: "You've made too many requests to openai.",
+-      helpUrl: OPENAI_BILLING_URL,
++      message: "You've made too many requests to router.",
++      helpUrl: null,
+       suggestion: 'Please wait a moment before retrying.'
+     });
+   });
+ 
+   it('keeps provider wording when no custom API URL is configured', () => {
+     expect(
+-      formatUserFriendlyError(new ServiceUnavailableError('openai'), 'openai')
++      formatUserFriendlyError(new ServiceUnavailableError('router'), 'router')
+     ).toEqual({
+       title: 'Service Unavailable',
+-      message: 'The openai service is temporarily unavailable.',
++      message: 'The router service is temporarily unavailable.',
+       helpUrl: null,
+       suggestion: 'Please try again in a few moments.'
+     });
+   });
+ 
+   it.each([
+-    ['typed', new ServiceUnavailableError('openai')],
++    ['typed', new ServiceUnavailableError('router')],
+     ['raw', new Error('service unavailable')]
+   ])(
+     'uses host-labelled wording for a valid custom API URL on %s errors',
+     (_, error) => {
+       expect(
+-        formatUserFriendlyError(error, 'openai', {
++        formatUserFriendlyError(error, 'router', {
+           baseURL: 'http://127.0.0.1:1234/v1'
+         })
+       ).toEqual({
+@@ -115,13 +115,13 @@ describe('formatUserFriendlyError', () => {
+   );
+ 
+   it.each([
+-    ['typed', new ServiceUnavailableError('openai')],
++    ['typed', new ServiceUnavailableError('router')],
+     ['raw', new Error('service unavailable')]
+   ])(
+     'uses generic endpoint wording for an invalid custom API URL on %s errors',
+     (_, error) => {
+       expect(
+-        formatUserFriendlyError(error, 'openai', {
++        formatUserFriendlyError(error, 'router', {
+           baseURL: 'not a valid URL'
+         })
+       ).toEqual({
+@@ -135,24 +135,24 @@ describe('formatUserFriendlyError', () => {
+ 
+   it('formats raw service-unavailable errors', () => {
+     expect(
+-      formatUserFriendlyError(new Error('service unavailable'), 'openai')
++      formatUserFriendlyError(new Error('service unavailable'), 'router')
+     ).toEqual({
+       title: 'Service Unavailable',
+-      message: 'The openai service is temporarily unavailable.',
++      message: 'The router service is temporarily unavailable.',
+       helpUrl: null,
+       suggestion: 'Please try again in a few moments.'
+     });
+   });
+ 
+   it.each([
+-    ['typed', new AuthenticationError('openai')],
++    ['typed', new AuthenticationError('router')],
+     ['raw', new Error('invalid_api_key')]
+   ])('formats %s authentication errors', (_, error) => {
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Authentication Failed',
+-      message: 'Your openai API key is invalid or expired.',
+-      helpUrl: OPENAI_BILLING_URL,
+-      suggestion: 'Run `oco setup` to configure a valid API key.'
++      message: 'Your router API key is invalid or expired.',
++      helpUrl: null,
++      suggestion: ROUTER_AUTH_SUGGESTION
+     });
+   });
+ 
+@@ -170,12 +170,12 @@ describe('formatUserFriendlyError', () => {
+   it('formats typed model-not-found errors with their model name', () => {
+     expect(
+       formatUserFriendlyError(
+-        new ModelNotFoundError('gpt-missing', 'openai'),
+-        'openai'
++        new ModelNotFoundError('missing-model', 'router'),
++        'router'
+       )
+     ).toEqual({
+       title: 'Model Not Found',
+-      message: "The model 'gpt-missing' is not available for openai.",
++      message: "The model 'missing-model' is not available for router.",
+       helpUrl: null,
+       suggestion: 'Run `oco setup` to select a valid model.'
+     });
+@@ -200,9 +200,9 @@ describe('formatUserFriendlyError', () => {
+     ],
+     ['unknown', new Error('model not found'), 'unknown']
+   ])('uses the raw %s model-name fallback', (_, error, expectedModel) => {
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Model Not Found',
+-      message: `The model '${expectedModel}' is not available for openai.`,
++      message: `The model '${expectedModel}' is not available for router.`,
+       helpUrl: null,
+       suggestion: 'Run `oco setup` to select a valid model.'
+     });
+@@ -212,7 +212,7 @@ describe('formatUserFriendlyError', () => {
+     ['Error', new Error('unexpected failure'), 'unexpected failure'],
+     ['non-Error', 42, '42']
+   ])('preserves the generic %s fallback', (_, error, message) => {
+-    expect(formatUserFriendlyError(error, 'openai')).toEqual({
++    expect(formatUserFriendlyError(error, 'router')).toEqual({
+       title: 'Error',
+       message,
+       helpUrl: null,
+diff --git a/test/unit/modelCache.test.ts b/test/unit/modelCache.test.ts
+index bdd7f64..614edbd 100644
+--- a/test/unit/modelCache.test.ts
++++ b/test/unit/modelCache.test.ts
+@@ -1,15 +1,12 @@
+-import { MODEL_LIST, RECOMMENDED_MODELS } from '../../src/commands/config';
+ import {
+-  fetchAnthropicModels,
+-  fetchDeepSeekModels,
+-  fetchGroqModels,
+   fetchLlamaCppModels,
+-  fetchMistralModels,
+-  fetchOllamaModels,
+-  fetchOpenAIModels,
+-  fetchOpenRouterModels,
+-  fetchOrcaRouterModels
++  fetchOllamaModels
+ } from '../../src/utils/modelCache';
++import {
++  fetchRouterModelIds,
++  ROUTER_API_KEY_ENV,
++  ROUTER_BASE_URL
++} from '../../src/utils/router';
+ 
+ const originalFetch = global.fetch;
+ const fetchMock = jest.fn();
+@@ -21,7 +18,7 @@ function mockJsonResponse(data: unknown, ok = true) {
+   });
+ }
+ 
+-describe('provider model fetchers', () => {
++describe('local provider model fetchers', () => {
+   beforeEach(() => {
+     global.fetch = fetchMock as typeof fetch;
+   });
+@@ -32,24 +29,6 @@ describe('provider model fetchers', () => {
+   });
+ 
+   it.each([
+-    {
+-      provider: 'OpenAI',
+-      fetchModels: () => fetchOpenAIModels('openai-key'),
+-      request: [
+-        'https://api.openai.com/v1/models',
+-        { headers: { Authorization: 'Bearer openai-key' } }
+-      ],
+-      payload: {
+-        data: [
+-          { id: 'whisper-1' },
+-          { id: 'o4-mini' },
+-          { id: 'gpt-z' },
+-          { id: 'o1-preview' },
+-          { id: 'o3-mini' }
+-        ]
+-      },
+-      expected: ['gpt-z', 'o1-preview', 'o3-mini', 'o4-mini']
+-    },
+     {
+       provider: 'Ollama',
+       fetchModels: () => fetchOllamaModels('http://ollama.test'),
+@@ -63,107 +42,6 @@ describe('provider model fetchers', () => {
+       request: ['http://llamacpp.test/v1/models'],
+       payload: { data: [{ id: 'model-b' }, { id: 'model-a' }] },
+       expected: ['model-b', 'model-a']
+-    },
+-    {
+-      provider: 'Anthropic',
+-      fetchModels: () => fetchAnthropicModels('anthropic-key'),
+-      request: [
+-        'https://api.anthropic.com/v1/models',
+-        {
+-          headers: {
+-            'x-api-key': 'anthropic-key',
+-            'anthropic-version': '2023-06-01'
+-          }
+-        }
+-      ],
+-      payload: {
+-        data: [
+-          { id: 'other-model' },
+-          { id: 'claude-z' },
+-          { id: 'claude-haiku-5-5' },
+-          { id: 'claude-a' }
+-        ]
+-      },
+-      expected: ['claude-a', 'claude-haiku-5-5', 'claude-z']
+-    },
+-    {
+-      provider: 'Mistral',
+-      fetchModels: () => fetchMistralModels('mistral-key'),
+-      request: [
+-        'https://api.mistral.ai/v1/models',
+-        { headers: { Authorization: 'Bearer mistral-key' } }
+-      ],
+-      payload: { data: [{ id: 'mistral-z' }, { id: 'mistral-a' }] },
+-      expected: ['mistral-a', 'mistral-z']
+-    },
+-    {
+-      provider: 'Groq',
+-      fetchModels: () => fetchGroqModels('groq-key'),
+-      request: [
+-        'https://api.groq.com/openai/v1/models',
+-        { headers: { Authorization: 'Bearer groq-key' } }
+-      ],
+-      payload: { data: [{ id: 'groq-z' }, { id: 'groq-a' }] },
+-      expected: ['groq-a', 'groq-z']
+-    },
+-    {
+-      provider: 'OpenRouter',
+-      fetchModels: () => fetchOpenRouterModels('openrouter-key'),
+-      request: [
+-        'https://openrouter.ai/api/v1/models',
+-        { headers: { Authorization: 'Bearer openrouter-key' } }
+-      ],
+-      payload: {
+-        data: [
+-          { id: 'text-z', context_length: 128 },
+-          { id: 'no-context' },
+-          { id: 'zero-context', context_length: 0 },
+-          { id: 'text-a', context_length: 1 }
+-        ]
+-      },
+-      expected: ['text-a', 'text-z']
+-    },
+-    {
+-      provider: 'DeepSeek',
+-      fetchModels: () => fetchDeepSeekModels('deepseek-key'),
+-      request: [
+-        'https://api.deepseek.com/v1/models',
+-        { headers: { Authorization: 'Bearer deepseek-key' } }
+-      ],
+-      payload: { data: [{ id: 'deepseek-z' }, { id: 'deepseek-a' }] },
+-      expected: ['deepseek-a', 'deepseek-z']
+-    },
+-    {
+-      provider: 'OrcaRouter',
+-      fetchModels: () => fetchOrcaRouterModels('orcarouter-key'),
+-      request: [
+-        'https://api.orcarouter.ai/v1/models',
+-        { headers: { Authorization: 'Bearer orcarouter-key' } }
+-      ],
+-      payload: {
+-        data: [
+-          {
+-            id: 'openai/gpt-5',
+-            architecture: { output_modalities: ['text'] }
+-          },
+-          { id: 'orcarouter/auto' },
+-          {
+-            id: 'anthropic/claude-sonnet-4-5',
+-            architecture: { output_modalities: ['text'] }
+-          },
+-          {
+-            id: 'openai/gpt-image-1',
+-            architecture: { output_modalities: ['image'] }
+-          },
+-          { id: 'orcarouter/fusion' }
+-        ]
+-      },
+-      expected: [
+-        'anthropic/claude-sonnet-4-5',
+-        'openai/gpt-5',
+-        'orcarouter/auto',
+-        'orcarouter/fusion'
+-      ]
+     }
+   ])(
+     'preserves the $provider request and response mapping',
+@@ -175,111 +53,83 @@ describe('provider model fetchers', () => {
+     }
+   );
+ 
+-  it('keeps direct provider-prefixed OrcaRouter models selectable', async () => {
+-    mockJsonResponse({
+-      data: [
+-        {
+-          id: 'openai/gpt-5',
+-          architecture: { output_modalities: ['text'] }
+-        },
+-        {
+-          id: 'anthropic/claude-sonnet-4-5',
+-          architecture: { output_modalities: ['text'] }
+-        },
+-        {
+-          id: 'kling/kling-v3-omni',
+-          architecture: { output_modalities: ['video'] }
+-        },
+-        {
+-          id: 'openai/tts-1',
+-          architecture: { output_modalities: ['audio'] }
+-        },
+-        { id: 'orcarouter/auto' }
+-      ]
+-    });
+-
+-    await expect(fetchOrcaRouterModels('orcarouter-key')).resolves.toEqual([
+-      'anthropic/claude-sonnet-4-5',
+-      'openai/gpt-5',
+-      'orcarouter/auto'
+-    ]);
+-  });
+-
+   it.each([
+-    ['OpenAI', () => fetchOpenAIModels('key'), MODEL_LIST.openai],
+-    ['Ollama', () => fetchOllamaModels(), []],
+-    ['llama.cpp', () => fetchLlamaCppModels(), []],
+-    ['Anthropic', () => fetchAnthropicModels('key'), MODEL_LIST.anthropic],
+-    ['Mistral', () => fetchMistralModels('key'), MODEL_LIST.mistral],
+-    ['Groq', () => fetchGroqModels('key'), MODEL_LIST.groq],
+-    ['OpenRouter', () => fetchOpenRouterModels('key'), MODEL_LIST.openrouter],
+-    ['DeepSeek', () => fetchDeepSeekModels('key'), MODEL_LIST.deepseek],
+-    ['OrcaRouter', () => fetchOrcaRouterModels('key'), MODEL_LIST.orcarouter]
++    ['Ollama', () => fetchOllamaModels()],
++    ['llama.cpp', () => fetchLlamaCppModels()]
+   ])(
+-    'returns the existing %s fallback for a non-OK response',
+-    async (_, fetchModels, fallback) => {
++    'returns an empty %s fallback for a non-OK response',
++    async (_, fetchModels) => {
+       mockJsonResponse({ data: [] }, false);
+ 
+-      await expect(fetchModels()).resolves.toEqual(fallback);
++      await expect(fetchModels()).resolves.toEqual([]);
+     }
+   );
+ 
+-  it('returns the remote fallback when mapping produces no models', async () => {
+-    mockJsonResponse({ data: [{ id: 'whisper-1' }] });
+-
+-    await expect(fetchOpenAIModels('key')).resolves.toEqual(MODEL_LIST.openai);
+-  });
+-
+-  it('offers Haiku 5.5 offline without changing the Anthropic default', async () => {
+-    mockJsonResponse({ data: [] }, false);
+-
+-    const models = await fetchAnthropicModels('key');
+-
+-    expect(models).toContain('claude-haiku-5-5');
+-    expect(models[0]).toBe('claude-sonnet-4-6');
+-    expect(RECOMMENDED_MODELS.anthropic).toBe('claude-sonnet-4-6');
+-  });
+-
+   it('returns an empty local fallback when mapping produces no models', async () => {
+     mockJsonResponse({ models: [] });
+ 
+     await expect(fetchOllamaModels()).resolves.toEqual([]);
+   });
+ 
+-  it('returns the remote fallback for a malformed payload', async () => {
++  it('returns an empty local fallback for a malformed payload', async () => {
+     mockJsonResponse({});
+ 
+-    await expect(fetchOpenAIModels('key')).resolves.toEqual(MODEL_LIST.openai);
++    await expect(fetchLlamaCppModels()).resolves.toEqual([]);
+   });
+ 
+-  it('returns the remote fallback when parsing JSON rejects', async () => {
+-    fetchMock.mockResolvedValue({
+-      ok: true,
+-      json: jest.fn().mockRejectedValue(new Error('invalid JSON'))
+-    });
++  it('returns an empty local fallback when fetching rejects', async () => {
++    fetchMock.mockRejectedValue(new Error('network unavailable'));
+ 
+-    await expect(fetchOpenRouterModels('key')).resolves.toEqual(
+-      MODEL_LIST.openrouter
+-    );
++    await expect(fetchLlamaCppModels()).resolves.toEqual([]);
+   });
++});
+ 
+-  it('returns an empty local fallback for a malformed payload', async () => {
+-    mockJsonResponse({});
++describe('Router model listing', () => {
++  const originalRouterKey = process.env[ROUTER_API_KEY_ENV];
+ 
+-    await expect(fetchLlamaCppModels()).resolves.toEqual([]);
++  beforeEach(() => {
++    global.fetch = fetchMock as typeof fetch;
++    process.env[ROUTER_API_KEY_ENV] = 'test-router-key';
+   });
+ 
+-  it('returns the remote fallback when fetching rejects', async () => {
+-    fetchMock.mockRejectedValue(new Error('network unavailable'));
++  afterEach(() => {
++    global.fetch = originalFetch;
++    fetchMock.mockReset();
++    if (originalRouterKey === undefined) {
++      delete process.env[ROUTER_API_KEY_ENV];
++    } else {
++      process.env[ROUTER_API_KEY_ENV] = originalRouterKey;
++    }
++  });
+ 
+-    await expect(fetchMistralModels('key')).resolves.toEqual(
+-      MODEL_LIST.mistral
++  it('lists account model IDs from GET /v1/models with the Router key', async () => {
++    fetchMock.mockResolvedValue(
++      new Response(
++        JSON.stringify({
++          object: 'list',
++          data: [{ id: 'router-model-b' }, { id: 'router-model-a' }]
++        }),
++        { status: 200, headers: { 'content-type': 'application/json' } }
++      )
+     );
++
++    await expect(fetchRouterModelIds()).resolves.toEqual([
++      'router-model-a',
++      'router-model-b'
++    ]);
++
++    const [url, init] = fetchMock.mock.calls[0];
++    expect(String(url)).toBe(`${ROUTER_BASE_URL}/models`);
++    expect(init.method).toBe('get');
++    expect(init.headers.Authorization).toBe('Bearer test-router-key');
+   });
+ 
+-  it('returns an empty local fallback when fetching rejects', async () => {
+-    fetchMock.mockRejectedValue(new Error('network unavailable'));
++  it('fails without RAMP_ROUTER_API_KEY instead of guessing models', async () => {
++    delete process.env[ROUTER_API_KEY_ENV];
+ 
+-    await expect(fetchLlamaCppModels()).resolves.toEqual([]);
++    await expect(fetchRouterModelIds()).rejects.toThrow(
++      /RAMP_ROUTER_API_KEY is not set/
++    );
++    expect(fetchMock).not.toHaveBeenCalled();
+   });
+ });
+diff --git a/test/unit/proxy.test.ts b/test/unit/proxy.test.ts
+index 5b8a126..364c5e3 100644
+--- a/test/unit/proxy.test.ts
++++ b/test/unit/proxy.test.ts
+@@ -1,7 +1,6 @@
+ import axios from 'axios';
+ import { getGlobalDispatcher } from 'undici';
+-import { AnthropicEngine } from '../../src/engine/anthropic';
+-import { OpenAiEngine } from '../../src/engine/openAi';
++import { RouterEngine } from '../../src/engine/router';
+ import { resolveProxy, setupProxy } from '../../src/utils/proxy';
+ 
+ describe('proxy utilities', () => {
+@@ -77,8 +76,7 @@ describe('proxy utilities', () => {
+ describe('engine proxy handling', () => {
+   const originalEnv = { ...process.env };
+   const baseConfig = {
+-    apiKey: 'test-key',
+-    model: 'gpt-4o-mini',
++    model: 'test-model',
+     maxTokensInput: 4096,
+     maxTokensOutput: 256
+   };
+@@ -101,26 +99,15 @@ describe('engine proxy handling', () => {
+     resetEnv(originalEnv);
+   });
+ 
+-  it('should not let OpenAI engine re-read proxy env vars when proxy is unset', () => {
++  it('should not let Router engine re-read proxy env vars when proxy is unset', () => {
+     process.env.HTTPS_PROXY = 'http://ambient-proxy:8080';
++    process.env.RAMP_ROUTER_API_KEY = 'test-router-key';
+ 
+-    const engine = new OpenAiEngine({
++    const engine = new RouterEngine({
+       ...baseConfig,
+       proxy: undefined
+     });
+ 
+     expect(engine.client.httpAgent).toBeUndefined();
+   });
+-
+-  it('should not let Anthropic engine re-read proxy env vars when proxy is unset', () => {
+-    process.env.HTTPS_PROXY = 'http://ambient-proxy:8080';
+-
+-    const engine = new AnthropicEngine({
+-      ...baseConfig,
+-      model: 'claude-sonnet-4-20250514',
+-      proxy: undefined
+-    });
+-
+-    expect(engine.client.httpAgent).toBeUndefined();
+-  });
+ });
+diff --git a/test/unit/router.test.ts b/test/unit/router.test.ts
+new file mode 100644
+index 0000000..6b31428
+--- /dev/null
++++ b/test/unit/router.test.ts
+@@ -0,0 +1,183 @@
++import { OpenAI } from 'openai';
++import { getConfig } from '../../src/commands/config';
++import { RouterEngine } from '../../src/engine/router';
++import { getEngine } from '../../src/utils/engine';
++import { ROUTER_API_KEY_ENV, ROUTER_BASE_URL } from '../../src/utils/router';
++import { prepareFile } from './utils';
++
++const textResponse = (text: string) => ({
++  output: [
++    {
++      type: 'message',
++      role: 'assistant',
++      content: [{ type: 'output_text', text }]
++    }
++  ]
++});
++
++describe('RouterEngine', () => {
++  const originalRouterKey = process.env[ROUTER_API_KEY_ENV];
++
++  beforeEach(() => {
++    process.env[ROUTER_API_KEY_ENV] = 'test-router-key';
++  });
++
++  afterEach(() => {
++    jest.restoreAllMocks();
++    if (originalRouterKey === undefined) {
++      delete process.env[ROUTER_API_KEY_ENV];
++    } else {
++      process.env[ROUTER_API_KEY_ENV] = originalRouterKey;
++    }
++  });
++
++  const baseConfig = {
++    maxTokensInput: 4096,
++    maxTokensOutput: 256,
++    tokensMaxReasoning: 1024
++  };
++
++  const messages: Array<OpenAI.Chat.Completions.ChatCompletionMessageParam> = [
++    { role: 'system', content: 'system message' },
++    { role: 'user', content: 'example diff' },
++    { role: 'assistant', content: 'example commit' },
++    { role: 'user', content: 'diff --git a/file b/file' }
++  ];
++
++  it('sends a Responses request to Router with the Router key', () => {
++    const engine = new RouterEngine({ ...baseConfig, model: 'test-model' });
++
++    expect(engine.client.baseURL).toBe(ROUTER_BASE_URL);
++    expect(engine.client.apiKey).toBe('test-router-key');
++  });
++
++  it('maps chat messages to instructions and input', async () => {
++    const engine = new RouterEngine({ ...baseConfig, model: 'test-model' });
++    const post = jest
++      .spyOn(engine.client, 'post')
++      .mockResolvedValue(textResponse('feat(router): standard path') as any);
++
++    const result = await engine.generateCommitMessage(messages);
++
++    expect(result).toBe('feat(router): standard path');
++    expect(post).toHaveBeenCalledWith('/responses', {
++      body: {
++        model: 'test-model',
++        instructions: 'system message',
++        input: [
++          { role: 'user', content: 'example diff' },
++          { role: 'assistant', content: 'example commit' },
++          { role: 'user', content: 'diff --git a/file b/file' }
++        ],
++        temperature: 0,
++        top_p: 0.1,
++        max_output_tokens: 256
++      }
++    });
++  });
++
++  it('uses the reasoning budget as max_output_tokens for reasoning models', async () => {
++    const engine = new RouterEngine({
++      ...baseConfig,
++      model: 'test-model',
++      isReasoning: true
++    });
++    const post = jest
++      .spyOn(engine.client, 'post')
++      .mockResolvedValue(textResponse('feat(router): reasoning') as any);
++
++    await engine.generateCommitMessage(messages);
++
++    const body = (post.mock.calls[0][1] as any).body;
++    expect(body.max_output_tokens).toBe(1024);
++    expect(body).not.toHaveProperty('temperature');
++    expect(body).not.toHaveProperty('top_p');
++  });
++
++  it('reads text from message items and skips reasoning items', async () => {
++    const engine = new RouterEngine({ ...baseConfig, model: 'test-model' });
++    jest.spyOn(engine.client, 'post').mockResolvedValue({
++      output: [
++        { type: 'reasoning', summary: [] },
++        {
++          type: 'message',
++          role: 'assistant',
++          content: [
++            { type: 'output_text', text: 'feat(router): ' },
++            { type: 'output_text', text: 'joined' }
++          ]
++        }
++      ]
++    } as any);
++
++    await expect(engine.generateCommitMessage(messages)).resolves.toBe(
++      'feat(router): joined'
++    );
++  });
++
++  it('throws when the model refuses', async () => {
++    const engine = new RouterEngine({ ...baseConfig, model: 'test-model' });
++    jest.spyOn(engine.client, 'post').mockResolvedValue({
++      output: [
++        {
++          type: 'message',
++          role: 'assistant',
++          content: [{ type: 'refusal', refusal: 'no' }]
++        }
++      ]
++    } as any);
++
++    await expect(engine.generateCommitMessage(messages)).rejects.toThrow(
++      /refused/
++    );
++  });
++
++  it('throws TOO_MUCH_TOKENS when input exceeds the token limit boundary', async () => {
++    const engine = new RouterEngine({
++      ...baseConfig,
++      model: 'test-model',
++      isReasoning: true,
++      maxTokensInput: 1024
++    });
++
++    await expect(engine.generateCommitMessage(messages)).rejects.toThrow(
++      /TOO_MUCH_TOKENS/
++    );
++  });
++
++  it('requires a model ID', async () => {
++    const engine = new RouterEngine({ ...baseConfig, model: '' });
++
++    await expect(engine.generateCommitMessage(messages)).rejects.toThrow(
++      /OCO_MODEL is not set/
++    );
++  });
++
++  it('requires RAMP_ROUTER_API_KEY', () => {
++    delete process.env[ROUTER_API_KEY_ENV];
++
++    expect(
++      () => new RouterEngine({ ...baseConfig, model: 'test-model' })
++    ).toThrow(/RAMP_ROUTER_API_KEY is not set/);
++  });
++
++  it('is the default engine and never sends OCO_API_KEY', async () => {
++    const envFile = await prepareFile('.env', '');
++
++    try {
++      const config = getConfig({
++        envPath: envFile.filePath,
++        globalPath: `${envFile.filePath}.missing`
++      });
++      config.OCO_MODEL = 'test-model';
++      config.OCO_API_KEY = 'legacy-provider-key';
++
++      const engine = getEngine(config);
++
++      expect(engine).toBeInstanceOf(RouterEngine);
++      expect((engine as RouterEngine).client.apiKey).toBe('test-router-key');
++    } finally {
++      await envFile.cleanup();
++    }
++  });
++});
+diff --git a/test/unit/setup.test.ts b/test/unit/setup.test.ts
+index 426fc4a..e0210d8 100644
+--- a/test/unit/setup.test.ts
++++ b/test/unit/setup.test.ts
+@@ -22,23 +22,17 @@ let currentConfig: Record<string, unknown> = {};
+ let globalConfigExists = false;
+ 
+ const OCO_AI_PROVIDER_ENUM = {
++  ROUTER: 'router',
+   OLLAMA: 'ollama',
+   LLAMACPP: 'llamacpp',
+-  OPENAI: 'openai',
+-  ANTHROPIC: 'anthropic',
+-  GEMINI: 'gemini',
+-  AZURE: 'azure',
+-  TEST: 'test',
+-  FLOWISE: 'flowise',
+-  GROQ: 'groq',
+-  MISTRAL: 'mistral',
+   MLX: 'mlx',
+-  DEEPSEEK: 'deepseek',
+-  AIMLAPI: 'aimlapi',
+-  OPENROUTER: 'openrouter',
+-  ORCAROUTER: 'orcarouter'
++  FLOWISE: 'flowise',
++  TEST: 'test'
+ } as const;
+ 
++const fetchModelsForProviderMock =
++  jest.fn<(provider: string) => Promise<string[]>>();
++
+ jest.unstable_mockModule('@clack/prompts', () => ({
+   intro: introMock,
+   outro: outroMock,
+@@ -53,20 +47,16 @@ jest.unstable_mockModule('cleye', () => ({
+ }));
+ 
+ jest.unstable_mockModule('commands/config', () => ({
+-  CONFIG_KEYS: {},
+-  MODEL_LIST: {},
+   OCO_AI_PROVIDER_ENUM,
+   getConfig: getConfigMock,
+   setGlobalConfig: setGlobalConfigMock,
+   getGlobalConfig: getGlobalConfigMock,
+   getIsGlobalConfigFileExist: getIsGlobalConfigFileExistMock,
+-  DEFAULT_CONFIG: {},
+-  PROVIDER_API_KEY_URLS: {},
+-  RECOMMENDED_MODELS: {}
++  DEFAULT_CONFIG: {}
+ }));
+ 
+ jest.unstable_mockModule('utils/modelCache', () => ({
+-  fetchModelsForProvider: jest.fn(),
++  fetchModelsForProvider: fetchModelsForProviderMock,
+   fetchOllamaModels: jest.fn(),
+   getCacheInfo: jest.fn(() => ({ timestamp: null, providers: [] }))
+ }));
+@@ -76,36 +66,34 @@ const { isFirstRun, promptForMissingApiKey, runSetup } = await import(
+ );
+ 
+ const PRIMARY_OPTIONS = [
+-  { value: 'openai', label: 'OpenAI (GPT)' },
+-  { value: 'anthropic', label: 'Anthropic (Claude Sonnet, Opus)' },
++  {
++    value: 'router',
++    label: 'Router (OpenAI, Anthropic, Gemini and more through one API)'
++  },
+   { value: 'ollama', label: 'Ollama (Free, runs locally)' },
+   { value: 'llamacpp', label: 'llama.cpp (Free, runs locally)' },
+   { value: 'other', label: 'Other providers...' }
+ ];
+ 
+-const OTHER_OPTIONS = [
+-  { value: 'gemini', label: 'Google Gemini' },
+-  { value: 'groq', label: 'Groq (Fast inference, free tier)' },
+-  { value: 'mistral', label: 'Mistral AI' },
+-  { value: 'deepseek', label: 'DeepSeek' },
+-  { value: 'openrouter', label: 'OpenRouter (Multiple providers)' },
+-  { value: 'orcarouter', label: 'OrcaRouter (Smart routing gateway)' },
+-  { value: 'aimlapi', label: 'AI/ML API' },
+-  { value: 'azure', label: 'Azure OpenAI' },
+-  { value: 'mlx', label: 'MLX (Apple Silicon, local)' }
+-];
++const OTHER_OPTIONS = [{ value: 'mlx', label: 'MLX (Apple Silicon, local)' }];
+ 
+ describe('setup provider behavior', () => {
++  const originalRouterKey = process.env.RAMP_ROUTER_API_KEY;
++
+   beforeEach(() => {
+     jest.clearAllMocks();
+     currentConfig = {};
+     globalConfigExists = false;
+     getConfigMock.mockImplementation(() => currentConfig);
+     getIsGlobalConfigFileExistMock.mockImplementation(() => globalConfigExists);
++    delete process.env.RAMP_ROUTER_API_KEY;
+   });
+ 
+   afterAll(() => {
+     consoleLogMock.mockRestore();
++    if (originalRouterKey !== undefined) {
++      process.env.RAMP_ROUTER_API_KEY = originalRouterKey;
++    }
+   });
+ 
+   it('preserves primary provider order and labels', async () => {
+@@ -128,7 +116,7 @@ describe('setup provider behavior', () => {
+     });
+   });
+ 
+-  it.each(['ollama', 'mlx', 'llamacpp'])(
++  it.each(['router', 'ollama', 'mlx', 'llamacpp'])(
+     'requires a model on first run for %s',
+     (provider) => {
+       currentConfig = { OCO_AI_PROVIDER: provider, OCO_MODEL: '' };
+@@ -139,22 +127,11 @@ describe('setup provider behavior', () => {
+     }
+   );
+ 
+-  it.each([
+-    'openai',
+-    'anthropic',
+-    'gemini',
+-    'azure',
+-    'flowise',
+-    'groq',
+-    'mistral',
+-    'deepseek',
+-    'aimlapi',
+-    'openrouter'
+-  ])('requires an API key on first run for %s', (provider) => {
+-    currentConfig = { OCO_AI_PROVIDER: provider, OCO_API_KEY: '' };
++  it('requires an API key on first run for flowise', () => {
++    currentConfig = { OCO_AI_PROVIDER: 'flowise', OCO_API_KEY: '' };
+     expect(isFirstRun()).toBe(true);
+ 
+-    currentConfig = { OCO_AI_PROVIDER: provider, OCO_API_KEY: 'provider-key' };
++    currentConfig = { OCO_AI_PROVIDER: 'flowise', OCO_API_KEY: 'chatflow-id' };
+     expect(isFirstRun()).toBe(false);
+   });
+ 
+@@ -164,11 +141,11 @@ describe('setup provider behavior', () => {
+     expect(isFirstRun()).toBe(false);
+   });
+ 
+-  it('defaults a missing provider to OpenAI API-key behavior', () => {
+-    currentConfig = { OCO_API_KEY: '' };
++  it('defaults a missing provider to Router model behavior', () => {
++    currentConfig = { OCO_API_KEY: 'legacy-provider-key' };
+     expect(isFirstRun()).toBe(true);
+ 
+-    currentConfig = { OCO_API_KEY: 'openai-key' };
++    currentConfig = { OCO_MODEL: 'router-model-id' };
+     expect(isFirstRun()).toBe(false);
+   });
+ 
+@@ -185,11 +162,22 @@ describe('setup provider behavior', () => {
+ 
+   it('does not trigger setup when a global config file already exists', () => {
+     globalConfigExists = true;
+-    currentConfig = { OCO_AI_PROVIDER: 'openai', OCO_API_KEY: '' };
++    currentConfig = { OCO_AI_PROVIDER: 'router', OCO_MODEL: '' };
+ 
+     expect(isFirstRun()).toBe(false);
+   });
+ 
++  it('does not prompt for a Router key and requires RAMP_ROUTER_API_KEY', async () => {
++    currentConfig = { OCO_AI_PROVIDER: 'router' };
++    await expect(promptForMissingApiKey()).resolves.toBe(false);
++
++    process.env.RAMP_ROUTER_API_KEY = 'test-router-key';
++    await expect(promptForMissingApiKey()).resolves.toBe(true);
++
++    expect(textMock).not.toHaveBeenCalled();
++    expect(setGlobalConfigMock).not.toHaveBeenCalled();
++  });
++
+   it.each(['ollama', 'llamacpp', 'mlx', 'test'])(
+     'does not prompt %s for an API key',
+     async (provider) => {
+@@ -212,4 +200,34 @@ describe('setup provider behavior', () => {
+       expect(setGlobalConfigMock).not.toHaveBeenCalled();
+     }
+   );
++
++  it('stops Router setup when RAMP_ROUTER_API_KEY is missing', async () => {
++    selectMock.mockResolvedValueOnce('router');
++
++    await expect(runSetup()).resolves.toBe(false);
++    expect(fetchModelsForProviderMock).not.toHaveBeenCalled();
++    expect(textMock).not.toHaveBeenCalled();
++    expect(setGlobalConfigMock).not.toHaveBeenCalled();
++  });
++
++  it('saves a Router model from GET /v1/models without a provider key', async () => {
++    process.env.RAMP_ROUTER_API_KEY = 'test-router-key';
++    globalConfigExists = true;
++    getGlobalConfigMock.mockReturnValueOnce({
++      OCO_AI_PROVIDER: 'openai',
++      OCO_API_KEY: 'legacy-provider-key',
++      OCO_API_URL: 'https://legacy-provider.example/v1'
++    } as any);
++    fetchModelsForProviderMock.mockResolvedValueOnce(['router-model-id']);
++    selectMock
++      .mockResolvedValueOnce('router')
++      .mockResolvedValueOnce('router-model-id');
++
++    await expect(runSetup()).resolves.toBe(true);
++    expect(fetchModelsForProviderMock).toHaveBeenCalledWith('router');
++    expect(setGlobalConfigMock).toHaveBeenCalledWith({
++      OCO_AI_PROVIDER: 'router',
++      OCO_MODEL: 'router-model-id'
++    });
++  });
+ });

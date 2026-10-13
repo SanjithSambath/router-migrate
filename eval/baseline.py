@@ -99,12 +99,16 @@ def per_original_site(name, dst):
     changed = set(subprocess.run("git -C %s add -A -N . >/dev/null 2>&1; git -C %s diff --name-only" % (dst, dst), shell=True,
                                  capture_output=True, text=True).stdout.split())
     out = []
+    native = any(ROUTER_MARK.search(open(os.path.join(d, f), encoding="utf-8", errors="replace").read())
+                 for d, dirs, fs in os.walk(dst) if "node_modules" not in d and ".git" not in d for f in fs
+                 if f.endswith((".py", ".ts", ".tsx", ".js", ".mjs")))
     for s in sites:
-        moved = s["surface"] not in planmod.NO_ENDPOINT and _routes_via_router(dst, s["file"])
+        deleted = not os.path.exists(os.path.join(dst, s["file"]))
+        moved = s["surface"] not in planmod.NO_ENDPOINT and (_routes_via_router(dst, s["file"]) or (deleted and native))
         out.append({"file": s["file"], "line": s["line"], "surface": s["surface"], "router_migrate": s["outcome"], "baseline_moved": moved})
     elig = [o for o in out if o["surface"] not in planmod.NO_ENDPOINT]
     return {"sites": out, "sites_found": len(out), "moved": sum(o["baseline_moved"] for o in out), "eligible": len(elig),
-            "method": "site's file reaches api.router.com / RAMP_ROUTER_* directly or through local imports (3 levels); heuristic, generous to the baseline"}
+            "method": "site's file reaches api.router.com / RAMP_ROUTER_* directly or through local imports (3 levels), or its file was deleted and the repo now has a native Router client; heuristic, generous to the baseline"}
 
 
 def score(names):
