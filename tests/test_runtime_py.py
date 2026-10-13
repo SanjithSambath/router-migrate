@@ -524,3 +524,37 @@ def test_router_chain_turn_that_cannot_route_errors_locally(rt, sim):
                            tools=[{"type": "file_search", "vector_store_ids": ["vs_1"]}])
     c.responses.delete(r1.id)
     assert split.provider_calls == [] and r1.id not in rt._CHAINS
+
+
+# ---- v2 unlocks (customer-approved, per-request safe)
+def test_unlock_vendor_host_routes_only_catalog_models(rt, sim):
+    split = Split()
+    c = openai.OpenAI(base_url="https://api.x.ai/v1", http_client=httpx.Client(transport=split))
+    rt.wrap_openai(c, unlock_hosts=["api.x.ai"])
+    r = c.chat.completions.create(model="grok-4.3", messages=[{"role": "user", "content": "hi"}])
+    assert r.choices[0].message.content == "pong" and split.provider_calls == []
+    assert last(sim)["request"]["model"] == "grok-4.3" and last(sim)["valid"]
+    sim.records.clear()
+    r = c.chat.completions.create(model="grok-2-latest", messages=[{"role": "user", "content": "hi"}])  # not a catalog id
+    assert r.choices[0].message.content == "from-provider" and sim.records == [] and "api.x.ai" in split.provider_calls[-1][1]
+
+
+def test_vendor_host_untouched_without_unlock(rt, sim):
+    split = Split()
+    c = openai.OpenAI(base_url="https://api.x.ai/v1", http_client=httpx.Client(transport=split))
+    rt.wrap_openai(c)
+    c.chat.completions.create(model="grok-4.3", messages=[{"role": "user", "content": "hi"}])
+    assert sim.records == [] and split.provider_calls
+
+
+def test_drop_betas_routes_only_when_every_flag_is_approved(rt, sim):
+    split = Split()
+    a = anthropic.Anthropic(http_client=httpx.Client(transport=split))
+    rt.wrap_anthropic(a, drop_betas=["prompt-caching-2024-07-31"])
+    m = a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}],
+                          extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"})
+    assert m.content[0].text == "pong" and split.provider_calls == [] and last(sim)["valid"]
+    sim.records.clear()
+    m = a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}],
+                          extra_headers={"anthropic-beta": "prompt-caching-2024-07-31,computer-use-2025-01-24"})
+    assert m.content[0].text == "from-provider" and sim.records == []

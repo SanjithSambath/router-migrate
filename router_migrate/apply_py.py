@@ -24,6 +24,9 @@ STUBS = {"wrap_openai": "lambda c, *a, **k: c", "wrap_anthropic": "lambda c, *a,
          "install_openai_module": "lambda: None", "install_litellm": "lambda: None", "chat_anthropic_kwargs": "lambda: {}"}
 
 
+CTOR_NAMES = ("OpenAI", "AsyncOpenAI", "Anthropic", "AsyncAnthropic")
+
+
 def alias(name):
     return "_router_" + name
 
@@ -63,9 +66,51 @@ class _Patcher(cst.CSTTransformer):
         self.skipped = {}
         self.added = set()  # helper kinds this run actually inserted
 
+    @staticmethod
+    def _wrap_kwargs(kind, opts):
+        """Keyword args a wrap call carries. v1: only responses=False; v2 unlocks add unlock_hosts / drop_betas."""
+        opts = opts or {}
+        kws = []
+        if opts.get("responses") is False and kind != "wrap_anthropic":
+            kws.append(("responses", "False"))
+        if opts.get("unlock_hosts") and kind == "wrap_openai":
+            kws.append(("unlock_hosts", repr(sorted(opts["unlock_hosts"]))))
+        if opts.get("drop_betas") and kind == "wrap_anthropic":
+            kws.append(("drop_betas", repr(sorted(opts["drop_betas"]))))
+        return kws
+
+    def _key(self, node):
+        """Target key of a call: exact (line, col), or (line, None) for a client constructor on that line (v2 unlocks address
+        constructors in already-patched files, where the column moved)."""
+        pos = self.get_metadata(PositionProvider, node).start
+        if (pos.line, pos.column) in self.targets:
+            return (pos.line, pos.column)
+        f = node.func
+        name = f.value if isinstance(f, cst.Name) else f.attr.value if isinstance(f, cst.Attribute) else None
+        if (pos.line, None) in self.targets and name in CTOR_NAMES:
+            return (pos.line, None)
+        return (pos.line, pos.column)
+
     def leave_Call(self, original, updated):
-        pos = self.get_metadata(PositionProvider, original).start
-        key = (pos.line, pos.column)
+        key = self._key(original)
+        if _is_router_call(original) and original.args and isinstance(original.args[0].value, cst.Call):
+            ikey = self._key(original.args[0].value)
+            if ikey in self.targets:  # an earlier run wrapped this constructor: add any v2 unlock option it lacks
+                kind, opts = self.targets[ikey]
+                kind = KIND_ALIAS.get(kind, kind)
+                have = {a.keyword.value for a in updated.args if a.keyword is not None}
+                extra = [kv for kv in self._wrap_kwargs(kind, opts) if kv[0] not in have and kv[0] != "responses"]
+                if extra:
+                    new = list(updated.args)
+                    new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+                    for i, (k, v) in enumerate(extra):
+                        arg = _kw(k, v)
+                        if i < len(extra) - 1:
+                            arg = arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+                        new.append(arg)
+                    self.added.add(kind)
+                    return updated.with_changes(args=new)
+            return updated
         if key not in self.targets:
             return updated
         kind, opts = self.targets[key]
@@ -74,9 +119,13 @@ class _Patcher(cst.CSTTransformer):
             self.done[key] = kind  # patched by an earlier run: counts as patched, nothing to do
             return updated
         if kind in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
-            args = [cst.Arg(updated)]
-            if (opts or {}).get("responses") is False and kind != "wrap_anthropic":
-                args = [cst.Arg(updated, comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))), _kw("responses", "False")]
+            kws = self._wrap_kwargs(kind, opts)
+            args = [cst.Arg(updated, comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")) if kws else cst.MaybeSentinel.DEFAULT)]
+            for i, (k, v) in enumerate(kws):
+                arg = _kw(k, v)
+                if i < len(kws) - 1:
+                    arg = arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
+                args.append(arg)
             self.done[key] = kind
             self.added.add(kind)
             return cst.Call(func=cst.Name(alias(kind)), args=args)

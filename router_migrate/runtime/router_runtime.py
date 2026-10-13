@@ -856,7 +856,7 @@ def _plan_request(req, opts):
         return _local_retrieve(req)
     if req.method != "POST":
         return None
-    if host in _OPENAI_HOSTS and (path.endswith("/chat/completions") or path.endswith("/responses")):
+    if (host in _OPENAI_HOSTS or host in (opts.get("unlock_hosts") or ())) and (path.endswith("/chat/completions") or path.endswith("/responses")):
         body = json.loads(req.content or b"{}")
         rid = resolve_model(body.get("model"))
         prev = body.get("previous_response_id") if path.endswith("/responses") else None
@@ -877,7 +877,9 @@ def _plan_request(req, opts):
         return _plan_responses(body, rid, owned, feature, opts)
     if host in _ANTHROPIC_HOSTS and (path.rstrip("/").endswith("/v1/messages") or path.endswith("/v1/messages/count_tokens")):
         if req.headers.get("anthropic-beta"):
-            return None  # beta features are unmeasured on Router; keep on Anthropic
+            betas = {b.strip() for b in req.headers["anthropic-beta"].split(",") if b.strip()}
+            if not (opts.get("drop_betas") and betas <= set(opts["drop_betas"])):
+                return None  # beta features are unmeasured on Router; keep on Anthropic (unless every flag was approved to drop)
         if _load_policy():
             _policy_log("messages", "not applied on /v1/messages (Router-only fields are Responses-only)")
         body = json.loads(req.content or b"{}")
@@ -1149,6 +1151,9 @@ def _install(hc, opts=None):
         if isinstance(t, T):
             if opts.get("responses") is False:
                 t.opts["responses"] = False  # the stricter setting wins when clients share one httpx client
+            for k in ("unlock_hosts", "drop_betas"):  # v2 unlocks accumulate across wraps of a shared httpx client
+                if opts.get(k):
+                    t.opts[k] = sorted(set(t.opts.get(k) or []) | set(opts[k]))
             return t
         return T(inner=t, opts=opts)
 
@@ -1207,18 +1212,25 @@ def _is_openai(client):
     return _is(client, "openai", ("OpenAI", "AsyncOpenAI")) and not _is(client, "openai", ("AzureOpenAI", "AsyncAzureOpenAI"))
 
 
-def wrap_openai(client, responses=True):
+def wrap_openai(client, responses=True, unlock_hosts=None):
     """OpenAI / AsyncOpenAI client (or subclass): its traffic goes through Router, in place; unchanged when RAMP_ROUTER_API_KEY
-    is unset. responses=False keeps this client's Responses API traffic on OpenAI (stateful use: previous_response_id etc.)."""
+    is unset. responses=False keeps this client's Responses API traffic on OpenAI (stateful use: previous_response_id etc.).
+    unlock_hosts (v2 unlock.vendor_endpoint, customer-approved): another vendor's OpenAI-compatible host whose requests go to
+    Router when their model is a Router catalog id; every other request to that host still goes to the vendor."""
     if not active() or not _is_openai(client):
         return client  # Azure deployments and test doubles stay on their configured endpoint
-    return _with_client(client, {"responses": responses})
+    opts = {"responses": responses}
+    if unlock_hosts:
+        opts["unlock_hosts"] = sorted(unlock_hosts)
+    return _with_client(client, opts)
 
 
-def wrap_anthropic(client):
+def wrap_anthropic(client, drop_betas=None):
+    """drop_betas (v2 unlock.stated_loss, customer-approved): Anthropic beta flags that may be dropped so the request can go to
+    Router. A request carrying any other beta flag stays on Anthropic."""
     if not active() or not _is(client, "anthropic", ("Anthropic", "AsyncAnthropic")):
         return client  # Bedrock / Vertex clients and test doubles stay put
-    return _with_client(client)
+    return _with_client(client, {"drop_betas": sorted(drop_betas)} if drop_betas else None)
 
 
 def wrap_langchain(llm, responses=True):

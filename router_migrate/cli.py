@@ -6,6 +6,10 @@
   router-migrate verify  PATH          tests before vs after, syntax/type checks, requests replayed against router-sim, optional --live
   router-migrate report  PATH          REPORT.md + report.json (every site, outcome, reason, coverage)
   router-migrate run     PATH          scan -> plan -> apply -> verify -> report
+  router-migrate up      PATH          v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the dashboard (--agent: exit 2 while cards are undecided)
+  router-migrate recommend PATH        v2: Improve cards (unlock, same-model policy, model recommendations) -> recommendations.json + RECOMMENDATIONS.md
+  router-migrate decide  ID ACTION     v2: approve | dismiss --reason R | postpone --until DATE | shadow-first a card (writes decisions.json)
+  router-migrate status  PATH          v2: effective policy per feature, compiled-policy hash check, orphan entries, undecided cards
 
 Nothing changes at runtime until RAMP_ROUTER_API_KEY is set; ROUTER_MIGRATE_DISABLE=1 turns it off again.
 """
@@ -267,11 +271,40 @@ def main(argv=None):
             sp.add_argument("--baseline", help="path to an unmodified copy of the repo for the 'before' test run (default: git stash)")
             sp.add_argument("--budget", type=float, default=0.25, help="USD cap for --live replay (default 0.25)")
             sp.add_argument("--timeout", type=int, default=1800)
+        if name == "apply":
+            sp.add_argument("--decisions", action="store_true", help="v2: apply approved cards from .router-migrate/decisions.json")
+    s_up = sub.add_parser("up", help="v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
+    s_up.add_argument("path", nargs="?", default=".")
+    s_up.add_argument("--agent", action="store_true", help="no dashboard; print pending cards as JSON; exit 2 while any card is undecided")
+    s_up.add_argument("--no-browser", action="store_true", help="serve the dashboard without opening a browser")
+    s_up.add_argument("--skip-verify", action="store_true", help="skip running the repo's tests")
+    s_up.add_argument("--test-cmd")
+    s_up.add_argument("--live", action="store_true")
+    s_up.add_argument("--max-usd", type=float, default=0.25)
+    s_rec = sub.add_parser("recommend", help="v2: write .router-migrate/recommendations.json and RECOMMENDATIONS.md")
+    s_rec.add_argument("path", nargs="?", default=".")
+    s_rec.add_argument("--json", action="store_true")
+    s_dec = sub.add_parser("decide", help="v2: record a decision on a card (approve | dismiss | postpone | shadow-first)")
+    s_dec.add_argument("card_id")
+    s_dec.add_argument("action", choices=["approve", "dismiss", "postpone", "shadow-first"])
+    s_dec.add_argument("--reason")
+    s_dec.add_argument("--until", help="YYYY-MM-DD (postpone)")
+    s_dec.add_argument("--path", default=".")
+    s_dec.add_argument("--by", default="cli", choices=["cli", "agent", "ui"])
+    s_st = sub.add_parser("status", help="v2: effective setup per feature, policy hash check, orphans; exit 1 if stale or orphaned")
+    s_st.add_argument("path", nargs="?", default=".")
+    s_st.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 0
+    if a.cmd in ("up", "recommend", "decide", "status"):
+        from . import v2cli
+        return v2cli.run(a)
     root = os.path.abspath(a.path)
+    if a.cmd == "apply" and getattr(a, "decisions", False):
+        from . import v2cli
+        return v2cli.run(a)
     if a.cmd == "scan":
         r = do_scan(root)
     elif a.cmd == "plan":
