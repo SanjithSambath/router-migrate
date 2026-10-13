@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Screenshot every dashboard tab of a REPORT.html in light and dark: <outdir>/<tab>-<light|dark>.png.
+"""Screenshot every dashboard tab of a REPORT.html (dark only): <outdir>/<tab>.png.
 
 Usage: .venv/bin/python scripts/screenshots.py <REPORT.html> <outdir> [--width 1440] [--height 900] [--scale 2] [--fonts] [--drawer]
 
@@ -8,7 +8,7 @@ Needs Playwright in the project venv and Chromium under .tools/ms-playwright (ne
   PLAYWRIGHT_BROWSERS_PATH=$PWD/.tools/ms-playwright .venv/bin/python -m playwright install chromium
 
 Network is blocked by default (the report must work offline; system fonts are used). --fonts allows Google Fonts only.
---drawer also captures the Migration diff drawer (migration-drawer-<scheme>.png).
+--drawer also captures the Migration diff drawer (migration-drawer.png).
 """
 import argparse
 import os
@@ -53,7 +53,7 @@ def main(argv=None):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         try:
-            for scheme in ("light", "dark"):
+            for scheme in ("dark",):
                 ctx = browser.new_context(viewport={"width": a.width, "height": a.height}, device_scale_factor=a.scale,
                                           color_scheme=scheme, reduced_motion="reduce")
                 ctx.route("**/*", route)
@@ -66,13 +66,13 @@ def main(argv=None):
                     page.wait_for_selector('.tab[data-tab="%s"][aria-selected="true"]' % tab)
                     page.evaluate("() => window.scrollTo(0, 0)")
                     page.wait_for_timeout(150)
-                    out = os.path.join(a.outdir, "%s-%s.png" % (tab, scheme))
+                    out = os.path.join(a.outdir, "%s.png" % tab)
                     page.screenshot(path=out, full_page=True)
                     written.append(out)
                     if tab == "migration" and a.drawer and page.query_selector('[data-act="drawer"]'):
                         page.click('[data-act="drawer"]')
                         page.wait_for_selector(".drawer")
-                        out = os.path.join(a.outdir, "migration-drawer-%s.png" % scheme)
+                        out = os.path.join(a.outdir, "migration-drawer.png")
                         page.screenshot(path=out)
                         written.append(out)
                         page.keyboard.press("Escape")

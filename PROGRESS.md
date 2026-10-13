@@ -96,7 +96,7 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   (exit 2 while cards are undecided). RECOMMENDATIONS.md is rendered one-way.
 - **v2.6 Dashboard.**
   - The page and the hardened stdlib server came in `bd7daea`; top-10 card restraint and the screenshots in `ae42c4d`.
-  - Playwright screenshots of every tab, light and dark, of langchain-nextjs-template are in eval/screenshots/.
+  - Playwright screenshots of every tab of langchain-nextjs-template are in eval/screenshots/ (dark only; light mode removed).
   - Live-server check: 21 of 21 (`0ed4fe8`, eval/dashboard_live_check.md).
   - Tab rendering on all 15 eval reports (`03c9208`, eval/dashboard_tabs_check.md).
 - **v2.7 Eval v2 and docs.**
