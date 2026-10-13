@@ -311,6 +311,10 @@ class Sim:
                 raise SimError(400, "invalid_request_error", "messages.%d.role: Input should be 'user' or 'assistant'" % i, "[upstream]")
         if "temperature" in b and m.get("temperature") is False:
             raise SimError(400, "invalid_request_error", "Unsupported parameter: 'temperature' is not supported with this model.", "[measured]")
+        tc = b.get("tool_choice")
+        if isinstance(tc, dict) and tc.get("type") == "tool" and tc.get("name") not in [t.get("name") for t in b.get("tools") or []]:
+            raise SimError(400, "invalid_request_error", "Tool '%s' not found in provided tools" % tc.get("name"),
+                           "[measured] live replay of anthropic-quickstarts")
         if b.get("stop_sequences") and m.get("owned_by") == "openai":
             raise SimError(501, "not_implemented", "Stop sequences cannot be translated to OpenAI: the Responses API has no stop parameter.",
                            "[measured]", kind="not_implemented_error")

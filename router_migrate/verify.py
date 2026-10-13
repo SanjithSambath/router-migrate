@@ -122,7 +122,10 @@ _NOT_REPLAYED = {"messages", "input", "model", "stream", "prompt", "timeout", "m
 
 def replay_kwargs(s):
     """The site's statically known literal kwargs (scanner: static_kwargs), as they would be sent."""
-    return {k: v for k, v in (s.get("static_kwargs") or {}).items() if k not in _NOT_REPLAYED and not k.startswith("__")}
+    kw = {k: v for k, v in (s.get("static_kwargs") or {}).items() if k not in _NOT_REPLAYED and not k.startswith("__")}
+    if "tool_choice" in kw and "tools" not in kw:
+        kw.pop("tool_choice")  # the site's tools are not literal, so a forced tool choice cannot be replayed faithfully
+    return kw
 
 
 def _send(fn, base, kw):

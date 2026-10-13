@@ -18,9 +18,10 @@ for r in rows:
 print("\nby sdk/surface:")
 for k, v in sorted(agg.items(), key=lambda kv: -sum(kv[1].values())):
     print("  %-40s %s" % (k, dict(v)))
-st = [r["sim_detail"] for r in rows if r.get("sim_detail")]
-print("\nrouter-sim: repo-test requests %d (valid %d), replayed sites %d (valid %d)" % (
-    sum(s["repo_test_requests"] for s in st), sum(s["repo_test_valid"] for s in st), sum(s["replayed_sites"] for s in st), sum(s["replay_valid"] for s in st)))
+rep = [r for r in rows if r.get("replay_unique_requests") is not None]
+print("\nrouter-sim replay (unique request shapes, site literal kwargs): %d ok of %d | Router-on test runs that reached the sim: %d of %d repos" % (
+    sum(r.get("replay_ok") or 0 for r in rep), sum(r["replay_unique_requests"] for r in rep),
+    sum(1 for r in rows if (r.get("sim_requests_from_tests") or 0) > 0), len(rows)))
 lv = [r for r in rows if r.get("live_success_pct") is not None]
 if lv:
     print("live: %d repos, mean success %.1f%%, spent $%.4f" % (len(lv), sum(r["live_success_pct"] for r in lv) / len(lv), sum(r.get("live_spent_usd") or 0 for r in lv)))
@@ -28,9 +29,20 @@ print("diff lines total %d | runtime mean %.1fs" % (sum(r.get("diff_lines") or 0
 bp = os.path.join(E, "baseline.json")
 if os.path.exists(bp):
     b = json.load(open(bp))
-    print("\nbaseline (docs prompt via claude -p):")
-    for name, x in b.items():
+    print("\nbaseline (docs prompt run by a Claude agent; per original call site):")
+    tot = {"b_moved": 0, "rm_moved": 0, "sites": 0}
+    for name, x in sorted(b.items()):
         sb = next((r for r in rows if r["repo"] == x["repo"]), {})
-        print("  %-28s baseline migrated %s/%s, tests %s -> %s, diff %s lines, $%s | router-migrate migrated %s/%s, tests %s -> %s, diff %s" % (
-            name, x["summary"]["migrated"], x["summary"]["sites_found"], x.get("tests_before"), x.get("tests_after"), x.get("diff_lines"),
-            x["agent"].get("cost_usd"), sb.get("migrated"), sb.get("sites_found"), sb.get("tests_before"), sb.get("tests_after"), sb.get("diff_lines")))
+        po = x.get("per_original_site") or {}
+        if not po:
+            print("  %-28s not scored yet" % name)
+            continue
+        tot["b_moved"] += po["moved"]
+        tot["rm_moved"] += sb.get("migrated") or 0
+        tot["sites"] += po["sites_found"]
+        print("  %-28s baseline moved %s/%s, tests %s -> %s, typecheck after %s, diff %s lines, test files changed %s | "
+              "router-migrate migrated %s/%s, tests %s -> %s, diff %s" % (
+                  name, po["moved"], po["sites_found"], x.get("tests_before"), x.get("tests_after"), x.get("typecheck_after"),
+                  x.get("diff_lines"), x.get("test_files_changed"), sb.get("migrated"), sb.get("sites_found"), sb.get("tests_before"),
+                  sb.get("tests_after"), sb.get("diff_lines")))
+    print("  totals over scored repos: baseline moved %d, router-migrate migrated %d, of %d original sites" % (tot["b_moved"], tot["rm_moved"], tot["sites"]))

@@ -116,7 +116,7 @@ RULES = [
     ("SM06", "temperature / effort capability rules", "measured", ["temperature unsupported", "effort on claude small budget"]),
     ("SM07", "timeouts and allow_flex_tier validation", "measured", ["fallback_timeout needs stream", "provider_timeout max", "allow_flex_tier bad type"]),
     ("SM08", "Messages: anthropic-version required, extra fields on Claude 400, stop_sequences 501 on GPT", "measured",
-     ["messages no version", "messages extra field claude", "messages stop_sequences gpt"]),
+     ["messages no version", "messages extra field claude", "messages stop_sequences gpt", "messages tool_choice names a missing tool"]),
     ("SM09", "only /v1/models, /v1/responses, /v1/messages exist", "measured", ["chat completions 404", "embeddings 404", "test_get_routes"]),
     ("SM10", "Python-urllib default User-Agent blocked (1010)", "measured", ["test_urllib_default_user_agent_blocked"]),
     ("SM11", "Responses input/tool contract (roles, parts, call ids, strict schemas)", "upstream", ["tool role", "orphan function output", "strict default loose schema"]),

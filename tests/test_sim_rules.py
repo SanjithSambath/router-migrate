@@ -53,6 +53,8 @@ CASES = [
     ("byok-only model unavailable", "/v1/responses", dict(OK, model="gemini-2.5-flash"), {}, 200, None),
     ("messages ok", "/v1/messages", {"model": "claude-haiku-4-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]}, {"anthropic-version": "2023-06-01"}, 200, None),
     ("messages no version", "/v1/messages", {"model": "claude-haiku-4-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]}, {}, 400, "anthropic-version"),
+    ("messages tool_choice names a missing tool", "/v1/messages", {"model": "claude-haiku-4-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}],
+                                                                     "tool_choice": {"type": "tool", "name": "point_at"}}, {"anthropic-version": "2023-06-01"}, 400, "not found"),
     ("messages extra field claude", "/v1/messages", {"model": "claude-haiku-4-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "provider_timeout": 30}, {"anthropic-version": "2023-06-01"}, 400, "Extra inputs"),
     ("messages extra field gpt ok", "/v1/messages", {"model": "gpt-4o-mini", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "provider_timeout": 30}, {"anthropic-version": "2023-06-01"}, 200, None),
     ("messages stop_sequences gpt", "/v1/messages", {"model": "gpt-4o-mini", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}], "stop_sequences": [","]}, {"anthropic-version": "2023-06-01"}, 501, "Stop sequences"),
