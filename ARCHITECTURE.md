@@ -23,12 +23,18 @@ SDK client ──POST──► transport/fetch ──► plan_request()
                                           │ inactive (no RAMP_ROUTER_API_KEY) ............ provider (unchanged)
                                           │ host not api.openai.com/api.anthropic.com ..... provider (Groq, Ollama, Azure...)
                                           │ model not resolvable to a catalog id .......... provider
-                                          │ embeddings/images/audio/files/n>1/logprobs .... provider
+                                          │ embeddings/images/audio/files/n>1/logprobs/seed provider
+                                          │ provider-side state (vector stores, unencrypted reasoning items, file ids,
+                                          │   provider-issued previous_response_id, client opted out) ... provider
                                           │ /chat/completions ─► chat_to_responses() ─► Router /v1/responses
                                           │                      ◄─ responses_to_chat() / _ChunkWriter (SSE) ◄─┘
-                                          │ /responses ─► sanitize (store, prev id) ─► Router /v1/responses (passthrough)
+                                          │ /responses ─► drop store, expand Router-started chains inline ─► Router /v1/responses
+                                          │ GET /responses/{router id} ─► answered from the in-process chain memory
                                           └ /v1/messages ─► model map ─► Router /v1/messages (passthrough)
+Router replies 400 unknown/unsupported parameter, 403, 404 model_not_found or 501 ─► original request to the provider, once
 ```
+The transport is installed in place: it wraps the httpx client's own transport and each proxy mount, so the client object,
+its headers, hooks, proxies and pool are unchanged.
 `metadata.feature` is derived from the first stack frame that belongs to the repo, so Router can attribute cost per
 `file:function` without any call-site edits.
 
@@ -38,11 +44,11 @@ Edits are made only where a client or framework model is constructed:
 
 | Pattern | Python | TS/JS |
 |---|---|---|
-| OpenAI / AsyncOpenAI | `_router_wrap_openai(OpenAI(...))` (`client.with_options(http_client=...)` when active) | `new OpenAI({..., ...routerOptions()})` |
+| OpenAI / AsyncOpenAI | `_router_wrap_openai(OpenAI(...))` (transport installed in place under the client's transport + proxy mounts when active; `responses=False` for stateful Responses clients) | `new OpenAI({..., ...routerOptions()})` |
 | Anthropic | `_router_wrap_anthropic(Anthropic(...))` | `new Anthropic({..., ...routerOptions()})` |
 | module-level `openai.*` | `_router_install_openai_module()` after imports | - |
-| LangChain ChatOpenAI | `http_client=..., http_async_client=...` | `configuration: { ...routerOptions() }` |
-| LangChain ChatAnthropic | `**_router_chat_anthropic_kwargs()` (base_url + key swap) | - |
+| LangChain ChatOpenAI | `_router_wrap_langchain(ChatOpenAI(...))` (wraps root_client / root_async_client in place) | `configuration: { ...routerOptions() }` |
+| LangChain ChatAnthropic | `_router_wrap_langchain(ChatAnthropic(...))` (wraps `_client` / `_async_client`) | - |
 | LlamaIndex OpenAI | `http_client=..., async_http_client=...` | - |
 | LiteLLM | `_router_install_litellm()` (client_session globals) | - |
 | Vercel AI SDK | - | `createOpenAI({..., ...routerOptions()})`; default `openai` import -> `createOpenAI(...)` |

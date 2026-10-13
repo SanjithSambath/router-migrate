@@ -118,3 +118,63 @@ at Router counts as migrated.
 
 My first scorer did not have that mode and credited the untouched repo with router-migrate's planned patches. It was caught
 because an agent that never ran (0 s, auth failure) "scored" 2 migrated sites.
+
+## D10. Adversarial review, and what changed because of it
+
+I had a separate agent attack the tool, its diffs and its numbers. Its findings are in `research/adversarial_review.md`, with repro
+scripts in `research/review_scratch/`. Every Critical and High item was fixed or re-measured. The decisions that changed:
+
+**Responses state (C1, H2).** Router keeps no server state: `store:true` returns 400, and `previous_response_id` returns 400 on
+OpenAI models or is silently ignored on others (measured). Per-request routing therefore split conversations: turn 1 went to
+Router, and turn 2 sent Router's id to OpenAI, which had never seen it. Now:
+- A chain that starts on Router stays on Router. The runtime remembers the last 256 Router responses in memory. On the next turn
+  it sends the history inline, which is what Router's own 400 message tells callers to do.
+- `responses.retrieve` / `input_items` for Router-issued ids are answered locally.
+- A Router id that has aged out of memory gets a clear error, not a confusing provider 404.
+- Ids the provider issued keep their chain on the provider.
+- Statically, a client whose code uses `previous_response_id`, `conversation`, `store=True` or `retrieve` gets
+  `_router_wrap_openai(OpenAI(), responses=False)`. Its chat traffic moves; its Responses traffic stays put. This matters because a
+  multi-process server cannot share the in-memory history.
+- Inputs that point at provider-side state stay on the provider: reasoning items without `encrypted_content`, `item_reference`,
+  `file_search` vector stores, and `file_id`s.
+- For OpenAI reasoning models, `include: ["reasoning.encrypted_content"]` is added so the reasoning items Router returns can be
+  replayed. Measured live: turn 1 returned an encrypted reasoning item, and turn 2 accepted it.
+
+**Fallback after a Router refusal (M4).** Router can refuse a request the catalog says it serves: `gpt-5.3-codex` returns 403
+`data_residency_mismatch` (measured), and parameters it does not know return 400. The runtime now resends the *original* request to
+the provider once, and only for refusals that happen before any generation:
+- 400 `unknown_parameter` / `unsupported_parameter`;
+- 403;
+- 404 `model_not_found`;
+- 501.
+
+A 404 model is remembered for the rest of the process. Generation errors (bad input, 429, 5xx) are surfaced, never retried.
+`ROUTER_MIGRATE_FALLBACK=0` turns the fallback off. There is no fallback when the request carries no provider credential.
+
+**Wrap in place (H3, L5).** `wrap_openai(client)` used to rebuild the client with a new httpx client. That dropped `HTTP(S)_PROXY`
+mounts, `proxy=`, default headers, auth and event hooks, *for provider traffic too*. Now the Router transport is installed under
+the client's existing transport and every proxy mount, on the same object. The wrap is idempotent, and `with` blocks close the
+real pool. Compat is verified under openai 2.16 / 2.54 (httpx) and 3.3 / 3.29 (httpx2).
+
+**LangChain (H6, L2).** `ChatAnthropic` used to get Router's base_url and key, which sent *every* request to Router: dated models
+returned 404 and beta headers were lost. Both LangChain chat models are now wrapped after construction:
+`_router_wrap_langchain(ChatOpenAI(...))` wraps the SDK clients LangChain built. So they get the same per-request planning and
+fallback as everything else, and `**kwargs` collisions are impossible. The old `chat_anthropic_kwargs()` now returns `{}` so
+previously patched code degrades safely.
+
+**No environment mutation (C3).** The runtime set a placeholder `OPENAI_API_KEY` so SDK constructors would not raise. That
+placeholder shadowed keys that `load_dotenv()` loads later (dotenv does not override existing variables), which broke every request
+left on the provider. It is gone. The provider key stays required, and it is needed anyway for whatever Router cannot serve.
+
+**Imports that cannot fail (C2, M1, M2).**
+- The inserted import tries the package-relative import, then the plain module, then no-op stubs. Namespace packages
+  (`app/main.py` with no `__init__.py`) now route through Router via the relative tier. Scripts run from inside a package keep
+  their original behavior instead of crashing.
+- Reruns recognise earlier wraps per constructor and patch only new ones.
+- A `router_runtime.py` that router-migrate did not write is never overwritten. Those sites are flagged.
+
+**Silent semantic changes (M5).** Anything Router would serve *differently* now stays on the provider unchanged: `seed`,
+`presence_penalty`, `name` on messages, `max_tokens` below Router's minimum of 16, and `allowed_tools`/custom `tool_choice`.
+Clamping `max_tokens=1` to 16 was a behavior change I had accepted; the review was right that it should not be silent.
+`service_tier: "default"` is now sent on every routed call unless the caller chose a tier. Flex is the account default (measured),
+and no pre-migration call was ever flex. `ROUTER_MIGRATE_SERVICE_TIER=auto` restores the account default.

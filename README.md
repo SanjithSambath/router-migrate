@@ -15,7 +15,9 @@ to Router's Responses API, and translates the replies and streams back.
 - **Inert until you opt in.** With no `RAMP_ROUTER_API_KEY`, every patched line returns the original client, so tests, mocks and
   cassettes see exactly the same requests. `ROUTER_MIGRATE_DISABLE=1` is the kill switch.
 - **Never a hard failure.** Requests Router can't serve exactly go to the original provider unchanged: embeddings, images, audio,
-  `n>1`, logprobs, models outside the catalog, `previous_response_id`, and other vendors' base URLs.
+  `n>1`, logprobs, `seed`, models outside the catalog, provider-side vector stores, and other vendors' base URLs. If Router still
+  refuses a request before generating anything (unknown parameter, model not available to the key, 501), the original request is
+  sent to the provider once.
 - **Every site accounted for.** REPORT.md lists each call site as migrated / kept / flagged / handoff, with the exact reason.
   HANDOFF.md gives a coding agent the judgment calls with "done when" criteria.
 - **Verified.** `verify` runs your tests before and after. It then runs them with Router on against **router-sim**, a local
@@ -51,7 +53,10 @@ Typical diff (openai/swarm):
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from .router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  ...
 -            client = OpenAI()
 +            client = _router_wrap_openai(OpenAI())
@@ -75,26 +80,27 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
 | Surface | What happens |
 |---|---|
 | OpenAI `chat.completions` (sync, async, stream, tools, `parse`, legacy `functions`) | translated to `/v1/responses` and back, including SSE |
-| OpenAI `responses` | sent to Router as-is, minus `store` (Router rejects `store:true`) |
+| OpenAI `responses` | sent to Router minus `store` (Router rejects `store:true`); `previous_response_id` chains that started on Router continue with the history inline |
 | Anthropic `messages` (create, stream, `count_tokens`) | sent to Router `/v1/messages`; model id mapped |
-| LangChain `ChatOpenAI` / `ChatAnthropic`, LlamaIndex, LiteLLM | client injection (`http_client`), base-URL swap, or install hook |
+| LangChain `ChatOpenAI` / `ChatAnthropic` | `_router_wrap_langchain(ChatX(...))`: the SDK clients LangChain built are wrapped in place |
+| LlamaIndex, LiteLLM | `http_client` injection, or install hook |
 | Vercel AI SDK `createOpenAI` / `createAnthropic` / default `openai` provider | `fetch: routerFetch()` |
 | embeddings, images, audio, files, assistants, vector stores, legacy completions | **kept** on the provider (Router has no such endpoint; measured 404) |
 | Azure, Bedrock, Vertex, Groq/OpenRouter/DeepSeek/Ollama base URLs | **kept** |
 | google-genai / Mistral / Cohere calls whose model Router serves; raw HTTP to api.openai.com | **handoff** to a coding agent |
-| Anthropic beta, `previous_response_id`, models outside the catalog | **flagged**, and the runtime keeps them on the provider |
+| Anthropic beta, stateful Responses use (`retrieve`, `conversation`, `store=True`), models outside the catalog, per-tenant keys | **flagged** or **kept**; the runtime keeps them on the provider |
 
 ### Rules the runtime applies (each one measured against the live API)
 
 | Rule | Why |
 |---|---|
-| `max_tokens` -> `max_output_tokens` (min 16) | Responses rejects `max_tokens` |
+| `max_tokens` -> `max_output_tokens`; values below 16 stay on the provider | Responses rejects `max_tokens`; its minimum is 16 |
 | `stop` stripped for OpenAI models and emulated client-side (works across stream chunks) | Router returns 501 for `stop` on OpenAI models |
 | `temperature` / `top_p` dropped where the catalog says unsupported | 400 otherwise |
 | tools sent as flat Responses tools with explicit `strict: false` | Responses defaults to strict schemas |
-| `store` removed; `previous_response_id` stays on the provider | Router keeps no server state |
+| `store` removed; Router-started chains replayed inline; `include: reasoning.encrypted_content` for OpenAI reasoning models | Router keeps no server state |
 | `prompt_cache_key` added for Claude | Claude via Responses doesn't cache without it |
-| `service_tier: "default"` on streaming calls | flex is on by default and adds latency |
+| `service_tier: "default"` unless the caller set one | flex is the account default and adds latency |
 | dated model ids mapped only where Router itself reports the equivalence | dated ids 404; undated aliases can be newer snapshots |
 | `metadata.feature = "<file>:<function>"` | per-feature cost attribution with no call-site edits |
 
@@ -104,9 +110,13 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
   **handoff** rather than being guessed.
 - Models outside the Router catalog stay on their provider. That is deliberate: substituting a different model is a product decision
   (`ROUTER_MIGRATE_MODEL_MAP` opts in per model).
-- When Router is active, the runtime keeps the client's own transport underneath (so custom certificates, `proxy=` and
-  connection pools still apply), but `HTTP(S)_PROXY` *environment* proxies that httpx mounts per-URL are not consulted for
-  Router requests. Environments that rely on env proxies should keep `ROUTER_MIGRATE_DISABLE=1` until that is configured.
+- The runtime installs itself under the client's own transport and proxy mounts, so certificates, `proxy=`, `HTTP(S)_PROXY`,
+  headers, hooks and pools all still apply.
+- `previous_response_id` chains that start on Router are kept in process memory (last 256). On a multi-process server, a turn that
+  lands on another worker gets a clear error. The planner keeps clients that use stateful Responses features off Router for this
+  reason.
+- `metadata.feature` / `prompt_cache_key` send a repo-relative `file:function` name to Router; `ROUTER_MIGRATE_FEATURE_TAG=off`
+  disables them.
 - Some Router features are only reachable from code already on the Responses API (built-in tools, reasoning items, `models`
   fallback lists). Code that is moved by translation gets plain generation.
 

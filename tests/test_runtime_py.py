@@ -136,13 +136,14 @@ def test_temperature_dropped_where_unsupported(rt, sim):
     {"model": "gpt-4o-mini", "n": 2},                         # several choices
     {"model": "gpt-4o-mini", "logprobs": True},              # logprobs
     {"model": "gpt-4o-mini", "seed": 7},                      # seed: Router 400 unknown_parameter [measured]
-    {"model": "gpt-4o-mini", "presence_penalty": 0.5},       # not measured as accepted
+    {"model": "gpt-4o-mini", "presence_penalty": 0.5},       # not measured as accepted (0, the default, is dropped and routes)
+    {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": [{"type": "file", "file": {"file_id": "file-1"}}]}]},
     {"model": "gpt-4o-mini", "max_tokens": 5},               # below the Responses minimum of 16; clamping would change output
     {"model": "gpt-4o-mini", "tools": TOOLS, "tool_choice": {"type": "allowed_tools", "allowed_tools": {"mode": "auto", "tools": []}}},
 ])
 def test_unservable_requests_stay_on_provider(rt, sim, kwargs):
     c, split = client(rt)
-    r = c.chat.completions.create(messages=[{"role": "user", "content": "hi"}], **kwargs)
+    r = c.chat.completions.create(**dict({"messages": [{"role": "user", "content": "hi"}]}, **kwargs))
     assert r.choices[0].message.content == "from-provider"
     assert split.provider_calls and sim.records == []
 
@@ -176,8 +177,9 @@ def test_images_and_multimodal(rt, sim):
 
 def test_responses_api_passthrough_sanitized(rt, sim):
     c, split = client(rt)
-    r = c.responses.create(model="gpt-4o-mini", input="hi", store=True)
+    r = c.responses.create(model="gpt-4o-mini", input="hi", store=False)
     assert r.output_text == "pong" and "store" not in last(sim)["request"] and last(sim)["valid"]
+    assert c.responses.create(model="gpt-4o-mini", input="keep this", store=True).output_text == "from-provider"  # asked for storage
     c.responses.create(model="gpt-4o-mini", input="again", previous_response_id="resp_123")
     assert split.provider_calls  # needs provider-side state: stays on OpenAI
 
@@ -313,7 +315,7 @@ def test_plan_request_never_raises(rt):
 # ---- Responses API state (C1/H2)
 def test_previous_response_id_chain_continues_on_router(rt, sim):
     c, split = client(rt)
-    r1 = c.responses.create(model="gpt-4o-mini", input="my name is Ada", store=True)
+    r1 = c.responses.create(model="gpt-4o-mini", input="my name is Ada")
     r2 = c.responses.create(model="gpt-4o-mini", input="what is my name?", previous_response_id=r1.id)
     assert r2.output_text == "pong" and split.provider_calls == []
     req = last(sim)["request"]
@@ -495,3 +497,18 @@ def test_nonstream_truncated_tool_call_is_length(rt):
     resp = {"id": "r", "output": [{"type": "function_call", "call_id": "c", "name": "f", "arguments": '{"x": "tr'}],
             "incomplete_details": {"reason": "max_output_tokens"}}
     assert rt.responses_to_chat(resp, {"stops": []})["choices"][0]["finish_reason"] == "length"
+
+
+def test_default_presence_penalty_and_legacy_function_names_still_route(rt, sim):
+    c, split = client(rt)
+    c.chat.completions.create(model="gpt-4o-mini", presence_penalty=0, messages=[
+        {"role": "user", "content": "weather"}, {"role": "assistant", "content": None, "function_call": {"name": "get_weather", "arguments": "{}"}},
+        {"role": "function", "name": "get_weather", "content": "sunny"}], functions=[TOOLS[0]["function"]])
+    assert split.provider_calls == [] and "presence_penalty" not in last(sim)["request"] and last(sim)["valid"]
+
+
+def test_legacy_functions_stream_uses_function_call_deltas(rt):
+    item = {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "f", "arguments": ""}
+    evs, _ = _run(rt, _sse(CREATED, {"type": "response.output_item.added", "item": item},
+                           {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": "{}"}, DONE), ctx={"legacy_functions": True})
+    assert _deltas(evs, "function_call") == [{"name": "f", "arguments": ""}, {"arguments": "{}"}] and _finish(evs) == ["function_call"]

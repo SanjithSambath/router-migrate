@@ -153,7 +153,9 @@ def _user_parts(content):
         elif t == "file":
             f = p.get("file") or {}
             part = {"type": "input_file"}
-            for k in ("file_data", "file_id", "filename"):
+            if f.get("file_id"):
+                raise Untranslatable("file_id")  # files live on the provider account; Router cannot see them
+            for k in ("file_data", "filename"):
                 if f.get(k):
                     part[k] = f[k]
             parts.append(part)
@@ -166,11 +168,12 @@ def chat_to_responses(body, router_model, owned_by, feature):
     """Chat Completions request -> Router Responses request. Returns (new_body, context for the reply)."""
     unsupported = [k for k in ("audio", "modalities", "prediction", "web_search_options", "logit_bias", "functions_call_mode") if body.get(k)]
     # not measured as accepted by Router, or no exact Responses equivalent: keep these calls on the provider unchanged
-    unsupported += [k for k in ("seed", "presence_penalty") if body.get(k) is not None]
+    unsupported += ["seed"] if body.get("seed") is not None else []
+    unsupported += ["presence_penalty"] if body.get("presence_penalty") not in (None, 0) else []  # 0 is the default: dropped
     mot = body.get("max_completion_tokens") or body.get("max_tokens")
     if mot is not None and int(mot) < 16:
         unsupported.append("max_tokens<16")  # Responses minimum is 16; clamping would change output length
-    if any(isinstance(m, dict) and m.get("name") for m in body.get("messages") or []):
+    if any(isinstance(m, dict) and m.get("name") and m.get("role") != "function" for m in body.get("messages") or []):
         unsupported.append("message name")
     tc0 = body.get("tool_choice")
     if isinstance(tc0, dict) and tc0.get("type") not in (None, "function"):
@@ -200,6 +203,8 @@ def chat_to_responses(body, router_model, owned_by, feature):
             elif text:
                 items.append({"role": "assistant", "content": text})
             for tc in m.get("tool_calls") or []:
+                if tc.get("type", "function") != "function":
+                    raise Untranslatable("assistant tool_call type %r" % tc.get("type"))
                 fn = tc.get("function") or {}
                 items.append({"type": "function_call", "call_id": tc.get("id"), "name": fn.get("name"),
                               "arguments": fn.get("arguments") if isinstance(fn.get("arguments"), str) else json.dumps(fn.get("arguments") or {})})
@@ -579,8 +584,8 @@ def _provider_only_tools(tools):
 def _plan_responses(body, rid, owned, feature, opts):
     if opts.get("responses") is False:
         return None  # this client uses stateful Responses features; router-migrate's planner kept it on the provider
-    if body.get("conversation") or body.get("background"):
-        return None  # needs provider-side state Router does not keep [measured]
+    if body.get("conversation") or body.get("background") or body.get("store") is True or body.get("prompt"):
+        return None  # explicit storage, stored prompts, conversations: provider-side state Router does not keep [measured]
     items = _as_items(body.get("input"))
     prev = body.get("previous_response_id")
     if prev:
@@ -706,7 +711,7 @@ def _fallback_ok(req, route, status, body):
     if status == 404 and (code == "model_not_found" or "does not exist" in msg):
         _DENIED.add(("anthropic" if route[0] == "messages" else "openai", route[1].get("model")))
         return True
-    if status == 400 and (code in ("unknown_parameter", "unsupported_parameter") or msg.startswith(("Unknown parameter", "Unsupported parameter"))
+    if status == 400 and (code in ("unknown_parameter", "unsupported_parameter", "invalid_value") or msg.startswith(("Unknown parameter", "Unsupported parameter"))
                           or "Extra inputs are not permitted" in msg or "requires a caller-owned provider credential" in msg):
         return True
     return False
