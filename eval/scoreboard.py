@@ -68,9 +68,11 @@ def verdict(r):
         return ("same" if same else "worse", "typecheck: %s -> %s errors" % (b.get("ts_errors"), a.get("ts_errors")))
     bb = (b.get("failed") or 0) + (b.get("errors") or 0)
     ab = (a.get("failed") or 0) + (a.get("errors") or 0)
-    if a["passed"] >= b["passed"] and ab <= bb:
-        return ("same", "%d/%d passing before and after" % (a["passed"], a["passed"] + ab))
-    return ("worse", "%d -> %d passing" % (b["passed"], a["passed"]))
+    tc = r.get("typecheck")
+    tcs = "; typecheck %d -> %d errors" % (tc["before_errors"], tc["after_errors"]) if tc else ""
+    if a["passed"] >= b["passed"] and ab <= bb and (not tc or tc["after_errors"] <= tc["before_errors"]):
+        return ("same", "%d/%d passing before and after%s" % (a["passed"], a["passed"] + ab, tcs))
+    return ("worse", "%d -> %d passing%s" % (b["passed"], a["passed"], tcs))
 
 
 def totals(rows):
