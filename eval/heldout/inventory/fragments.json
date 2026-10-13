@@ -1,0 +1,18 @@
+{"repo": "e2b-dev/fragments", "commit": "255358e4705fe5f25c88493984e3df7363afda99", "sites": [
+  {"file": "app/api/chat/route.ts", "line": 59, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "default", "key_source": "per-user", "model": {"value": null, "static": false},
+   "beta": false, "stateful_responses": false, "expected": "flagged",
+   "why": "rule 4: streamObject with a model from lib/models.ts getModelClient(llm, config); for the openai/anthropic providers createOpenAI/createAnthropic({apiKey}) use the vendor default endpoint, but apiKey is config.apiKey from the request body (user-entered key in chat settings, getClientApiKey) with env fallback. Same call also dispatches at runtime to google/mistral/groq/together/fireworks/xai/deepseek/ollama/vertex (other vendors, rule 2 for those branches). Model chosen at runtime from models.json (openai ids are catalog ids; anthropic ids mostly dated equivalents, claude-opus-4-5-20251101 is not)."},
+  {"file": "app/api/morph-chat/route.ts", "line": 70, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "default", "key_source": "per-user", "model": {"value": null, "static": false},
+   "beta": false, "stateful_responses": false, "expected": "flagged",
+   "why": "rule 4: generateObject via the same getModelClient(llm, config) multi-provider dispatch as /api/chat; OpenAI/Anthropic branches use the default endpoint with the caller's config.apiKey from the request when provided. Other providers' branches go to other vendors (rule 2)."},
+  {"file": "lib/morph.ts", "line": 32, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "other:api.morphllm.com", "key_source": "env", "model": {"value": "morph-v3-large", "static": true},
+   "beta": false, "stateful_responses": false, "expected": "kept",
+   "why": "rule 2: generateText on createOpenAI({baseURL: 'https://api.morphllm.com/v1'}) - Morph's OpenAI-compatible endpoint, a different vendor; key is MORPH_API_KEY (the apiKey parameter is never passed by its only caller)."},
+  {"file": "lib/models.test.ts", "line": 69, "prod": false, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "default", "key_source": "literal", "model": {"value": null, "static": false},
+   "beta": false, "stateful_responses": false, "expected": "nonprod",
+   "why": "test: generateText through getModelClient for each provider with fetch stubbed to assert the requested host."}
+]}

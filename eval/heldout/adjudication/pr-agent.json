@@ -1,0 +1,12 @@
+{
+ "The-PR-Agent/pr-agent|pr_agent/algo/ai_handlers/langchain_ai_handler.py:55": {
+  "correct": "ambiguous",
+  "correct_outcome": "kept or migrated",
+  "note": "ChatOpenAI at langchain_ai_handler.py:55 is only built when OPENAI.API_BASE is non-empty (lines 51-58); the shipped .secrets_template.toml leaves api_base unset, so the default config always takes line 53 instead. Rule 8 covers config endpoints that default to the vendor, which this branch never does, and Rule 2 needs a non-OpenAI host, which is unknown here (operator-chosen; the comment says 'OpenAI or other LLM services'). Reading it as a custom host gives kept (inventory); reading it as config-driven gives migrated (tool, whose runtime routes it only when the base resolves to api.openai.com)."
+ },
+ "The-PR-Agent/pr-agent|pr_agent/algo/ai_handlers/litellm_ai_handler.py:3622": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "litellm_ai_handler.py:3410 binds `_completion = _completion or acompletion` (imported from litellm at :17), and :3622 `return await _completion(**kwargs)` is the main production LiteLLM dispatch for every non-bedrock_mantle provider; the tool missed it because of the local alias. The model comes from config at runtime (configuration.toml:8 model=\"gpt-5.6\", which is not itself a catalog id, but most of the repo's OpenAI literals are), the endpoint is the vendor default and the key is from settings, so Rule 8 gives migrated."
+ }
+}

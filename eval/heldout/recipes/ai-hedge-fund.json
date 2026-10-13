@@ -1,0 +1,33 @@
+{
+  "name": "ai-hedge-fund",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && \"$ENV/bin/python\" -c \"import tomllib,sys;d=tomllib.load(open(sys.argv[1],'rb'));open(sys.argv[2],'w').write(''.join(p['name']+'=='+p['version']+chr(10) for p in d['package']))\" \"$SRC/poetry.lock\" \"$ENV/constraints.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -c \"$ENV/constraints.txt\" -e \"$SRC\" pytest"
+  ],
+  "test_cmd": "export FINANCIAL_DATASETS_API_KEY=; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider hedge_fund/",
+  "test_env": {
+    "FINANCIAL_DATASETS_API_KEY": ""
+  },
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 625,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 38,
+    "seconds": 23.7,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      47.5,
+      23.7
+    ]
+  },
+  "notes": "Poetry project (poetry-core backend, python ^3.11); no CI workflow in .github (only issue templates), so the test command is the Makefile `test` target (`poetry run pytest hedge_fund/`) run as `$PY -m pytest -q -p no:cacheprovider hedge_fund/` from the repo root. Python 3.11 (uv-managed). Setup pins every dependency to poetry.lock: step 2 converts poetry.lock into a name==version constraints file ($ENV/constraints.txt) with tomllib, step 3 installs `-e $SRC` (PEP 660 editable via poetry-core) plus pytest under those constraints and --exclude-newer 2026-10-13. pytest is a Poetry dev-group dep (not an extra), so it is named explicitly and resolves to the locked 7.4.4. Resolved: langchain-core 0.3.86, langchain-anthropic 0.3.5, langchain-openai 0.3.35, langchain-deepseek 0.1.4, langchain-google-genai 2.1.12, langchain-xai 0.2.5, openai 2.52.0, anthropic 0.120.2, textual 8.2.8. Tests are colocated test_*.py under hedge_fund/ with hedge_fund/conftest.py (autouse fixture blocks the breakpoints download; load_dotenv reads a cwd .env, none exists). LLM tests never hit the network: make_llm only constructs langchain models, ChatLLM tests use fake chats, JevLLM tests monkeypatch requests.post, TUI tests patch requests Session.request to fail. FINANCIAL_DATASETS_API_KEY is forced empty (test_cmd and test_env) so the live Financial Datasets smoke tests self-skip: all 38 skips are those (35 in data/test_client.py = 7 tests x 5 tickers, 1 in backtesting/test_backtest.py, 2 in event_study/test_event_study.py). Nothing deselected. HOME/TMPDIR sandboxed into $ENV (the app reads ~/.hedge-fund/.env). Both baseline runs were made under `env -u RAMP_ROUTER_API_KEY` with outbound network denied (macOS sandbox-exec, loopback allowed): 625 passed, 38 skipped, exit 0 both times (47.5s cold, 23.7s warm; the TUI Textual run_test tests dominate). parse_counts reads {passed 625, failed 0, errors 0, skipped 38}. Setup was re-run verbatim from this recipe into a scratch env (ai-hedge-fund-check, since removed): identical uv pip freeze and identical counts (625 passed, 38 skipped, 89.3s; wall time varies a lot run to run, counts do not)."
+}

@@ -1,0 +1,29 @@
+{
+  "name": "bilingual_book_maker",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" pytest",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" \"$ENV/home\" \"$ENV/tmp\" \"$ENV/cache\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" XDG_CACHE_HOME=\"$ENV/cache\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" \"$ENV/bin/python\" -c \"import tiktoken; tiktoken.get_encoding('cl100k_base')\""
+  ],
+  "test_cmd": "unset OPENAI_API_KEY ANTHROPIC_API_KEY BBM_API_KEY GEMINI_API_KEY JEV_API_KEY; mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/cache\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" XDG_CACHE_HOME=\"$ENV/cache\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" $PY -m pytest -q -p no:cacheprovider",
+  "test_env": {},
+  "test_kind": "unit",
+  "timeout_s": 1500,
+  "baseline": {
+    "passed": 2993,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 387,
+    "seconds": 325,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 3,
+    "identical": true,
+    "seconds": [392, 453, 325]
+  },
+  "notes": "CI (.github/workflows/make_test_ebook.yaml, job `testing`) does `pip install -r requirements.txt && pip install . && pytest -q` on Python 3.10. Here it's Python 3.12.15 (uv; black targets py312, requires-python >=3.10), the hash-pinned requirements.txt (openai 2.30.0, anthropic 0.89.0, google-genai 2.22.0, tiktoken 0.12.0), then the package editable from $SRC plus pytest 9.1.1. test_cmd is the CI's bare `pytest -q` from the repo root. pyproject addopts already deselects the corpus, live_provider and pdf_route_ci markers (51 deselected), so nothing is deselected by hand. The CLI contract tests run make_book.py subprocesses against an in-repo hermetic stand-in (tests/hermetic/sitecustomize.py) or a 127.0.0.1 fake OpenAI server. Offline fix: book_maker/utils.py num_tokens_from_text calls tiktoken, which downloads cl100k_base from openaipublic.blob.core.windows.net on first use. With the network denied, 134 tests failed on that download (test_cli, test_translation_plan, test_general_grouping_and_json_degree, test_prompt_capture_server, test_flag_compat, test_plan_auto, ...). So setup step 4 pre-fetches the encoding into $ENV/tiktoken, and test_cmd points TIKTOKEN_CACHE_DIR there. After that, the suite passes with outbound network denied (macOS sandbox-exec, loopback allowed). The 387 skips are environmental and the same every run: 183 need Pandoc, 24+1+1 pypdfium2, 13 docling, 5 docling_core, 4 PIL, 1 reportlab (the optional `pdf` extra is not installed, as in the CI base job), 7 epubcheck jar, 7 local-only fixture gilgamesh.epub, and 2 local-only review docs. HOME, TMPDIR and XDG_CACHE_HOME are sandboxed into $ENV, and provider key variables are unset in test_cmd. RAMP_ROUTER_API_KEY was unset for every run. Three runs gave identical counts, 2993 passed / 387 skipped / 3 xfailed / 0 failed, exit 0 (392s and 453s with TIKTOKEN_CACHE_DIR but without XDG_CACHE_HOME/unset; 325s with the exact test_cmd above). Wall time varies a lot (5-8 min), hence timeout_s 1500."
+}

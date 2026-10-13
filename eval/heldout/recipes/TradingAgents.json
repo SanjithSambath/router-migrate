@@ -1,0 +1,22 @@
+{
+  "name": "TradingAgents",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC[dev]\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider -p no:subtests tests/ --deselect tests/test_cache_writes.py::test_on_windows_the_lock_is_waited_for_while_another_writer_holds_it --deselect tests/test_cache_writes.py::test_on_windows_a_lock_that_cannot_be_taken_is_reported_not_retried_forever --deselect tests/test_cache_writes.py::test_on_windows_a_held_lock_is_reported_when_not_waiting",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 1358,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1,
+    "seconds": 57.7,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/ci.yml) runs `pip install -e \".[dev]\"` then `pytest -q` on 3.11-3.14; I used Python 3.12.15 and the same editable install with the dev extra (pytest 9.1.1, pytest-subtests 0.15.0). Resolved langchain-openai 1.7.1, openai 3.29.0, langchain-anthropic 1.7.6, anthropic 1.13.0, langchain-google-genai 4.4.1, langchain-core 1.6.10. The optional [bedrock] extra (langchain-aws) is not installed, as in CI, so tests/test_bedrock_provider.py:74 skips (the 1 skip). pyproject addopts already deselects `-m integration` (1 test: the live DeepSeek call in tests/test_deepseek_reasoning.py). `-p no:subtests` is added because with the subtests plugin the summary line gains '99 subtests passed', which verify.parse_counts cannot read (returns all None); without it the unittest subTest cases are counted as ordinary passes (1259 + 99 = 1358) and nothing else changes. Deselected 3 tests in tests/test_cache_writes.py (test_on_windows_*): they fail deterministically on macOS because errno.EDEADLOCK does not exist there (Linux/Windows only); unrelated to LLM code. Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY unset, so the suite is confirmed offline; all LLM clients in tests are constructed with placeholder keys and never invoked over the wire. Two runs of the exact command gave identical counts (1358 passed, 1 skipped, 4 deselected; exit 0); wall time varied 10-86 s with host load (load average ~18), recorded 57.7 s."
+}

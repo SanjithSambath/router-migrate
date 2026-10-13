@@ -1,0 +1,1111 @@
+{
+ "repo": "zylon-ai/private-gpt",
+ "commit": "4d7f36e53d46c51acdf74edc934235ac7cdb5e64",
+ "sites": [
+  {
+   "file": "private_gpt/components/llm/factories/completions/openai.py",
+   "line": 39,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "rule 8: PatchedOpenAILLM (llama_index OpenAI subclass, chat completions); api_base from settings.openai.api_base (OPENAI_API_BASE, default https://api.openai.com/v1) and this factory is only chosen when host is api.openai.com; key OPENAI_API_KEY; model runtime (model_config.name from settings/auto-discovery)"
+  },
+  {
+   "file": "private_gpt/components/llm/factories/completions/openailike.py",
+   "line": 46,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "chat",
+   "endpoint": "other:openai-compatible (non-api.openai.com OPENAI_API_BASE: vLLM/Ollama/LM Studio/llama.cpp)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: PatchedOpenAILikeLLM is only constructed when OPENAI_API_BASE is not api.openai.com (OpenAIGenericCompletionsFactory), i.e. a self-hosted/other-vendor OpenAI-compatible server"
+  },
+  {
+   "file": "private_gpt/components/llm/factories/responses/openai.py",
+   "line": 27,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "responses",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "rule 8: PatchedOpenAIResponsesLLM (llama_index OpenAIResponses subclass) used only when host is api.openai.com and model_config.api_type=='responses'; store/track_previous_responses left at llama_index defaults (False); key env; model runtime"
+  },
+  {
+   "file": "private_gpt/components/llm/factories/responses/openailike.py",
+   "line": 41,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "responses",
+   "endpoint": "other:openai-compatible (non-api.openai.com OPENAI_API_BASE)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: PatchedOpenAILikeResponsesLLM only constructed for non-api.openai.com OPENAI_API_BASE"
+  },
+  {
+   "file": "private_gpt/components/llm/custom/openairesponses.py",
+   "line": 337,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "responses",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "self.model",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "rule 8: bound reference create_response = self._client.responses.create (sync streaming) inside PatchedOpenAIResponsesLLM; client built from the factory's api_base (default api.openai.com, env-config); track_previous_responses default False so previous_response_id is not sent; model runtime. Same class is also the base of the OpenAI-like responses LLM"
+  },
+  {
+   "file": "private_gpt/components/llm/custom/openairesponses.py",
+   "line": 458,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "responses",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "self.model",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "rule 8: bound reference create_response = self._aclient.responses.create (async streaming); same as line 337"
+  },
+  {
+   "file": "private_gpt/components/llm/discovery.py",
+   "line": 92,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "chat",
+   "endpoint": "other:openai-compatible (only probed when OPENAI_API_BASE is not api.openai.com)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: requests.post to {api_base}/chat/completions probe (max_tokens=1); get_models only calls _probe_api_type when not is_openai_api_base(api_base)"
+  },
+  {
+   "file": "private_gpt/components/llm/discovery.py",
+   "line": 116,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "responses",
+   "endpoint": "other:openai-compatible (only probed when OPENAI_API_BASE is not api.openai.com)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: requests.post to {api_base}/responses probe; only for non-api.openai.com bases"
+  },
+  {
+   "file": "private_gpt/components/llm/custom/sagemaker.py",
+   "line": 213,
+   "prod": true,
+   "sdk": "other:boto3-sagemaker-runtime",
+   "surface": "other",
+   "endpoint": "other:aws-sagemaker",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: AWS SageMaker runtime invoke_endpoint on a TGI endpoint (other vendor). Note: SagemakerLLM is not registered in any factory (dead code in the shipped package)"
+  },
+  {
+   "file": "private_gpt/components/llm/custom/sagemaker.py",
+   "line": 247,
+   "prod": true,
+   "sdk": "other:boto3-sagemaker-runtime",
+   "surface": "other",
+   "endpoint": "other:aws-sagemaker",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: AWS SageMaker runtime invoke_endpoint_with_response_stream on a TGI endpoint (other vendor). Note: SagemakerLLM is not registered in any factory (dead code in the shipped package)"
+  },
+  {
+   "file": "private_gpt/components/llm/custom/sagemaker.py",
+   "line": 327,
+   "prod": true,
+   "sdk": "other:boto3-sagemaker-runtime",
+   "surface": "other",
+   "endpoint": "other:aws-sagemaker",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 2: AWS SageMaker runtime invoke_endpoint on a TGI endpoint (other vendor). Note: SagemakerLLM is not registered in any factory (dead code in the shipped package)"
+  },
+  {
+   "file": "private_gpt/components/embedding/factories/openai.py",
+   "line": 34,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "embeddings",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 1: llama_index OpenAIEmbedding; Router has no embeddings endpoint"
+  },
+  {
+   "file": "private_gpt/components/embedding/factories/openailike.py",
+   "line": 37,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "embeddings",
+   "endpoint": "other:openai-compatible (non-api.openai.com base)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 1: llama_index OpenAILikeEmbedding; embeddings (also rule 2: non-OpenAI base)"
+  },
+  {
+   "file": "private_gpt/components/embedding/discovery.py",
+   "line": 35,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "embeddings",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 1: OpenAIEmbedding constructed to probe embed_dim during discovery; embeddings"
+  },
+  {
+   "file": "private_gpt/components/embedding/discovery.py",
+   "line": 43,
+   "prod": true,
+   "sdk": "llamaindex",
+   "surface": "embeddings",
+   "endpoint": "other:openai-compatible (non-api.openai.com base)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "rule 1: OpenAILikeEmbedding probe; embeddings"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 467,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 510,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 566,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 610,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 664,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 673,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 698,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 727,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "completions",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK completions.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 756,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "completions",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK completions.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 812,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "models",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK models.list against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 819,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "models",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK models.retrieve against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 853,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "models",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK models.list against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 874,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.count_tokens against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 897,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.count_tokens against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 947,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.count_tokens against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 988,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.count_tokens against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1014,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1038,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1076,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1109,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1137,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1158,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1181,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1203,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1223,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1242,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "custom-model",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1266,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "custom-model",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1322,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1381,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1422,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1444,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1495,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1522,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "claude-opus-4-6",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.stream against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1548,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "model",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1715,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1756,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1800,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1844,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1917,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_anthropic_client.py",
+   "line": 1975,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK messages.create against the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_langchain_anthropic.py",
+   "line": 289,
+   "prod": false,
+   "sdk": "langchain-anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: ChatAnthropic pointed at the app under test"
+  },
+  {
+   "file": "tests/server/chat/anthropic/test_langchain_anthropic.py",
+   "line": 830,
+   "prod": false,
+   "sdk": "langchain-anthropic",
+   "surface": "messages",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": "default",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: ChatAnthropic pointed at the app under test"
+  },
+  {
+   "file": "tests/server/files/anthropic/test_files_sdk.py",
+   "line": 74,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "files",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK beta.files.upload against the app under test"
+  },
+  {
+   "file": "tests/server/files/anthropic/test_files_sdk.py",
+   "line": 96,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "files",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK beta.files.list against the app under test"
+  },
+  {
+   "file": "tests/server/files/anthropic/test_files_sdk.py",
+   "line": 116,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "files",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK beta.files.retrieve_metadata against the app under test"
+  },
+  {
+   "file": "tests/server/files/anthropic/test_files_sdk.py",
+   "line": 136,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "files",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK beta.files.download against the app under test"
+  },
+  {
+   "file": "tests/server/files/anthropic/test_files_sdk.py",
+   "line": 155,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "files",
+   "endpoint": "other:testserver (PrivateGPT's own ASGI app, http://testserver)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "test: anthropic SDK beta.files.delete against the app under test"
+  },
+  {
+   "file": "fern/docs/pages/api-reference/sdks.mdx",
+   "line": 26,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:localhost PrivateGPT server",
+   "key_source": "literal",
+   "model": {
+    "value": "qwen3.5:35b",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "docs snippet (Python) pointing the Anthropic SDK at a local PrivateGPT"
+  },
+  {
+   "file": "fern/docs/pages/api-reference/sdks.mdx",
+   "line": 47,
+   "prod": false,
+   "sdk": "anthropic",
+   "surface": "messages",
+   "endpoint": "other:localhost PrivateGPT server",
+   "key_source": "literal",
+   "model": {
+    "value": "qwen3.5:35b",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "docs snippet (TypeScript) pointing the Anthropic SDK at a local PrivateGPT"
+  },
+  {
+   "file": "fern/docs/pages/api-reference/sdks.mdx",
+   "line": 70,
+   "prod": false,
+   "sdk": "langchain-anthropic",
+   "surface": "messages",
+   "endpoint": "other:localhost PrivateGPT server",
+   "key_source": "literal",
+   "model": {
+    "value": "qwen3.5:35b",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "docs snippet: ChatAnthropic pointed at a local PrivateGPT"
+  }
+ ]
+}

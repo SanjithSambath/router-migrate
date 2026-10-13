@@ -1,0 +1,36 @@
+{
+  "name": "morphic",
+  "lang": "ts",
+  "pm": "bun",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV\" && npm install --no-audit --no-fund --prefix \"$ENV/bun-tool\" bun@1.4.2",
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules && BUN_INSTALL_CACHE_DIR=\"$RM/.tools/bun-cache\" BUN_INSTALL=\"$ENV/bun-home\" \"$ENV/bun-tool/node_modules/.bin/bun\" install --frozen-lockfile"
+  ],
+  "test_cmd": "unset OPENAI_API_KEY ANTHROPIC_API_KEY GOOGLE_GENERATIVE_AI_API_KEY AI_GATEWAY_API_KEY OPENAI_COMPATIBLE_API_KEY OLLAMA_BASE_URL RUN_LLM_E2E; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TZ=UTC DATABASE_URL=postgresql://user:pass@localhost:5432/db NODE_ENV=test ./node_modules/.bin/vitest run",
+  "test_kind": "unit",
+  "test_env": {
+    "TZ": "UTC",
+    "NODE_ENV": "test",
+    "DATABASE_URL": "postgresql://user:pass@localhost:5432/db"
+  },
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 1209,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 3,
+    "seconds": 7.4,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [7.4, 10.3]
+  },
+  "notes": "Env: setup runs from $RM with scripts/env.sh sourced; run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0 (package.json engines says 22.x; 24 works). The repo uses bun (bun.lock, CI pins bun 1.2.12) and there is no package-lock/pnpm-lock, so to honour the lockfile exactly setup installs bun@1.4.2 from npm into $ENV/bun-tool (not global; 1.4.2 is >2 weeks old, and bun.lock has the newer `configVersion` field) and runs `bun install --frozen-lockfile` with its cache in $RM/.tools/bun-cache and BUN_INSTALL in $ENV/bun-home: 1073 packages in ~10s, bun.lock unchanged. test_cmd = CI's `bun run test` (= `NODE_ENV=test vitest run`) invoked directly via ./node_modules/.bin/vitest under Node (vitest 4.1.8, jsdom env), with CI's DATABASE_URL. TZ=UTC is required: components/__tests__/usage-budget.test.tsx renders resetAt 2026-10-01T00:00Z and expects 'October 1', which fails 2 tests in a US local timezone (CI runs in UTC). Provider keys and RUN_LLM_E2E are unset, so the two live LLM e2e files (lib/render/__tests__/llm-image-output.e2e.test.ts, llm-related-questions.e2e.test.ts; 3 tests) self-skip; that is the 3 skipped / 2 skipped files. Everything else mocks the model (MockLanguageModelV3, vi.mock of 'ai'/fetch). Nothing deselected. Baseline taken twice under macOS sandbox-exec with outbound network denied (loopback allowed): 124 files passed, 1209 passed, 3 skipped, exit 0 both runs (7.4s, 10.3s); counts checked with router_migrate.verify.parse_counts. typecheck_cmd = repo `typecheck` script (tsc --noEmit, TS 5.9.2): exit 0, 0 errors."
+}

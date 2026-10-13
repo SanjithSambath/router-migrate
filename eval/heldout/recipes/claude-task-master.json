@@ -1,0 +1,40 @@
+{
+  "name": "claude-task-master",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/puppeteer\" && cd \"$SRC\" && rm -rf node_modules apps/*/node_modules packages/*/node_modules dist && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_CACHE_DIR=\"$ENV/puppeteer\" PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 DO_NOT_TRACK=1 npm ci --no-audit --no-fund --loglevel=error"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/puppeteer\" \"$ENV/.svn\" && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_CACHE_DIR=\"$ENV/puppeteer\" PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 DO_NOT_TRACK=1 TURBO_TELEMETRY_DISABLED=1 npm_config_cache=\"$RM/.tools/npm-cache\" && unset ANTHROPIC_API_KEY OPENAI_API_KEY PERPLEXITY_API_KEY GOOGLE_API_KEY && npm run build >/dev/null 2>&1 && NODE_ENV=test CI=true node --experimental-vm-modules node_modules/.bin/jest --ci --no-cache --forceExit",
+  "test_kind": "unit",
+  "test_env": {
+    "NODE_ENV": "test",
+    "CI": "true",
+    "PUPPETEER_SKIP_DOWNLOAD": "true",
+    "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD": "1",
+    "DO_NOT_TRACK": "1"
+  },
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 1522,
+    "failed": 9,
+    "errors": 0,
+    "skipped": 25,
+    "seconds": 70.4,
+    "exit": 1
+  },
+  "typecheck_cmd": "export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_CACHE_DIR=\"$ENV/puppeteer\" PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 DO_NOT_TRACK=1 TURBO_TELEMETRY_DISABLED=1 TURBO_NO_UPDATE_NOTIFIER=1 && ./node_modules/.bin/turbo typecheck --cache-dir=\"$ENV/turbo-cache\" --force",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "notes": "Node v24.19.0, npm 11.17.0 (CI uses Node 20, .nvmrc 22; Node 24 works). npm workspaces monorepo (root task-master-ai + apps/* + packages/*), installed with `npm ci` from package-lock.json (2459 packages, ~20s). Browser downloads disabled everywhere (PUPPETEER_SKIP_DOWNLOAD/PUPPETEER_CACHE_DIR=$ENV/puppeteer/PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD): puppeteer is only a transitive dep of apps/docs (@mintlify/scraping); no test uses a browser. HOME/TMPDIR are sandboxed into $ENV for setup and tests; after the final runs nothing new appeared in ~/.cache or ~/.npm. test_cmd mirrors CI's Test job: `npm run build` (build-config + tsdown -> dist/, ~2s, needed because integration tests exec dist/task-master.js), then root jest (`node --experimental-vm-modules node_modules/.bin/jest`, tests/ only) with NODE_ENV=test CI=true, without CI's --coverage. --no-cache is required: with a warm jest transform cache, ~40 ESM suites fail with \"Export '__signal_exit_emitter__' is not defined\" (cache-dependent flake); a cold cache gives the stable result. $ENV/.svn is created as a project-boundary marker: TMPDIR lives under the router-migrate root (a git repo), and task-master's findProjectRoot walks up from temp dirs. Without the marker, `rules add` in hamster-rules-distribution wrote .cursor/.roo/.kiro/... profile files into the router-migrate root (I removed those). With it, they land in $ENV instead. Baseline: 1522 passed, 9 failed, 25 skipped, 0 errors (133/135 suites pass). Both runs gave the same counts. All 9 failures come from TMPDIR being under a marked directory, not from LLM code: tests/unit/task-master.test.js 'should return cwd when no project markers found' (1), and tests/integration/profiles/hamster-rules-distribution.test.js 'receives hamster rules via rules add --mode=team' (8 profiles), because the walk finds $ENV/.svn instead of falling back to cwd. Offline: both runs were under macOS sandbox-exec with outbound network denied (loopback allowed). The AI provider tests mock 'ai' and the provider SDKs; no API keys are set (ANTHROPIC/OPENAI/PERPLEXITY/GOOGLE keys and RAMP_ROUTER_API_KEY are unset). Nothing deselected. typecheck_cmd = CI's `turbo typecheck` (9 tasks across workspace packages; its build deps run first), with telemetry off and a turbo cache in $ENV forced cold: exit 0, 0 errors. Root JS (src/ai-providers, scripts/) has no typecheck script, so turbo does not cover it. The alternative `tsc --noEmit -p .` at the root gives 643 pre-existing errors, mostly TS6142 jsx in apps/extension, so I did not use it.",
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      70.4,
+      65.3
+    ]
+  }
+}

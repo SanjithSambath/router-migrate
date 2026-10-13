@@ -1,0 +1,31 @@
+{
+  "name": "ai-pdf-chatbot-langchain",
+  "lang": "ts",
+  "pm": "yarn",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd \"$SRC\" && rm -rf node_modules backend/node_modules frontend/node_modules && YARN_CACHE_FOLDER=\"$RM/.tools/yarn-cache\" \"$RM/.tools/pm/node_modules/.bin/yarn\" install --pure-lockfile --non-interactive --ignore-engines"
+  ],
+  "test_cmd": "unset OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY LANGCHAIN_API_KEY LANGSMITH_API_KEY LANGCHAIN_TRACING_V2 LANGSMITH_TRACING; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd backend && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" CI=1 FORCE_COLOR=0 ./node_modules/.bin/jest --ci",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 11,
+    "failed": 1,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.3,
+    "exit": 1
+  },
+  "typecheck_cmd": "rc=0; ./backend/node_modules/.bin/tsc --noEmit -p backend || rc=$?; ./frontend/node_modules/.bin/tsc --noEmit -p frontend || rc=$?; exit $rc",
+  "typecheck_baseline": {
+    "exit": 1,
+    "errors": 2
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [2.3, 1.5]
+  },
+  "notes": "Yarn classic monorepo (workspaces backend + frontend, yarn.lock v1). Node v24.19.0 (CI pins 18.x; 24 works), local yarn 1.22.22, TypeScript 5.7.3, jest 29.7.0 + ts-jest. `--frozen-lockfile` fails because the root devDependency `turbo: latest` does not match the lockfile, so setup uses `--pure-lockfile` (installs without rewriting yarn.lock, keeping the working tree clean); install took ~3 min on a cold cache. The repo CI only runs format:check and lint; there is no CI test job, so test_cmd is the backend's own `yarn test` (= jest) run directly from backend/. All LLM sites live in backend/src. Backend suites: state.test.ts, promptTemplate.test.ts, retrieval_graph/integration.test.ts. The integration suite imports the retrieval graph (so loadChatModel/initChatModel and OpenAIEmbeddings modules must load) but every test returns early when OPENAI_API_KEY/SUPABASE_* are unset, so its 6 tests are vacuous passes and nothing hits the network; jest does not report them as skipped. Baseline 11 passed, 1 failed: the failure is pre-existing and deterministic (ingestion_graph/state.test.ts 'should handle adding new documents' expects metadata without the uuid that reduceDocs adds). Frontend jest (frontend/__tests__/api/ingest/route.integration.test.ts) is deselected: it POSTs to a live Next dev server on localhost:3000 (3 fail with ECONNREFUSED, 3 skipped) and the frontend has no LLM call sites. typecheck_cmd runs strict tsc --noEmit on both workspaces: 2 pre-existing errors (backend demo.ts TS6133 unused 'graph'; frontend tailwind.config.ts TS2322 darkMode). Backend tsc alone exits 2 and frontend exits 1; the combined command returns the last nonzero (1). HOME/TMPDIR are sandboxed into $ENV (jest's cache goes under TMPDIR). Run under `env -u RAMP_ROUTER_API_KEY`."
+}

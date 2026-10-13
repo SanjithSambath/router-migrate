@@ -1,0 +1,31 @@
+{
+  "name": "micro-agent",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules dist && npm ci --ignore-scripts --no-audit --no-fund"
+  ],
+  "test_cmd": "unset OPENAI_KEY ANTHROPIC_KEY MODEL ANTHROPIC_MODEL OPENAI_API_ENDPOINT USE_ASSISTANT USE_MOCK_LLM MOCK_LLM_RECORD_FILE LANGUAGE; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ./node_modules/.bin/vitest run --exclude src/tests/integration",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 51,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 1.8,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 4
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [1.8, 1.8]
+  },
+  "notes": "Env: run every step under `env -u RAMP_ROUTER_API_KEY`; setup sources scripts/env.sh so the npm cache stays in $RM/.tools/npm-cache. Node v24.19.0, npm 11.17.0 (.nvmrc says v18.14.0 and CI uses Node 18; Node 24 works). Install is `npm ci` from package-lock.json with --ignore-scripts, because the repo's postinstall (`npx playwright install`) would download browsers into the global ~/Library/Caches/ms-playwright and `prepare` (husky install) would rewrite the copy's git hooks. Neither is needed for the unit tests; sharp/esbuild/tiktoken load from prebuilt optional deps. Cold install took 5s. test_cmd is the repo's `npm test` script (= CI 'Unit Test' step): `vitest run --exclude src/tests/integration`, vitest 1.6.0, invoked via the local binary. HOME/TMPDIR are sandboxed into $ENV/home and $ENV/tmp because getConfig() reads ~/.micro-agent. getConfig() also spreads process.env over the config, so test_cmd unsets the config-named env vars (OPENAI_KEY, ANTHROPIC_KEY, MODEL, OPENAI_API_ENDPOINT, USE_MOCK_LLM, LANGUAGE, ...) for determinism. llm.test.ts mocks the openai module and ./config, so it covers getOpenAi/getSimpleCompletion/getCompletion/getFileSuggestion on the OpenAI path offline; the Anthropic, Ollama and assistants paths have no tests. Skipped: 1 test.skip in apply-unified-diff.test.ts and the whole ternary/simplify.test.ts (test.skip). Not run: CI's `npm run test:integration` (src/tests/integration). It spawns the CLI with jiti in USE_MOCK_LLM mode (no SDK calls are exercised), runs a nested `npm run test:all`, writes ~/.micro-agent, and rewrites tracked files src/tests/integration/add.ts / add.test.ts and creates add.spec.ts, which would dirty the working copy the eval diffs. Baseline was taken twice with outbound network denied (macOS sandbox-exec, loopback allowed): 51 passed / 2 skipped, exit 0, 1.8s both runs; parse_counts reads {passed: 51, failed: 0, errors: 0, skipped: 2}. typecheck_cmd mirrors the repo's `typecheck` script (tsc, TS 4.9.5, tsconfig noEmit, include src): 4 pre-existing errors, exit 2, identical across 2 runs (config.test.ts TS2322, generate-ascii-tree.test.ts TS7034/TS7005, iterate-on-test-command.ts TS7023)."
+}

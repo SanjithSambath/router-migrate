@@ -1,0 +1,22 @@
+{
+  "name": "gpt-cli",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider tests/",
+  "test_env": {},
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 14,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1.4,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/python-app.yml) runs plain `pytest` on Python 3.9 after `pip install .`; the task allows only 3.11/3.12 and pyproject has requires-python >=3.9,<3.13, so I used 3.11 (3.11.17). Installed editable (-e \"$SRC\"), so no reinstall step is needed; pytest~=8.3.4 is a runtime dependency, so no extras. The optional `llama` extra (llama-cpp-python) is not installed: llama.py guards the import and no test touches it. Resolved anthropic==0.47.2, openai==1.75.0, cohere==5.13.12, google-genai==1.10.0, pytest==8.3.5. 14 tests: tests/test_assistant.py (7 parametrized init_assistant cases) and tests/test_session.py (7 ChatSession tests on a MagicMock assistant). None constructs an SDK client or makes a provider call, so they exercise config/session logic only, not the provider modules. Nothing deselected. Baseline taken with RAMP_ROUTER_API_KEY unset and outbound network denied (macOS sandbox-exec, loopback allowed; confirmed a TCP connect to 1.1.1.1 fails with EPERM). Two runs gave identical counts (14 passed; 3.79s cold first run, about 1.0s pytest / 1.35s wall after that). parse_counts reads {passed: 14, failed: 0, errors: 0, skipped: 0}."
+}

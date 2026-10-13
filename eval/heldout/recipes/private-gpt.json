@@ -1,0 +1,36 @@
+{
+  "name": "private-gpt",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --project \"$SRC\" --frozen --no-hashes --no-emit-project --extra dev --extra core --extra llm-mistral --extra llm-anthropic --extra llm-openai --extra embedding-openai --extra ingest-markitdown --extra storage --extra database --extra queue --extra media --extra observability --extra redis -o \"$ENV/requirements.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -r \"$ENV/requirements.txt\" -e \"$SRC\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps pylibmagic==0.5.0",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" \"$ENV/hf\" \"$ENV/nltk\" \"$ENV/home\" \"$ENV/tmp\" && env -u RAMP_ROUTER_API_KEY HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" HF_HOME=\"$ENV/hf\" TRANSFORMERS_CACHE=\"$ENV/hf/transformers\" SENTENCE_TRANSFORMERS_HOME=\"$ENV/hf/sentence_transformers\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" NLTK_DATA=\"$ENV/nltk\" \"$ENV/bin/python\" -c \"import tiktoken; [tiktoken.get_encoding(n) for n in ('cl100k_base','o200k_base','p50k_base','r50k_base')]\""
+  ],
+  "test_cmd": "rm -rf local_data/tests && mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/hf\" \"$ENV/nltk\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PGPT_HOME=\"$PWD\" PYTHONPATH=. PYTHONHASHSEED=0 HF_HOME=\"$ENV/hf\" TRANSFORMERS_CACHE=\"$ENV/hf/transformers\" SENTENCE_TRANSFORMERS_HOME=\"$ENV/hf/sentence_transformers\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" NLTK_DATA=\"$ENV/nltk\" HF_HUB_OFFLINE=1 DYLD_FALLBACK_LIBRARY_PATH=\"$ENV/lib/python3.11/site-packages/pylibmagic\" MAGIC=\"$ENV/lib/python3.11/site-packages/pylibmagic/magic.mgc\" $PY -m pytest -q -p no:cacheprovider -n 8 --ignore=tests/components/multimodality/test_describe_audio.py tests",
+  "test_env": {
+    "OPENAI_API_KEY": "",
+    "ANTHROPIC_API_KEY": ""
+  },
+  "timeout_s": 1800,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 2529,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 5,
+    "seconds": 262.2,
+    "exit": 0
+  },
+  "notes": "Python 3.11 (requires-python >=3.11,<3.12; CI uses 3.11). Dependencies come from the repo's uv.lock: setup runs `uv export --frozen` with exactly the extras CI's install_dependencies action syncs (dev, core, llm-mistral, llm-anthropic, llm-openai, embedding-openai, ingest-markitdown, storage, database, queue, media, observability, redis), then installs that pinned list with --no-deps plus `-e $SRC`, with --exclude-newer 2026-10-13T00:00:00Z. Key pins: openai 2.34.0, anthropic 0.122.0, llama-index-core 0.14.21, llama-index-llms-openai 0.7.7, langchain-anthropic 1.4.3, pytest 9.0.2, pytest-xdist 3.8.0, torch 2.11.0. Test command mirrors `make test` (rm local_data/tests; PGPT_HOME=repo root; PYTHONPATH=.; pytest tests) minus `-v`, plus `-n 8` (pytest-xdist is in the test extra) to cut ~24 min serial to ~4.5 min; PYTHONHASHSEED=0 is required with xdist because some parametrizations iterate a set (otherwise 'Different tests were collected between gw0 and gw1'). Serial and parallel runs give the same per-test outcomes. Environment fixes, all kept inside $ENV: (1) python-magic needs the libmagic C library, which is not installed system-wide (no brew allowed), so setup installs pylibmagic==0.5.0 (bundles a universal libmagic.dylib + magic.mgc) and test_cmd points DYLD_FALLBACK_LIBRARY_PATH/MAGIC at it; without it every test errors at import. (2) tiktoken downloads cl100k_base etc. from openaipublic.blob.core.windows.net at test time (~300 failures offline), so setup pre-fetches the four encodings into $ENV/tiktoken and test_cmd sets TIKTOKEN_CACHE_DIR. (3) Per coordinator, HF_HOME/TRANSFORMERS_CACHE/SENTENCE_TRANSFORMERS_HOME/NLTK_DATA point into $ENV and HF_HUB_OFFLINE=1; HOME and TMPDIR are sandboxed into $ENV. Deselected: tests/components/multimodality/test_describe_audio.py (--ignore, 12 tests; 9 fail without the ffmpeg binary, which CI installs via setup-ffmpeg and which is not available here). Self-skipping offline: 4 tests in tests/models/anthropic/test_openapi_schema.py fetch Anthropic's OpenAPI spec from storage.googleapis.com and pytest.skip when unreachable; plus 1 unconditional @pytest.mark.skip (test_server_tool_events.py). No test calls a real LLM: the anthropic/langchain-anthropic SDK tests target the app's own ASGI test server (http://testserver) and LLMs are mocks (settings-test.yaml mode: mock). Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY unset/empty; two runs gave identical counts (2529 passed, 5 skipped).",
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      278.6,
+      253.8
+    ]
+  }
+}

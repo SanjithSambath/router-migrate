@@ -1,0 +1,35 @@
+{
+  "name": "karakeep",
+  "lang": "ts",
+  "pm": "pnpm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV\" \"$RM/.tools/pm11\" && { [ -f \"$RM/.tools/pm11/package.json\" ] || echo '{\"private\":true}' > \"$RM/.tools/pm11/package.json\"; } && npm install --no-audit --no-fund --prefix \"$RM/.tools/pm11\" pnpm@11.2.1",
+    ". scripts/env.sh && cd \"$SRC\" && find . -name node_modules -type d -prune -exec rm -rf {} + && PUPPETEER_SKIP_DOWNLOAD=true PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true npm_config_devdir=\"$RM/.tools/node-gyp\" npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm11/node_modules/.bin/pnpm\" install --frozen-lockfile --filter \"@karakeep/shared...\" --filter \"@karakeep/trpc...\" --filter \"@karakeep/workers...\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" && unset OPENAI_API_KEY OPENAI_BASE_URL OLLAMA_BASE_URL EMBEDDING_OPENAI_API_KEY EMBEDDING_OPENAI_BASE_URL && rc=0 && for p in packages/shared packages/trpc apps/workers; do (cd \"$p\" && ../../node_modules/.bin/vitest run) || rc=1; done; test $rc -eq 0",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 637,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 12.5,
+    "exit": 0
+  },
+  "typecheck_cmd": "rc=0; for p in packages/shared packages/trpc apps/workers; do (cd \"$p\" && ../../node_modules/.bin/tsc --noEmit) || rc=1; done; test $rc -eq 0",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      12.5,
+      10.3
+    ]
+  },
+  "notes": "Scoped to the workspace packages CI tests (ci.yml 'tests' job runs `pnpm test` in packages/shared, packages/trpc, apps/workers) - packages/shared holds all LLM code (packages/shared/inference.ts: openai + ollama SDK); trpc and workers consume InferenceClientFactory/EmbeddingClientFactory. The full monorepo (Expo/React Native mobile app, Next web, Docusaurus docs, browser extension, e2e tests needing docker) is impractical, so setup does a filtered install: `pnpm install --frozen-lockfile --filter @karakeep/shared... --filter @karakeep/trpc... --filter @karakeep/workers...` (~3.3k packages, 26-60s; nodeLinker=hoisted so binaries land in root node_modules/.bin). pnpm: repo pins packageManager pnpm@11.2.1 and pnpm-workspace.yaml uses pnpm-11-only `allowBuilds` (needed for better-sqlite3/re2/sharp native builds), so the local pnpm 10.34.7 is not suitable; setup step 1 installs pnpm@11.2.1 locally into $RM/.tools/pm11 with npm (published 2026-05-20, not global). manage_package_manager_versions=false stops pnpm self-switching. npm_config_devdir keeps node-gyp headers in $RM/.tools/node-gyp. PUPPETEER/PLAYWRIGHT browser downloads skipped as in CI. test_cmd runs `vitest run` (vitest 4.1.11) in each of the three packages sequentially, exit 1 if any fails; parse_counts sums the three 'Tests N passed' summaries (114 + 483 + 40 = 637). HOME/TMPDIR sandboxed into $ENV; OPENAI_*/OLLAMA_*/EMBEDDING_OPENAI_* unset so no inference client is configured. LLM coverage is offline: packages/shared/inference.test.ts mocks the `openai` module (vi.mock) and asserts chat.completions request bodies (response_format); trpc tests mock EmbeddingClientFactory; trpc uses in-memory better-sqlite3. Nothing deselected. Baseline taken under macOS sandbox-exec with outbound network denied (loopback allowed): 637 passed both runs (12.5s, 10.3s), identical counts. Harmless noise: vite-tsconfig-paths warns it cannot parse tsconfig.json of packages not installed by the filter (apps/web, apps/mcp, etc.). typecheck_cmd = each package's own `typecheck` script (`tsc --noEmit`, TS 5.9.3) for the same three packages: 0 errors, exit 0. Node v24.19.0 (CI uses 24.18.1), pnpm 11.2.1. Not covered: tools/compare-models (non-prod CLI that wraps OpenAIInferenceClient) has no tests and is not installed by the filter."
+}

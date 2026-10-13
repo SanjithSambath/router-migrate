@@ -1,0 +1,75 @@
+--- a/Claude-Eng-v2/main.py
++++ b/Claude-Eng-v2/main.py
+@@ -32,6 +32,13 @@
+ import subprocess
+ import shutil
+ from typing import AsyncIterable
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ # Configure logging
+ logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+@@ -265,7 +272,7 @@
+ anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+ if not anthropic_api_key:
+     raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
+-client = Anthropic(api_key=anthropic_api_key)
++client = _router_wrap_anthropic(Anthropic(api_key=anthropic_api_key))
+ 
+ # Initialize the Tavily client
+ tavily_api_key = os.getenv("TAVILY_API_KEY")
+--- a/ce3.py
++++ b/ce3.py
+@@ -19,6 +19,13 @@
+ from prompt_toolkit import prompt
+ from prompt_toolkit.styles import Style
+ from prompts.system_prompts import SystemPrompts
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ # Configure logging to only show ERROR level and above
+ logging.basicConfig(
+@@ -41,7 +48,7 @@
+             raise ValueError("No ANTHROPIC_API_KEY found in environment variables")
+ 
+         # Initialize Anthropics client
+-        self.client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
++        self.client = _router_wrap_anthropic(anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY))
+ 
+         self.conversation_history: List[Dict[str, Any]] = []
+         self.console = Console()
+--- a/tools/toolcreator.py
++++ b/tools/toolcreator.py
+@@ -6,6 +6,13 @@
+ from dotenv import load_dotenv
+ import re
+ import anthropic
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ load_dotenv()
+ 
+@@ -29,7 +36,7 @@
+     }
+ 
+     def __init__(self):
+-        self.client = anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY'))
++        self.client = _router_wrap_anthropic(anthropic.Anthropic(api_key=os.getenv('ANTHROPIC_API_KEY')))
+         self.console = Console()
+         self.tools_dir = Path(__file__).parent.parent / "tools"  # Fixed path
+ 

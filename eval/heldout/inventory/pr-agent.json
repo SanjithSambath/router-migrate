@@ -1,0 +1,414 @@
+{
+  "repo": "The-PR-Agent/pr-agent",
+  "commit": "330f0813b5fe0d1f54b794077c2d02aa85a1fb63",
+  "sites": [
+    {
+      "file": "pr_agent/algo/ai_handlers/litellm_ai_handler.py",
+      "line": 3622,
+      "prod": true,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "env-config",
+      "key_source": "config",
+      "model": {
+        "value": "gpt-5.6",
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "migrated",
+      "why": "Rule 8: main LiteLLM acompletion dispatch (via `_completion = _completion or acompletion`) for every provider except bedrock_mantle; serves all tools and the MOSAICO health probe. Model comes from config.model at runtime (default gpt-5.6, not in catalog, but fallback gpt-5.6-terra and other OpenAI literals are), endpoint OPENAI.API_BASE/provider config defaulting to the vendor, operator key from settings/env."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/litellm_ai_handler.py",
+      "line": 3630,
+      "prod": true,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "bedrock",
+      "key_source": "env",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: acompletion call only reached when provider == bedrock_mantle (AWS Bedrock Mantle endpoint)."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/litellm_ai_handler.py",
+      "line": 3640,
+      "prod": true,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "bedrock",
+      "key_source": "env",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: acompletion call only reached when provider == bedrock_mantle with request-scoped AWS credentials (Bedrock)."
+    },
+    {
+      "file": "pr_agent/algo/token_handler.py",
+      "line": 257,
+      "prod": true,
+      "sdk": "litellm",
+      "surface": "other",
+      "endpoint": "env-config",
+      "key_source": "config",
+      "model": {
+        "value": "gpt-5.6",
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 1 (uncertain): litellm.acount_tokens provider-native token counting (OpenAI input_tokens for the default OpenAI model; no Router endpoint for that surface). Not a generation call."
+    },
+    {
+      "file": "pr_agent/tools/pr_similar_issue.py",
+      "line": 34,
+      "prod": true,
+      "sdk": "openai",
+      "surface": "embeddings",
+      "endpoint": "default",
+      "key_source": "config",
+      "model": {
+        "value": "text-embedding-ada-002",
+        "static": true
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 1: embeddings have no Router endpoint."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/openai_ai_handler.py",
+      "line": 56,
+      "prod": true,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "env-config",
+      "key_source": "config",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "migrated",
+      "why": "Rule 8: AsyncOpenAI chat.completions.create; base URL from OPENAI.API_BASE (env OPENAI_BASE_URL) defaulting to api.openai.com, key from settings, model passed at runtime from config."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/langchain_ai_handler.py",
+      "line": 43,
+      "prod": true,
+      "sdk": "langchain-openai",
+      "surface": "chat",
+      "endpoint": "azure",
+      "key_source": "config",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: AzureChatOpenAI with azure_endpoint from config (Azure OpenAI)."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/langchain_ai_handler.py",
+      "line": 53,
+      "prod": true,
+      "sdk": "langchain-openai",
+      "surface": "chat",
+      "endpoint": "default",
+      "key_source": "config",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "migrated",
+      "why": "Rule 8: ChatOpenAI on the default OpenAI endpoint (branch taken when OPENAI.API_BASE is empty), key from config, model passed at ainvoke from config."
+    },
+    {
+      "file": "pr_agent/algo/ai_handlers/langchain_ai_handler.py",
+      "line": 55,
+      "prod": true,
+      "sdk": "langchain-openai",
+      "surface": "chat",
+      "endpoint": "runtime-user-defined",
+      "key_source": "config",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: ChatOpenAI constructed only when a custom OPENAI.API_BASE is configured, i.e. always a non-default (operator-chosen, possibly non-OpenAI) host."
+    },
+    {
+      "file": "tests/unittest/test_litellm_callback_drain.py",
+      "line": 33,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: bound reference `_real_litellm_acompletion = litellm.acompletion` in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_callback_drain.py",
+      "line": 120,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": "gpt-4o",
+        "static": true
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion with mock_response in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 1161,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test (transport stubbed)"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 2384,
+      "prod": false,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "literal",
+      "model": {
+        "value": "gpt-4o",
+        "static": true
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: chat.completions.create against a mock http_client in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 2407,
+      "prod": false,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "literal",
+      "model": {
+        "value": "gpt-4o",
+        "static": true
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: chat.completions.create against a mock http_client in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 2457,
+      "prod": false,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "literal",
+      "model": {
+        "value": "gpt-4o",
+        "static": true
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: chat.completions.create against a mock http_client in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 7501,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test (stops at transport)"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 7811,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 7875,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 7935,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 8062,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 8131,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 8187,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_api_key_guard.py",
+      "line": 8265,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion in a unit test"
+    },
+    {
+      "file": "tests/unittest/test_litellm_imds.py",
+      "line": 527,
+      "prod": false,
+      "sdk": "litellm",
+      "surface": "chat",
+      "endpoint": "unknown",
+      "key_source": "unknown",
+      "model": {
+        "value": null,
+        "static": false
+      },
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "Non-production: litellm.acompletion with AWS creds in a unit test"
+    }
+  ]
+}

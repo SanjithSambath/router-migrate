@@ -1,0 +1,38 @@
+--- a/src/lib/server/endpoints/openai/endpointOai.ts
++++ b/src/lib/server/endpoints/openai/endpointOai.ts
+@@ -20,6 +20,7 @@
+ import { prepareAttachments } from "$lib/server/textGeneration/utils/attachmentBudget";
+ import { withoutContentLength } from "$lib/server/undiciCompat";
+ import { inferenceBillingHeaders } from "$lib/server/billing";
++import { routerFetch } from "../../../routerRuntime";
+ // uuid import removed (no tool call ids)
+ 
+ export const endpointOAIParametersSchema = z.object({
+@@ -114,7 +115,7 @@
+ 			...defaultHeaders,
+ 		},
+ 		defaultQuery,
+-		fetch: customFetch,
++		fetch: routerFetch(customFetch),
+ 	});
+ 
+ 	const imageProcessor = makeImageProcessor(multimodal.image);
+--- a/src/lib/server/textGeneration/mcp/runMcpFlow.ts
++++ b/src/lib/server/textGeneration/mcp/runMcpFlow.ts
+@@ -106,6 +106,7 @@
+ import { getEnabledBuiltinTools, isNestedAgentTool, shouldSkipMcpFlow } from "../builtinTools";
+ import { injectPlanState, PLAN_TOOL_NAME } from "../builtinTools/planTool";
+ import { inferenceBillingHeaders } from "$lib/server/billing";
++import { routerFetch } from "../../../routerRuntime";
+ 
+ export type RunMcpFlowContext = Pick<
+ 	TextGenerationContext,
+@@ -627,7 +628,7 @@
+ 		const openai = new OpenAI({
+ 			apiKey: config.OPENAI_API_KEY || config.HF_TOKEN || "sk-",
+ 			baseURL: config.OPENAI_BASE_URL,
+-			fetch: captureProviderFetch,
++			fetch: routerFetch(captureProviderFetch),
+ 			defaultHeaders: {
+ 				// Bill to organization if configured (HuggingChat only)
+ 				...(config.isHuggingChat ? inferenceBillingHeaders(locals) : {}),

@@ -1,0 +1,34 @@
+{
+  "name": "kotaemon",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && cd \"$SRC\" && UV_PROJECT_ENVIRONMENT=\"$ENV\" \"$RM/.venv/bin/uv\" sync -q --frozen --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\"",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" && TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" $PY -c \"import tiktoken; tiktoken.get_encoding('cl100k_base')\""
+  ],
+  "reinstall": [
+    ". scripts/env.sh && .venv/bin/uv pip install -q --no-deps --exclude-newer 2026-10-13T00:00:00Z --python \"$PY\" -e \"$SRC/libs/kotaemon\" -e \"$SRC/libs/ktem\""
+  ],
+  "test_cmd": "cd libs/kotaemon && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && unset OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" THEFLOW_TEMP_PATH=\"$ENV/tmp/theflow\" $PY -m pytest -p no:cacheprovider -o log_file=\"$ENV/tmp/pytest-logs.txt\" --deselect tests/test_vectorstore.py::TestMilvusVectorStore --deselect tests/test_agent.py::test_rewoo_agent --deselect tests/test_embedding_models.py::test_fastembed_embeddings; rc=$?; rm -rf ./\"<MagicMock \"*; exit $rc",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 109,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 20,
+    "seconds": 19.3,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      48.5,
+      19.3
+    ]
+  },
+  "notes": "Python 3.11.17 (CI matrix is 3.10/3.11; requires-python >=3.10). uv 0.13.0. Setup mirrors CI's `uv sync --frozen` from the repo's uv.lock (uv workspace: root kotaemon-app + libs/kotaemon + libs/ktem, all installed editable from $SRC by setuptools finder .pth files, plus the dev group with pytest 8.4.2), into $ENV via UV_PROJECT_ENVIRONMENT; --exclude-newer is passed but the frozen lock already pins everything (openai 1.109.1, langchain-openai 0.1.25, langchain-anthropic 0.1.23). Because the editables are setuptools finder hooks with hardcoded paths, `reinstall` re-runs `uv pip install --no-deps -e $SRC/libs/kotaemon -e $SRC/libs/ktem` to repoint them at a working copy. test_cmd = CI's `cd libs/kotaemon && pytest` (pytest.ini: testpaths=tests, -ra -q). Sandboxing: HOME/TMPDIR in $ENV; THEFLOW_TEMP_PATH (CI sets ./tmp) and pytest's log_file are redirected into $ENV/tmp so the repo copy stays clean; tests leave stray `<MagicMock name='create' id=...>/` directories in libs/kotaemon, so test_cmd removes them afterwards while preserving pytest's exit code. Offline: tiktoken's cl100k_base BPE (needed by many splitter/agent tests) is downloaded during setup into $ENV/tiktoken and TIKTOKEN_CACHE_DIR points there. Deselected (7): tests/test_vectorstore.py::TestMilvusVectorStore (5 tests; milvus-lite's unix socket path under $ENV/tmp exceeds macOS's 104-char sun_path limit; they pass with TMPDIR=/tmp), tests/test_agent.py::test_rewoo_agent (WikipediaTool is not mocked, hits wikipedia.org; fails offline), tests/test_embedding_models.py::test_fastembed_embeddings (downloads the qdrant/bge-small ONNX model from Hugging Face). 20 skips are the repo's own (paddleocr/unstructured/haystack not installed, 3 'OpenAI LC wrapper test is skipped'). All OpenAI/Azure/LangChain LLM tests patch openai.resources.*.create; no API key needed. libs/ktem/ktem_tests are not run by CI and are not included. Baseline taken with outbound network denied (macOS sandbox-exec, loopback/unix sockets allowed) and RAMP_ROUTER_API_KEY unset, after rebuilding $ENV from scratch with the setup commands: two runs gave identical counts (109 passed, 20 skipped, 0 failed; 48.5s and 19.3s wall, first run includes .pyc compilation)."
+}

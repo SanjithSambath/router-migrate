@@ -1,0 +1,24 @@
+{
+  "name": "gpt-pilot",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\" \"pytest>=8.1.1,<9\" \"pytest-cov>=5,<6\" \"pytest-asyncio>=0.23.6,<0.24\" \"pytest-timeout>=2.3.1,<3\"",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" && env -u RAMP_ROUTER_API_KEY TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" \"$PY\" -c \"import tiktoken; tiktoken.get_encoding('cl100k_base')\""
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" PYTHONPATH=. $PY -m pytest -p no:cacheprovider --no-cov tests/",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 262,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 10,
+    "seconds": 3.9,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/ci.yml) runs `poetry install --with=dev` then `poetry run pytest` on Python 3.9 and 3.12; I used 3.12 (got 3.12.15). Poetry isn't used: deps come from the repo's pinned requirements.txt (openai==1.40.6, anthropic==0.39.0, groq==0.6.0, httpx==0.27.0, tiktoken==0.8.0, ...) plus the dev group from pyproject (resolved to pytest 8.4.2, pytest-asyncio 0.23.8, pytest-cov 5.0.0, pytest-timeout 2.4.0). The package is NOT installed (poetry-core project); code is imported from the working copy via PYTHONPATH=. (pyproject also sets pytest pythonpath=[\".\"]), so `reinstall` is empty. pyproject addopts already adds `-ra -q --cov=core --timeout 10`, so test_cmd does not add another -q (with -qq the final 'N passed' summary line disappears and parse_counts reads nothing) and passes --no-cov so coverage doesn't write a .coverage file into the repo copy or print a big report. Offline detail: tiktoken.get_encoding('cl100k_base') runs at import time in core/llm/*.py and downloads the BPE file on first use, which killed collection of 9 test modules when the network was denied. The third setup step prefetches it into $ENV/tiktoken (setup is allowed network), and test_cmd points TIKTOKEN_CACHE_DIR there. Nothing deselected. The 10 skips are the repo's own: 3 tests/integration/llm modules skip unless INTEGRATION_TESTS is set (those are the only tests that would call real LLM APIs), plus 7 unconditional/'Temporary' skips. Unit LLM tests (tests/llm/test_openai.py) patch AsyncOpenAI. Baseline was taken with RAMP_ROUTER_API_KEY unset and outbound network denied (macOS sandbox-exec, loopback allowed). Two runs gave identical counts: 262 passed, 10 skipped in 3.77s and 4.09s; exit 0. git status in the repo copy was clean after both runs. I rebuilt from scratch into a second env (gpt-pilot-check) using the setup commands as written: identical uv pip freeze, and 262 passed, 10 skipped in 4.14s."
+}

@@ -81,7 +81,7 @@ def prepare(repo, rec):
                 sh("cp -cR %s %s" % (shlex.quote(os.path.join(base, extra)), shlex.quote(os.path.join(src, extra))))
     else:
         # point editable installs at this run's copy so 'after' tests import the migrated code
-        cmds = rec.get("reinstall") or [c + " --no-deps" for c in rec.get("setup", []) if " -e " in c and "$SRC" in c]
+        cmds = rec.get("reinstall") or [c if "--no-deps" in c else c + " --no-deps" for c in rec.get("setup", []) if " -e " in c and "$SRC" in c]
         for c in cmds:
             code, out = sh(subst(c, rec, src), timeout=900)
             if code:

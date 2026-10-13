@@ -1,0 +1,24 @@
+{
+  "name": "mini-swe-agent",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC[full]\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && PATH=\"$ENV/bin:$PATH\" HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" LITELLM_LOCAL_MODEL_COST_MAP=True $PY -m pytest -q -p no:cacheprovider --deselect tests/run/test_swebench.py::test_redo_existing_false_skips_existing",
+  "test_env": {
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+  },
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 542,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 76,
+    "seconds": 38.2,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/pytest.yaml) uses Python 3.11 with `uv pip install -e '.[full]'` and runs `pytest -v --cov --cov-branch -n auto`; I mirror the install ([full] = dev + swe-rex + modal + contree, which brings pytest, pytest-asyncio, pytest-xdist and portkey-ai needed by the portkey tests) on Python 3.11.17, but run pytest serially without coverage/xdist: under -n auto the workers collected different test sets (xdist 'Different tests were collected') because of the litellm import issue below. LITELLM_LOCAL_MODEL_COST_MAP=True (set in test_cmd and test_env): offline, `import litellm` tries to fetch the remote model cost map, fails, and its logging filter then intermittently raises a circular ImportError in litellm.rust_bridge.catalog (collection error in tests/models/test_litellm_model.py); forcing the bundled local cost map removes the fetch and makes runs deterministic. PATH=\"$ENV/bin:$PATH\": tests/run/test_cli_integration.py shells out to the `mini`/`mini-extra`/`mini-e` console scripts, which otherwise fail with FileNotFoundError (9 tests). Deselected tests/run/test_swebench.py::test_redo_existing_false_skips_existing: it loads the HuggingFace dataset klieret/swe-bench-dummy-test-dataset over the network (fails offline after retries). The 76 skips are environment skips by the suite itself: tests/test_fire.py real-API tests (no OPENAI/OPENROUTER/PORTKEY/REQUESTY keys; also gated by --run-fire), docker/podman, singularity, bubblewrap tests, and 3 programbench tests (module not installed). All model tests mock litellm/requests/Portkey; no network, no API key. Resolved litellm==1.105.0, openai==2.54.0, portkey-ai==2.3.4, pytest==9.1.1 (151 packages). Common: setup runs from the router-migrate root (each step sources scripts/env.sh so uv caches/Pythons stay in .tools); --exclude-newer 2026-10-13T00:00:00Z pins resolution; HOME/TMPDIR are sandboxed into $ENV (mini-swe-agent otherwise loads a global .env from ~/Library/Application Support/mini-swe-agent). Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY unset; two runs gave identical counts (542 passed, 76 skipped, 1 deselected; 36.85s / 36.82s pytest, 38.3s / 38.2s wall). Rebuilt from scratch into a second env: identical uv pip freeze and identical counts (46.8s)."
+}

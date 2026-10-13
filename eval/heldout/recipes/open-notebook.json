@@ -1,0 +1,23 @@
+{
+  "name": "open-notebook",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" \"pytest>=9.0.3\" \"pytest-asyncio>=1.2.0\"",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken-cache\" && TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken-cache\" \"$PY\" -c \"import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken-cache\" $PY -m pytest -q -p no:cacheprovider tests/",
+  "test_env": {},
+  "test_kind": "unit",
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 1000,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 5.1,
+    "exit": 0
+  },
+  "notes": "Python 3.12 (the repo's .python-version; requires-python >=3.11,<3.13), resolved with --exclude-newer 2026-10-13T00:00:00Z: esperanto 2.28.0, langchain-core 1.6.10, langchain-openai 1.7.1, langchain-anthropic 1.7.6, langgraph 1.2.15, openai 3.29.0, anthropic 1.13.0, podcast-creator 0.13.1, content-core 2.2.0, tiktoken 0.14.0, pytest 9.1.1, pytest-asyncio 1.4.0. Installed editable (-e \"$SRC\") plus pytest and pytest-asyncio from the dev dependency group (mypy/ruff/pre-commit/pytest-cov skipped; CI runs `uv run pytest tests/ -v --cov=...`, the coverage flags are dropped). tests/conftest.py puts the repo root on sys.path, so the top-level api/ and commands/ packages import from the working copy. Offline: tiktoken.get_encoding('o200k_base') downloads its BPE file on first use and, with the network blocked, the chunking tests hang; setup therefore pre-fetches o200k_base and cl100k_base into $ENV/tiktoken-cache and test_cmd sets TIKTOKEN_CACHE_DIR to it. With that, the whole suite (1000 tests, all mocked: no SurrealDB, no LLM calls) passes with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY unset. Nothing deselected. Note: open_notebook/config.py creates ./data/{sqlite-db,uploads,podcasts} in the cwd on import (gitignored), so a run leaves a data/ folder in the repo copy. HOME/TMPDIR sandboxed into $ENV. Runs: 1000 passed in 12.6s (cold, first run after install), then 5.1s; a from-scratch rebuild into a second env gave an identical uv pip freeze and 1000 passed. Counts verified with router_migrate.verify.parse_counts."
+}

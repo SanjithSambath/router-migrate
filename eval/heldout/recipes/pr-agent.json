@@ -1,0 +1,24 @@
+{
+  "name": "pr-agent",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --frozen --no-emit-project --group dev --no-header --project \"$SRC\" -o \"$ENV/requirements-dev.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$ENV/requirements-dev.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -e \"$SRC\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && env -u RAMP_ROUTER_API_KEY -u ANTHROPIC_BASE_URL -u ANTHROPIC_API_KEY -u OPENAI_API_KEY -u OPENAI_BASE_URL HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPATH=. LITELLM_LOCAL_MODEL_COST_MAP=True $PY -m pytest -q -p no:cacheprovider --color=no tests/unittest",
+  "test_env": {"PYTHONPATH": ".", "LITELLM_LOCAL_MODEL_COST_MAP": "True"},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 13263,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 33,
+    "seconds": 118.8,
+    "exit": 0
+  },
+  "notes": "Mirrors the repo's CI job unit-tests-native (.github/workflows/build-and-test.yaml): `uv run --frozen --python 3.12 pytest -v tests/unittest` with PYTHONPATH=. and LITELLM_LOCAL_MODEL_COST_MAP=True (pins litellm's bundled cost map so no remote fetch). Python 3.12 is the requires-python floor and a CI matrix entry. Dependencies come from the repo's uv.lock: `uv export --frozen --group dev` (dev group = pytest 9.1.1, pytest-asyncio, httpx, plus pr-agent[all] integration extras: PyGithub, python-gitlab, atlassian, azure-devops/identity, boto3, giteapy, google-cloud-aiplatform, a2a-sdk) is installed with uv pip (--exclude-newer 2026-10-13), then the project itself is installed editable with --no-deps. Resolved litellm 1.104.0, openai 2.44.0, anthropic 0.116.0. The langchain extra and similar-issue group are not in dev and are not installed (CI doesn't install them either; the langchain handler tests cover the not-installed path). pytest's addopts set --color=yes, so the command passes --color=no to keep the summary line parseable. The command unsets ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENAI_BASE_URL as well as RAMP_ROUTER_API_KEY: with ANTHROPIC_BASE_URL in the environment (as in a Claude Code shell), test_litellm_openrouter_controls.py::TestOpenRouterAttribution::test_other_providers_and_global_header_guard fails ('Refusing live api_base environment fallback for provider anthropic'). Unset, it passes. Nothing deselected. tests/e2e_tests (needs live git providers and keys) and tests/health_test are left out, as in CI. The 33 skips are platform/optional-feature skipifs (IMDS, yaml C loader, gerrit symlink, Converse-only syntax, a2a). Baseline was taken twice with outbound network denied (macOS sandbox-exec, loopback allowed): both runs gave 13263 passed, 33 skipped, exit 0 (116.2s and 118.8s pytest time, about 120s wall)."
+}

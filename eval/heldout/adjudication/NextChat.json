@@ -1,0 +1,17 @@
+{
+ "ChatGPTNextWeb/NextChat|app/api/common.ts:147": {
+  "correct": "inventory",
+  "correct_outcome": "flagged",
+  "note": "Raw fetch proxy to `${BASE_URL||https://api.openai.com}/${path}` (common.ts:32-33,91,147) that forwards the browser's Authorization header (common.ts:26). auth.ts:57-124 injects OPENAI_API_KEY only when the user supplied none, and HIDE_USER_API_KEY is empty in .env.template, so the key is per-user and rule 4 (flagged) comes before rule 7. The azure/deployments branch of the same fetch would be rule 2."
+ },
+ "ChatGPTNextWeb/NextChat|app/api/anthropic.ts:147": {
+  "correct": "inventory",
+  "correct_outcome": "flagged",
+  "note": "Raw fetch to ANTHROPIC_URL||BASE_URL||https://api.anthropic.com plus v1/messages (or legacy v1/complete). x-api-key is taken from the request's x-api-key/Authorization before serverConfig.anthropicApiKey (anthropic.ts:63-68), which makes it a per-user key, so rule 4 gives flagged."
+ },
+ "ChatGPTNextWeb/NextChat|app/api/google.ts:118": {
+  "correct": "ambiguous",
+  "correct_outcome": "kept or flagged",
+  "note": "This is a real prod site the tool missed: raw fetch to GOOGLE_URL||generativelanguage.googleapis.com with the user's x-goog-api-key/Authorization (google.ts:26-30,74,104-106,118). Unclear: does rule 2 ('request goes to another vendor's endpoint') cover raw HTTP to a non-OpenAI/Anthropic vendor's native API? Rule 7 only claims other-vendor SDKs and raw HTTP to OpenAI/Anthropic. Literal rule 2 gives kept; reading rule 2 narrowly (as rule 7's google.genai example implies for SDKs) lets rule 4 apply first and gives flagged (the inventory's answer)."
+ }
+}

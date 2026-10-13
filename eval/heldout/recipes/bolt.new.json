@@ -1,0 +1,36 @@
+{
+  "name": "bolt.new",
+  "lang": "ts",
+  "pm": "pnpm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd \"$SRC\" && rm -rf node_modules build && npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" install --frozen-lockfile"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ANTHROPIC_API_KEY= && ./node_modules/.bin/remix vite:build && ./node_modules/.bin/vitest --run",
+  "test_kind": "unit",
+  "test_env": {
+    "ANTHROPIC_API_KEY": ""
+  },
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 24,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 16.3,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      16.3,
+      17.6
+    ]
+  },
+  "notes": "Env: commands assume $RM, $SRC, $ENV are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0 (repo .tool-versions pins 20.15.1; engines >=18.18 and 24 works), local pnpm 10.34.7 with npm_config_manage_package_manager_versions=false because package.json pins packageManager pnpm@9.4.0 (lockfile v9, --frozen-lockfile works). pnpm 10 skips build scripts for esbuild/workerd; not needed (esbuild ships its platform binary via optional deps) for build or tests. test_cmd mirrors CI (.github/workflows/ci.yaml: setup-and-build runs `pnpm run build`, then `pnpm run test`): `remix vite:build` (client + server bundle into gitignored build/, ~9s, fully offline; this is the only step that compiles the LLM server code app/lib/.server/llm/* and app/routes/api.*.ts) followed by `vitest --run`. The only test file is app/lib/runtime/message-parser.spec.ts (24 tests, snapshot-based, no LLM or network use), so the unit suite does not exercise the streamText call; build + typecheck are the meaningful guards for a migration. Nothing deselected. ANTHROPIC_API_KEY forced empty; nothing calls the network. typecheck_cmd = repo `typecheck` script (`tsc`, noEmit already set in tsconfig), TypeScript 5.5.2: 0 errors. CI's eslint step is commented out, so lint is not included. Cold-cache install took 76s. 2 runs: 24 passed each (16.3s, 17.6s), identical counts; parse_counts reads {passed: 24, failed: 0, errors: 0, skipped: 0}."
+}

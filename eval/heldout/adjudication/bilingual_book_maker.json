@@ -1,0 +1,57 @@
+{
+ "yihong0618/bilingual_book_maker|book_maker/translator/capabilities.py:271": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "probe_structured_output is only called with self.openai_client (chatgptapi_translator.py:646), the OpenAI client built at :499 with base_url=api_base or DEFAULT_API_BASE (None -> api.openai.com, :425/:498) and an env/--key operator key; default model gpt-6-luna is a catalog id (cli.py:182). Same client the tool itself migrates at chatgptapi_translator.py:725, so rule 8, not flagged."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/capabilities.py:329": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "fetch_endpoint_models runs client.models.list() on the same ChatGPTAPI.openai_client (via _listing_hint/verify_model_routes, chatgptapi_translator.py:599-606). Router serves GET /v1/models and rule 1 does not list models, so no rule keeps it; once the client is pointed at Router the listing is Router's, which is what this route check wants. Caveat: rule 8's text names only chat/responses/messages, so models.list falls through it by default rather than by name."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/capabilities.py:386": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "probe_model_route is called via verify_model_routes(self.openai_client, ...) (chatgptapi_translator.py:599-606, :1037), the same default-OpenAI env-key client as :725. Rule 8; the tool's 'client not resolved' flag is a resolution failure, not a rubric reason."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/claude_translator.py:475": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "Anthropic(base_url=_sdk_base_url(api_base)) at claude_translator.py:208; _sdk_base_url returns None with no --api_base (:65-66), i.e. api.anthropic.com. The key comes from --key/ANTHROPIC_API_KEY (cli.py:141). The model is the claude-haiku-4-5-20251001 default (a dated equivalent) or --model, and cache_control is GA, not a beta (:412-426). The tool's 'sdk (config) another vendor' reading is wrong; this is rule 8."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/claude_translator.py:552": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "Same self.client as :475 (claude_translator.py:208, default api.anthropic.com, env/--key operator key, model default claude-haiku-4-5-20251001 = dated equivalent of claude-haiku-4-5); no betas. Rule 8."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/claude_translator.py:573": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "translate() messages.create on the same default-endpoint Anthropic client (claude_translator.py:208); _cache_kwargs adds only GA cache_control (:426). Rule 8."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/vision.py:191": {
+  "correct": "inventory",
+  "correct_outcome": "migrated",
+  "note": "probe_image's client.chat.completions.create (vision.py:191) is only called with self.openai_client (chatgptapi_translator.py:781-783), the default-OpenAI env-key client. A real production site the tool missed (it does not follow the client passed as a parameter into the helper module). Rule 8."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/classifier.py:604": {
+  "correct": "both-wrong",
+  "correct_outcome": "kept",
+  "note": "A real site the tool missed: requests.post (classifier.py:604, via _requests_post used by JevBackend :656) to TypeSafe's own /v1/systemone wire at JEV_DEFAULT_BASE https://api.typesafe.ai (endpoints.py:107-116). That is raw HTTP to another vendor, so rule 2 (kept) applies before rule 7. Rule 7's handoff covers only gateways, raw HTTP to OpenAI/Anthropic and vendor SDKs, and the default id jev-latest is not itself a catalog id (only jev-1.13.0 is). Optional Cloudflare AI Gateway fronting (endpoints.py:118-127) is not the default."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/gemini_translator.py:319": {
+  "correct": "tool",
+  "correct_outcome": "kept",
+  "note": "A real production google.genai chat.send_message call. The repo's Gemini literals (gemini-flash-latest at cli.py:183, gemini-pro-latest) are not in the catalog, so rule 2 applies, not rule 7: kept. The inventory actually lists this same line as kept, so the 'NOT IN INVENTORY' is a key-matching artifact."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/gemini_translator.py:374": {
+  "correct": "tool",
+  "correct_outcome": "kept",
+  "note": "A real production client.models.generate_content call (gemini_translator.py:374) to Google; no catalog Gemini model in the repo, so rule 2: kept. The inventory has the same line as kept (a matcher artifact)."
+ },
+ "yihong0618/bilingual_book_maker|book_maker/translator/gemini_translator.py:476": {
+  "correct": "tool",
+  "correct_outcome": "kept",
+  "note": "A real production convo.send_message batch call (gemini_translator.py:476) to Google; rule 2: kept. The inventory lists it identically, so this is a matcher artifact, not a real disagreement."
+ }
+}

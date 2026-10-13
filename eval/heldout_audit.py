@@ -44,7 +44,8 @@ def match(inv_sites, plan_sites):
             if j in used or p["file"] != i["file"]:
                 continue
             fi, fp = fam(i.get("surface")), fam(p.get("surface"))
-            if fi != fp and not ({fi, fp} <= {"chat", "responses"} and i.get("sdk") == "vercel-ai"):
+            gen = {"chat", "responses", "messages"}  # the same generation call is labelled differently by framework (ChatAnthropic: framework.chat vs messages)
+            if fi != fp and not ({fi, fp} <= gen):
                 continue
             d = abs(int(p["line"]) - int(i["line"]))
             if d <= 3 and (best is None or d < best[0]):
@@ -59,11 +60,24 @@ def match(inv_sites, plan_sites):
 
 
 def main():
-    adj_p = os.path.join(H, "adjudication.json")
-    adj = json.load(open(adj_p)) if os.path.exists(adj_p) else {}
+    adj = {}
+    adj_dir = os.path.join(H, "adjudication")
+    for f in sorted(os.listdir(adj_dir)) if os.path.isdir(adj_dir) else []:
+        if f.endswith(".json"):
+            adj.update(json.load(open(os.path.join(adj_dir, f))))
     repos = json.load(open(os.path.join(H, "repos.json")))
     conf = collections.Counter()
     tot = collections.Counter()
+    adjt = collections.Counter()  # scores against the adjudicated truth
+
+    def truth_of(key, default, tool_outcome):
+        v = adj.get(key) or {}
+        c = v.get("correct")
+        if c == "tool":
+            return tool_outcome, c
+        if c == "both-wrong" and v.get("correct_outcome"):
+            return v["correct_outcome"], c
+        return default, c
     rows, disagreements = [], []
     for r in repos:
         name = r["name"]
@@ -98,6 +112,50 @@ def main():
             disagreements.append({"key": "%s|%s:%s" % (r["repo"], p["file"], p["line"]), "tool": p["outcome"], "expected": "NOT IN INVENTORY",
                                   "tool_reason": p["reason"][:220], "surface": p.get("surface"), "sdk": p.get("sdk"),
                                   "verdict": adj.get("%s|%s:%s" % (r["repo"], p["file"], p["line"]), {}).get("correct")})
+        # adjudicated: one record per real site, (tool outcome or None if not found, true outcome)
+        for i, p in pairs:
+            key = "%s|%s:%s" % (r["repo"], i["file"], i["line"])
+            tr, c = truth_of(key, i["expected"], p["outcome"])
+            adjt["ambiguous"] += c == "ambiguous"
+            adjt["real"] += 1
+            adjt["real_found"] += 1
+            adjt["correct_outcome"] += p["outcome"] == tr
+            adjt["tool_migrated"] += p["outcome"] == "migrated"
+            adjt["tp_migrated"] += p["outcome"] == "migrated" and tr == "migrated"
+            adjt["true_migrated"] += tr == "migrated"
+            adjt["relevant"] += tr in ("migrated", "flagged", "handoff")
+            adjt["relevant_found"] += tr in ("migrated", "flagged", "handoff")
+            adjt["overclaim_on_kept"] += p["outcome"] == "migrated" and tr == "kept"
+        for i in missed:
+            key = "%s|%s:%s" % (r["repo"], i["file"], i["line"])
+            tr, c = truth_of(key, i["expected"], None)
+            if c == "tool":
+                adjt["inventory_false_sites"] += 1
+                continue
+            adjt["real"] += 1
+            adjt["true_migrated"] += tr == "migrated"
+            adjt["relevant"] += tr in ("migrated", "flagged", "handoff")
+            adjt["missed_relevant"] += tr in ("migrated", "flagged", "handoff")
+        for p in extra:
+            key = "%s|%s:%s" % (r["repo"], p["file"], p["line"])
+            v = (adj.get(key) or {}).get("correct")
+            if v == "inventory":
+                adjt["tool_false_sites"] += 1
+                adjt["tool_migrated"] += p["outcome"] == "migrated"
+                adjt["false_site_migrated"] += p["outcome"] == "migrated"
+                continue
+            if v is None:
+                adjt["unadjudicated_extra"] += 1
+                continue
+            tr = p["outcome"] if v == "tool" else ((adj.get(key) or {}).get("correct_outcome") or p["outcome"])
+            adjt["real"] += 1
+            adjt["real_found"] += 1
+            adjt["correct_outcome"] += p["outcome"] == tr
+            adjt["tool_migrated"] += p["outcome"] == "migrated"
+            adjt["tp_migrated"] += p["outcome"] == "migrated" and tr == "migrated"
+            adjt["true_migrated"] += tr == "migrated"
+            adjt["relevant"] += tr in ("migrated", "flagged", "handoff")
+            adjt["relevant_found"] += tr in ("migrated", "flagged", "handoff")
         relevant = [i for i in inv if i["expected"] in ("migrated", "flagged", "handoff")]
         row["relevant"] = len(relevant)
         row["relevant_found"] = sum(1 for i in relevant if i not in missed)
@@ -116,6 +174,19 @@ def main():
         "migrated_recall_on_found_sites": pct(tot["both_migrated"], tot["exp_migrated"]),
         "migrated_recall_end_to_end": pct(tot["both_migrated"], tot["exp_migrated_all"]),
         "counts": dict(tot),
+        "adjudicated": {
+            "adjudications": len(adj),
+            "real_prod_sites": adjt["real"],
+            "router_relevant_sites": adjt["relevant"],
+            "router_relevant_discovery_recall": pct(adjt["relevant_found"], adjt["relevant"]),
+            "outcome_accuracy_on_found_sites": pct(adjt["correct_outcome"], adjt["real_found"]),
+            "migrated_precision": pct(adjt["tp_migrated"], adjt["tool_migrated"]),
+            "migrated_recall_end_to_end": pct(adjt["tp_migrated"], adjt["true_migrated"]),
+            "tool_migrated_where_truth_is_kept": adjt["overclaim_on_kept"],
+            "tool_false_sites": adjt["tool_false_sites"], "inventory_false_sites": adjt["inventory_false_sites"],
+            "ambiguous": adjt["ambiguous"], "unadjudicated_extra": adjt["unadjudicated_extra"],
+            "counts": dict(adjt),
+        },
     }
     json.dump({"summary": summary, "rows": rows, "confusion": {"%s->%s" % k: v for k, v in conf.items()}, "disagreements": disagreements},
               open(os.path.join(H, "audit.json"), "w"), indent=1)
@@ -123,7 +194,9 @@ def main():
     L = ["# Held-out audit: tool plan vs blind rubric inventories", "",
          "Generated by `eval/heldout_audit.py`. Rubric: `eval/heldout/RUBRIC.md`.", "",
          "| metric | value |", "|---|---|"]
-    L += ["| %s | %s |" % (k, v) for k, v in summary.items() if k != "counts"]
+    L += ["| %s | %s |" % (k, v) for k, v in summary.items() if k not in ("counts", "adjudicated")]
+    L += ["", "## After adjudication (each disagreement judged against the code by a third agent)", "", "| metric | value |", "|---|---|"]
+    L += ["| %s | %s |" % (k, v) for k, v in summary["adjudicated"].items() if k != "counts"]
     L += ["", "## Confusion (rows: tool outcome, columns: rubric expected outcome; matched production sites)", "",
           "| tool \\ expected | " + " | ".join(outs) + " |", "|---|" + "---|" * len(outs)]
     for t in outs:

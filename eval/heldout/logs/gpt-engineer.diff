@@ -1,0 +1,51 @@
+--- a/gpt_engineer/core/ai.py
++++ b/gpt_engineer/core/ai.py
+@@ -39,6 +39,13 @@
+ from langchain_openai import AzureChatOpenAI, ChatOpenAI
+ 
+ from gpt_engineer.core.token_usage import TokenUsageLog
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_langchain as _router_wrap_langchain
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
+ 
+ # Type hint for a chat message
+ Message = Union[AIMessage, HumanMessage, SystemMessage]
+@@ -355,28 +362,28 @@
+                 callbacks=[StreamingStdOutCallbackHandler()],
+             )
+         elif "claude" in self.model_name:
+-            return ChatAnthropic(
++            return _router_wrap_langchain(ChatAnthropic(
+                 model=self.model_name,
+                 temperature=self.temperature,
+                 callbacks=[StreamingStdOutCallbackHandler()],
+                 streaming=self.streaming,
+                 max_tokens_to_sample=4096,
+-            )
++            ))
+         elif self.vision:
+-            return ChatOpenAI(
++            return _router_wrap_langchain(ChatOpenAI(
+                 model=self.model_name,
+                 temperature=self.temperature,
+                 streaming=self.streaming,
+                 callbacks=[StreamingStdOutCallbackHandler()],
+                 max_tokens=4096,  # vision models default to low max token limits
+-            )
++            ))
+         else:
+-            return ChatOpenAI(
++            return _router_wrap_langchain(ChatOpenAI(
+                 model=self.model_name,
+                 temperature=self.temperature,
+                 streaming=self.streaming,
+                 callbacks=[StreamingStdOutCallbackHandler()],
+-            )
++            ))
+ 
+ 
+ def serialize_messages(messages: List[Message]) -> str:

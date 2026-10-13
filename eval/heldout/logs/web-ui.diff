@@ -1,0 +1,139 @@
+--- a/src/utils/llm_provider.py
++++ b/src/utils/llm_provider.py
+@@ -50,16 +50,30 @@
+ from pydantic import SecretStr
+ 
+ from src.utils import config
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import (
++        wrap_langchain as _router_wrap_langchain,
++        wrap_openai as _router_wrap_openai,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            wrap_langchain as _router_wrap_langchain,
++            wrap_openai as _router_wrap_openai,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ class DeepSeekR1ChatOpenAI(ChatOpenAI):
+ 
+     def __init__(self, *args: Any, **kwargs: Any) -> None:
+         super().__init__(*args, **kwargs)
+-        self.client = OpenAI(
++        self.client = _router_wrap_openai(OpenAI(
+             base_url=kwargs.get("base_url"),
+             api_key=kwargs.get("api_key")
+-        )
++        ))
+ 
+     async def ainvoke(
+             self,
+@@ -171,12 +185,12 @@
+         else:
+             base_url = kwargs.get("base_url")
+ 
+-        return ChatAnthropic(
++        return _router_wrap_langchain(ChatAnthropic(
+             model=kwargs.get("model_name", "claude-3-5-sonnet-20241022"),
+             temperature=kwargs.get("temperature", 0.0),
+             base_url=base_url,
+             api_key=api_key,
+-        )
++        ))
+     elif provider == 'mistral':
+         if not kwargs.get("base_url", ""):
+             base_url = os.getenv("MISTRAL_ENDPOINT", "https://api.mistral.ai/v1")
+@@ -199,24 +213,24 @@
+         else:
+             base_url = kwargs.get("base_url")
+ 
+-        return ChatOpenAI(
++        return _router_wrap_langchain(ChatOpenAI(
+             model=kwargs.get("model_name", "gpt-4o"),
+             temperature=kwargs.get("temperature", 0.0),
+             base_url=base_url,
+             api_key=api_key,
+-        )
++        ))
+     elif provider == "grok":
+         if not kwargs.get("base_url", ""):
+             base_url = os.getenv("GROK_ENDPOINT", "https://api.x.ai/v1")
+         else:
+             base_url = kwargs.get("base_url")
+ 
+-        return ChatOpenAI(
++        return _router_wrap_langchain(ChatOpenAI(
+             model=kwargs.get("model_name", "grok-3"),
+             temperature=kwargs.get("temperature", 0.0),
+             base_url=base_url,
+             api_key=api_key,
+-        )
++        ))
+     elif provider == "deepseek":
+         if not kwargs.get("base_url", ""):
+             base_url = os.getenv("DEEPSEEK_ENDPOINT", "")
+@@ -231,12 +245,12 @@
+                 api_key=api_key,
+             )
+         else:
+-            return ChatOpenAI(
++            return _router_wrap_langchain(ChatOpenAI(
+                 model=kwargs.get("model_name", "deepseek-chat"),
+                 temperature=kwargs.get("temperature", 0.0),
+                 base_url=base_url,
+                 api_key=api_key,
+-            )
++            ))
+     elif provider == "google":
+         return ChatGoogleGenerativeAI(
+             model=kwargs.get("model_name", "gemini-2.0-flash-exp"),
+@@ -283,12 +297,12 @@
+         else:
+             base_url = kwargs.get("base_url")
+ 
+-        return ChatOpenAI(
++        return _router_wrap_langchain(ChatOpenAI(
+             model=kwargs.get("model_name", "qwen-plus"),
+             temperature=kwargs.get("temperature", 0.0),
+             base_url=base_url,
+             api_key=api_key,
+-        )
++        ))
+     elif provider == "ibm":
+         parameters = {
+             "temperature": kwargs.get("temperature", 0.0),
+@@ -329,12 +343,12 @@
+             base_url = os.getenv("SiliconFLOW_ENDPOINT", "")
+         else:
+             base_url = kwargs.get("base_url")
+-        return ChatOpenAI(
++        return _router_wrap_langchain(ChatOpenAI(
+             api_key=api_key,
+             base_url=base_url,
+             model_name=kwargs.get("model_name", "Qwen/QwQ-32B"),
+             temperature=kwargs.get("temperature", 0.0),
+-        )
++        ))
+     elif provider == "modelscope":
+         if not kwargs.get("api_key", ""):
+             api_key = os.getenv("MODELSCOPE_API_KEY", "")
+@@ -344,12 +358,12 @@
+             base_url = os.getenv("MODELSCOPE_ENDPOINT", "")
+         else:
+             base_url = kwargs.get("base_url")
+-        return ChatOpenAI(
++        return _router_wrap_langchain(ChatOpenAI(
+             api_key=api_key,
+             base_url=base_url,
+             model_name=kwargs.get("model_name", "Qwen/QwQ-32B"),
+             temperature=kwargs.get("temperature", 0.0),
+             extra_body = {"enable_thinking": False}
+-        )
++        ))
+     else:
+         raise ValueError(f"Unsupported provider: {provider}")

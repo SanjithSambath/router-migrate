@@ -1,0 +1,37 @@
+{
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:334": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "ChatOpenAI.prepare_client passes self.base_url from the model spec (openai.py:285-304). The shipped flowsettings reuse this class with groq (flowsettings.py:248-251), mistral (:265-268) and ollama (:195-198) hosts, and specs are user-editable DB rows. So the base URL is chosen from a user-defined object at runtime: rule 2, which precedes rule 8."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:338": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "Async twin of :334 on the same ChatOpenAI client, with base_url from the runtime spec (openai.py:281, :294) shared by the OpenAI/Groq/Mistral/Ollama specs in flowsettings.py. Rule 2."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:414": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "StructuredOutputChatOpenAI subclasses ChatOpenAI (openai.py:341) and inherits its spec-driven base_url, so rule 2 applies as at :334. client.beta.chat.completions.parse is OpenAI structured output, not an Anthropic beta."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:420": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "Async parse on the StructuredOutputChatOpenAI/ChatOpenAI spec-driven client (openai.py:341, :285-304). Rule 2."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:495": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "AzureChatOpenAI.prepare_client always returns AzureOpenAI/AsyncAzureOpenAI with azure_endpoint (openai.py:444-467), and the shipped spec is Azure-only (flowsettings.py:114-124). Rule 2 (Azure): kept. The tool's 'migrated when AsyncOpenAI' conflates this class with ChatOpenAI."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/openai.py:499": {
+  "correct": "inventory",
+  "correct_outcome": "kept",
+  "note": "Async AzureChatOpenAI call; the client is always AsyncAzureOpenAI (openai.py:461-463). Rule 2: kept."
+ },
+ "Cinnamon/kotaemon|libs/kotaemon/kotaemon/llms/chats/langchain_based.py:280": {
+  "correct": "inventory",
+  "correct_outcome": "flagged",
+  "note": "LCAnthropicChat._get_lc_class returns langchain_anthropic.ChatAnthropic (langchain_based.py:280-284), constructed in LCChatMixin.__init__ via self._lc_class(**params) (:24-26). That is a real production chat-model construction the tool missed through the indirection. The endpoint is the default (no base URL in the spec, flowsettings.py:232-238) and the key comes from spec config. The model is chosen at runtime, and the only Anthropic literal, claude-3-5-sonnet-20240620, is not in the catalog or dated equivalents, so rule 6: flagged."
+ }
+}

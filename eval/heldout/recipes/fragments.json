@@ -1,0 +1,31 @@
+{
+  "name": "fragments",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && rm -rf \"$ENV\" && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd \"$SRC\" && rm -rf node_modules .next && npm ci --no-audit --no-fund --ignore-scripts"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ./node_modules/.bin/tsx --test lib/*.test.ts app/api/*.test.ts",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 76,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.9,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [0.9, 0.8]
+  },
+  "notes": "Env: commands assume $RM, $SRC and $ENV are exported and scripts/env.sh is sourced (setup does this, so the npm cache is $RM/.tools/npm-cache); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0 (package.json engines: node 24.x), npm from that Node. pm = npm because the repo ships package-lock.json only; setup is `npm ci --ignore-scripts` (731 packages, ~5s warm cache; no install scripts are needed for tsx/tsc). The repo has no CI test workflow (only validate-renovate-config.yaml), so test_cmd is the package.json `test` script (`tsx --test lib/*.test.ts app/api/*.test.ts`, node:test runner) invoked via ./node_modules/.bin/tsx directly, with HOME/TMPDIR sandboxed into $ENV. Suites: lib/models.test.ts (getModelClient per-provider host/key checks, getClientApiKey, resolveModel, getModelParams), lib/request-schema.test.ts, app/api/routes.test.ts (POST /api/chat and /api/morph-chat end to end). All LLM traffic is intercepted by a globalThis.fetch stub that records the host/auth header and throws, and the Vercel KV rate limiter is faked at kv.test; provider keys are set to 'test-key' inside the tests. Nothing deselected. Confirmed offline: a third run under macOS sandbox-exec with outbound network denied (loopback allowed) gave the same 76 passed. node:test summary lines (`ℹ pass 76` etc.) parse via verify.parse_counts as passed=76 failed=0 errors=0 skipped=0. Two runs from a fresh setup: identical counts. typecheck_cmd = tsc --noEmit -p . (TS 5.x from lockfile, tsconfig strict, includes the test files): exit 0, 0 errors. Note the tests assert hosts like api.openai.com / api.anthropic.com and the caller-key Authorization header, so a migration that reroutes those providers is expected to change these assertions."
+}

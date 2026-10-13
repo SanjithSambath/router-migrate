@@ -1,0 +1,25 @@
+{
+  "name": "khoj",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --project \"$SRC\" --frozen --all-extras --no-hashes --no-emit-project --no-header -o \"$ENV/requirements.lock.txt\" && printf 'setuptools>=61.2,<82\\n' > \"$ENV/build-constraints.txt\" && printf 'scipy==1.16.3\\n' > \"$ENV/overrides.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --build-constraint \"$ENV/build-constraints.txt\" --override \"$ENV/overrides.txt\" -r \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -e \"$SRC\"",
+    ". scripts/env.sh && HF_HOME=\"$ENV/hf\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" $PY -c \"from huggingface_hub import snapshot_download as d; d('thenlper/gte-small'); d('mixedbread-ai/mxbai-rerank-xsmall-v1'); import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" USE_EMBEDDED_DB=true PGSERVER_DATA_DIR=\"$ENV/pgdata\" HF_HOME=\"$ENV/hf\" HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" CUDA_VISIBLE_DEVICES= TOKENIZERS_PARALLELISM=false $PY -m pytest -q -p no:cacheprovider --deselect tests/test_helpers.py::test_reading_webpage",
+  "test_env": {},
+  "timeout_s": 1500,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 167,
+    "failed": 0,
+    "errors": 8,
+    "skipped": 11,
+    "seconds": 70.7,
+    "exit": 1
+  },
+  "notes": "Python 3.11 (CI matrix is 3.10/3.11/3.12; requires-python <3.13). CI (.github/workflows/test.yml) runs `uv sync --all-extras` then `uv run pytest` against a pgvector Postgres service. Here: deps come from the repo's uv.lock (`uv export --frozen --all-extras`) installed with uv pip, plus the project's [tool.uv] build constraint setuptools<82 (openai-whisper's sdist needs pkg_resources), then khoj installed editable with --no-deps. A plain `-e $SRC[dev]` resolve was rejected: it picks pyarrow 26 which needs NumPy 2 while torch/rapidocr pin numpy 1.26.4. One override: scipy==1.16.3 instead of the locked 1.15.3, whose macOS arm64 wheel fails to dlopen on this macOS (Darwin 27: '__DATA/__thread_bss zero-fill section' error). Postgres: USE_EMBEDDED_DB=true uses the repo's own `local` extra (pgserver 0.1.4, bundles pgvector) with data dir $ENV/pgdata over a unix socket; pytest.ini's --reuse-db keeps the test DB between runs. Setup also pre-downloads the default search models (thenlper/gte-small, mixedbread-ai/mxbai-rerank-xsmall-v1) into $ENV/hf and tiktoken o200k_base/cl100k_base into $ENV/tiktoken; test_cmd then sets HF_HUB_OFFLINE=1/TRANSFORMERS_OFFLINE=1 and TIKTOKEN_CACHE_DIR so nothing is fetched at test time. HOME/TMPDIR sandboxed into $ENV. Deselected: `--deselect tests/test_helpers.py::test_reading_webpage` (fetches a live webpage via aiohttp); the node-id prefix also deselects test_reading_webpage_with_olostep, which is skipped anyway without OLOSTEP_API_KEY (2 deselected). The 8 errors are pre-existing and deterministic: tests/test_agents.py knowledge-base tests whose chat_client fixtures create AiModelApi(api_key=get_chat_api_key()) and hit a NOT NULL IntegrityError when no GEMINI/OPENAI/ANTHROPIC key is set (CI has GEMINI_API_KEY). 11 skips are key-gated (GEMINI_API_KEY, OPENAI_API_KEY, GITHUB_PAT_TOKEN, etc.). Exit is 1 because of those 8 errors. Baseline taken with outbound network denied (macOS sandbox-exec, loopback/unix sockets allowed) and RAMP_ROUTER_API_KEY/OPENAI/ANTHROPIC/GEMINI keys unset. Env rebuilt from scratch with these setup commands; two consecutive runs gave identical counts (167 passed, 11 skipped, 8 errors; 57.6s and 197s pytest time; first run after a rebuild is slower, a warm run is ~60-70s). Timeout 1500s to allow a cold run."
+}

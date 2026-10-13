@@ -1,0 +1,33 @@
+{
+  "name": "node-DeepResearch",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd \"$SRC\" && rm -rf node_modules dist && npm ci --no-audit --no-fund --loglevel=error"
+  ],
+  "test_cmd": "unset OPENAI_BASE_URL LLM_PROVIDER; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" OPENAI_API_KEY= ./node_modules/.bin/jest --ci --silent --testTimeout=30000 src/__tests__/server.test.ts -t \"should require authentication when secret is set|should reject requests without user message\"",
+  "test_kind": "unit",
+  "test_env": {
+    "OPENAI_API_KEY": ""
+  },
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 2,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 5,
+    "seconds": 2.0,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [2.0, 2.03]
+  },
+  "notes": "Node v24.19.0, npm 11.17.0 (CI uses Node 20.x with `npm ci`, `npm run lint`, `npm test` = `jest --testTimeout=30000`, run with real GEMINI/OPENAI/JINA/BRAVE secrets). Setup: `npm ci` from package-lock.json (612 packages, ~3s warm cache); sharp 0.34 install script is not run under npm's allow-scripts but the prebuilt @img/sharp-darwin-arm64 loads fine. Almost the whole jest suite needs live APIs or is stale, so test_cmd selects the two offline tests in src/__tests__/server.test.ts (401 when --secret is set and no auth; 400 when the last message is not from the user). Both return before the agent runs, so they make no LLM or Jina call. The other 5 tests in that file show as skipped via -t: 4 of them post a user message, which runs the agent and calls api.openai.com with a fake key (LLM_PROVIDER=openai set by the test), and 'should track tokens correctly in error response' fails offline on a stale assertion (expects 'Messages array is required...', gets 'Invalid request body'), and if it passed its second request would also hit the network. Deselected suites: src/__tests__/docker.test.ts (needs docker; CI runs it separately); src/__tests__/agent.test.ts (mocks `ai`.generateObject, but the agent loop sleeps 1s per step and always hits the 30s timeout, so it is a deterministic failure that gives no signal); src/tools/__tests__/{evaluator,error-analyzer}.test.ts (live Gemini/OpenAI calls, and they also fail to compile under ts-jest because of stale signatures); src/tools/__tests__/{read,search}.test.ts (Jina API; they also fail to compile under ts-jest). Baseline taken twice with outbound network denied (macOS sandbox-exec, loopback allowed): 2 passed, 5 skipped both times (2.0s, 2.03s). A third run without the sandbox gave the same counts. parse_counts reads {passed 2, failed 0, errors 0, skipped 5}. OPENAI_BASE_URL/LLM_PROVIDER are unset and OPENAI_API_KEY is blank so the developer's env can't leak in; the test sets its own dummy OPENAI/JINA keys. typecheck_cmd is a strict tsc (tsconfig strict: true, TS 5.x, covers src/** minus __tests__ and jina-ai/): exit 0, 0 `error TS`. The jina-ai/ subpackage has its own package.json/tsconfig and isn't installed or typechecked (it has no LLM call sites). Since the offline unit coverage is thin, the typecheck is the main signal for changes to src/config.ts and the AI SDK call sites."
+}

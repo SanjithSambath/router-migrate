@@ -1,0 +1,22 @@
+{
+  "name": "claude-engineer",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\" \"e2b-code-interpreter>=1.0.3\" pytest"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONDONTWRITEBYTECODE=1 $PY -c \"import glob; [compile(open(p).read(), p, \\\"exec\\\") for g in (\\\"*.py\\\", \\\"tools/*.py\\\", \\\"prompts/*.py\\\", \\\"Claude-Eng-v2/*.py\\\") for p in sorted(glob.glob(g))]; import ce3, importlib, pkgutil, tools; [importlib.import_module(\\\"tools.\\\" + m.name) for m in pkgutil.iter_modules(tools.__path__)]\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONDONTWRITEBYTECODE=1 $PY -m pytest -q -p no:cacheprovider -o addopts= test.py",
+  "test_env": {},
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 9,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.2,
+    "exit": 0
+  },
+  "notes": "No CI config (no .github/) and no tests/ dir, although pyproject's pytest config points testpaths at tests/ and addopts at --cov=cev3 (a package that does not exist). The repo's only test file is root test.py (9 unittest cases for calculate_sum/calculate_median, unrelated to the LLM code), so test_cmd runs `pytest -o addopts= test.py` (addopts cleared to drop the pytest-cov/cev3 options). Because test.py never touches the Anthropic call sites, test_cmd first runs a guard step that must pass before pytest runs: compile() every tracked .py (root, tools/, prompts/, Claude-Eng-v2/; compile only, so the v2 deps ollama/tavily/websockets/speech_recognition are not needed) and import ce3 plus every tools.* module (incl. tools.toolcreator). A migration that breaks syntax or imports in ce3.py/config.py/tools/ makes test_cmd exit non-zero. Importing does not instantiate Assistant, so no ANTHROPIC_API_KEY is needed; app.py is compiled but not imported (it builds Assistant() at import, which needs a key). PYTHONDONTWRITEBYTECODE=1 keeps __pycache__ out of the repo copy. No editable install: pyproject's hatch version.path (cev3/__init__.py) and uv workspace member (testfolder) don't exist, so `-e $SRC` / `uv sync` can't build; the code is flat top-level modules imported from cwd, so no reinstall step is needed. Deps: requirements.txt (the Flask/CLI app's) + e2b-code-interpreter (in pyproject deps, imported by tools/e2bcodetool.py) + pytest. Python 3.11.17 (requires-python >=3.9, classifiers to 3.11). Resolved anthropic==1.13.0, flask==3.0.0, e2b-code-interpreter==2.10.5, pytest==9.1.1. Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY/ANTHROPIC_API_KEY unset; two runs gave identical counts (9 passed; 2.9s and 2.2s wall incl. imports). Rebuilt from scratch into a second env: identical uv pip freeze and identical counts. Nothing deselected."
+}

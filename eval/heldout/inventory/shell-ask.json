@@ -1,0 +1,18 @@
+{"repo": "egoist/shell-ask", "commit": "ccb538866116b0ec221196548309322a4fec7d93", "sites": [
+  {"file": "src/ask.ts", "line": 215, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "env-config", "key_source": "config", "model": {"value": "gpt-4o-mini", "static": false},
+   "beta": false, "stateful_responses": false, "expected": "migrated",
+   "why": "rule 8: non-stream generateText; model chosen at runtime (CLI flag / config.default_model / saved chat, default literal 'gpt-4o-mini' = catalog id) and dispatched by getSDKModel (src/ai-sdk.ts). Default provider is createOpenAI with key from config.openai_api_key||OPENAI_API_KEY and baseURL from config.openai_api_url||OPENAI_API_URL (undefined -> api.openai.com). OpenAI-family literals gpt-4o/gpt-4o-mini/gpt-4-turbo/gpt-3.5-turbo are catalog ids. Same call also serves other runtime providers: claude-* via createAnthropic (claude-3-* literals not in catalog, rule 6 for that path), gemini-* via @ai-sdk/google (gemini-1.5/2.0 not in catalog), groq-* / copilot-* via createOpenAI with groq / githubcopilot baseURL and ollama-* via local Ollama (rule 2 kept for those paths)."},
+  {"file": "src/ask.ts", "line": 227, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "env-config", "key_source": "config", "model": {"value": "gpt-4o-mini", "static": false},
+   "beta": false, "stateful_responses": false, "expected": "migrated",
+   "why": "rule 8: streamText (default path) with the same runtime-selected model/provider as ask.ts:215; default OpenAI provider, env/config key and env/config baseURL defaulting to api.openai.com, default model gpt-4o-mini in catalog. Non-OpenAI runtime paths (groq, copilot, ollama, gemini, claude-3-*) would be kept/flagged individually."},
+  {"file": "src/search.ts", "line": 25, "prod": true, "sdk": "vercel-ai", "surface": "chat",
+   "endpoint": "env-config", "key_source": "config", "model": {"value": "gpt-4o-mini", "static": false},
+   "beta": false, "stateful_responses": false, "expected": "migrated",
+   "why": "rule 8: generateText with a web-search tool (--search); model passed in from ask.ts:158 as model(getCheapModelId(realModelId)) -> 'gpt-4o-mini' for gpt-/openai- models (catalog id) on the default OpenAI provider (env/config key and baseURL). For claude-* it maps to claude-3-haiku-20240307 (not in catalog, rule 6 path); gemini-pro / groq / copilot paths go to other vendors (rule 2)."},
+  {"file": "src/ollama.ts", "line": 13, "prod": true, "sdk": "raw-http", "surface": "models",
+   "endpoint": "other:ollama", "key_source": "none", "model": {"value": null, "static": true},
+   "beta": false, "stateful_responses": false, "expected": "kept",
+   "why": "rule 2: raw fetch to local Ollama `${OLLAMA_HOST||http://127.0.0.1:11434}/api/tags` to list Ollama models; another vendor's (self-hosted) endpoint, not OpenAI/Anthropic."}
+]}

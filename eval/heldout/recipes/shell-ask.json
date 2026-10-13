@@ -1,0 +1,34 @@
+{
+  "name": "shell-ask",
+  "lang": "ts",
+  "pm": "pnpm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules dist && npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" install --frozen-lockfile"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "test_kind": "typecheck",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": null,
+    "failed": null,
+    "errors": 1,
+    "skipped": null,
+    "seconds": 0.9,
+    "exit": 2
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 1
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      0.9,
+      0.9
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root), $SRC (working copy) and $ENV are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7. The repo has no tests at all (no test script, no test files, no CI workflows), so test_cmd is a strict TypeScript typecheck (tsconfig has strict: true; TS 5.6.3; no include list, so it covers src/, scripts/gen-config-schema.ts, tsup.config.ts and types.d.ts). Baseline: exit 2 with 1 PRE-EXISTING error at the pinned commit: `src/configure.ts(60,3): error TS2304: Cannot find name 'saveConfig'` (configure.ts calls a saveConfig that config.ts doesn't export). parse_counts reads no pass/fail counts from tsc output (all None), so passed/failed/skipped are null and errors = the count of `error TS`, as in the dev-set typecheck recipes. A regression means more than 1 `error TS` line or a different error. The build script (`pnpm build`) is not used: it runs `bun scripts/gen-config-schema.ts` first, and bun isn't installed locally (tsup on its own would bundle src/cli.ts but adds nothing over tsc for detecting breakage). packageManager pins pnpm@9.5.0 and the local pnpm 10.34.7 is used (lockfile v9, frozen install OK, takes about 2s on a warm store). npm_config_manage_package_manager_versions=false is REQUIRED on every pnpm invocation. Without it, pnpm tries to download pnpm 9.5.0 into ~/Library/pnpm/.tools. That happened once during this work (a bare `pnpm --version`) and I removed the partial dir. For the same reason the test calls ./node_modules/.bin/tsc directly, not `pnpm exec`. pnpm 10 ignored esbuild's build script, which tsc doesn't need. tsc makes no network calls and no API keys are needed; nothing deselected. 2 runs: identical output (exit 2, 1 error, 0.9s each)."
+}

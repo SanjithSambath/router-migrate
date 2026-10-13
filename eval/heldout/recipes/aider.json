@@ -1,0 +1,32 @@
+{
+  "name": "aider",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" pytest boto3"
+  ],
+  "test_cmd": "rm -rf \"$ENV/home\" .aider.chat.history.md .aider.tags.cache.v4 && mkdir -p \"$ENV/home\" && T=$(mktemp -d /tmp/aider-tests.XXXXXX) && HOME=\"$ENV/home\" TMPDIR=\"$T\" AIDER_ANALYTICS=false $PY -m pytest -q -p no:cacheprovider -p no:subtests tests/basic tests/browser tests/scrape --deselect tests/basic/test_urls.py::test_urls --deselect tests/basic/test_sendchat.py::TestSendChat::test_simple_send_non_retryable_error --deselect tests/basic/test_sendchat.py::TestSendChat::test_simple_send_with_retries_rate_limit_error --deselect tests/browser/test_browser.py::TestBrowser::test_browser_flag_imports_streamlit --deselect tests/scrape/test_scrape.py::TestScrape::test_cmd_web_imports_playwright --deselect tests/scrape/test_scrape.py::TestScrape::test_scrape_actual_url_with_playwright --deselect tests/scrape/test_scrape.py::TestScrape::test_scrape_self_signed_ssl --deselect tests/scrape/test_scrape.py::TestScrape::test_scrape_with_playwright_error_handling --deselect tests/scrape/test_scrape.py::TestScrape::test_scraper_print_error_not_called; rc=$?; rm -rf \"$T\" .aider.chat.history.md .aider.tags.cache.v4; exit $rc",
+  "test_env": {
+    "AIDER_ANALYTICS": "false"
+  },
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 545,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1,
+    "seconds": 64.1,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/ubuntu-tests.yml) does `pip install pytest; pip install .; pytest` on Python 3.10-3.14 with AIDER_ANALYTICS=false; pytest.ini testpaths = tests/basic tests/help tests/browser tests/scrape. I used Python 3.12.15 (uv) and an editable install of $SRC plus pytest (resolved pytest 9.1.1, litellm 1.82.3, openai 2.28.0, gitpython 3.1.46). boto3 is preinstalled because tests/basic/test_deprecated.py patches aider.models.Model with a MagicMock, so check_for_dependencies sees model_name.startswith('bedrock/') as truthy and pip-installs boto3 over the network (in CI that install just succeeds; offline pip retried for ~7 minutes). With boto3 present the import check passes and no install runs. TMPDIR is a fresh mktemp dir under /tmp, NOT under $ENV: R (~/code/router-migrate) is itself a git repo, and aider/GitPython use search_parent_directories=True (no GIT_CEILING_DIRECTORIES support), so temp files under $ENV/tmp were treated as being inside the router-migrate repo, which broke ~40 coder/commands tests. HOME is $ENV/home and is wiped at the start of each run (aider caches an empty model-info file there after a failed fetch). The cmd also removes the gitignored .aider.chat.history.md / .aider.tags.cache.v4 that tests write into the repo root, before and after. -p no:subtests: pytest 9's built-in subtests summary ('67 subtests passed') makes verify.parse_counts return None. With the plugin off, unittest subTest blocks run under the legacy unittest path and the summary parses (545 = 478 tests + 67 subtests). Network-dependent tests are excluded: tests/help is not passed at all (it needs the aider-chat[help] extra with llama_index/torch, and setUpClass pip-installs it and downloads the HF embedding model; listing the dirs explicitly is needed because --ignore doesn't drop a testpaths entry). Deselected: test_urls (GETs aider.chat URLs); 2 test_sendchat tests (an offline litellm model-info fetch adds an extra print, so the print count assert fails); test_browser_flag_imports_streamlit (pip-installs streamlit); 5 tests/scrape tests (pip-install playwright/pandoc and fetch example.com / self-signed.badssl.com). The baseline was run with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY/OPENAI_API_KEY/ANTHROPIC_API_KEY unset. Rebuilt the env from the setup commands (--clear) and got an identical freeze. Two runs gave identical counts: 545 passed, 1 skipped (Windows-only linter test), 9 deselected, exit 0, ~64s.",
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      64.41,
+      63.77
+    ]
+  }
+}

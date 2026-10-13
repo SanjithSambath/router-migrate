@@ -1,0 +1,57 @@
+--- a/pr_agent/algo/ai_handlers/langchain_ai_handler.py
++++ b/pr_agent/algo/ai_handlers/langchain_ai_handler.py
+@@ -5,6 +5,13 @@
+ from pr_agent.algo.run_details import record_ai_call
+ from pr_agent.config_loader import get_settings
+ from pr_agent.log import get_logger
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_langchain as _router_wrap_langchain
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
+ 
+ _LANGCHAIN_INSTALLED = False
+ 
+@@ -50,12 +57,12 @@
+                 # Using standard OpenAI or other LLM services
+                 openai_api_base = get_settings().get("OPENAI.API_BASE", None)
+                 if openai_api_base is None or len(openai_api_base) == 0:
+-                    return ChatOpenAI(openai_api_key=get_settings().openai.key)
++                    return _router_wrap_langchain(ChatOpenAI(openai_api_key=get_settings().openai.key))
+                 else:
+-                    return ChatOpenAI(
++                    return _router_wrap_langchain(ChatOpenAI(
+                         openai_api_key=get_settings().openai.key,
+                         openai_api_base=openai_api_base
+-                    )
++                    ))
+         except AttributeError as e:
+             # Handle configuration errors
+             error_msg = f"OpenAI {e.name} is required" if e.name else str(e)
+--- a/pr_agent/algo/ai_handlers/openai_ai_handler.py
++++ b/pr_agent/algo/ai_handlers/openai_ai_handler.py
+@@ -8,6 +8,13 @@
+ from pr_agent.algo.run_details import record_ai_call
+ from pr_agent.config_loader import get_settings
+ from pr_agent.log import get_logger
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ OPENAI_RETRIES = 5
+ 
+@@ -52,7 +59,7 @@
+             get_logger().info("System: ", system)
+             get_logger().info("User: ", user)
+             messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+-            client = AsyncOpenAI()
++            client = _router_wrap_openai(AsyncOpenAI())
+             chat_completion = await client.chat.completions.create(
+                 model=model,
+                 messages=messages,

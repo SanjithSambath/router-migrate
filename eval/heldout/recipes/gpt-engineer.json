@@ -1,0 +1,23 @@
+{
+  "name": "gpt-engineer",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -e \"$SRC\" \"pytest>=7.3.1\" \"pytest-cov>=4.1,<5\"",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" && TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" $PY -c \"import tiktoken; [tiktoken.get_encoding(e) for e in ('cl100k_base', 'o200k_base')]\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" GIT_CEILING_DIRECTORIES=\"$ENV\" $PY -m pytest -q -p no:cacheprovider --ignore=tests/test_install.py tests/",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 127,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 4.2,
+    "exit": 0
+  },
+  "notes": "CI (.github/workflows/ci.yaml -> tox.ini) runs `poetry install --no-root && poetry run pytest --cov=gpt_engineer -k 'not installed_main_execution'` on 3.10-3.12; I picked 3.11 (python >=3.10,<3.13) and installed the package editable with uv instead of poetry (no poetry.lock pinning; --exclude-newer resolves within the pyproject caret ranges), plus the dev-group pytest/pytest-cov. Resolved: langchain 0.2.17, langchain-core 0.2.43, langchain-openai 0.1.25, langchain-anthropic 0.1.23, langchain-community 0.2.19, openai 1.109.1, anthropic 0.125.0, tiktoken 0.14.0, pydantic 2.14.1, pytest 9.1.1. Coverage flags dropped. Deselected: tests/test_install.py entirely (its module fixture creates a venv and `pip install poetry` + `poetry install` from the network; CI only deselects its installed_main_execution test, which also needs a key). Offline fixes: tiktoken downloads BPE files on first use (token_usage.py, used by AI/TokenUsageLog in many tests), so setup pre-fetches cl100k_base and o200k_base into $ENV/tiktoken and test_cmd sets TIKTOKEN_CACHE_DIR there. GIT_CEILING_DIRECTORIES=$ENV is needed because TMPDIR=$ENV/tmp lives inside the router-migrate git repo (eval/work is gitignored there), which made FileSelector.get_current_files treat pytest tmp projects as git-ignored and fail test_file_selector_enhancement_sort; with the ceiling it passes, as in CI. All LLM use in tests is mocked (FakeListChatModel / MockAI); ran with OPENAI_API_KEY, ANTHROPIC_API_KEY and RAMP_ROUTER_API_KEY unset under macOS sandbox-exec denying outbound network (loopback allowed). Ran twice: 127 passed both times (4.20s, 4.09s), exit 0; parse_counts reads {passed:127, failed:0, errors:0, skipped:0}."
+}

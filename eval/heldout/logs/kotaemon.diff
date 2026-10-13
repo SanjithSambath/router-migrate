@@ -1,0 +1,60 @@
+--- a/libs/kotaemon/kotaemon/embeddings/openai.py
++++ b/libs/kotaemon/kotaemon/embeddings/openai.py
+@@ -15,6 +15,13 @@
+ from kotaemon.base import Param
+ 
+ from .base import BaseEmbeddings, Document, DocumentWithEmbedding
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ def split_text_by_chunk_size(text: str, chunk_size: int) -> list[list[int]]:
+@@ -169,11 +176,11 @@
+         if async_version:
+             from openai import AsyncOpenAI
+ 
+-            return AsyncOpenAI(**params)
++            return _router_wrap_openai(AsyncOpenAI(**params))
+ 
+         from openai import OpenAI
+ 
+-        return OpenAI(**params)
++        return _router_wrap_openai(OpenAI(**params))
+ 
+     @retry(
+         retry=retry_if_not_exception_type(
+--- a/libs/kotaemon/kotaemon/llms/chats/openai.py
++++ b/libs/kotaemon/kotaemon/llms/chats/openai.py
+@@ -13,6 +13,13 @@
+ )
+ 
+ from .base import ChatLLM
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ...router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ if TYPE_CHECKING:
+     from openai.types.chat.chat_completion_message_param import (
+@@ -298,11 +305,11 @@
+         if async_version:
+             from openai import AsyncOpenAI
+ 
+-            return AsyncOpenAI(**params)
++            return _router_wrap_openai(AsyncOpenAI(**params))
+ 
+         from openai import OpenAI
+ 
+-        return OpenAI(**params)
++        return _router_wrap_openai(OpenAI(**params))
+ 
+     def prepare_params(self, **kwargs):
+         if "tools_pydantic" in kwargs:

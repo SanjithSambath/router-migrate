@@ -1,0 +1,34 @@
+{
+ "name": "deep-research",
+ "lang": "ts",
+ "pm": "npm",
+ "setup": [
+  ". scripts/env.sh && mkdir -p \"$ENV\" && cd \"$SRC\" && rm -rf node_modules && npm ci --no-audit --no-fund"
+ ],
+ "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ./node_modules/.bin/tsx --test src/ai/text-splitter.test.ts",
+ "test_kind": "unit",
+ "test_env": {},
+ "timeout_s": 600,
+ "baseline": {
+  "passed": 2,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "seconds": 0.2,
+  "exit": 1
+ },
+ "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+ "typecheck_baseline": {
+  "exit": 0,
+  "errors": 0
+ },
+ "stability": {
+  "runs": 2,
+  "identical": true,
+  "seconds": [
+   0.2,
+   0.2
+  ]
+ },
+ "notes": "Node v24.19.0, npm 11.17.0 (.nvmrc says v22, engines 22.x; Node 24 works). Setup: npm ci from package-lock.json (lockfile present, no pnpm/yarn lock); npm's allow-scripts skipped esbuild/fsevents install scripts, but tsx works via the @esbuild/<platform> optional dependency. No CI config in the repo and package.json's `test` script is the placeholder `echo \"Error: no test specified\" && exit 1`, so test_cmd runs the only test file (src/ai/text-splitter.test.ts, node:test via tsx --test; spec reporter output 'ℹ pass N / ℹ fail N' is read by parse_counts as {passed:2, failed:2, errors:0, skipped:0}). The 2 failures are pre-existing and deterministic upstream bugs in RecursiveCharacterTextSplitter ('Should handle special characters and large texts' chunking mismatch; 'Should handle chunkSize equal to chunkOverlap' expects a throw that never happens), hence baseline exit 1. The test does not import any LLM code (only text-splitter), so it gives no coverage of the generateObject sites; the strict typecheck (tsconfig strict, TS 5.7.x, skipLibCheck) is the more meaningful check for a migration: 0 errors, exit 0. No network, no API keys, nothing deselected; HOME/TMPDIR sandboxed into $ENV. Two runs each: identical counts (2 passed / 2 failed, ~0.2s) and identical typecheck (0 errors)."
+}

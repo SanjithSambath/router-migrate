@@ -1,0 +1,31 @@
+{
+  "name": "ChatGPT-CodeReview",
+  "lang": "ts",
+  "pm": "yarn",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd \"$SRC\" && rm -rf node_modules dist lib && HOME=\"$ENV/home\" YARN_CACHE_FOLDER=\"$RM/.tools/yarn-cache\" \"$RM/.tools/pm/node_modules/.bin/yarn\" install --frozen-lockfile --non-interactive --ignore-scripts"
+  ],
+  "test_cmd": "unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_API_ENDPOINT MODEL USE_GITHUB_MODELS GITHUB_TOKEN GITHUB_ACTIONS AZURE_API_VERSION AZURE_DEPLOYMENT REASONING_EFFORT temperature top_p max_tokens LANGUAGE PROMPT TARGET_LABEL IGNORE ignore IGNORE_PATTERNS INCLUDE_PATTERNS MAX_PATCH_LENGTH LOG_LEVEL; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" CI=1 FORCE_COLOR=0 ./node_modules/.bin/jest --ci",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 52,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1.5,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit --incremental false -p .",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 6
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [1.5, 0.8]
+  },
+  "notes": "Env: run every step under `env -u RAMP_ROUTER_API_KEY`; setup sources scripts/env.sh. Node v24.19.0 (engines >=18; Dockerfile uses node:18-slim; action.yml runs node24). Install uses the repo's yarn v1 lockfile with the local yarn 1.22.22 (`yarn install --frozen-lockfile`, as the Dockerfile does), cache in $RM/.tools/yarn-cache, --ignore-scripts (no install scripts are needed; esbuild loads its prebuilt optional dep). The repo also has a package-lock.json, but it is out of sync with package.json (npm ci fails: missing @esbuild/* 0.17.11 optional platform entries), so npm is not used. Cold install took 19s. test_cmd is the repo's `npm test` script (`jest`, jest 29 + ts-jest, jest.config.cjs roots src/ and test/) via the local binary; there is no CI test workflow (.github/workflows/cr.yml only runs the action itself). It unsets every env var src/ reads (OPENAI_API_KEY, MODEL, USE_GITHUB_MODELS, OPENAI_API_ENDPOINT, AZURE_*, REASONING_EFFORT, temperature/top_p/max_tokens, LANGUAGE, PROMPT, patterns, GITHUB_ACTIONS...) for determinism, and sandboxes HOME/TMPDIR (ts-jest cache goes to TMPDIR). Suites: test/chat.test.ts (19 tests: jest.mock('openai') with a mocked OpenAI class whose chat.completions.create is a jest.fn, asserting model/reasoning_effort/temperature/top_p/response_format and the GitHub Models / OPENAI_API_ENDPOINT baseURL passed to the OpenAI constructor) and test/index.test.ts (33 tests: bot diff/review helpers with fake octokit). Note chat.test.ts asserts `expect(OpenAI).toHaveBeenCalledWith(objectContaining({baseURL: ...}))` and mocks only the `OpenAI` export of 'openai', so a migration that changes the client construction or import shape will affect these tests. Nothing deselected; nothing hits the network. Baseline taken twice with outbound network denied (macOS sandbox-exec, loopback allowed): 52 passed, exit 0 (jest 1.46s cold cache, 0.84s warm; ~1.0s wall warm). parse_counts reads {passed: 52, failed: 0, errors: 0, skipped: 0} for both runs. typecheck_cmd: tsc 4.9.5 with the repo tsconfig (strict, allowJs+checkJs, include src/ and root *.ts; test/ not included). `--incremental false` is required because tsconfig sets incremental:true with outDir ./lib, so plain --noEmit writes lib/tsconfig.tsbuildinfo and the exit code flips between 2 (first run) and 1 (later runs); with it, exit 2 and 6 pre-existing errors on both runs (src/fetch-polyfill.cjs TS7017 x5, src/github-action.cjs TS2497), no files written. `npm run build` (rollup + ncc into dist/ and the committed action/ bundle) is not part of the test command because it rewrites tracked action/ files."
+}

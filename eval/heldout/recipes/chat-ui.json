@@ -1,0 +1,39 @@
+{
+  "name": "chat-ui",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV\" && cd \"$SRC\" && rm -rf node_modules .svelte-kit && HUSKY=0 npm ci --no-audit --no-fund --loglevel=error",
+    ". scripts/env.sh && cd \"$SRC\" && node node_modules/mongodb-memory-server/postinstall.js && MONGOMS_VERSION=7.0.18 node node_modules/mongodb-memory-server/postinstall.js"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && CI=1 OPENAI_API_KEY= HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ./node_modules/.bin/vitest run --project=server --project=ssr --maxWorkers=4",
+  "test_kind": "unit",
+  "test_env": {
+    "OPENAI_API_KEY": "",
+    "CI": "1"
+  },
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 2508,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 175,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/svelte-kit sync && ./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 52
+  },
+  "stability": {
+    "runs": 3,
+    "identical": true,
+    "seconds": [
+      189,
+      175,
+      176
+    ]
+  },
+  "notes": "Node v24.19.0, npm 11.17.0 (CI uses Node 20 and `npm ci`; package-lock v3, packageManager npm@9.5.0 pin is not enforced). test_cmd = the repo's CI `npm run test` (vitest --project=server --project=ssr; 179 files) invoked as `vitest run` with --maxWorkers=4. The browser project (`npm run test:client`, Playwright/Chromium) and Playwright e2e (`test:e2e`) are not run: they need a Chromium download and a booted app. Mongo: the server specs spawn MongoMemoryServer instances (default mongod 7.0.24 from scripts/setups/vitest-setup-server.ts, and 7.0.18 pinned in src/lib/server/database.ts for specs that reach the in-memory fallback). Setup pre-downloads both binaries into $SRC/node_modules/.cache/mongodb-memory-server (network during setup only); without 7.0.18 cached, the offline run logs an unhandled 'Download failed' rejection from runMcpFlow.spec.ts and exits 1 even though all tests pass. --maxWorkers=4: with vitest's default worker count on a loaded 12-core host, mongod instances intermittently miss the 10 s launch timeout ('Instance failed to start within 10000ms'), giving 1-6 spurious failed files per run; with 4 workers three runs were identical (2508 passed, 179 files, exit 0). The model registry fetch (${OPENAI_BASE_URL}/models) is served from src/lib/server/__fixtures__/models by the setup file's fetch intercept, so no LLM endpoint is touched. Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY unset; nothing deselected (the urlSafety/DNS specs expect lookups of *.invalid to fail and pass offline). vitest reports no skipped tests. HUSKY=0 skips the husky `prepare` hook so .git/config is untouched. A ./db directory (gitignored) is created by database.ts during tests. typecheck: the repo's own `npm run check` (svelte-kit sync && svelte-check) reports 0 errors / exit 0 but prints no `error TS` lines, so typecheck_cmd is strict `tsc --noEmit -p .` after `svelte-kit sync` (TS 5.x, tsconfig extends .svelte-kit/tsconfig.json): 52 pre-existing errors (46 TS7031 + 6 TS7006 implicit-any on SvelteKit route handler params in src/routes/**, plus one in a .svelte.test.ts), identical over 3 runs, ~4 s. If a stricter signal is wanted, `./node_modules/.bin/svelte-check --tsconfig ./tsconfig.json --output machine` baseline is `COMPLETED 2740 FILES 0 ERRORS`, exit 0."
+}

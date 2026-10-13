@@ -1,0 +1,33 @@
+--- a/hedge_fund/llm/client.py
++++ b/hedge_fund/llm/client.py
+@@ -32,6 +32,13 @@
+     provider_for,
+     SUPPORTED_PROVIDERS,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_langchain as _router_wrap_langchain
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
+ 
+ DEFAULT_MODEL = "claude-opus-5-5"
+ 
+@@ -254,12 +261,12 @@
+ 
+     if provider == "Anthropic":
+         from langchain_anthropic import ChatAnthropic
+-        chat = ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
+-                             max_retries=1, max_tokens=max_tokens)
++        chat = _router_wrap_langchain(ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
++                             max_retries=1, max_tokens=max_tokens))
+     elif provider == "OpenAI":
+         from langchain_openai import ChatOpenAI
+-        chat = ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
+-                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE"))
++        chat = _router_wrap_langchain(ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
++                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE")))
+     elif provider == "DeepSeek":
+         from langchain_deepseek import ChatDeepSeek
+         chat = ChatDeepSeek(model=model, api_key=api_key, timeout=timeout,

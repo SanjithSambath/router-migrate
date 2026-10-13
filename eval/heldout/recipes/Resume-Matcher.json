@@ -1,0 +1,23 @@
+{
+  "name": "Resume-Matcher",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/apps/backend/requirements.txt\" \"pytest>=8.0.0\" \"pytest-asyncio>=0.24.0\" \"respx>=0.21.1\" pytest-timeout"
+  ],
+  "reinstall": [],
+  "test_cmd": "cd apps/backend && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider --timeout=120 tests/",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 1821,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 7,
+    "seconds": 91,
+    "exit": 0
+  },
+  "notes": "Backend is apps/backend (pyproject rm-backend, requires-python >=3.13, Dockerfile uses python:3.13). The task allows only 3.11/3.12 and only those are in .tools, so I used 3.12.15. Everything imports and passes on 3.12. Because requires-python >=3.13 blocks an editable install on 3.12, setup installs the pinned apps/backend/requirements.txt plus the dev extras (pytest, pytest-asyncio, respx) and pytest-timeout, without installing the package itself. No reinstall step is needed: pyproject's [tool.pytest.ini_options] pythonpath=['.'] with cwd apps/backend makes `app` import from the working copy. There is no test CI workflow (only docker-publish.yml), so test_cmd is the repo's own pytest config (`pytest tests/` from apps/backend). Its addopts already pass `-m 'not eval'`, which deselects the 2 LLM-as-judge evals that may call a real provider. The 7 skips are postgres tests (TEST_DATABASE_URL unset). tests/conftest.py has an autouse deny_external_network fixture that blocks socket connects, so the suite is offline by construction. LLM calls are mocked via respx, AsyncMock or a fake transport. --timeout=120 (pytest-timeout) is a safety net: one early exploratory run under heavy machine load stalled at about 25% for 10 minutes, with a Playwright driver process alive. That stall did not reproduce in 3 later runs, and no test exceeded 5.5s. Resolved: litellm 1.104.2, openai 2.54.0, fastapi 0.143.0, playwright 1.63.0 (no browser binaries installed; no test needs them), pytest 9.1.1, pytest-asyncio 1.4.0, respx 0.23.1, pytest-timeout 2.4.0. Ran with RAMP_ROUTER_API_KEY unset. Two consecutive runs gave identical counts: 1821 passed, 7 skipped, 2 deselected (92.4s and 89.8s pytest time, 94s and 91s wall), and parse_counts reads {passed:1821, failed:0, errors:0, skipped:7}."
+}

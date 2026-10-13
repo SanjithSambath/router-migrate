@@ -1,0 +1,35 @@
+{
+  "name": "surf",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules && npm ci --no-audit --no-fund",
+    ". scripts/env.sh && cd \"$SRC\" && { test -f next-env.d.ts || printf '/// <reference types=\"next\" />\\n/// <reference types=\"next/image-types/global\" />\\n' > next-env.d.ts; }"
+  ],
+  "test_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "test_kind": "typecheck",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": null,
+    "failed": null,
+    "errors": 4,
+    "skipped": null,
+    "seconds": 1.5,
+    "exit": 2
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 4
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      1.51,
+      1.46
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0 (npm cache redirected by env.sh). Install: `npm ci` from the committed package-lock.json (662 packages, ~7s); npm 11 allowScripts skipped the install scripts of bufferutil/msw/sharp, which tsc does not need. The repo has no test script, no test framework and no CI workflow. Its only test-like file, lib/streaming/resolution.test.ts, is a console-logging diagnostic script with no assertions (and no tsx/ts-node is installed to run it), so it yields no pass/fail counts. test_cmd is therefore a strict TypeScript typecheck (TS 5.8.2, strict: true, 45 project files, --incremental false so no tsconfig.tsbuildinfo is written). Setup writes the standard gitignored next-env.d.ts (`next dev`/`next build` would create it); error count is the same (4) with or without it. Baseline: exit 2 with 4 PRE-EXISTING `error TS2345` errors, all in lib/streaming/resolution.test.ts (lines 101, 278, 330, 388: number[] not assignable to [number, number]); production files typecheck clean. parse_counts returns all None for this output (no test counts), as expected for a typecheck. `next lint`/`next build` not used (build may fetch Google Fonts via next/font/google, i.e. network). 2 runs: identical (exit 2, 4 errors)."
+}

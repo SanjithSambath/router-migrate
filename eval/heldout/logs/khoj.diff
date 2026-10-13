@@ -1,0 +1,118 @@
+--- a/src/khoj/configure.py
++++ b/src/khoj/configure.py
+@@ -55,6 +55,13 @@
+ from khoj.utils import constants, state
+ from khoj.utils.config import SearchType
+ from khoj.utils.helpers import is_none_or_empty
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -253,7 +260,7 @@
+ def initialize_server():
+     if ConversationAdapters.has_valid_ai_model_api():
+         ai_model_api = ConversationAdapters.get_ai_model_api()
+-        state.openai_client = openai.OpenAI(api_key=ai_model_api.api_key, base_url=ai_model_api.api_base_url)
++        state.openai_client = _router_wrap_openai(openai.OpenAI(api_key=ai_model_api.api_key, base_url=ai_model_api.api_base_url))
+ 
+     # Initialize Search Models from Config and initialize content
+     try:
+--- a/src/khoj/routers/api.py
++++ b/src/khoj/routers/api.py
+@@ -26,6 +26,13 @@
+ from khoj.utils import state
+ from khoj.utils.rawconfig import SearchResponse
+ from khoj.utils.state import SearchType
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ # Initialize Router
+ api = APIRouter()
+@@ -145,7 +152,7 @@
+             if speech_to_text_config.ai_model_api:
+                 api_key = speech_to_text_config.ai_model_api.api_key
+                 api_base_url = speech_to_text_config.ai_model_api.api_base_url
+-                openai_client = openai.OpenAI(api_key=api_key, base_url=api_base_url)
++                openai_client = _router_wrap_openai(openai.OpenAI(api_key=api_key, base_url=api_base_url))
+             elif state.openai_client:
+                 openai_client = state.openai_client
+             if openai_client:
+--- a/src/khoj/utils/helpers.py
++++ b/src/khoj/utils/helpers.py
+@@ -51,6 +51,13 @@
+     from sentence_transformers import CrossEncoder, SentenceTransformer
+ 
+     from khoj.utils.models import BaseEncoder
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -1175,7 +1182,7 @@
+ def get_anthropic_client(api_key, api_base_url=None) -> anthropic.Anthropic | anthropic.AnthropicVertex:
+     api_info = get_ai_api_info(api_key, api_base_url)
+     if api_info.api_key:
+-        client = anthropic.Anthropic(api_key=api_info.api_key)
++        client = _router_wrap_anthropic(anthropic.Anthropic(api_key=api_info.api_key))
+     else:
+         client = anthropic.AnthropicVertex(
+             region=api_info.region,
+@@ -1188,7 +1195,7 @@
+ def get_anthropic_async_client(api_key, api_base_url=None) -> anthropic.AsyncAnthropic | anthropic.AsyncAnthropicVertex:
+     api_info = get_ai_api_info(api_key, api_base_url)
+     if api_info.api_key:
+-        client = anthropic.AsyncAnthropic(api_key=api_info.api_key)
++        client = _router_wrap_anthropic(anthropic.AsyncAnthropic(api_key=api_info.api_key))
+     else:
+         client = anthropic.AsyncAnthropicVertex(
+             region=api_info.region,
+--- a/src/khoj/utils/initialization.py
++++ b/src/khoj/utils/initialization.py
+@@ -18,6 +18,13 @@
+     default_gemini_chat_models,
+     default_openai_chat_models,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -49,7 +56,7 @@
+         if openai_base_url:
+             # Get available chat models from OpenAI compatible API
+             try:
+-                openai_client = openai.OpenAI(api_key=openai_api_key, base_url=openai_base_url)
++                openai_client = _router_wrap_openai(openai.OpenAI(api_key=openai_api_key, base_url=openai_base_url))
+                 available_chat_models = [model.id for model in openai_client.models.list()]
+                 # Put the available default OpenAI models at the top
+                 known_available_models = [
+@@ -220,7 +227,7 @@
+             for config in custom_configs:
+                 try:
+                     # Create OpenAI client with custom base URL
+-                    openai_client = openai.OpenAI(api_key=config.api_key, base_url=config.api_base_url)
++                    openai_client = _router_wrap_openai(openai.OpenAI(api_key=config.api_key, base_url=config.api_base_url))
+ 
+                     # Get available models
+                     available_models = [model.id for model in openai_client.models.list()]

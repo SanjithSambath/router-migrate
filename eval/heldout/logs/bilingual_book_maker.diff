@@ -1,0 +1,56 @@
+--- a/book_maker/translator/chatgptapi_translator.py
++++ b/book_maker/translator/chatgptapi_translator.py
+@@ -85,6 +85,13 @@
+     handoff_prompt,
+     seed_cap,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ CHATGPT_CONFIG = config["translator"]["chatgptapi"]
+ 
+@@ -496,9 +503,9 @@
+     ) -> None:
+         super().__init__(key, language)
+         api_base = api_base or self.DEFAULT_API_BASE
+-        self.openai_client = OpenAI(
++        self.openai_client = _router_wrap_openai(OpenAI(
+             api_key=next(self.keys), base_url=api_base, **REQUEST_LIMITS
+-        )
++        ))
+         self.api_base = api_base
+ 
+         self.prompt_template = (
+--- a/book_maker/translator/qwen_translator.py
++++ b/book_maker/translator/qwen_translator.py
+@@ -3,6 +3,13 @@
+ from openai import OpenAI
+ 
+ from .base_translator import Base, NO_PROMPT_SECTIONS
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ QWEN_MODELS = ("qwen-mt-turbo", "qwen-mt-plus")
+ 
+@@ -93,9 +100,9 @@
+ 
+         # API configuration
+         self.api_base = api_base or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+-        self.client = OpenAI(
++        self.client = _router_wrap_openai(OpenAI(
+             api_key=next(self.keys), base_url=self.api_base, timeout=60
+-        )
++        ))
+ 
+         # Model configuration
+         self.set_qwen_model(model)
