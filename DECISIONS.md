@@ -224,6 +224,10 @@ Measured on 2026-10-13 for $0.0004; details are in `research/m0_measurements.md`
   - `cache.key` only fires for a static prompt literal of at least ~1,024 tokens in the call's file.
   - The 15 repos have neither, so they get no flex or cache cards. The synthetic test repo covers both levers.
 - **`up --agent`** prints only JSON on stdout (v1 step output goes to stderr). It exits 2 while any card is undecided.
+- **Flex and fallbacks exclude each other on one feature.** Router ignores `allow_flex_tier` when a request carries a `models`
+  list (M0), so the runtime drops Flex when fallbacks apply. Found while tracing one call for SYSTEM_DESIGN.md: approving both
+  cards gave no Flex discount and no message. Now both cards name the conflict in "loses", `apply --decisions` warns, and the
+  Python runtime logs the drop once (the TS runtime already did). No eval numbers change: the 15 repos have no Flex cards.
 - **Eval v2 harness.** The held-out work had added a HOME/XDG sandbox to every eval test run. On the dev set this made one
   anthropic-quickstarts test skip ("~/.ssh empty"), so the sandbox now applies to the held-out set only; dev-set baselines were
   measured with the real HOME. anthropic-quickstarts was re-run under the dev-set settings: 189/189. The other 14 rows ran

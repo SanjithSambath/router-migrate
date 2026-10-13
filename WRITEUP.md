@@ -49,7 +49,7 @@ Every number below is from `eval/scoreboard.json`, `eval/scoreboard_v2.json` and
 
 ## What M0 measured live (`research/m0_measurements.md`)
 - **Flex:** costs exactly **50%** of default on gpt-5.4-mini (n=5 per arm). It is per model: 17 models have it, and
-  gpt-4o-mini returns 400. One flex call took **61 s**, which is why `tier.flex_background` is for the background latency
+  gpt-4o-mini returns 400. One flex call on gpt-5-nano took **61 s**, which is why `tier.flex_background` is for the background latency
   class only.
 - **Fallbacks:** Router's `models` list works through raw HTTP, openai-python `extra_body` and openai-node. It advances past a
   403 or an unknown model.

@@ -117,3 +117,11 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
 - Card precision is unmeasured (no blind adjudication). The model_owner signal has not been hand-audited.
 - No TS codemod for vendor unlocks. Policy selectors can't target individual clients.
 - Out-of-scope items are listed as next steps in WRITEUP.md. EMAIL_TO_KEDAR.md is a draft and has not been sent.
+
+## After v2
+- **Dashboard dark only** (`eb1e641`): light tokens and the theme toggle removed; 15 REPORT.html files and screenshots re-rendered.
+- **SYSTEM_DESIGN.md**: rewritten from a first draft. Every claim checked against the code and eval files, and one real call
+  traced through every stage with its actual artifacts. Corrections: the TS scanner uses the TypeScript compiler API (not
+  ts-morph); the baseline moved 32 sites in the repos it left intact (not 90); the 61 s Flex call was on gpt-5-nano (also
+  fixed in WRITEUP.md and EMAIL_TO_KEDAR.md); the wrap takes effect at client construction, so rollout needs a restart.
+- **Flex/fallback conflict surfaced** (DECISIONS.md D12): cards, `apply --decisions` warning, runtime log, one new test (270 passing).

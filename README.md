@@ -156,7 +156,8 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
 - Some Router features are only reachable from code already on the Responses API (built-in tools, reasoning items, `models`
   fallback lists). Code that is moved by translation gets plain generation.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](DECISIONS.md), [AGENTS.md](AGENTS.md) and [eval/SCOREBOARD.md](eval/SCOREBOARD.md).
+Start with [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) for the whole system top to bottom (one real call traced through every stage).
+Then see [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](DECISIONS.md), [AGENTS.md](AGENTS.md) and [eval/SCOREBOARD.md](eval/SCOREBOARD.md).
 
 ## Development
 

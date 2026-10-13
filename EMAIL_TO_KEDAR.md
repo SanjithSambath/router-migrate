@@ -22,8 +22,8 @@ typecheck unchanged in all 15. Every migrated site replayed cleanly against live
 - **Results:** with every unlock and same-model card approved, it's 49 sites (reported next to the lossless 48, never summed),
   still 0 repos with worse tests, and 30 cards in total.
 - **Small gain, on purpose:** the rules only move traffic when the model is exactly one Router serves.
-- **Live measurement:** for under a tenth of a cent, Flex is exactly half price on gpt-5.4-mini but took 61 s on one call, so
-  it's offered for background jobs only.
+- **Live measurement:** for under a tenth of a cent, Flex is exactly half price on gpt-5.4-mini, and one Flex call on
+  gpt-5-nano took 61 s, so it's offered for background jobs only.
 
 **The overfitting check.** I also ran the frozen tool on 30 repos it had never seen, judged against blind inventories.
 - Only 53% of its "migrated" claims held up, against roughly 89% on the dev set. It misses LLM calls written in unfamiliar
