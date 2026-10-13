@@ -10,5 +10,5 @@ model ids; no store/previous_response_id; stop is 501 on OpenAI models; Router k
 
 `return client.beta.messages.count_tokens(**count_kwargs)`
 
-- Why: anthropic beta API (anthropic-beta header) is unmeasured on Router; the runtime keeps it on Anthropic
+- Why: Anthropic beta header: the runtime keeps these calls on Anthropic
 - Done when: the site routes to Router under router-sim (`router-migrate verify`), or the reason it must stay is written in the report

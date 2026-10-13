@@ -1,0 +1,1478 @@
+diff --git a/.env.local.example b/.env.local.example
+index 7cff1a7..4b19a75 100644
+--- a/.env.local.example
++++ b/.env.local.example
+@@ -8,24 +8,25 @@ SUPABASE_SERVICE_ROLE_KEY=
+ # Ollama
+ NEXT_PUBLIC_OLLAMA_URL=http://localhost:11434
+ 
+-# API Keys (Optional: Entering an API key here overrides the API keys globally for all users.)
+-OPENAI_API_KEY=
+-ANTHROPIC_API_KEY=
+-GOOGLE_GEMINI_API_KEY=
+-MISTRAL_API_KEY=
+-GROQ_API_KEY=
+-PERPLEXITY_API_KEY=
+-OPENROUTER_API_KEY=
++# Router (all hosted chat models are served through Router, which holds the provider credentials)
++RAMP_ROUTER_API_KEY=
++# Optional. Defaults to https://api.router.com/v1
++RAMP_ROUTER_BASE_URL=
++# JSON map of the app's model IDs to Router model IDs from GET /v1/models, e.g.
++# {"<app model id>":"<router model id>"}. Only mapped models are offered in the UI.
++RAMP_ROUTER_MODEL_MAP=
++# Router model ID (from GET /v1/models) used by /api/command
++RAMP_ROUTER_COMMAND_MODEL=
++# Comma-separated Router model IDs confirmed (via GET /v1/models) to accept image input
++RAMP_ROUTER_IMAGE_INPUT_MODELS=
+ 
+-# OpenAI API Information
++# Embeddings / Assistants only (Optional): Router does not serve embeddings or the
++# OpenAI Assistants API, so these remain for OpenAI/Azure embeddings in retrieval
++# and the Assistants list. They are not used for chat.
++OPENAI_API_KEY=
+ NEXT_PUBLIC_OPENAI_ORGANIZATION_ID=
+-
+-# Azure API Information
+ AZURE_OPENAI_API_KEY=
+ AZURE_OPENAI_ENDPOINT=
+-AZURE_GPT_35_TURBO_NAME=
+-AZURE_GPT_45_VISION_NAME=
+-AZURE_GPT_45_TURBO_NAME=
+ AZURE_EMBEDDINGS_NAME=
+ 
+ # General Configuration (Optional)
+diff --git a/README.md b/README.md
+index 1d50749..af95bbf 100644
+--- a/README.md
++++ b/README.md
+@@ -270,14 +270,16 @@ In environment variables, add the following from the values you got above:
+ - `SUPABASE_SERVICE_ROLE_KEY`
+ - `NEXT_PUBLIC_OLLAMA_URL` (only needed when using local Ollama models; default: `http://localhost:11434`)
+ 
+-You can also add API keys as environment variables.
++Hosted chat models are served through Router. Add the Router settings as environment variables:
+ 
+-- `OPENAI_API_KEY`
+-- `AZURE_OPENAI_API_KEY`
+-- `AZURE_OPENAI_ENDPOINT`
+-- `AZURE_GPT_45_VISION_NAME`
++- `RAMP_ROUTER_API_KEY`
++- `RAMP_ROUTER_MODEL_MAP` (JSON map of app model IDs to Router model IDs from `GET /v1/models`)
++- `RAMP_ROUTER_COMMAND_MODEL`
++- `RAMP_ROUTER_IMAGE_INPUT_MODELS` (only Router models confirmed to accept image input)
+ 
+-For the full list of environment variables, refer to the '.env.local.example' file. If the environment variables are set for API keys, it will disable the input in the user settings.
++Provider API keys are not used for chat. `OPENAI_API_KEY` / `AZURE_OPENAI_*` are only needed for OpenAI/Azure embeddings and the Assistants list, which Router does not serve.
++
++For the full list of environment variables, refer to the '.env.local.example' file.
+ 
+ Click "Deploy" and wait for your frontend to deploy.
+ 
+diff --git a/app/api/chat/anthropic/route.ts b/app/api/chat/anthropic/route.ts
+index 4f6242f..08c5433 100644
+--- a/app/api/chat/anthropic/route.ts
++++ b/app/api/chat/anthropic/route.ts
+@@ -1,5 +1,11 @@
+ import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  assertImageInputSupported,
++  getRouterAnthropicBaseURL,
++  getRouterApiKey,
++  resolveRouterModel
++} from "@/lib/router/router-client"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
+ import { getBase64FromDataURL, getMediaTypeFromDataURL } from "@/lib/utils"
+ import { ChatSettings } from "@/types"
+ import Anthropic from "@anthropic-ai/sdk"
+@@ -16,9 +22,7 @@ export async function POST(request: NextRequest) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
+-
+-    checkApiKey(profile.anthropic_api_key, "Anthropic")
++    await getServerProfile()
+ 
+     let ANTHROPIC_FORMATTED_MESSAGES: any = messages.slice(1)
+ 
+@@ -55,13 +59,29 @@ export async function POST(request: NextRequest) {
+       }
+     )
+ 
++    // Router serves an Anthropic Messages compatibility surface
++    // (POST /v1/messages), so the Anthropic SDK is kept and pointed at it.
++    // apiKey: null stops the SDK from reading ANTHROPIC_API_KEY; Router is
++    // authenticated with `Authorization: Bearer $RAMP_ROUTER_API_KEY`.
+     const anthropic = new Anthropic({
+-      apiKey: profile.anthropic_api_key || ""
++      apiKey: null,
++      authToken: getRouterApiKey(),
++      baseURL: getRouterAnthropicBaseURL()
+     })
+ 
++    const model = resolveRouterModel(chatSettings.model)
++    assertImageInputSupported(
++      model,
++      ANTHROPIC_FORMATTED_MESSAGES.some(
++        (message: any) =>
++          Array.isArray(message?.content) &&
++          message.content.some((content: any) => content?.type === "image")
++      )
++    )
++
+     try {
+       const response = await anthropic.messages.create({
+-        model: chatSettings.model,
++        model,
+         messages: ANTHROPIC_FORMATTED_MESSAGES,
+         temperature: chatSettings.temperature,
+         system: messages[0].content,
+diff --git a/app/api/chat/azure/route.ts b/app/api/chat/azure/route.ts
+index 642eb77..4790267 100644
+--- a/app/api/chat/azure/route.ts
++++ b/app/api/chat/azure/route.ts
+@@ -1,66 +1,55 @@
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatAPIPayload } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
+-import OpenAI from "openai"
+-import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
++import { StreamingTextResponse } from "ai"
+ 
+ export const runtime = "edge"
+ 
++// Models previously served through Azure OpenAI deployments. Router now serves
++// them; the Router model ID comes from RAMP_ROUTER_MODEL_MAP.
++const AZURE_SUPPORTED_MODELS = [
++  "gpt-3.5-turbo",
++  "gpt-4-turbo-preview",
++  "gpt-4-vision-preview"
++]
++
+ export async function POST(request: Request) {
+   const json = await request.json()
+   const { chatSettings, messages } = json as ChatAPIPayload
+ 
+   try {
+-    const profile = await getServerProfile()
+-
+-    checkApiKey(profile.azure_openai_api_key, "Azure OpenAI")
++    await getServerProfile()
+ 
+-    const ENDPOINT = profile.azure_openai_endpoint
+-    const KEY = profile.azure_openai_api_key
+-
+-    let DEPLOYMENT_ID = ""
+-    switch (chatSettings.model) {
+-      case "gpt-3.5-turbo":
+-        DEPLOYMENT_ID = profile.azure_openai_35_turbo_id || ""
+-        break
+-      case "gpt-4-turbo-preview":
+-        DEPLOYMENT_ID = profile.azure_openai_45_turbo_id || ""
+-        break
+-      case "gpt-4-vision-preview":
+-        DEPLOYMENT_ID = profile.azure_openai_45_vision_id || ""
+-        break
+-      default:
+-        return new Response(JSON.stringify({ message: "Model not found" }), {
+-          status: 400
+-        })
++    if (!AZURE_SUPPORTED_MODELS.includes(chatSettings.model)) {
++      return new Response(JSON.stringify({ message: "Model not found" }), {
++        status: 400
++      })
+     }
+ 
+-    if (!ENDPOINT || !KEY || !DEPLOYMENT_ID) {
+-      return new Response(
+-        JSON.stringify({ message: "Azure resources not found" }),
+-        {
+-          status: 400
+-        }
+-      )
+-    }
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
+ 
+-    const azureOpenai = new OpenAI({
+-      apiKey: KEY,
+-      baseURL: `${ENDPOINT}/openai/deployments/${DEPLOYMENT_ID}`,
+-      defaultQuery: { "api-version": "2023-12-01-preview" },
+-      defaultHeaders: { "api-key": KEY }
+-    })
+-
+-    const response = await azureOpenai.chat.completions.create({
+-      model: DEPLOYMENT_ID as ChatCompletionCreateParamsBase["model"],
+-      messages: messages as ChatCompletionCreateParamsBase["messages"],
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
+       temperature: chatSettings.temperature,
+-      max_tokens: chatSettings.model === "gpt-4-vision-preview" ? 4096 : null, // TODO: Fix
+-      stream: true
++      max_output_tokens:
++        chatSettings.model === "gpt-4-vision-preview" ? 4096 : undefined, // TODO: Fix
++      metadata: { feature: "chat-azure" }
+     })
+ 
+-    const stream = OpenAIStream(response)
+-
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+     const errorMessage = error.error?.message || "An unexpected error occurred"
+diff --git a/app/api/chat/google/route.ts b/app/api/chat/google/route.ts
+index ad79139..e5c5adf 100644
+--- a/app/api/chat/google/route.ts
++++ b/app/api/chat/google/route.ts
+@@ -1,6 +1,15 @@
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  geminiContentsToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { GoogleGenerativeAI } from "@google/generative-ai"
+ 
+ export const runtime = "edge"
+ 
+@@ -12,33 +21,22 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
+-
+-    checkApiKey(profile.google_gemini_api_key, "Google")
+-
+-    const genAI = new GoogleGenerativeAI(profile.google_gemini_api_key || "")
+-    const googleModel = genAI.getGenerativeModel({ model: chatSettings.model })
+-
+-    const lastMessage = messages.pop()
+-
+-    const chat = googleModel.startChat({
+-      history: messages,
+-      generationConfig: {
+-        temperature: chatSettings.temperature
+-      }
+-    })
+-
+-    const response = await chat.sendMessageStream(lastMessage.parts)
+-
+-    const encoder = new TextEncoder()
+-    const readableStream = new ReadableStream({
+-      async start(controller) {
+-        for await (const chunk of response.stream) {
+-          const chunkText = chunk.text()
+-          controller.enqueue(encoder.encode(chunkText))
+-        }
+-        controller.close()
+-      }
++    await getServerProfile()
++
++    // The Google Generative AI SDK did not retry; keep that behavior.
++    const router = createRouterClient({ maxRetries: 0 })
++    const model = resolveRouterModel(chatSettings.model)
++
++    // Messages arrive in Gemini `contents` format (history + last message);
++    // send the whole conversation as Responses input.
++    const input = geminiContentsToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
++
++    const readableStream = await streamRouterResponseText(router, {
++      model,
++      input,
++      temperature: chatSettings.temperature,
++      metadata: { feature: "chat-google" }
+     })
+ 
+     return new Response(readableStream, {
+diff --git a/app/api/chat/groq/route.ts b/app/api/chat/groq/route.ts
+index 653de00..4d3555a 100644
+--- a/app/api/chat/groq/route.ts
++++ b/app/api/chat/groq/route.ts
+@@ -1,8 +1,17 @@
+ import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
+-import OpenAI from "openai"
++import { StreamingTextResponse } from "ai"
+ 
+ export const runtime = "edge"
+ export async function POST(request: Request) {
+@@ -13,27 +22,24 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.groq_api_key, "G")
++    // Groq models are served through Router's Responses API
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
+ 
+-    // Groq is compatible with the OpenAI SDK
+-    const groq = new OpenAI({
+-      apiKey: profile.groq_api_key || "",
+-      baseURL: "https://api.groq.com/openai/v1"
+-    })
+-
+-    const response = await groq.chat.completions.create({
+-      model: chatSettings.model,
+-      messages,
+-      max_tokens:
++    // Convert the response into a friendly text-stream.
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
++      max_output_tokens:
+         CHAT_SETTING_LIMITS[chatSettings.model].MAX_TOKEN_OUTPUT_LENGTH,
+-      stream: true
++      metadata: { feature: "chat-groq" }
+     })
+ 
+-    // Convert the response into a friendly text-stream.
+-    const stream = OpenAIStream(response)
+-
+     // Respond with the stream
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+diff --git a/app/api/chat/mistral/route.ts b/app/api/chat/mistral/route.ts
+index 5153ca6..e53df36 100644
+--- a/app/api/chat/mistral/route.ts
++++ b/app/api/chat/mistral/route.ts
+@@ -1,8 +1,17 @@
+ import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
+-import OpenAI from "openai"
++import { StreamingTextResponse } from "ai"
+ 
+ export const runtime = "edge"
+ 
+@@ -14,27 +23,24 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.mistral_api_key, "Mistral")
++    // Mistral models are served through Router's Responses API
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
+ 
+-    // Mistral is compatible the OpenAI SDK
+-    const mistral = new OpenAI({
+-      apiKey: profile.mistral_api_key || "",
+-      baseURL: "https://api.mistral.ai/v1"
+-    })
+-
+-    const response = await mistral.chat.completions.create({
+-      model: chatSettings.model,
+-      messages,
+-      max_tokens:
++    // Convert the response into a friendly text-stream.
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
++      max_output_tokens:
+         CHAT_SETTING_LIMITS[chatSettings.model].MAX_TOKEN_OUTPUT_LENGTH,
+-      stream: true
++      metadata: { feature: "chat-mistral" }
+     })
+ 
+-    // Convert the response into a friendly text-stream.
+-    const stream = OpenAIStream(response)
+-
+     // Respond with the stream
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+diff --git a/app/api/chat/openai/route.ts b/app/api/chat/openai/route.ts
+index a0f8ad0..ffaf90e 100644
+--- a/app/api/chat/openai/route.ts
++++ b/app/api/chat/openai/route.ts
+@@ -1,9 +1,17 @@
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
++import { StreamingTextResponse } from "ai"
+ import { ServerRuntime } from "next"
+-import OpenAI from "openai"
+-import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
+ 
+ export const runtime: ServerRuntime = "edge"
+ 
+@@ -15,29 +23,26 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.openai_api_key, "OpenAI")
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
+ 
+-    const openai = new OpenAI({
+-      apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
+-    })
+-
+-    const response = await openai.chat.completions.create({
+-      model: chatSettings.model as ChatCompletionCreateParamsBase["model"],
+-      messages: messages as ChatCompletionCreateParamsBase["messages"],
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
+       temperature: chatSettings.temperature,
+-      max_tokens:
++      max_output_tokens:
+         chatSettings.model === "gpt-4-vision-preview" ||
+         chatSettings.model === "gpt-4o"
+           ? 4096
+-          : null, // TODO: Fix
+-      stream: true
++          : undefined, // TODO: Fix
++      metadata: { feature: "chat-openai" }
+     })
+ 
+-    const stream = OpenAIStream(response)
+-
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+     let errorMessage = error.message || "An unexpected error occurred"
+diff --git a/app/api/chat/openrouter/route.ts b/app/api/chat/openrouter/route.ts
+index 34a8a74..f89e808 100644
+--- a/app/api/chat/openrouter/route.ts
++++ b/app/api/chat/openrouter/route.ts
+@@ -1,9 +1,17 @@
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
++import { StreamingTextResponse } from "ai"
+ import { ServerRuntime } from "next"
+-import OpenAI from "openai"
+-import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
+ 
+ export const runtime: ServerRuntime = "edge"
+ 
+@@ -15,25 +23,21 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.openrouter_api_key, "OpenRouter")
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
+ 
+-    const openai = new OpenAI({
+-      apiKey: profile.openrouter_api_key || "",
+-      baseURL: "https://openrouter.ai/api/v1"
+-    })
+-
+-    const response = await openai.chat.completions.create({
+-      model: chatSettings.model as ChatCompletionCreateParamsBase["model"],
+-      messages: messages as ChatCompletionCreateParamsBase["messages"],
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
+       temperature: chatSettings.temperature,
+-      max_tokens: undefined,
+-      stream: true
++      metadata: { feature: "chat-openrouter" }
+     })
+ 
+-    const stream = OpenAIStream(response)
+-
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+     let errorMessage = error.message || "An unexpected error occurred"
+diff --git a/app/api/chat/perplexity/route.ts b/app/api/chat/perplexity/route.ts
+index db700a2..f382e82 100644
+--- a/app/api/chat/perplexity/route.ts
++++ b/app/api/chat/perplexity/route.ts
+@@ -1,7 +1,16 @@
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
+-import OpenAI from "openai"
++import { StreamingTextResponse } from "ai"
+ 
+ export const runtime = "edge"
+ 
+@@ -13,24 +22,21 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
+-
+-    checkApiKey(profile.perplexity_api_key, "Perplexity")
+-
+-    // Perplexity is compatible the OpenAI SDK
+-    const perplexity = new OpenAI({
+-      apiKey: profile.perplexity_api_key || "",
+-      baseURL: "https://api.perplexity.ai/"
++    await getServerProfile()
++
++    // Perplexity models are served through Router's Responses API
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
++
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
++      metadata: { feature: "chat-perplexity" }
+     })
+ 
+-    const response = await perplexity.chat.completions.create({
+-      model: chatSettings.model,
+-      messages,
+-      stream: true
+-    })
+-
+-    const stream = OpenAIStream(response)
+-
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+     let errorMessage = error.message || "An unexpected error occurred"
+diff --git a/app/api/chat/tools/route.ts b/app/api/chat/tools/route.ts
+index 752df25..686d0b4 100644
+--- a/app/api/chat/tools/route.ts
++++ b/app/api/chat/tools/route.ts
+@@ -1,10 +1,22 @@
+ import { openapiToFunctions } from "@/lib/openapi-conversion"
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
++import {
++  chatMessagesToResponsesInput,
++  chatToolToResponsesTool,
++  createRouterResponse,
++  getOutputText,
++  hasImageInput,
++  streamRouterResponseText
++} from "@/lib/router/responses"
++import {
++  assertImageInputSupported,
++  createRouterClient,
++  resolveRouterModel
++} from "@/lib/router/router-client"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
+ import { Tables } from "@/supabase/types"
+ import { ChatSettings } from "@/types"
+-import { OpenAIStream, StreamingTextResponse } from "ai"
++import { StreamingTextResponse } from "ai"
+ import OpenAI from "openai"
+-import { ChatCompletionCreateParamsBase } from "openai/resources/chat/completions.mjs"
+ 
+ export async function POST(request: Request) {
+   const json = await request.json()
+@@ -15,14 +27,10 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.openai_api_key, "OpenAI")
+-
+-    const openai = new OpenAI({
+-      apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
+-    })
++    const router = createRouterClient()
++    const model = resolveRouterModel(chatSettings.model)
+ 
+     let allTools: OpenAI.Chat.Completions.ChatCompletionTool[] = []
+     let allRouteMaps = {}
+@@ -59,18 +67,28 @@ export async function POST(request: Request) {
+       }
+     }
+ 
+-    const firstResponse = await openai.chat.completions.create({
+-      model: chatSettings.model as ChatCompletionCreateParamsBase["model"],
+-      messages,
+-      tools: allTools.length > 0 ? allTools : undefined
++    const { instructions, input } = chatMessagesToResponsesInput(messages)
++    assertImageInputSupported(model, hasImageInput(input))
++
++    const firstResponse = await createRouterResponse(router, {
++      model,
++      instructions,
++      input,
++      tools:
++        allTools.length > 0 ? allTools.map(chatToolToResponsesTool) : undefined,
++      metadata: { feature: "chat-tools" }
+     })
+ 
+-    const message = firstResponse.choices[0].message
+-    messages.push(message)
+-    const toolCalls = message.tool_calls || []
++    // Inspect response.output: it may contain function calls, reasoning and
++    // message items. Carry all of them forward into the next turn's input.
++    const outputItems: any[] = Array.isArray(firstResponse?.output)
++      ? firstResponse.output
++      : []
++    input.push(...outputItems)
++    const toolCalls = outputItems.filter(item => item?.type === "function_call")
+ 
+     if (toolCalls.length === 0) {
+-      return new Response(message.content, {
++      return new Response(getOutputText(firstResponse), {
+         headers: {
+           "Content-Type": "application/json"
+         }
+@@ -79,9 +97,8 @@ export async function POST(request: Request) {
+ 
+     if (toolCalls.length > 0) {
+       for (const toolCall of toolCalls) {
+-        const functionCall = toolCall.function
+-        const functionName = functionCall.name
+-        const argumentsString = toolCall.function.arguments.trim()
++        const functionName = toolCall.name
++        const argumentsString = (toolCall.arguments || "").trim()
+         const parsedArgs = JSON.parse(argumentsString)
+ 
+         // Find the schema detail that contains the function name
+@@ -189,23 +206,21 @@ export async function POST(request: Request) {
+           }
+         }
+ 
+-        messages.push({
+-          tool_call_id: toolCall.id,
+-          role: "tool",
+-          name: functionName,
+-          content: JSON.stringify(data)
++        input.push({
++          type: "function_call_output",
++          call_id: toolCall.call_id,
++          output: JSON.stringify(data)
+         })
+       }
+     }
+ 
+-    const secondResponse = await openai.chat.completions.create({
+-      model: chatSettings.model as ChatCompletionCreateParamsBase["model"],
+-      messages,
+-      stream: true
++    const stream = await streamRouterResponseText(router, {
++      model,
++      instructions,
++      input,
++      metadata: { feature: "chat-tools" }
+     })
+ 
+-    const stream = OpenAIStream(secondResponse)
+-
+     return new StreamingTextResponse(stream)
+   } catch (error: any) {
+     console.error(error)
+diff --git a/app/api/command/route.ts b/app/api/command/route.ts
+index b10df7b..6f0820e 100644
+--- a/app/api/command/route.ts
++++ b/app/api/command/route.ts
+@@ -1,6 +1,10 @@
+ import { CHAT_SETTING_LIMITS } from "@/lib/chat-setting-limits"
+-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
+-import OpenAI from "openai"
++import { createRouterResponse, getOutputText } from "@/lib/router/responses"
++import {
++  createRouterClient,
++  getRouterCommandModel
++} from "@/lib/router/router-client"
++import { getServerProfile } from "@/lib/server/server-chat-helpers"
+ 
+ export const runtime = "edge"
+ 
+@@ -11,35 +15,28 @@ export async function POST(request: Request) {
+   }
+ 
+   try {
+-    const profile = await getServerProfile()
++    await getServerProfile()
+ 
+-    checkApiKey(profile.openai_api_key, "OpenAI")
++    const router = createRouterClient()
+ 
+-    const openai = new OpenAI({
+-      apiKey: profile.openai_api_key || "",
+-      organization: profile.openai_organization_id
+-    })
+-
+-    const response = await openai.chat.completions.create({
+-      model: "gpt-4-1106-preview",
+-      messages: [
+-        {
+-          role: "system",
+-          content: "Respond to the user."
+-        },
++    const response = await createRouterResponse(router, {
++      // Previously hardcoded "gpt-4-1106-preview"; now RAMP_ROUTER_COMMAND_MODEL
++      model: getRouterCommandModel(),
++      instructions: "Respond to the user.",
++      input: [
+         {
+           role: "user",
+           content: input
+         }
+       ],
+       temperature: 0,
+-      max_tokens:
+-        CHAT_SETTING_LIMITS["gpt-4-turbo-preview"].MAX_TOKEN_OUTPUT_LENGTH
+-      //   response_format: { type: "json_object" }
+-      //   stream: true
++      max_output_tokens:
++        CHAT_SETTING_LIMITS["gpt-4-turbo-preview"].MAX_TOKEN_OUTPUT_LENGTH,
++      //   text: { format: { type: "json_object" } }
++      metadata: { feature: "command" }
+     })
+ 
+-    const content = response.choices[0].message.content
++    const content = getOutputText(response)
+ 
+     return new Response(JSON.stringify({ content }), {
+       status: 200
+diff --git a/app/api/keys/route.ts b/app/api/keys/route.ts
+index c0f8e38..9be2214 100644
+--- a/app/api/keys/route.ts
++++ b/app/api/keys/route.ts
+@@ -1,25 +1,31 @@
+ import { isUsingEnvironmentKey } from "@/lib/envs"
++import {
++  getRouterMappedAppModelIds,
++  isRouterConfigured
++} from "@/lib/router/router-client"
+ import { createResponse } from "@/lib/server/server-utils"
+ import { EnvKey } from "@/types/key-type"
+ import { VALID_ENV_KEYS } from "@/types/valid-keys"
+ 
++// Chat providers whose models are now served through Router. Provider API keys
++// are no longer used for chat; Router holds the provider credentials.
++const ROUTER_SERVED_PROVIDERS = [
++  "openai",
++  "azure",
++  "google",
++  "anthropic",
++  "mistral",
++  "groq",
++  "perplexity"
++]
++
+ export async function GET() {
++  // Remaining env settings are only used by call sites Router does not serve
++  // (OpenAI/Azure embeddings for retrieval and the OpenAI Assistants list).
+   const envKeyMap: Record<string, VALID_ENV_KEYS> = {
+-    azure: VALID_ENV_KEYS.AZURE_OPENAI_API_KEY,
+-    openai: VALID_ENV_KEYS.OPENAI_API_KEY,
+-    google: VALID_ENV_KEYS.GOOGLE_GEMINI_API_KEY,
+-    anthropic: VALID_ENV_KEYS.ANTHROPIC_API_KEY,
+-    mistral: VALID_ENV_KEYS.MISTRAL_API_KEY,
+-    groq: VALID_ENV_KEYS.GROQ_API_KEY,
+-    perplexity: VALID_ENV_KEYS.PERPLEXITY_API_KEY,
+-    openrouter: VALID_ENV_KEYS.OPENROUTER_API_KEY,
+-
+     openai_organization_id: VALID_ENV_KEYS.OPENAI_ORGANIZATION_ID,
+ 
+     azure_openai_endpoint: VALID_ENV_KEYS.AZURE_OPENAI_ENDPOINT,
+-    azure_gpt_35_turbo_name: VALID_ENV_KEYS.AZURE_GPT_35_TURBO_NAME,
+-    azure_gpt_45_vision_name: VALID_ENV_KEYS.AZURE_GPT_45_VISION_NAME,
+-    azure_gpt_45_turbo_name: VALID_ENV_KEYS.AZURE_GPT_45_TURBO_NAME,
+     azure_embeddings_name: VALID_ENV_KEYS.AZURE_EMBEDDINGS_NAME
+   }
+ 
+@@ -34,5 +40,13 @@ export async function GET() {
+     return acc
+   }, {})
+ 
+-  return createResponse({ isUsingEnvKeyMap }, 200)
++  const routerConfigured = isRouterConfigured()
++
++  for (const provider of ROUTER_SERVED_PROVIDERS) {
++    isUsingEnvKeyMap[provider] = routerConfigured
++  }
++
++  const routerModelIds = routerConfigured ? getRouterMappedAppModelIds() : []
++
++  return createResponse({ isUsingEnvKeyMap, routerModelIds }, 200)
+ }
+diff --git a/lib/models/fetch-models.ts b/lib/models/fetch-models.ts
+index 0f34709..0cb95ab 100644
+--- a/lib/models/fetch-models.ts
++++ b/lib/models/fetch-models.ts
+@@ -21,24 +21,22 @@ export const fetchHostedModels = async (profile: Tables<"profiles">) => {
+ 
+     const data = await response.json()
+ 
++    // Hosted models are served through Router; only offer the models that
++    // have a Router model ID configured (RAMP_ROUTER_MODEL_MAP).
++    const routerModelIds: string[] = Array.isArray(data.routerModelIds)
++      ? data.routerModelIds
++      : []
++
+     let modelsToAdd: LLM[] = []
+ 
+     for (const provider of providers) {
+-      let providerKey: keyof typeof profile
+-
+-      if (provider === "google") {
+-        providerKey = "google_gemini_api_key"
+-      } else if (provider === "azure") {
+-        providerKey = "azure_openai_api_key"
+-      } else {
+-        providerKey = `${provider}_api_key` as keyof typeof profile
+-      }
+-
+-      if (profile?.[providerKey] || data.isUsingEnvKeyMap[provider]) {
++      if (data.isUsingEnvKeyMap[provider]) {
+         const models = LLM_LIST_MAP[provider]
+ 
+         if (Array.isArray(models)) {
+-          modelsToAdd.push(...models)
++          modelsToAdd.push(
++            ...models.filter(model => routerModelIds.includes(model.modelId))
++          )
+         }
+       }
+     }
+diff --git a/lib/router/responses.ts b/lib/router/responses.ts
+new file mode 100644
+index 0000000..16977c3
+--- /dev/null
++++ b/lib/router/responses.ts
+@@ -0,0 +1,314 @@
++// Helpers for calling Router's OpenAI Responses API (POST /v1/responses).
++//
++// The installed `openai` SDK (v4.24) predates `client.responses`, so requests
++// go through the SDK's generic `client.post()` escape hatch. That keeps the
++// SDK's auth, base URL, error types and retry policy. Streaming responses are
++// read via `.asResponse()` because this SDK version's SSE reader drops named
++// events, which is how Responses streams are delivered.
++
++import OpenAI from "openai"
++
++export type ResponsesInputItem = Record<string, any>
++
++export type ResponsesRequestBody = {
++  model: string
++  input: ResponsesInputItem[]
++  instructions?: string
++  temperature?: number
++  max_output_tokens?: number
++  tools?: Record<string, any>[]
++  metadata?: Record<string, string>
++}
++
++const textOf = (content: any): string => {
++  if (typeof content === "string") {
++    return content
++  }
++
++  if (Array.isArray(content)) {
++    return content
++      .map((part: any) =>
++        typeof part === "string"
++          ? part
++          : part?.type === "text"
++            ? part.text ?? ""
++            : ""
++      )
++      .join("")
++  }
++
++  return ""
++}
++
++// Chat Completions `messages` -> Responses `instructions` + `input`.
++// System messages become `instructions`; text/image content parts become
++// input_text / input_image parts. Message text is passed through unchanged.
++export function chatMessagesToResponsesInput(messages: any[]): {
++  instructions?: string
++  input: ResponsesInputItem[]
++} {
++  const systemTexts: string[] = []
++  const input: ResponsesInputItem[] = []
++
++  for (const message of messages) {
++    if (message?.role === "system") {
++      systemTexts.push(textOf(message.content))
++      continue
++    }
++
++    const role = message?.role === "assistant" ? "assistant" : "user"
++    const content = message?.content
++
++    if (!Array.isArray(content)) {
++      input.push({ role, content: content ?? "" })
++      continue
++    }
++
++    input.push({
++      role,
++      content: content.map((part: any) => {
++        if (typeof part === "string") {
++          return {
++            type: role === "assistant" ? "output_text" : "input_text",
++            text: part
++          }
++        }
++
++        if (part?.type === "text") {
++          return {
++            type: role === "assistant" ? "output_text" : "input_text",
++            text: part.text
++          }
++        }
++
++        if (part?.type === "image_url") {
++          return {
++            type: "input_image",
++            image_url: part.image_url?.url,
++            detail: part.image_url?.detail ?? "auto"
++          }
++        }
++
++        return part
++      })
++    })
++  }
++
++  return {
++    instructions: systemTexts.length > 0 ? systemTexts.join("\n\n") : undefined,
++    input
++  }
++}
++
++// Gemini `contents` (role user/model, parts with text/inlineData) ->
++// Responses `input`. Used by the Google route, whose client-side prompt
++// formatting is left unchanged.
++export function geminiContentsToResponsesInput(
++  contents: any[]
++): ResponsesInputItem[] {
++  const flattenParts = (parts: any): any[] =>
++    Array.isArray(parts) ? parts.flatMap(flattenParts) : [parts]
++
++  return contents.map(message => {
++    const role = message?.role === "model" ? "assistant" : "user"
++    const parts = flattenParts(message?.parts ?? []).filter(
++      part => part !== undefined && part !== null
++    )
++
++    return {
++      role,
++      content: parts.map(part => {
++        if (typeof part === "string") {
++          return {
++            type: role === "assistant" ? "output_text" : "input_text",
++            text: part
++          }
++        }
++
++        if (part?.inlineData) {
++          return {
++            type: "input_image",
++            image_url: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
++            detail: "auto"
++          }
++        }
++
++        return {
++          type: role === "assistant" ? "output_text" : "input_text",
++          text: part?.text ?? ""
++        }
++      })
++    }
++  })
++}
++
++export function hasImageInput(input: ResponsesInputItem[]): boolean {
++  return input.some(
++    item =>
++      Array.isArray(item?.content) &&
++      item.content.some((part: any) => part?.type === "input_image")
++  )
++}
++
++// Chat Completions function tool -> Responses function tool. Definitions are
++// unchanged; `strict: false` keeps Chat Completions' non-strict default.
++export function chatToolToResponsesTool(tool: any): Record<string, any> {
++  if (tool?.type === "function" && tool.function) {
++    return {
++      type: "function",
++      name: tool.function.name,
++      description: tool.function.description,
++      parameters: tool.function.parameters,
++      strict: false
++    }
++  }
++
++  return tool
++}
++
++const withoutUndefined = (body: Record<string, any>) =>
++  Object.fromEntries(
++    Object.entries(body).filter(
++      ([, value]) => value !== undefined && value !== null
++    )
++  )
++
++// Non-streaming POST /v1/responses.
++export async function createRouterResponse(
++  client: OpenAI,
++  body: ResponsesRequestBody
++): Promise<any> {
++  return client.post("/responses", { body: withoutUndefined(body) })
++}
++
++// Concatenated text of all `output_text` parts in `response.output`.
++export function getOutputText(response: any): string {
++  if (typeof response?.output_text === "string") {
++    return response.output_text
++  }
++
++  const output: any[] = Array.isArray(response?.output) ? response.output : []
++
++  return output
++    .filter(item => item?.type === "message" && Array.isArray(item.content))
++    .flatMap(item => item.content)
++    .filter((part: any) => part?.type === "output_text")
++    .map((part: any) => part.text ?? "")
++    .join("")
++}
++
++// Streaming POST /v1/responses. Returns a plain-text stream of the output text
++// deltas, matching what the routes previously returned via OpenAIStream().
++export async function streamRouterResponseText(
++  client: OpenAI,
++  body: ResponsesRequestBody
++): Promise<ReadableStream<Uint8Array>> {
++  const response = await client
++    .post("/responses", {
++      body: { ...withoutUndefined(body), stream: true },
++      headers: { Accept: "text/event-stream" }
++    })
++    .asResponse()
++
++  if (!response.body) {
++    throw new Error("Router returned an empty response stream")
++  }
++
++  return responsesEventStreamToText(response.body)
++}
++
++// Converts a Responses SSE stream into a stream of output text.
++export function responsesEventStreamToText(
++  body: ReadableStream<Uint8Array>
++): ReadableStream<Uint8Array> {
++  const reader = body.getReader()
++  const decoder = new TextDecoder()
++  const encoder = new TextEncoder()
++  let buffer = ""
++
++  // Returns the text to emit for one SSE event block (or "" for none).
++  const handleEvent = (rawEvent: string): string => {
++    const data = rawEvent
++      .split(/\r?\n/)
++      .filter(line => line.startsWith("data:"))
++      .map(line => line.slice(5).replace(/^ /, ""))
++      .join("\n")
++
++    if (!data || data === "[DONE]") {
++      return ""
++    }
++
++    let event: any
++    try {
++      event = JSON.parse(data)
++    } catch {
++      return ""
++    }
++
++    switch (event?.type) {
++      case "response.output_text.delta":
++        return typeof event.delta === "string" ? event.delta : ""
++      case "response.failed":
++        throw new Error(
++          event.response?.error?.message || "Router response failed"
++        )
++      case "error":
++        throw new Error(
++          event.message || event.error?.message || "Router stream error"
++        )
++      default:
++        return ""
++    }
++  }
++
++  const drain = (): string => {
++    let text = ""
++    let match: RegExpExecArray | null
++
++    while ((match = /\r?\n\r?\n/.exec(buffer)) !== null) {
++      const rawEvent = buffer.slice(0, match.index)
++      buffer = buffer.slice(match.index + match[0].length)
++      text += handleEvent(rawEvent)
++    }
++
++    return text
++  }
++
++  return new ReadableStream<Uint8Array>({
++    async pull(controller) {
++      try {
++        while (true) {
++          const { done, value } = await reader.read()
++
++          if (done) {
++            buffer += decoder.decode()
++            let text = drain()
++            if (buffer.trim()) {
++              text += handleEvent(buffer)
++              buffer = ""
++            }
++            if (text) {
++              controller.enqueue(encoder.encode(text))
++            }
++            controller.close()
++            return
++          }
++
++          buffer += decoder.decode(value, { stream: true })
++          const text = drain()
++
++          if (text) {
++            controller.enqueue(encoder.encode(text))
++            return
++          }
++        }
++      } catch (error) {
++        controller.error(error)
++        reader.cancel().catch(() => {})
++      }
++    },
++    cancel(reason) {
++      return reader.cancel(reason)
++    }
++  })
++}
+diff --git a/lib/router/router-client.ts b/lib/router/router-client.ts
+new file mode 100644
+index 0000000..47a9843
+--- /dev/null
++++ b/lib/router/router-client.ts
+@@ -0,0 +1,150 @@
++// Server-only helpers for talking to Ramp's Router
++// (an OpenAI Responses-compatible gateway in front of multiple providers).
++//
++// Configuration (all read from the server environment):
++//   RAMP_ROUTER_API_KEY            - required. Sent as `Authorization: Bearer ...`.
++//   RAMP_ROUTER_BASE_URL           - optional. Defaults to https://api.router.com/v1
++//   RAMP_ROUTER_MODEL_MAP          - JSON object mapping the app's model IDs (the
++//                                    `chatSettings.model` values chosen in the UI)
++//                                    to Router model IDs returned by GET /v1/models.
++//   RAMP_ROUTER_COMMAND_MODEL      - Router model ID used by /api/command.
++//   RAMP_ROUTER_IMAGE_INPUT_MODELS - comma-separated Router model IDs that have been
++//                                    confirmed (via GET /v1/models) to accept image
++//                                    input. Requests that carry images are rejected
++//                                    for any other model.
++//
++// Router holds all provider credentials; this app never sends provider API keys.
++
++import OpenAI from "openai"
++
++export const RAMP_ROUTER_DEFAULT_BASE_URL = "https://api.router.com/v1"
++
++export class RouterConfigError extends Error {
++  status = 400
++
++  constructor(message: string) {
++    super(message)
++    this.name = "RouterConfigError"
++  }
++}
++
++export function isRouterConfigured(): boolean {
++  return Boolean(process.env.RAMP_ROUTER_API_KEY)
++}
++
++export function getRouterApiKey(): string {
++  const apiKey = process.env.RAMP_ROUTER_API_KEY
++
++  if (!apiKey) {
++    const error = new Error(
++      "RAMP_ROUTER_API_KEY is not set on the server. Configure it to enable chat."
++    ) as Error & { status?: number }
++    error.status = 500
++    throw error
++  }
++
++  return apiKey
++}
++
++export function getRouterBaseURL(): string {
++  return (
++    process.env.RAMP_ROUTER_BASE_URL || RAMP_ROUTER_DEFAULT_BASE_URL
++  ).replace(/\/+$/, "")
++}
++
++// Router's Anthropic Messages compatibility surface lives at /v1/messages.
++// The Anthropic SDK appends `/v1/messages` itself, so strip the `/v1` suffix.
++export function getRouterAnthropicBaseURL(): string {
++  return getRouterBaseURL().replace(/\/v1$/, "")
++}
++
++// OpenAI SDK client pointed at Router. `organization: null` stops the SDK from
++// picking up OPENAI_ORG_ID from the environment and forwarding it to Router.
++export function createRouterClient(options: { maxRetries?: number } = {}) {
++  return new OpenAI({
++    apiKey: getRouterApiKey(),
++    baseURL: getRouterBaseURL(),
++    organization: null,
++    ...(options.maxRetries !== undefined
++      ? { maxRetries: options.maxRetries }
++      : {})
++  })
++}
++
++export function getRouterModelMap(): Record<string, string> {
++  const raw = process.env.RAMP_ROUTER_MODEL_MAP
++
++  if (!raw) {
++    return {}
++  }
++
++  try {
++    const parsed = JSON.parse(raw)
++
++    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
++      console.error("RAMP_ROUTER_MODEL_MAP must be a JSON object")
++      return {}
++    }
++
++    return Object.fromEntries(
++      Object.entries(parsed).filter(
++        ([, value]) => typeof value === "string" && value.length > 0
++      )
++    ) as Record<string, string>
++  } catch (error) {
++    console.error("RAMP_ROUTER_MODEL_MAP is not valid JSON")
++    return {}
++  }
++}
++
++// App model IDs that have a Router model configured (used to decide which
++// models the UI offers).
++export function getRouterMappedAppModelIds(): string[] {
++  return Object.keys(getRouterModelMap())
++}
++
++// Resolve the app's model ID to the account-specific Router model ID.
++// Never falls back to a provider's public model name.
++export function resolveRouterModel(appModelId: string): string {
++  const routerModel = getRouterModelMap()[appModelId]
++
++  if (!routerModel) {
++    throw new RouterConfigError(
++      `Model "${appModelId}" is not configured for Router. Add it to RAMP_ROUTER_MODEL_MAP using a model ID from GET /v1/models.`
++    )
++  }
++
++  return routerModel
++}
++
++export function getRouterCommandModel(): string {
++  const routerModel = process.env.RAMP_ROUTER_COMMAND_MODEL
++
++  if (!routerModel) {
++    throw new RouterConfigError(
++      "RAMP_ROUTER_COMMAND_MODEL is not set. Use a model ID from GET /v1/models."
++    )
++  }
++
++  return routerModel
++}
++
++function getImageInputModels(): string[] {
++  return (process.env.RAMP_ROUTER_IMAGE_INPUT_MODELS || "")
++    .split(",")
++    .map(model => model.trim())
++    .filter(Boolean)
++}
++
++// Image input is only forwarded to Router models that were explicitly
++// confirmed to support it.
++export function assertImageInputSupported(
++  routerModel: string,
++  hasImageInput: boolean
++) {
++  if (hasImageInput && !getImageInputModels().includes(routerModel)) {
++    throw new RouterConfigError(
++      `Router model "${routerModel}" is not confirmed to accept image input. Confirm support via GET /v1/models and add it to RAMP_ROUTER_IMAGE_INPUT_MODELS.`
++    )
++  }
++}
+diff --git a/lib/server/server-chat-helpers.ts b/lib/server/server-chat-helpers.ts
+index cee1050..78d3bbf 100644
+--- a/lib/server/server-chat-helpers.ts
++++ b/lib/server/server-chat-helpers.ts
+@@ -38,22 +38,16 @@ export async function getServerProfile() {
+ }
+ 
+ function addApiKeysToProfile(profile: Tables<"profiles">) {
++  // Chat goes through Router (RAMP_ROUTER_API_KEY), so chat provider keys are
++  // no longer loaded. These remain only for embeddings (retrieval) and the
++  // OpenAI Assistants list, which Router does not serve.
+   const apiKeys = {
+     [VALID_ENV_KEYS.OPENAI_API_KEY]: "openai_api_key",
+-    [VALID_ENV_KEYS.ANTHROPIC_API_KEY]: "anthropic_api_key",
+-    [VALID_ENV_KEYS.GOOGLE_GEMINI_API_KEY]: "google_gemini_api_key",
+-    [VALID_ENV_KEYS.MISTRAL_API_KEY]: "mistral_api_key",
+-    [VALID_ENV_KEYS.GROQ_API_KEY]: "groq_api_key",
+-    [VALID_ENV_KEYS.PERPLEXITY_API_KEY]: "perplexity_api_key",
+     [VALID_ENV_KEYS.AZURE_OPENAI_API_KEY]: "azure_openai_api_key",
+-    [VALID_ENV_KEYS.OPENROUTER_API_KEY]: "openrouter_api_key",
+ 
+     [VALID_ENV_KEYS.OPENAI_ORGANIZATION_ID]: "openai_organization_id",
+ 
+     [VALID_ENV_KEYS.AZURE_OPENAI_ENDPOINT]: "azure_openai_endpoint",
+-    [VALID_ENV_KEYS.AZURE_GPT_35_TURBO_NAME]: "azure_openai_35_turbo_id",
+-    [VALID_ENV_KEYS.AZURE_GPT_45_VISION_NAME]: "azure_openai_45_vision_id",
+-    [VALID_ENV_KEYS.AZURE_GPT_45_TURBO_NAME]: "azure_openai_45_turbo_id",
+     [VALID_ENV_KEYS.AZURE_EMBEDDINGS_NAME]: "azure_openai_embeddings_id"
+   }
+ 
+diff --git a/types/key-type.ts b/types/key-type.ts
+index 9f46810..f51f889 100644
+--- a/types/key-type.ts
++++ b/types/key-type.ts
+@@ -1,8 +1 @@
+-export type EnvKey =
+-  | "OPENAI_API_KEY"
+-  | "ANTHROPIC_API_KEY"
+-  | "GOOGLE_GEMINI_API_KEY"
+-  | "MISTRAL_API_KEY"
+-  | "GROQ_API_KEY"
+-  | "PERPLEXITY_API_KEY"
+-  | "AZURE_OPENAI_API_KEY"
++export type EnvKey = "OPENAI_API_KEY" | "AZURE_OPENAI_API_KEY"
+diff --git a/types/valid-keys.ts b/types/valid-keys.ts
+index 1fed2fd..43570ac 100644
+--- a/types/valid-keys.ts
++++ b/types/valid-keys.ts
+@@ -1,18 +1,13 @@
++// Chat provider API keys were removed: chat goes through Router
++// (RAMP_ROUTER_API_KEY), which holds the provider credentials. The remaining
++// entries are only used by call sites Router does not serve (embeddings and
++// the OpenAI Assistants list).
+ export enum VALID_ENV_KEYS {
+   OPENAI_API_KEY = "OPENAI_API_KEY",
+-  ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY",
+-  GOOGLE_GEMINI_API_KEY = "GOOGLE_GEMINI_API_KEY",
+-  MISTRAL_API_KEY = "MISTRAL_API_KEY",
+-  GROQ_API_KEY = "GROQ_API_KEY",
+-  PERPLEXITY_API_KEY = "PERPLEXITY_API_KEY",
+   AZURE_OPENAI_API_KEY = "AZURE_OPENAI_API_KEY",
+-  OPENROUTER_API_KEY = "OPENROUTER_API_KEY",
+ 
+   OPENAI_ORGANIZATION_ID = "OPENAI_ORGANIZATION_ID",
+ 
+   AZURE_OPENAI_ENDPOINT = "AZURE_OPENAI_ENDPOINT",
+-  AZURE_GPT_35_TURBO_NAME = "AZURE_GPT_35_TURBO_NAME",
+-  AZURE_GPT_45_VISION_NAME = "AZURE_GPT_45_VISION_NAME",
+-  AZURE_GPT_45_TURBO_NAME = "AZURE_GPT_45_TURBO_NAME",
+   AZURE_EMBEDDINGS_NAME = "AZURE_EMBEDDINGS_NAME"
+ }

@@ -1,17 +1,20 @@
 --- a/integrations/hermes-plugin-mem0/_openai_llm.py
 +++ b/integrations/hermes-plugin-mem0/_openai_llm.py
-@@ -9,6 +9,10 @@
+@@ -9,6 +9,13 @@
  from mem0.configs.llms.openai import OpenAIConfig
  from mem0.llms.base import LLMBase
  from mem0.llms.openai import OpenAILLM
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from .router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  # BaseLlmConfig fields copied into OpenAIConfig; the last two may be absent on older mem0.
  _COPIED_FIELDS = ("model", "temperature", "api_key", "max_tokens", "top_p", "top_k", "enable_vision", "vision_details", "http_client_proxies")
-@@ -44,7 +48,7 @@
+@@ -44,7 +51,7 @@
          if not api_key:
              raise ValueError("OpenAI API key is required for the Hermes Mem0 OSS provider")
          from openai import OpenAI
@@ -170,18 +173,21 @@
    }
 --- a/mem0/embeddings/openai.py
 +++ b/mem0/embeddings/openai.py
-@@ -6,6 +6,10 @@
+@@ -6,6 +6,13 @@
  
  from mem0.configs.embeddings.base import BaseEmbedderConfig
  from mem0.embeddings.base import EmbeddingBase
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  
  class OpenAIEmbedding(EmbeddingBase):
-@@ -32,7 +36,7 @@
+@@ -32,7 +39,7 @@
                  DeprecationWarning,
              )
  
@@ -192,17 +198,20 @@
          """
 --- a/mem0/llms/anthropic.py
 +++ b/mem0/llms/anthropic.py
-@@ -1,5 +1,9 @@
+@@ -1,5 +1,12 @@
  import os
  from typing import Dict, List, Optional, Union
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  try:
      import anthropic
-@@ -42,7 +46,7 @@
+@@ -42,7 +49,7 @@
          client_kwargs = {"api_key": api_key}
          if base_url:
              client_kwargs["base_url"] = base_url
@@ -213,31 +222,37 @@
          """Return whether the configured model supports sampling parameters."""
 --- a/mem0/llms/litellm.py
 +++ b/mem0/llms/litellm.py
-@@ -1,5 +1,10 @@
+@@ -1,5 +1,13 @@
  import json
  from typing import Dict, List, Optional
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import install_litellm as _router_install_litellm
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import install_litellm as _router_install_litellm
++    try:
++        from router_runtime import install_litellm as _router_install_litellm
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_install_litellm = lambda: None  # noqa: E731
 +_router_install_litellm()  # router-migrate
  
  try:
      import litellm
 --- a/mem0/llms/openai.py
 +++ b/mem0/llms/openai.py
-@@ -9,6 +9,10 @@
+@@ -9,6 +9,13 @@
  from mem0.configs.llms.openai import OpenAIConfig
  from mem0.llms.base import LLMBase
  from mem0.memory.utils import extract_json
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  
  class OpenAILLM(LLMBase):
-@@ -50,7 +54,7 @@
+@@ -50,7 +57,7 @@
              api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
              base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
  
@@ -248,18 +263,21 @@
          """
 --- a/mem0/llms/openai_structured.py
 +++ b/mem0/llms/openai_structured.py
-@@ -5,6 +5,10 @@
+@@ -5,6 +5,13 @@
  
  from mem0.configs.llms.base import BaseLlmConfig
  from mem0.llms.base import LLMBase
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  
  class OpenAIStructuredLLM(LLMBase):
-@@ -16,7 +20,7 @@
+@@ -16,7 +23,7 @@
  
          api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
          base_url = self.config.openai_base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
@@ -270,14 +288,17 @@
          self,
 --- a/mem0/proxy/main.py
 +++ b/mem0/proxy/main.py
-@@ -5,6 +5,11 @@
+@@ -5,6 +5,14 @@
  import httpx
  
  import mem0
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import install_litellm as _router_install_litellm
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import install_litellm as _router_install_litellm
++    try:
++        from router_runtime import install_litellm as _router_install_litellm
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_install_litellm = lambda: None  # noqa: E731
 +_router_install_litellm()  # router-migrate
  
  try:

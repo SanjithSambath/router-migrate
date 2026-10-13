@@ -1,32 +1,37 @@
 {
- "generated": "2026-10-13 01:20 PDT",
+ "generated": "2026-10-13 01:56 PDT",
  "definitions": {
   "sites_found": "production LLM sites: API calls (chat, responses, messages, embeddings, images...) and framework model constructions; tests/examples/evals excluded",
-  "migrated": "sites whose traffic goes to Router when RAMP_ROUTER_API_KEY is set (client patched, surface served by Router, model in catalog or chosen at runtime)",
+  "migrated": "sites whose traffic goes to Router when RAMP_ROUTER_API_KEY is set (client patched in the same file or the only patchable client family in the repo, surface served by Router, model in catalog or chosen at runtime with at least one of the repo's model names for that family in the catalog)",
   "handoff": "sites that need an agent-made code change (other-vendor SDK whose model Router serves, raw HTTP, other gateways)",
-  "kept": "sites that stay on their provider by design (no Router endpoint, e.g. embeddings; or another vendor's endpoint)",
-  "flagged": "sites Router could serve but the tool does not move automatically (unmapped model, beta API, server-side state)",
+  "kept": "sites that stay on their provider by design (no Router endpoint, e.g. embeddings; another vendor's endpoint or vendor-named module; stateful Responses chains; provider-side vector stores/files)",
+  "flagged": "sites Router could serve but the tool does not move automatically (unmapped model, runtime-chosen model with no catalog match among the repo's model names, Anthropic beta header, per-tenant provider keys)",
   "callsite_coverage": "migrated / sites_found",
   "weighted_coverage": "migrated / Router-eligible sites (generation surfaces Router can serve)",
   "tests_before/after": "the repo's own offline test suite (or typecheck where it has none), Router off, before vs after migrating",
-  "tests, Router on": "the same tests with RAMP_ROUTER_API_KEY set and Router pointed at router-sim. Suites that mock HTTP by exact URL (VCR cassettes, httpx mocks for api.openai.com/api.anthropic.com) cannot match once requests go to Router; those failures are mock misses, not behavior changes (see per-repo notes)",
-  "sim_valid_pct": "valid / total requests at router-sim from (a) the repo's tests run with Router on and (b) one synthetic replay per migrated site",
+  "tests, Router on": "the same tests with RAMP_ROUTER_API_KEY set and Router pointed at router-sim. Suites that mock HTTP by exact URL (VCR cassettes, httpx mocks for api.openai.com/api.anthropic.com) cannot match once requests go to Router; those failures are mock misses, not behavior changes (see per-repo notes). Shown as 'N/A: suite mocks the SDK/HTTP' when the run sent 0 requests to router-sim (sim_requests_from_tests = 0): the suite never exercised Router",
+  "sim_requests_from_tests": "requests that reached router-sim during the Router-on test run (0 means the suite mocks the SDK or HTTP; it then validates nothing)",
+  "sim_valid_pct": "replay_ok / replay_unique_requests: each migrated site's request is rebuilt from its statically known literal kwargs (tools, response_format, thinking, output_config, extra_headers, temperature, max_tokens, stop, reasoning_effort...; non-literal values are not known and not sent), its literal model when Router's catalog resolves it (else a default model), and synthetic message content, then sent through the vendored runtime to router-sim; sites with an identical request shape count once. It does not run the repo's own code path. Rows marked 'legacy def.' come from older result files (one synthetic 'pong' request per site, reused verdicts counted per site) and are excluded from the mean",
+  "replay_unique_requests / replay_ok": "unique request shapes replayed / accepted by router-sim",
   "live_success_pct": "same replay against api.router.com (null when not run)"
  },
  "totals": {
   "sites_found": 171,
-  "migrated": 57,
+  "migrated": 50,
   "handoff": 12,
-  "kept": 86,
-  "flagged": 16,
+  "kept": 87,
+  "flagged": 22,
   "router_eligible": 111,
-  "callsite_coverage": 0.3333,
-  "weighted_coverage": 0.5135,
+  "callsite_coverage": 0.2924,
+  "weighted_coverage": 0.4505,
   "repos": 15,
   "repos_tests_same": 15,
   "repos_tests_worse": 0,
   "repos_no_tests": 0,
-  "sim_valid_pct_mean": 100.0
+  "sim_valid_pct_mean": 100.0,
+  "replay_unique_requests": 18,
+  "replay_ok": 18,
+  "repos_tests_router_on_mocked": 15
  },
  "repos": [
   {
@@ -35,7 +40,7 @@
    "lang": "py",
    "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider tests/",
    "test_kind": "unit",
-   "runtime_s": 0.5,
+   "runtime_s": 0.6,
    "sites_found": 1,
    "migrated": 1,
    "handoff": 0,
@@ -44,7 +49,7 @@
    "router_eligible": 1,
    "callsite_coverage": 1.0,
    "weighted_coverage": 1.0,
-   "diff_lines": 6,
+   "diff_lines": 9,
    "files_changed": 1,
    "nonprod_sites": 18,
    "tests_before": {
@@ -61,28 +66,33 @@
     "skipped": 0,
     "exit": 0
    },
-   "sim_valid_pct": 100.0,
-   "sim_detail": {
-    "repo_test_requests": 0,
-    "repo_test_valid": 0,
-    "replayed_sites": 1,
-    "replay_valid": 1,
-    "invalid": []
-   },
-   "live_success_pct": null,
-   "outcomes_by_sdk": {
-    "openai/chat.completions": {
-     "migrated": 1
-    }
-   },
-   "eval_seconds": 5.1,
    "tests_router_on": {
     "passed": 6,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "replay_unique_requests": 1,
+   "replay_ok": 1,
+   "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
+   "sim_detail": {
+    "repo_test_requests": 0,
+    "repo_test_valid": 0,
+    "replayed_sites": 1,
+    "replay_unique_requests": 1,
+    "replay_ok": 1,
+    "invalid": []
+   },
+   "live_success_pct": 100.0,
+   "live_spent_usd": 3e-06,
+   "outcomes_by_sdk": {
+    "openai/chat.completions": {
+     "migrated": 1
+    }
+   },
+   "eval_seconds": 7.3
   },
   {
    "repo": "TheR1D/shell_gpt",
@@ -90,7 +100,7 @@
    "lang": "py",
    "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider -p no:warnings tests/",
    "test_kind": "unit",
-   "runtime_s": 0.6,
+   "runtime_s": 0.5,
    "sites_found": 1,
    "migrated": 1,
    "handoff": 0,
@@ -99,7 +109,7 @@
    "router_eligible": 1,
    "callsite_coverage": 1.0,
    "weighted_coverage": 1.0,
-   "diff_lines": 6,
+   "diff_lines": 9,
    "files_changed": 1,
    "nonprod_sites": 0,
    "tests_before": {
@@ -116,28 +126,33 @@
     "skipped": 0,
     "exit": 0
    },
-   "sim_valid_pct": 100.0,
-   "sim_detail": {
-    "repo_test_requests": 0,
-    "repo_test_valid": 0,
-    "replayed_sites": 1,
-    "replay_valid": 1,
-    "invalid": []
-   },
-   "live_success_pct": null,
-   "outcomes_by_sdk": {
-    "openai/chat.completions": {
-     "migrated": 1
-    }
-   },
-   "eval_seconds": 6.7,
    "tests_router_on": {
     "passed": 29,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "replay_unique_requests": 1,
+   "replay_ok": 1,
+   "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
+   "sim_detail": {
+    "repo_test_requests": 0,
+    "repo_test_valid": 0,
+    "replayed_sites": 1,
+    "replay_unique_requests": 1,
+    "replay_ok": 1,
+    "invalid": []
+   },
+   "live_success_pct": 100.0,
+   "live_spent_usd": 3e-06,
+   "outcomes_by_sdk": {
+    "openai/chat.completions": {
+     "migrated": 1
+    }
+   },
+   "eval_seconds": 8.3
   },
   {
    "repo": "microsoft/TaskWeaver",
@@ -147,14 +162,14 @@
    "test_kind": "unit",
    "runtime_s": 1.1,
    "sites_found": 12,
-   "migrated": 6,
+   "migrated": 3,
    "handoff": 0,
-   "kept": 6,
-   "flagged": 0,
+   "kept": 7,
+   "flagged": 2,
    "router_eligible": 8,
-   "callsite_coverage": 0.5,
-   "weighted_coverage": 0.75,
-   "diff_lines": 28,
+   "callsite_coverage": 0.25,
+   "weighted_coverage": 0.375,
+   "diff_lines": 42,
    "files_changed": 4,
    "nonprod_sites": 4,
    "tests_before": {
@@ -171,15 +186,27 @@
     "skipped": 14,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 100,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 14,
+    "exit": 0
+   },
+   "replay_unique_requests": 2,
+   "replay_ok": 2,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
-    "replayed_sites": 6,
-    "replay_valid": 6,
+    "replayed_sites": 3,
+    "replay_unique_requests": 2,
+    "replay_ok": 2,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 6e-06,
    "outcomes_by_sdk": {
     "azure-openai/framework.chat": {
      "kept": 1
@@ -188,10 +215,10 @@
      "migrated": 2
     },
     "anthropic/messages.stream": {
-     "migrated": 1
+     "flagged": 1
     },
     "anthropic/messages": {
-     "migrated": 1
+     "flagged": 1
     },
     "other/other.chat": {
      "kept": 2
@@ -200,20 +227,14 @@
      "kept": 1
     },
     "openai/chat.completions": {
-     "migrated": 2
+     "migrated": 1,
+     "kept": 1
     },
     "openai/embeddings": {
      "kept": 2
     }
    },
-   "eval_seconds": 28.9,
-   "tests_router_on": {
-    "passed": 100,
-    "failed": 0,
-    "errors": 0,
-    "skipped": 14,
-    "exit": 0
-   }
+   "eval_seconds": 33.5
   },
   {
    "repo": "simonw/llm",
@@ -221,7 +242,7 @@
    "lang": "py",
    "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider",
    "test_kind": "unit",
-   "runtime_s": 6.7,
+   "runtime_s": 7.1,
    "sites_found": 12,
    "migrated": 8,
    "handoff": 0,
@@ -230,7 +251,7 @@
    "router_eligible": 8,
    "callsite_coverage": 0.6667,
    "weighted_coverage": 1.0,
-   "diff_lines": 10,
+   "diff_lines": 11,
    "files_changed": 1,
    "nonprod_sites": 22,
    "tests_before": {
@@ -247,15 +268,27 @@
     "skipped": 0,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 1090,
+    "failed": 118,
+    "errors": 106,
+    "skipped": 0,
+    "exit": 1
+   },
+   "replay_unique_requests": 4,
+   "replay_ok": 4,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
     "replayed_sites": 8,
-    "replay_valid": 8,
+    "replay_unique_requests": 4,
+    "replay_ok": 4,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 9e-06,
    "outcomes_by_sdk": {
     "openai/embeddings": {
      "kept": 1
@@ -273,14 +306,7 @@
      "kept": 2
     }
    },
-   "eval_seconds": 261.2,
-   "tests_router_on": {
-    "passed": 1089,
-    "failed": 119,
-    "errors": 107,
-    "skipped": 0,
-    "exit": 1
-   }
+   "eval_seconds": 278.2
   },
   {
    "repo": "abi/screenshot-to-code",
@@ -288,17 +314,17 @@
    "lang": "py",
    "test_cmd": "cd backend && $PY -m pytest -p no:cacheprovider",
    "test_kind": "unit",
-   "runtime_s": 3.5,
+   "runtime_s": 3.9,
    "sites_found": 4,
-   "migrated": 2,
+   "migrated": 0,
    "handoff": 0,
    "kept": 2,
-   "flagged": 0,
+   "flagged": 2,
    "router_eligible": 2,
-   "callsite_coverage": 0.5,
-   "weighted_coverage": 1.0,
-   "diff_lines": 14,
-   "files_changed": 1,
+   "callsite_coverage": 0.0,
+   "weighted_coverage": 0.0,
+   "diff_lines": 0,
+   "files_changed": 0,
    "nonprod_sites": 1,
    "tests_before": {
     "passed": 280,
@@ -314,34 +340,39 @@
     "skipped": 0,
     "exit": 0
    },
-   "sim_valid_pct": 100.0,
-   "sim_detail": {
-    "repo_test_requests": 0,
-    "repo_test_valid": 0,
-    "replayed_sites": 2,
-    "replay_valid": 2,
-    "invalid": []
-   },
-   "live_success_pct": null,
-   "outcomes_by_sdk": {
-    "other/other.chat": {
-     "kept": 2
-    },
-    "openai/responses": {
-     "migrated": 1
-    },
-    "anthropic/messages.stream": {
-     "migrated": 1
-    }
-   },
-   "eval_seconds": 26.6,
    "tests_router_on": {
     "passed": 280,
     "failed": 0,
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "replay_unique_requests": 0,
+   "replay_ok": 0,
+   "sim_valid_pct": null,
+   "sim_requests_from_tests": 0,
+   "sim_detail": {
+    "repo_test_requests": 0,
+    "repo_test_valid": 0,
+    "replayed_sites": 0,
+    "replay_unique_requests": 0,
+    "replay_ok": 0,
+    "invalid": []
+   },
+   "live_success_pct": null,
+   "live_spent_usd": 0.0,
+   "outcomes_by_sdk": {
+    "other/other.chat": {
+     "kept": 2
+    },
+    "openai/responses": {
+     "flagged": 1
+    },
+    "anthropic/messages.stream": {
+     "flagged": 1
+    }
+   },
+   "eval_seconds": 25.5
   },
   {
    "repo": "anthropics/anthropic-quickstarts",
@@ -349,17 +380,17 @@
    "lang": "py",
    "test_cmd": "(cd computer-use-demo && \"$ENV/computer-use-demo/bin/python\" -m pytest tests -p no:cacheprovider); r1=$?; (cd computer-use-best-practices && \"$ENV/computer-use-best-practices/bin/python\" -m pytest -p no:cacheprovider --deselect tests/test_shell.py::test_bash_echo --deselect tests/test_shell.py::test_python_print --deselect tests/test_shell.py::test_output_truncated --deselect tests/test_editor.py::test_shell_shares_scratch_dir) && exit $r1",
    "test_kind": "unit",
-   "runtime_s": 4.1,
+   "runtime_s": 3.8,
    "sites_found": 12,
-   "migrated": 6,
+   "migrated": 4,
    "handoff": 0,
    "kept": 2,
-   "flagged": 4,
+   "flagged": 6,
    "router_eligible": 10,
-   "callsite_coverage": 0.5,
-   "weighted_coverage": 0.6,
-   "diff_lines": 125,
-   "files_changed": 47,
+   "callsite_coverage": 0.3333,
+   "weighted_coverage": 0.4,
+   "diff_lines": 173,
+   "files_changed": 45,
    "nonprod_sites": 0,
    "tests_before": {
     "passed": 189,
@@ -375,18 +406,31 @@
     "skipped": 0,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 189,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "exit": 0
+   },
+   "replay_unique_requests": 3,
+   "replay_ok": 3,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
-    "replayed_sites": 6,
-    "replay_valid": 6,
+    "replayed_sites": 4,
+    "replay_unique_requests": 3,
+    "replay_ok": 3,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 0.0,
    "outcomes_by_sdk": {
     "anthropic/messages": {
-     "migrated": 6
+     "flagged": 2,
+     "migrated": 4
     },
     "anthropic/messages.beta": {
      "flagged": 4
@@ -395,14 +439,7 @@
      "kept": 2
     }
    },
-   "eval_seconds": 23.5,
-   "tests_router_on": {
-    "passed": 189,
-    "failed": 0,
-    "errors": 0,
-    "skipped": 0,
-    "exit": 0
-   }
+   "eval_seconds": 26.7
   },
   {
    "repo": "simonw/llm-anthropic",
@@ -410,7 +447,7 @@
    "lang": "py",
    "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider",
    "test_kind": "unit",
-   "runtime_s": 1.7,
+   "runtime_s": 2.0,
    "sites_found": 5,
    "migrated": 3,
    "handoff": 0,
@@ -419,7 +456,7 @@
    "router_eligible": 4,
    "callsite_coverage": 0.6,
    "weighted_coverage": 0.75,
-   "diff_lines": 13,
+   "diff_lines": 19,
    "files_changed": 1,
    "nonprod_sites": 0,
    "tests_before": {
@@ -436,17 +473,29 @@
     "skipped": 0,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 94,
+    "failed": 29,
+    "errors": 0,
+    "skipped": 0,
+    "exit": 1
+   },
+   "replay_unique_requests": 2,
+   "replay_ok": 2,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
     "replayed_sites": 3,
-    "replay_valid": 3,
+    "replay_unique_requests": 2,
+    "replay_ok": 2,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 0.0,
    "outcomes_by_sdk": {
-    "anthropic/models": {
+    "openai/models": {
      "kept": 1
     },
     "anthropic/messages.beta": {
@@ -459,14 +508,7 @@
      "migrated": 2
     }
    },
-   "eval_seconds": 52.2,
-   "tests_router_on": {
-    "passed": 94,
-    "failed": 29,
-    "errors": 0,
-    "skipped": 0,
-    "exit": 1
-   }
+   "eval_seconds": 54.6
   },
   {
    "repo": "di-sukharev/opencommit",
@@ -536,7 +578,9 @@
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "mckaywrigley/chatbot-ui",
@@ -606,7 +650,9 @@
     "errors": 0,
     "skipped": 0,
     "exit": 1
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "openai/openai-responses-starter-app",
@@ -668,7 +714,9 @@
     "typecheck": true,
     "exit": 0,
     "ts_errors": 0
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "vercel/ai-chatbot",
@@ -723,7 +771,9 @@
     "typecheck": true,
     "exit": 0,
     "ts_errors": 0
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "Nutlope/aicommits",
@@ -784,7 +834,9 @@
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "assafelovic/gpt-researcher",
@@ -792,7 +844,7 @@
    "lang": "py",
    "test_cmd": "TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken_cache\" $PY -m pytest tests/ --forked --timeout=60 -p no:warnings -p no:cacheprovider --deselect tests/test_researcher_logging.py --deselect tests/test_logging_output.py --deselect tests/test_mcp.py",
    "test_kind": "unit",
-   "runtime_s": 3.6,
+   "runtime_s": 3.2,
    "sites_found": 19,
    "migrated": 2,
    "handoff": 0,
@@ -801,7 +853,7 @@
    "router_eligible": 13,
    "callsite_coverage": 0.1053,
    "weighted_coverage": 0.1538,
-   "diff_lines": 16,
+   "diff_lines": 11,
    "files_changed": 1,
    "nonprod_sites": 15,
    "tests_before": {
@@ -818,15 +870,27 @@
     "skipped": 2,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 570,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "exit": 0
+   },
+   "replay_unique_requests": 2,
+   "replay_ok": 2,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
     "replayed_sites": 2,
-    "replay_valid": 2,
+    "replay_unique_requests": 2,
+    "replay_ok": 2,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 3e-06,
    "outcomes_by_sdk": {
     "langchain-openai/framework.chat": {
      "migrated": 1,
@@ -842,14 +906,7 @@
      "kept": 6
     }
    },
-   "eval_seconds": 45.1,
-   "tests_router_on": {
-    "passed": 570,
-    "failed": 0,
-    "errors": 0,
-    "skipped": 2,
-    "exit": 0
-   }
+   "eval_seconds": 45.7
   },
   {
    "repo": "langchain-ai/langchain-nextjs-template",
@@ -914,7 +971,9 @@
     "errors": 0,
     "skipped": 0,
     "exit": 0
-   }
+   },
+   "sim_requests_from_tests": 0,
+   "sim_valid_legacy": true
   },
   {
    "repo": "mem0ai/mem0",
@@ -922,7 +981,7 @@
    "lang": "py",
    "test_cmd": "$PY -m pytest tests/ -q -p no:cacheprovider",
    "test_kind": "unit",
-   "runtime_s": 16.2,
+   "runtime_s": 16.8,
    "sites_found": 53,
    "migrated": 11,
    "handoff": 0,
@@ -931,7 +990,7 @@
    "router_eligible": 24,
    "callsite_coverage": 0.2075,
    "weighted_coverage": 0.4583,
-   "diff_lines": 59,
+   "diff_lines": 80,
    "files_changed": 16,
    "nonprod_sites": 45,
    "tests_before": {
@@ -948,15 +1007,27 @@
     "skipped": 74,
     "exit": 0
    },
+   "tests_router_on": {
+    "passed": 2007,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 74,
+    "exit": 0
+   },
+   "replay_unique_requests": 3,
+   "replay_ok": 3,
    "sim_valid_pct": 100.0,
+   "sim_requests_from_tests": 0,
    "sim_detail": {
     "repo_test_requests": 0,
     "repo_test_valid": 0,
     "replayed_sites": 11,
-    "replay_valid": 11,
+    "replay_unique_requests": 3,
+    "replay_ok": 3,
     "invalid": []
    },
-   "live_success_pct": null,
+   "live_success_pct": 100.0,
+   "live_spent_usd": 6e-06,
    "outcomes_by_sdk": {
     "openai/chat.completions": {
      "migrated": 6,
@@ -999,14 +1070,7 @@
      "kept": 1
     }
    },
-   "eval_seconds": 377.3,
-   "tests_router_on": {
-    "passed": 2007,
-    "failed": 0,
-    "errors": 0,
-    "skipped": 74,
-    "exit": 0
-   }
+   "eval_seconds": 385.1
   }
  ]
 }

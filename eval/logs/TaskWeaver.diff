@@ -1,61 +1,76 @@
 --- a/project/plugins/paper_summary.py
 +++ b/project/plugins/paper_summary.py
-@@ -6,6 +6,10 @@
+@@ -6,6 +6,13 @@
  from langchain_openai import AzureChatOpenAI
  
  from taskweaver.plugin import Plugin, register_plugin
-+from router_runtime import (
-+    async_http_client as _router_async_http_client,
-+    http_client as _router_http_client,
-+)  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_langchain as _router_wrap_langchain
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
  
  paper_summarize_prompt = r"""
  Please summarize this paper and highlight the key points, including the following:
-@@ -32,7 +36,7 @@
+@@ -32,7 +39,7 @@
              )
          elif os.environ["OPENAI_API_TYPE"] == "openai":
              os.environ["OPENAI_API_KEY"] = self.config.get("api_key")
 -            model = ChatOpenAI(model_name=self.config.get("deployment_name"), temperature=0, verbose=True)
-+            model = ChatOpenAI(model_name=self.config.get("deployment_name"), temperature=0, verbose=True, http_client=_router_http_client(), http_async_client=_router_async_http_client())
++            model = _router_wrap_langchain(ChatOpenAI(model_name=self.config.get("deployment_name"), temperature=0, verbose=True))
          else:
              raise ValueError("Invalid API type. Please check your config file.")
  
 --- a/project/plugins/sql_pull_data.py
 +++ b/project/plugins/sql_pull_data.py
-@@ -8,6 +8,10 @@
+@@ -8,6 +8,13 @@
  from langchain.utilities import SQLDatabase
  
  from taskweaver.plugin import Plugin, register_plugin
-+from router_runtime import (
-+    async_http_client as _router_async_http_client,
-+    http_client as _router_http_client,
-+)  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_langchain as _router_wrap_langchain
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
  
  
  @register_plugin
-@@ -31,7 +35,7 @@
+@@ -26,12 +33,12 @@
+                 verbose=True,
+             )
+         elif api_type == "openai":
+-            model = ChatOpenAI(
++            model = _router_wrap_langchain(ChatOpenAI(
+                 openai_api_key=self.config.get("api_key"),
                  model_name=self.config.get("deployment_name"),
                  temperature=0,
                  verbose=True,
 -            )
-+            http_client=_router_http_client(), http_async_client=_router_async_http_client())
++            ))
          else:
              raise ValueError("Invalid API type. Please check your config file.")
  
 --- a/taskweaver/llm/anthropic.py
 +++ b/taskweaver/llm/anthropic.py
-@@ -6,6 +6,10 @@
+@@ -6,6 +6,13 @@
  from taskweaver.llm.util import ChatMessageType, format_chat_message
  
  from .base import CompletionService, EmbeddingService, LLMServiceConfig
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  DEFAULT_STOP_TOKEN: List[str] = ["<EOS>"]
  
-@@ -31,8 +35,8 @@
+@@ -31,8 +38,8 @@
          if AnthropicService.client is None:
              try:
                  from anthropic import Anthropic
@@ -68,18 +83,21 @@
                  )
 --- a/taskweaver/llm/openai.py
 +++ b/taskweaver/llm/openai.py
-@@ -9,6 +9,10 @@
+@@ -9,6 +9,13 @@
  from taskweaver.llm.util import ChatMessageType, format_chat_message
  
  from .base import CompletionService, EmbeddingService, LLMServiceConfig
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  DEFAULT_STOP_TOKEN: List[str] = ["<EOS>"]
  
-@@ -128,10 +132,10 @@
+@@ -128,10 +135,10 @@
              return self._client
  
          if self.api_type == "openai":

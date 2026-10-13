@@ -1,17 +1,20 @@
 --- a/agents/agent.py
 +++ b/agents/agent.py
-@@ -12,6 +12,10 @@
+@@ -12,6 +12,13 @@
  from .utils.connections import setup_mcp_connections
  from .utils.history_util import MessageHistory
  from .utils.tool_util import execute_tools
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  
  @dataclass
-@@ -61,9 +65,9 @@
+@@ -61,9 +68,9 @@
          self.config = config or ModelConfig()
          self.mcp_servers = mcp_servers or []
          self.message_params = message_params or {}
@@ -25,15 +28,21 @@
              system=self.system,
 --- a/browser-toolset/python/run.py
 +++ b/browser-toolset/python/run.py
-@@ -31,6 +31,7 @@
+@@ -31,6 +31,13 @@
  from anthropic.tools.browser import BetaURLContext, BetaURLPolicy
  
  from cdp_browser import CdpBrowser
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  
  def env_list(name: str, default: str) -> list[str]:
-@@ -68,7 +69,7 @@
+@@ -68,7 +75,7 @@
      args = parser.parse_args()
      task = " ".join(args.task) or "Open example.com and tell me the page heading."
      try:
@@ -61,42 +70,23 @@
    const browser = await CdpBrowser.launch({
      headless: process.env['HEADLESS'] !== '0',
      urlPolicy: examplePolicy(envList('ALLOWED_DOMAINS', 'example.com,iana.org')),
---- a/browser-use-demo/browser_use_demo/loop.py
-+++ b/browser-use-demo/browser_use_demo/loop.py
-@@ -24,6 +24,10 @@
- 
- from .message_handler import MessageBuilder, ResponseProcessor
- from .tools import BrowserTool, ToolCollection, ToolResult
-+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
-+    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
-+except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
- 
- PROMPT_CACHING_BETA_FLAG = "prompt-caching-2024-07-31"
- 
-@@ -104,7 +108,7 @@
-         enable_prompt_caching = False
- 
-         if provider == APIProvider.ANTHROPIC:
--            client = Anthropic(api_key=api_key, max_retries=4)
-+            client = _router_wrap_anthropic(Anthropic(api_key=api_key, max_retries=4))
-             enable_prompt_caching = True
-         elif provider == APIProvider.VERTEX:
-             client = AnthropicVertex()
 --- a/browser-use-demo/browser_use_demo/tools/browser.py
 +++ b/browser-use-demo/browser_use_demo/tools/browser.py
-@@ -20,6 +20,10 @@
+@@ -20,6 +20,13 @@
  from ..display_constants import BROWSER_HEIGHT, BROWSER_WIDTH, DISPLAY_NUM
  from .base import BaseAnthropicTool, ToolError, ToolResult
  from .coordinate_scaling import CoordinateScaler
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  # Simple logging for debugging - removed, using print directly
  
-@@ -920,7 +924,7 @@
+@@ -920,7 +927,7 @@
                  try:
                      from anthropic import AsyncAnthropic
  
@@ -107,15 +97,21 @@
  
 --- a/computer-toolset/python/run.py
 +++ b/computer-toolset/python/run.py
-@@ -28,6 +28,7 @@
+@@ -28,6 +28,13 @@
  from anthropic.tools.computer import BetaComputerConfirmContext
  
  from vnc_computer import VncComputer
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  
  def ask(context: BetaComputerConfirmContext) -> bool:
-@@ -44,7 +45,7 @@
+@@ -44,7 +51,7 @@
      args = parser.parse_args()
      task = " ".join(args.task) or "Open a terminal, run date, and tell me today's date and time zone."
      try:
@@ -142,18 +138,21 @@
    const computer = await VncComputer.connect({
 --- a/computer-use-best-practices/computer_use/loop.py
 +++ b/computer-use-best-practices/computer_use/loop.py
-@@ -50,6 +50,10 @@
+@@ -50,6 +50,13 @@
  from .formatters import StripImagesAtIntervals, StripOldestImages
  from .tools import ToolCollection, ToolResult
  from .trajectory import Trajectory
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  T = TypeVar("T")
  
-@@ -225,7 +229,7 @@
+@@ -225,7 +232,7 @@
      if provider == "bedrock":
          return AnthropicBedrock()
  
@@ -164,14 +163,17 @@
  def _make_image_pruner(max_message_mb: float | None = None) -> Callable[[list[MessageParam]], None]:
 --- a/computer-use-best-practices/dev_ui/localization_demo/server.py
 +++ b/computer-use-best-practices/dev_ui/localization_demo/server.py
-@@ -33,12 +33,16 @@
+@@ -33,12 +33,19 @@
  import constants
  from computer_use.image import resize_and_encode
  from computer_use.loop import _effort_kwargs
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  app = FastAPI()
  _static = Path(__file__).parent / "static"
@@ -182,28 +184,6 @@
  
  _POINT_AT_TOOL: ToolParam = {
      "name": "point_at",
---- a/computer-use-demo/computer_use_demo/loop.py
-+++ b/computer-use-demo/computer_use_demo/loop.py
-@@ -37,6 +37,10 @@
-     ToolVersion,
- )
- from .tools.base import ToolFailure
-+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
-+    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
-+except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_anthropic as _router_wrap_anthropic
- 
- # The tool_result content a toolset member call receives when an earlier
- # member call in the same turn failed (the exact text is part of the computer
-@@ -122,7 +126,7 @@
-             betas.append("token-efficient-tools-2025-02-19")
-         image_truncation_threshold = only_n_most_recent_images or 0
-         if provider == APIProvider.ANTHROPIC:
--            client = Anthropic(api_key=api_key, max_retries=4)
-+            client = _router_wrap_anthropic(Anthropic(api_key=api_key, max_retries=4))
-             enable_prompt_caching = True
-         elif provider == APIProvider.VERTEX:
-             client = AnthropicVertex()
 --- a/customer-support-agent/app/api/chat/route.ts
 +++ b/customer-support-agent/app/api/chat/route.ts
 @@ -3,9 +3,11 @@
@@ -436,15 +416,21 @@
      // Run detached so the webhook can return.
 --- a/managed-agents/self-hosted-sandboxes/daytona/daytona_webhook.py
 +++ b/managed-agents/self-hosted-sandboxes/daytona/daytona_webhook.py
-@@ -26,6 +26,7 @@
+@@ -26,6 +26,13 @@
  from anthropic.types.beta import UnwrapWebhookEvent
  from daytona_sdk import CreateSandboxParams, Daytona
  from fastapi import FastAPI, HTTPException, Request, Response
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  # The SDK the runner needs inside the sandbox. handle_item() has accepted the
  # per-session work secret since 0.125.0.
-@@ -72,10 +73,10 @@
+@@ -72,10 +79,10 @@
      client, so do not ``await`` it. The ``whsec_`` secret is passed to
      ``webhook_key`` as-is: the SDK decodes its URL-safe base64 internally.
      """
@@ -459,15 +445,21 @@
  def _verify_webhook(
 --- a/managed-agents/self-hosted-sandboxes/daytona/sandbox_runner.py
 +++ b/managed-agents/self-hosted-sandboxes/daytona/sandbox_runner.py
-@@ -41,6 +41,7 @@
+@@ -41,6 +41,13 @@
  import sys
  
  from anthropic import AsyncAnthropic
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  # EnvironmentWorker reports lifecycle (start, idle-out, heartbeat shutdown,
  # stream reconnects, tool dispatch) at INFO via stdlib logging. Without a
-@@ -84,7 +85,7 @@
+@@ -84,7 +91,7 @@
      # a volume there. Daytona's image has no such directory.
      os.makedirs(WORKDIR, exist_ok=True)
  
@@ -478,15 +470,21 @@
              workdir=WORKDIR,
 --- a/managed-agents/self-hosted-sandboxes/docker-memory/worker.py
 +++ b/managed-agents/self-hosted-sandboxes/docker-memory/worker.py
-@@ -33,6 +33,7 @@
+@@ -33,6 +33,13 @@
  
  from anthropic import AsyncAnthropic
  from anthropic.lib.environments import EnvironmentWorker
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  
  def sessions_token(secret: str) -> str | None:
-@@ -63,7 +64,7 @@
+@@ -63,7 +70,7 @@
      assert task is not None
      asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
  
@@ -497,15 +495,21 @@
      # environment and uses the token inside work_secret for every call it
 --- a/managed-agents/self-hosted-sandboxes/modal/modal_sandbox_webhook.py
 +++ b/managed-agents/self-hosted-sandboxes/modal/modal_sandbox_webhook.py
-@@ -42,6 +42,7 @@
+@@ -42,6 +42,13 @@
  from fastapi import HTTPException, Request, Response
  
  import modal
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  APP_NAME = "self-hosted-sandboxes"
  SECRET_NAME = "self-hosted-sandboxes-secrets"
-@@ -105,10 +106,10 @@
+@@ -105,10 +112,10 @@
      Lazy because ``modal deploy`` imports this module locally, where the
      secret env vars are not set. Constructing at module scope breaks deploy.
      """
@@ -520,15 +524,21 @@
  def _verify_webhook(
 --- a/managed-agents/self-hosted-sandboxes/modal/sandbox_runner.py
 +++ b/managed-agents/self-hosted-sandboxes/modal/sandbox_runner.py
-@@ -41,6 +41,7 @@
+@@ -41,6 +41,13 @@
  import sys
  
  from anthropic import AsyncAnthropic
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  # EnvironmentWorker reports lifecycle (start, idle-out, heartbeat shutdown,
  # stream reconnects, tool dispatch) at INFO via stdlib logging. Without a
-@@ -84,7 +85,7 @@
+@@ -84,7 +91,7 @@
      # a volume there. Daytona's image has no such directory.
      os.makedirs(WORKDIR, exist_ok=True)
  
@@ -575,15 +585,21 @@
  console.log(
 --- a/managed-agents/sentry/managed_agents.py
 +++ b/managed-agents/sentry/managed_agents.py
-@@ -8,6 +8,7 @@
+@@ -8,6 +8,13 @@
  
  from anthropic import Anthropic
  from dotenv import dotenv_values, load_dotenv
-+from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
  
  # override=True matches ./agents/setup.sh, which sources .env over whatever the
  # shell exports. Without it an ANTHROPIC_API_KEY in your shell would make
-@@ -20,7 +21,7 @@
+@@ -20,7 +27,7 @@
  # explicitly when listing session-scoped files (run_now.py).
  BETAS = ["managed-agents-2026-04-01"]
  

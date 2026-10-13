@@ -1,0 +1,120 @@
+diff --git a/.env.example b/.env.example
+index f44e281..ec4a13d 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,4 +1,7 @@
+-OPENAI_API_KEY=<your-openai-api-key>
++# Router (https://api.router.com/v1) holds provider credentials; do not add provider API keys here.
++RAMP_ROUTER_API_KEY=<your-router-api-key>
++# Account-specific model ID from Router's GET /v1/models
++ROUTER_MODEL=<model-id-from-router-get-v1-models>
+ GOOGLE_CLIENT_ID=<oauth-client-app-id>
+ GOOGLE_CLIENT_SECRET=<oauth-client-secret>
+ OAUTH_REDIRECT_URI="http://localhost:3000/api/google/callback"
+diff --git a/README.md b/README.md
+index db9d293..247e4fe 100644
+--- a/README.md
++++ b/README.md
+@@ -22,22 +22,23 @@ This app is meant to be used as a starting point to build a conversational assis
+ 
+ ## How to use
+ 
+-1. **Set up the OpenAI API:**
++1. **Set up Router:**
+ 
+-   - If you're new to the OpenAI API, [sign up for an account](https://platform.openai.com/signup).
+-   - Follow the [Quickstart](https://platform.openai.com/docs/quickstart) to retrieve your API key.
++   LLM requests go through Router (`https://api.router.com/v1`), an OpenAI Responses-compatible gateway. Router holds the provider credentials, so the app never sends a provider API key.
+ 
+-2. **Set the OpenAI API key:**
++2. **Set the Router environment variables:**
+ 
+-   2 options:
+-
+-   - Set the `OPENAI_API_KEY` environment variable [globally in your system](https://platform.openai.com/docs/libraries#create-and-export-an-api-key)
+-   - Set the `OPENAI_API_KEY` environment variable in the project: Create a `.env` file at the root of the project and add the following line (see `.env.example` for reference):
++   Create a `.env` file at the root of the project (see `.env.example` for reference):
+ 
+    ```bash
+-   OPENAI_API_KEY=<your_api_key>
++   RAMP_ROUTER_API_KEY=<your_router_api_key>
++   ROUTER_MODEL=<a model ID returned by GET https://api.router.com/v1/models>
+    ```
+ 
++   Model IDs are account-specific; pick one from Router's `GET /v1/models`.
++
++   Note: the vector store, file upload and container file download routes (`app/api/vector_stores/*`, `app/api/container_files/content`) call OpenAI-only endpoints that Router does not serve and have not been migrated.
++
+ 3. **Clone the Repository:**
+ 
+    ```bash
+diff --git a/app/api/turn_response/route.ts b/app/api/turn_response/route.ts
+index c5cf110..4a12ae1 100644
+--- a/app/api/turn_response/route.ts
++++ b/app/api/turn_response/route.ts
+@@ -1,6 +1,6 @@
+-import { getDeveloperPrompt, MODEL } from "@/config/constants";
++import { getDeveloperPrompt } from "@/config/constants";
+ import { getTools } from "@/lib/tools/tools";
+-import OpenAI from "openai";
++import { getRouterClient, getRouterModel } from "@/lib/router-client";
+ 
+ export async function POST(request: Request) {
+   try {
+@@ -12,10 +12,10 @@ export async function POST(request: Request) {
+ 
+     console.log("Received messages:", messages);
+ 
+-    const openai = new OpenAI();
++    const openai = getRouterClient();
+ 
+     const events = await openai.responses.create({
+-      model: MODEL,
++      model: getRouterModel(),
+       input: messages,
+       instructions: getDeveloperPrompt(),
+       tools,
+diff --git a/config/constants.ts b/config/constants.ts
+index 6711f74..3ba73fa 100644
+--- a/config/constants.ts
++++ b/config/constants.ts
+@@ -1,4 +1,4 @@
+-export const MODEL = "gpt-5.2";
++// Model selection lives in the ROUTER_MODEL env var (see lib/router-client.ts).
+ 
+ // Developer prompt for the assistant
+ export const DEVELOPER_PROMPT = `
+diff --git a/lib/router-client.ts b/lib/router-client.ts
+new file mode 100644
+index 0000000..b40c842
+--- /dev/null
++++ b/lib/router-client.ts
+@@ -0,0 +1,28 @@
++import OpenAI from "openai";
++
++// Router: an OpenAI Responses-compatible gateway in front of multiple providers.
++// Router holds the provider credentials; this app only ever sends RAMP_ROUTER_API_KEY.
++export const ROUTER_BASE_URL = "https://api.router.com/v1";
++
++export function getRouterClient(): OpenAI {
++  const apiKey = process.env.RAMP_ROUTER_API_KEY;
++  if (!apiKey) {
++    throw new Error("RAMP_ROUTER_API_KEY is not set");
++  }
++  return new OpenAI({
++    apiKey,
++    baseURL: ROUTER_BASE_URL,
++  });
++}
++
++// Model IDs are account-specific and must come from Router's `GET /v1/models`.
++// Set ROUTER_MODEL to one of those IDs; it is never hardcoded at call sites.
++export function getRouterModel(): string {
++  const model = process.env.ROUTER_MODEL;
++  if (!model) {
++    throw new Error(
++      "ROUTER_MODEL is not set (use a model ID returned by Router's GET /v1/models)"
++    );
++  }
++  return model;
++}

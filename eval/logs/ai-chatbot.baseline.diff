@@ -1,0 +1,384 @@
+diff --git a/.env.example b/.env.example
+index 8433714..6057aa3 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,9 +1,22 @@
+ # generate a random secret: https://generate-secret.vercel.app/32 or `openssl rand -base64 32`
+ AUTH_SECRET=****
+ 
+-# required for non-vercel deployments, vercel uses OIDC automatically
+-# https://vercel.com/ai-gateway
+-AI_GATEWAY_API_KEY=****
++# Ramp Router (OpenAI Responses-compatible gateway, https://api.router.com/v1).
++# Router holds all provider credentials; do not set provider API keys here.
++RAMP_ROUTER_API_KEY=****
++
++# Router model IDs are account-specific: copy them from
++# `GET https://api.router.com/v1/models`. A model only appears in the
++# model selector when its variable is set.
++NEXT_PUBLIC_ROUTER_MODEL_DEEPSEEK_V3_2=
++NEXT_PUBLIC_ROUTER_MODEL_KIMI_K2_5=
++NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_20B=
++NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_120B=
++NEXT_PUBLIC_ROUTER_MODEL_GROK_4_1_FAST=
++# optional: defaults to the Kimi K2.5 slot, then the first configured model
++NEXT_PUBLIC_ROUTER_DEFAULT_CHAT_MODEL=
++# optional: model for chat title generation, defaults to the Kimi K2.5 slot
++ROUTER_TITLE_MODEL=
+ 
+ # https://vercel.com/docs/vercel-blob
+ BLOB_READ_WRITE_TOKEN=****
+diff --git a/.github/workflows/playwright.yml b/.github/workflows/playwright.yml
+index e8a4d7e..482643c 100644
+--- a/.github/workflows/playwright.yml
++++ b/.github/workflows/playwright.yml
+@@ -15,6 +15,13 @@ jobs:
+       POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+       BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+       REDIS_URL: ${{ secrets.REDIS_URL }}
++      # Router model IDs (from GET https://api.router.com/v1/models). Tests use
++      # mock models, but the model selector only lists slots that are set.
++      NEXT_PUBLIC_ROUTER_MODEL_DEEPSEEK_V3_2: ${{ vars.NEXT_PUBLIC_ROUTER_MODEL_DEEPSEEK_V3_2 }}
++      NEXT_PUBLIC_ROUTER_MODEL_KIMI_K2_5: ${{ vars.NEXT_PUBLIC_ROUTER_MODEL_KIMI_K2_5 }}
++      NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_20B: ${{ vars.NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_20B }}
++      NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_120B: ${{ vars.NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_120B }}
++      NEXT_PUBLIC_ROUTER_MODEL_GROK_4_1_FAST: ${{ vars.NEXT_PUBLIC_ROUTER_MODEL_GROK_4_1_FAST }}
+ 
+     steps:
+       - uses: actions/checkout@v4
+diff --git a/README.md b/README.md
+index b407018..7c639d8 100644
+--- a/README.md
++++ b/README.md
+@@ -36,13 +36,11 @@
+ 
+ ## Model Providers
+ 
+-This template uses the [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) to access multiple AI models through a unified interface. Models are configured in `lib/ai/models.ts` with per-model provider routing. Included models: Mistral, Moonshot, DeepSeek, OpenAI, and xAI.
++This template uses Ramp's Router (`https://api.router.com/v1`), an OpenAI Responses-compatible gateway, to access multiple AI models through one API. All LLM calls go through an OpenAI Responses client (`@ai-sdk/openai`) configured in `lib/ai/providers.ts`. The model slots are defined in `lib/ai/models.ts`; each slot's Router model ID is read from an env var (see `.env.example`). Router model IDs are account-specific and must come from `GET https://api.router.com/v1/models`.
+ 
+-### AI Gateway Authentication
++### Router Authentication
+ 
+-**For Vercel deployments**: Authentication is handled automatically via OIDC tokens.
+-
+-**For non-Vercel deployments**: You need to provide an AI Gateway API key by setting the `AI_GATEWAY_API_KEY` environment variable in your `.env.local` file.
++Set `RAMP_ROUTER_API_KEY` in your `.env.local` file (or your deployment's environment variables). Router holds the provider credentials, so no provider API keys are needed.
+ 
+ With the [AI SDK](https://ai-sdk.dev/docs/introduction), you can also switch to direct LLM providers like [OpenAI](https://openai.com), [Anthropic](https://anthropic.com), [Cohere](https://cohere.com/), and [many more](https://ai-sdk.dev/providers/ai-sdk-providers) with just a few lines of code.
+ 
+diff --git a/app/(chat)/actions.ts b/app/(chat)/actions.ts
+index a461c91..0712a6d 100644
+--- a/app/(chat)/actions.ts
++++ b/app/(chat)/actions.ts
+@@ -4,7 +4,6 @@ import { generateText, type UIMessage } from "ai";
+ import { cookies } from "next/headers";
+ import { auth } from "@/app/(auth)/auth";
+ import type { VisibilityType } from "@/components/chat/visibility-selector";
+-import { titleModel } from "@/lib/ai/models";
+ import { titlePrompt } from "@/lib/ai/prompts";
+ import { getTitleModel } from "@/lib/ai/providers";
+ import {
+@@ -29,9 +28,6 @@ export async function generateTitleFromUserMessage({
+     instructions: titlePrompt,
+     model: getTitleModel(),
+     prompt: getTextFromMessage(message),
+-    providerOptions: {
+-      gateway: { order: titleModel.gatewayOrder },
+-    },
+   });
+   return text
+     .replace(/^[#*"\s]+/, "")
+diff --git a/app/(chat)/api/chat/route.ts b/app/(chat)/api/chat/route.ts
+index 0853fac..96eb517 100644
+--- a/app/(chat)/api/chat/route.ts
++++ b/app/(chat)/api/chat/route.ts
+@@ -295,9 +295,6 @@ export async function POST(request: Request) {
+             stopWaitingStatus();
+           },
+           providerOptions: {
+-            ...(modelConfig?.gatewayOrder && {
+-              gateway: { order: modelConfig.gatewayOrder },
+-            }),
+             ...(modelConfig?.reasoningEffort && {
+               openai: { reasoningEffort: modelConfig.reasoningEffort },
+             }),
+diff --git a/components/chat/multimodal-input.tsx b/components/chat/multimodal-input.tsx
+index 987aefa..2aa3d9a 100644
+--- a/components/chat/multimodal-input.tsx
++++ b/components/chat/multimodal-input.tsx
+@@ -696,7 +696,7 @@ function ModelSelectorOption({
+   selectedModelId: string;
+   setOpen: Dispatch<SetStateAction<boolean>>;
+ }) {
+-  const [logoProvider] = model.id.split("/");
++  const logoProvider = model.provider;
+   const maybeWithTooltip = (icon: ReactNode, label: string) => {
+     if (!curated) {
+       return icon;
+@@ -806,7 +806,7 @@ function PureModelSelectorCompact({
+     activeModels.find((m: ChatModel) => m.id === selectedModelId) ??
+     activeModels.find((m: ChatModel) => m.id === DEFAULT_CHAT_MODEL) ??
+     activeModels[0];
+-  const [provider] = selectedModel.id.split("/");
++  const provider = selectedModel.provider;
+ 
+   return (
+     <ModelSelector onOpenChange={setOpen} open={open}>
+diff --git a/lib/ai/models.ts b/lib/ai/models.ts
+index 469608d..3137cfd 100644
+--- a/lib/ai/models.ts
++++ b/lib/ai/models.ts
+@@ -1,11 +1,16 @@
+-export const DEFAULT_CHAT_MODEL = "moonshotai/kimi-k2.5";
++import { getRouterApiKey, ROUTER_BASE_URL } from "./router";
+ 
+-export const titleModel = {
+-  description: "Fast model for title generation",
+-  gatewayOrder: ["fireworks", "bedrock"],
+-  id: "moonshotai/kimi-k2.5",
+-  name: "Kimi K2.5",
+-  provider: "moonshotai",
++// Router model IDs are account-specific: list them with
++// `GET https://api.router.com/v1/models` and set them via env. Each curated
++// slot below is enabled only when its env var is set. These are NEXT_PUBLIC_
++// because this module is also imported by client components (model selector);
++// model IDs are not secrets.
++const routerModelIds = {
++  deepseekV32: process.env.NEXT_PUBLIC_ROUTER_MODEL_DEEPSEEK_V3_2 ?? "",
++  gptOss120b: process.env.NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_120B ?? "",
++  gptOss20b: process.env.NEXT_PUBLIC_ROUTER_MODEL_GPT_OSS_20B ?? "",
++  grok41Fast: process.env.NEXT_PUBLIC_ROUTER_MODEL_GROK_4_1_FAST ?? "",
++  kimiK25: process.env.NEXT_PUBLIC_ROUTER_MODEL_KIMI_K2_5 ?? "",
+ };
+ 
+ export type ModelCapabilities = {
+@@ -19,58 +24,80 @@ export type ChatModel = {
+   name: string;
+   provider: string;
+   description: string;
+-  gatewayOrder?: string[];
++  // Public Vercel AI Gateway catalog slug, used ONLY for the capability and
++  // health lookups below (Router exposes no equivalent endpoint). Never sent
++  // to Router as a model ID.
++  capabilityCatalogId?: string;
+   reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
+ };
+ 
+-export const chatModels: ChatModel[] = [
++const curatedChatModels: ChatModel[] = [
+   {
++    capabilityCatalogId: "deepseek/deepseek-v3.2",
+     description: "Fast and capable model with tool use",
+-    gatewayOrder: ["bedrock", "deepinfra"],
+-    id: "deepseek/deepseek-v3.2",
++    id: routerModelIds.deepseekV32,
+     name: "DeepSeek V3.2",
+     provider: "deepseek",
+   },
+   {
++    capabilityCatalogId: "moonshotai/kimi-k2.5",
+     description: "Moonshot AI flagship model",
+-    gatewayOrder: ["fireworks", "bedrock"],
+-    id: "moonshotai/kimi-k2.5",
++    id: routerModelIds.kimiK25,
+     name: "Kimi K2.5",
+     provider: "moonshotai",
+   },
+   {
++    capabilityCatalogId: "openai/gpt-oss-20b",
+     description: "Compact reasoning model",
+-    gatewayOrder: ["groq", "bedrock"],
+-    id: "openai/gpt-oss-20b",
++    id: routerModelIds.gptOss20b,
+     name: "GPT OSS 20B",
+     provider: "openai",
+     reasoningEffort: "low",
+   },
+   {
++    capabilityCatalogId: "openai/gpt-oss-120b",
+     description: "Open-source 120B parameter model",
+-    gatewayOrder: ["fireworks", "bedrock"],
+-    id: "openai/gpt-oss-120b",
++    id: routerModelIds.gptOss120b,
+     name: "GPT OSS 120B",
+     provider: "openai",
+     reasoningEffort: "low",
+   },
+   {
++    capabilityCatalogId: "xai/grok-4.1-fast-non-reasoning",
+     description: "Fast non-reasoning model with tool use",
+-    gatewayOrder: ["xai"],
+-    id: "xai/grok-4.1-fast-non-reasoning",
++    id: routerModelIds.grok41Fast,
+     name: "Grok 4.1 Fast",
+     provider: "xai",
+   },
+ ];
+ 
++export const chatModels: ChatModel[] = curatedChatModels.filter((m) => m.id);
++
++export const DEFAULT_CHAT_MODEL =
++  process.env.NEXT_PUBLIC_ROUTER_DEFAULT_CHAT_MODEL ||
++  routerModelIds.kimiK25 ||
++  chatModels[0]?.id ||
++  "";
++
++// Server-only: used for chat title generation.
++export const titleModel = {
++  description: "Fast model for title generation",
++  id: process.env.ROUTER_TITLE_MODEL || routerModelIds.kimiK25,
++  name: "Kimi K2.5",
++  provider: "moonshotai",
++};
++
+ export async function getCapabilities(): Promise<
+   Record<string, ModelCapabilities>
+ > {
+   const results = await Promise.all(
+     chatModels.map(async (model) => {
++      if (!model.capabilityCatalogId) {
++        return [model.id, { reasoning: false, tools: false, vision: false }];
++      }
+       try {
+         const res = await fetch(
+-          `https://ai-gateway.vercel.sh/v1/models/${model.id}/endpoints`,
++          `https://ai-gateway.vercel.sh/v1/models/${model.capabilityCatalogId}/endpoints`,
+           { next: { revalidate: 86_400 } }
+         );
+         if (!res.ok) {
+@@ -110,7 +137,7 @@ export const isDemo = process.env.IS_DEMO === "1";
+ 
+ type GatewayModel = {
+   id: string;
+-  name: string;
++  name?: string;
+   type?: string;
+   tags?: string[];
+ };
+@@ -123,7 +150,9 @@ export async function getAllGatewayModels(): Promise<
+   GatewayModelWithCapabilities[]
+ > {
+   try {
+-    const res = await fetch("https://ai-gateway.vercel.sh/v1/models", {
++    // Router `GET /v1/models`: the account-specific list of valid model IDs.
++    const res = await fetch(`${ROUTER_BASE_URL}/models`, {
++      headers: { Authorization: `Bearer ${getRouterApiKey()}` },
+       next: { revalidate: 86_400 },
+     });
+     if (!res.ok) {
+@@ -132,7 +161,7 @@ export async function getAllGatewayModels(): Promise<
+ 
+     const json = await res.json();
+     return (json.data ?? [])
+-      .filter((m: GatewayModel) => m.type === "language")
++      .filter((m: GatewayModel) => !m.type || m.type === "language")
+       .map((m: GatewayModel) => ({
+         capabilities: {
+           reasoning: m.tags?.includes("reasoning") ?? false,
+@@ -141,8 +170,8 @@ export async function getAllGatewayModels(): Promise<
+         },
+         description: "",
+         id: m.id,
+-        name: m.name,
+-        provider: m.id.split("/")[0],
++        name: m.name ?? m.id,
++        provider: m.id.split(/[/:]/)[0],
+       }));
+   } catch {
+     return [];
+@@ -202,13 +231,13 @@ export async function getModelAvailability(
+ ): Promise<ModelAvailability> {
+   const model = chatModels.find((item) => item.id === modelId);
+ 
+-  if (!model) {
++  if (!model?.capabilityCatalogId) {
+     return "unknown";
+   }
+ 
+   try {
+     const res = await fetch(
+-      `https://ai-gateway.vercel.sh/v1/models/${model.id}/endpoints`,
++      `https://ai-gateway.vercel.sh/v1/models/${model.capabilityCatalogId}/endpoints`,
+       { next: { revalidate: 60 } }
+     );
+     if (!res.ok) {
+diff --git a/lib/ai/providers.ts b/lib/ai/providers.ts
+index 9cf5258..d28d4e9 100644
+--- a/lib/ai/providers.ts
++++ b/lib/ai/providers.ts
+@@ -1,6 +1,8 @@
+-import { customProvider, gateway } from "ai";
++import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
++import { customProvider } from "ai";
+ import { isTestEnvironment } from "../constants";
+ import { titleModel } from "./models";
++import { getRouterApiKey, ROUTER_BASE_URL } from "./router";
+ 
+ export const myProvider = isTestEnvironment
+   ? (() => {
+@@ -17,17 +19,31 @@ export const myProvider = isTestEnvironment
+     })()
+   : null;
+ 
++let routerProvider: OpenAIProvider | null = null;
++
++// OpenAI Responses client pointed at Router. Created lazily so a missing
++// RAMP_ROUTER_API_KEY surfaces at request time rather than at import time.
++function getRouterProvider(): OpenAIProvider {
++  if (!routerProvider) {
++    routerProvider = createOpenAI({
++      apiKey: getRouterApiKey(),
++      baseURL: ROUTER_BASE_URL,
++    });
++  }
++  return routerProvider;
++}
++
+ export function getLanguageModel(modelId: string) {
+   if (isTestEnvironment && myProvider) {
+     return myProvider.languageModel(modelId);
+   }
+ 
+-  return gateway.languageModel(modelId);
++  return getRouterProvider().responses(modelId);
+ }
+ 
+ export function getTitleModel() {
+   if (isTestEnvironment && myProvider) {
+     return myProvider.languageModel("title-model");
+   }
+-  return gateway.languageModel(titleModel.id);
++  return getRouterProvider().responses(titleModel.id);
+ }
+diff --git a/lib/ai/router.ts b/lib/ai/router.ts
+new file mode 100644
+index 0000000..5ad2278
+--- /dev/null
++++ b/lib/ai/router.ts
+@@ -0,0 +1,13 @@
++// Ramp Router: one OpenAI Responses-compatible API in front of many providers.
++// Router holds the provider credentials; this app only ever sends the Router key.
++export const ROUTER_BASE_URL = "https://api.router.com/v1";
++
++export function getRouterApiKey(): string {
++  const apiKey = process.env.RAMP_ROUTER_API_KEY;
++  if (!apiKey) {
++    // Fail loudly instead of letting the SDK fall back to a provider key
++    // (e.g. OPENAI_API_KEY) from the environment.
++    throw new Error("RAMP_ROUTER_API_KEY is not set");
++  }
++  return apiKey;
++}
+diff --git a/package.json b/package.json
+index a1417e8..a38b3a6 100644
+--- a/package.json
++++ b/package.json
+@@ -19,6 +19,7 @@
+     "test": "export PLAYWRIGHT=True && pnpm exec playwright test"
+   },
+   "dependencies": {
++    "@ai-sdk/openai": "^4.0.0",
+     "@ai-sdk/otel": "^1.0.15",
+     "@ai-sdk/provider": "^4.0.2",
+     "@ai-sdk/react": "4.0.16",

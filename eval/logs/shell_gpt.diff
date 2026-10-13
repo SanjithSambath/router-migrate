@@ -1,17 +1,20 @@
 --- a/sgpt/handlers/handler.py
 +++ b/sgpt/handlers/handler.py
-@@ -9,6 +9,10 @@
+@@ -9,6 +9,13 @@
  from ..function import get_function
  from ..printer import MarkdownPrinter, Printer, TextPrinter
  from ..role import DefaultRoles, SystemRole
 +try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
 +    from ..router_runtime import wrap_openai as _router_wrap_openai
 +except ImportError:  # router-migrate: module executed as a script
-+    from router_runtime import wrap_openai as _router_wrap_openai
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
  
  completion: Callable[..., Any] = lambda *args, **kwargs: Generator[Any, None, None]
  
-@@ -28,7 +32,7 @@
+@@ -28,7 +35,7 @@
  else:
      from openai import OpenAI
  
