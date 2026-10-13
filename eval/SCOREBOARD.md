@@ -1,18 +1,21 @@
 # router-migrate eval scoreboard
 
-Generated 2026-10-13 01:02 PDT by `make eval` (eval/run_eval.py). 8 pinned open-source repos.
+Generated 2026-10-13 01:05 PDT by `make eval` (eval/run_eval.py). 11 pinned open-source repos.
 
-**Totals:** 54 production LLM sites, 19 migrated (35% of all sites, 45% of Router-eligible sites), 12 handoff, 12 kept, 11 flagged. Tests: 6 repos unchanged, 0 worse, 2 without runnable tests.
+**Totals:** 89 production LLM sites, 29 migrated (33% of all sites, 43% of Router-eligible sites), 12 handoff, 33 kept, 15 flagged. Tests: 9 repos unchanged, 0 worse, 2 without runnable tests.
 
 | repo | commit | sites | migrated | handoff | kept | flagged | call-site cov. | eligible cov. | tests before | tests after | sim valid | live | diff lines | runtime |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | openai/swarm | `6af0b4caf3` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | n/a | n/a | 100% | - | 6 | 0.5s |
 | TheR1D/shell_gpt | `a082bd5327` | 1 | 1 | 0 | 0 | 0 | 100% | 100% | n/a | n/a | 100% | - | 6 | 0.6s |
+| abi/screenshot-to-code | `a8139779f7` | 4 | 2 | 0 | 2 | 0 | 50% | 100% | 280 passed | 280 passed | 100% | - | 14 | 3.5s |
+| anthropics/anthropic-quickstarts | `9ec32b91df` | 12 | 6 | 0 | 2 | 4 | 50% | 60% | 189 passed | 189 passed | 100% | - | 125 | 4.1s |
 | di-sukharev/opencommit | `a84b7cc597` | 5 | 3 | 2 | 0 | 0 | 60% | 60% | 243 passed | 243 passed | 100% | - | 6 | 0.3s |
 | mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 1 | 0 | 4 | 10 | 7% | 9% | 2 passed, 1 failed | 2 passed, 1 failed | 100% | - | 49 | 0.4s |
 | openai/openai-responses-starter-app | `0fae283f12` | 7 | 1 | 1 | 5 | 0 | 14% | 50% | tsc: 0 errors | tsc: 0 errors | 100% | - | 18 | 0.3s |
 | vercel/ai-chatbot | `c2f8235e1f` | 9 | 0 | 9 | 0 | 0 | 0% | 0% | tsc: 0 errors | tsc: 0 errors | - | - | 0 | 0.2s |
 | Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | 100% | - | 6 | 0.3s |
+| assafelovic/gpt-researcher | `3582a6841f` | 19 | 2 | 0 | 17 | 0 | 11% | 15% | 570 passed | 570 passed | 100% | - | 16 | 3.6s |
 | langchain-ai/langchain-nextjs-template | `fd4f2cd74e` | 12 | 8 | 0 | 3 | 1 | 67% | 89% | 4 passed | 4 passed | 100% | - | 18 | 0.3s |
 
 ## Definitions
@@ -32,9 +35,12 @@ Generated 2026-10-13 01:02 PDT by `make eval` (eval/run_eval.py). 8 pinned open-
 
 - **openai/swarm** (unit; test cmd `mkdir -p "$ENV/home" "$ENV/tmp" && HOME="$ENV/home" TMPDIR="$ENV/tmp" $PY -m pytest -q -p no:cacheprovider tests/`): no runnable tests. Outcomes by sdk/surface: openai/chat.completions 1 migrated
 - **TheR1D/shell_gpt** (unit; test cmd `mkdir -p "$ENV/home" "$ENV/tmp" && HOME="$ENV/home" TMPDIR="$ENV/tmp" $PY -m pytest -q -p no:cacheprovider -p no:warnings tests/`): no runnable tests. Outcomes by sdk/surface: openai/chat.completions 1 migrated
+- **abi/screenshot-to-code** (unit; test cmd `cd backend && $PY -m pytest -p no:cacheprovider`): 280/280 passing before and after. Outcomes by sdk/surface: anthropic/messages.stream 1 migrated; openai/responses 1 migrated; other/other.chat 2 kept
+- **anthropics/anthropic-quickstarts** (unit; test cmd `(cd computer-use-demo && "$ENV/computer-use-demo/bin/python" -m pytest tests -p no:cacheprovider); r1=$?; (cd computer-use-best-practices && "$ENV/computer-use-best-practices/bin/python" -m pytest -p no:cacheprovider --deselect tests/test_shell.py::test_bash_echo --deselect tests/test_shell.py::test_python_print --deselect tests/test_shell.py::test_output_truncated --deselect tests/test_editor.py::test_shell_shares_scratch_dir) && exit $r1`): 189/189 passing before and after. Outcomes by sdk/surface: anthropic/files 2 kept; anthropic/messages 6 migrated; anthropic/messages.beta 4 flagged
 - **di-sukharev/opencommit** (unit; test cmd `export HOME="$PWD/node_modules/.cache/rm-home"; mkdir -p "$HOME"; unset OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; npm run test:unit; u=$?; npm run test:e2e:core; e=$?; exit $(( u || e ))`): 243/243 passing before and after. Outcomes by sdk/surface: anthropic/messages 1 migrated; anthropic/models 1 handoff; openai/chat.completions 2 migrated; openai/models 1 handoff
 - **mckaywrigley/chatbot-ui** (unit; test cmd `npm test`): 2/3 passing before and after. Outcomes by sdk/surface: anthropic/messages 1 migrated; openai/assistants 1 kept; openai/chat.completions 10 flagged; openai/embeddings 3 kept
 - **openai/openai-responses-starter-app** (typecheck; test cmd `./node_modules/.bin/tsc --noEmit -p . --incremental false`): typecheck: 0 -> 0 errors. Outcomes by sdk/surface: openai/files 1 handoff, 1 kept; openai/responses 1 migrated; openai/vector_stores 4 kept
 - **vercel/ai-chatbot** (typecheck; test cmd `./node_modules/.bin/tsc --noEmit -p . --incremental false`): typecheck: 0 -> 0 errors. Outcomes by sdk/surface: vercel-ai/framework.chat 9 handoff
 - **Nutlope/aicommits** (unit; test cmd `unset OPENAI_BASE_URL; export OPENAI_API_KEY=; npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" build && npm_config_store_dir="$RM/.tools/pnpm-store" npm_config_cache_dir="$RM/.tools/pnpm-cache" npm_config_state_dir="$RM/.tools/pnpm-state" npm_config_manage_package_manager_versions=false "$RM/.tools/pm/node_modules/.bin/pnpm" test`): 79/79 passing before and after. Outcomes by sdk/surface: vercel-ai/framework.chat 4 migrated
+- **assafelovic/gpt-researcher** (unit; test cmd `TIKTOKEN_CACHE_DIR="$ENV/tiktoken_cache" $PY -m pytest tests/ --forked --timeout=60 -p no:warnings -p no:cacheprovider --deselect tests/test_researcher_logging.py --deselect tests/test_logging_output.py --deselect tests/test_mcp.py`): 570/570 passing before and after. Outcomes by sdk/surface: azure-openai/framework.chat 1 kept; langchain-anthropic/framework.chat 1 migrated; langchain-openai/framework.chat 10 kept, 1 migrated; langchain-openai/framework.embeddings 6 kept
 - **langchain-ai/langchain-nextjs-template** (unit; test cmd `node --experimental-strip-types --test utils/integrations.test.mjs`): 4/4 passing before and after. Outcomes by sdk/surface: langchain-openai/framework.chat 1 flagged, 8 migrated; langchain-openai/framework.embeddings 3 kept

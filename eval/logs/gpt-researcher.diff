@@ -1,0 +1,36 @@
+--- a/gpt_researcher/llm_provider/generic/base.py
++++ b/gpt_researcher/llm_provider/generic/base.py
+@@ -9,6 +9,18 @@
+ from colorama import Fore, Style, init
+ import os
+ from enum import Enum
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ...router_runtime import (
++        async_http_client as _router_async_http_client,
++        chat_anthropic_kwargs as _router_chat_anthropic_kwargs,
++        http_client as _router_http_client,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import (
++        async_http_client as _router_async_http_client,
++        chat_anthropic_kwargs as _router_chat_anthropic_kwargs,
++        http_client as _router_http_client,
++    )
+ 
+ _SUPPORTED_PROVIDERS = {
+     "openai",
+@@ -156,12 +168,12 @@
+             # tracking can use real usage instead of tiktoken estimates.
+             kwargs.setdefault("stream_usage", True)
+ 
+-            llm = ChatOpenAI(**kwargs)
++            llm = ChatOpenAI(**kwargs, http_client=_router_http_client(), http_async_client=_router_async_http_client())
+         elif provider == "anthropic":
+             _check_pkg("langchain_anthropic")
+             from langchain_anthropic import ChatAnthropic
+ 
+-            llm = ChatAnthropic(**kwargs)
++            llm = ChatAnthropic(**kwargs, **_router_chat_anthropic_kwargs())
+         elif provider == "azure_openai":
+             _check_pkg("langchain_openai")
+             from langchain_openai import AzureChatOpenAI

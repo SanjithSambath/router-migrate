@@ -100,7 +100,8 @@ def link_same_file(sites):
     return sites
 
 
-def build(scan, catalog, include_nonprod=False):
+def build(scan, catalog, include_nonprod=False, measure_only=False):
+    """measure_only: score the repo as it is (no router-migrate patches assumed); used to score other migrations."""
     sites = link_same_file([dict(x) for x in scan["sites"]])
     clients = {s["id"]: s for s in sites if s["kind"] == "client"}
     patches, plan_sites = [], []
@@ -116,6 +117,8 @@ def build(scan, catalog, include_nonprod=False):
         if c["surface"] == "OpenAIEmbeddings":
             kind = None
         tgt = client_target(c)
+        if measure_only:
+            continue
         if not c["prod"] and not include_nonprod:
             continue  # tests/examples/evals are reported but not edited unless asked (--include-nonprod)
         if kind and tgt in ("provider", "provider-or-config"):

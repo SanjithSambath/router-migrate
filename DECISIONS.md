@@ -104,3 +104,17 @@ elsewhere.
 The machine has Python 3.9, but all 9 Python repos require >=3.10. uv
 (pip-installed into `.venv`) fetched CPython 3.11/3.12 into `.tools/python`. On first use, uv also symlinked `python3.11`/`python3.12`
 into `~/.local/bin`; I removed those and pinned `UV_PYTHON_BIN_DIR` inside the folder (`scripts/env.sh`).
+
+## D9. Baseline: the docs' prompt, run by a Claude agent per repo, scored in measure-only mode
+
+SPEC asks for the docs migration prompt via `claude -p`. The local `claude` CLI's OAuth session had expired ("Failed to
+authenticate: OAuth session expired"), and re-authenticating is the user's call. So each baseline run used a Claude subagent
+from this session instead:
+- The prompt from `research/baseline_prompt.txt` is pasted verbatim, on a fresh copy of the repo at the pinned commit.
+- Harness constraints match what router-migrate itself has at apply time: no Router key, no network, no installs or tests.
+
+Scoring uses the same scanner, the same recipe tests, and the planner in `measure_only` mode, so only traffic that actually points
+at Router counts as migrated.
+
+My first scorer did not have that mode and credited the untouched repo with router-migrate's planned patches. It was caught
+because an agent that never ran (0 s, auth failure) "scored" 2 migrated sites.

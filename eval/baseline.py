@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Baseline: the migration prompt from https://docs.router.com/getting-started/connect, run by Claude Code (`claude -p`)
-on a fresh copy of each repo, then scored exactly like router-migrate (same scanner/planner, same recipe tests).
+"""Baseline: the migration prompt from https://docs.router.com/getting-started/connect, executed by a Claude coding agent on a
+fresh copy of each repo, then scored exactly like router-migrate: same scanner, same planner in measure-only mode (only traffic
+that actually points at Router counts as migrated), same recipe tests.
 
-The agent gets file tools only (Read/Edit/Write/Glob/Grep): no shell, no network, no Router key. That matches what our CLI
-does at apply time (it does not call Router either). Writes eval/baseline.json and eval/BASELINE.md.
+  python3 eval/baseline.py prepare --only a,b   # fresh copy in eval/work/baseline/<name> + tests before
+  (agent step: the prompt in research/baseline_prompt.txt, verbatim, run in each copy with file tools only)
+  python3 eval/baseline.py score --only a,b     # tests after, typecheck, measure-only scoring -> eval/baseline.json
 """
 import argparse
 import json
@@ -11,75 +13,84 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "eval"))
-from router_migrate import cli  # noqa: E402
+from router_migrate import plan as planmod, scan_py  # noqa: E402
+from router_migrate.catalog import Catalog  # noqa: E402
 import run_eval as RE  # noqa: E402
 
-PROMPT = open(os.path.join(ROOT, "research", "baseline_prompt.txt")).read()
-DEFAULT = ["swarm", "shell_gpt", "llm-anthropic", "opencommit", "aicommits", "langchain-nextjs-template"]
+OUT = os.path.join(ROOT, "eval", "baseline.json")
 
 
-def run_agent(src, timeout):
-    cmd = ["claude", "-p", PROMPT, "--allowedTools", "Read,Edit,Write,Glob,Grep,MultiEdit", "--permission-mode", "acceptEdits",
-           "--output-format", "json"]
-    env = {k: v for k, v in os.environ.items() if k != "RAMP_ROUTER_API_KEY"}
-    t = time.time()
-    try:
-        r = subprocess.run(cmd, cwd=src, env=env, capture_output=True, text=True, timeout=timeout)
-        out = r.stdout
-        try:
-            meta = json.loads(out)
-        except ValueError:
-            meta = {"raw": out[-2000:], "stderr": r.stderr[-2000:]}
-        return {"exit": r.returncode, "seconds": round(time.time() - t, 1), "cost_usd": meta.get("total_cost_usd"),
-                "turns": meta.get("num_turns"), "result": (meta.get("result") or "")[-3000:]}
-    except subprocess.TimeoutExpired:
-        return {"exit": None, "seconds": timeout, "result": "TIMEOUT"}
+def recipe(name):
+    rp = os.path.join(ROOT, "eval", "recipes", name + ".json")
+    rec = json.load(open(rp)) if os.path.exists(rp) else {}
+    rec["name"] = name
+    return rec
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--only", default=",".join(DEFAULT))
-    ap.add_argument("--timeout", type=int, default=1500)
-    args = ap.parse_args()
+def runnable(rec):
+    return bool(rec.get("test_cmd")) and (rec.get("baseline") or {}).get("exit") is not None
+
+
+def load():
+    return json.load(open(OUT)) if os.path.exists(OUT) else {}
+
+
+def prepare(names):
     repos = {r["name"]: r for r in json.load(open(os.path.join(ROOT, "eval", "repos.json")))}
-    outp = os.path.join(ROOT, "eval", "baseline.json")
-    results = json.load(open(outp)) if os.path.exists(outp) else {}
-    for name in args.only.split(","):
-        repo = repos[name]
-        rp = os.path.join(ROOT, "eval", "recipes", name + ".json")
-        rec = json.load(open(rp)) if os.path.exists(rp) else {"name": name}
-        rec["name"] = name
-        print("== baseline %s" % name, flush=True)
-        src = RE.prepare(repo, rec)
+    res = load()
+    for name in names:
+        rec = recipe(name)
+        src = RE.prepare(repos[name], rec)
         dst = os.path.join(RE.WORK, "baseline", name)
         shutil.rmtree(dst, ignore_errors=True)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.move(src, dst)
-        src = dst
-        runnable = bool(rec.get("test_cmd")) and (rec.get("baseline") or {}).get("exit") is not None
-        before = RE.tests(rec, src, "baseline_before") if runnable else None
-        agent = run_agent(src, args.timeout)
-        diff = subprocess.run("git -C %s add -A -N . && git -C %s diff --stat | tail -1 && git -C %s diff | grep -c '^[+-][^+-]'" % (src, src, src),
-                              shell=True, capture_output=True, text=True).stdout.strip().splitlines()
-        after = RE.tests(rec, src, "baseline_after") if runnable else None
-        tc = RE.typecheck(rec, src, "baseline_typecheck_after")
-        cli.do_scan(src, quiet=True)
-        p = cli.do_plan(src, quiet=True)
-        sm = p["summary"]
-        subprocess.run("git -C %s diff > %s" % (src, os.path.join(RE.LOGS, name + ".baseline.diff")), shell=True)
-        results[name] = {"repo": repo["repo"], "agent": agent, "summary": sm, "diff_lines": int(diff[-1]) if diff and diff[-1].isdigit() else None,
-                         "tests_before": RE.count(before) if before else None, "tests_after": RE.count(after) if after else None,
-                         "typecheck_after": tc,
-                         "sites": [{k: s.get(k) for k in ("file", "line", "sdk", "surface", "outcome", "reason")} for s in p["sites"] if s["prod"]]}
-        json.dump(results, open(outp, "w"), indent=1)
-        print("   %s" % json.dumps({"migrated": sm["migrated"], "sites": sm["sites_found"], "before": results[name]["tests_before"],
-                                    "after": results[name]["tests_after"], "agent_s": agent["seconds"], "cost": agent.get("cost_usd")}), flush=True)
+        if rec.get("lang") == "py":  # editable install -> this copy
+            for c in rec.get("reinstall") or [c + " --no-deps" for c in rec.get("setup", []) if " -e " in c and "$SRC" in c]:
+                RE.sh(RE.subst(c, rec, dst), timeout=900)
+        before = RE.tests(rec, dst, "baseline_before") if runnable(rec) else None
+        res[name] = {"repo": repos[name]["repo"], "path": dst, "tests_before": RE.count(before, rec.get("test_kind", "unit")) if before else None}
+        json.dump(res, open(OUT, "w"), indent=1)
+        print("prepared %s at %s; tests before %s" % (name, dst, res[name]["tests_before"]))
+
+
+def score(names):
+    res = load()
+    cat = Catalog.load()
+    for name in names:
+        rec = recipe(name)
+        dst = res[name]["path"]
+        if rec.get("lang") == "py":
+            for c in rec.get("reinstall") or [c + " --no-deps" for c in rec.get("setup", []) if " -e " in c and "$SRC" in c]:
+                RE.sh(RE.subst(c, rec, dst), timeout=900)
+        after = RE.tests(rec, dst, "baseline_after") if runnable(rec) else None
+        tc = RE.typecheck(rec, dst, "baseline_typecheck_after")
+        sc = scan_py.scan(dst)
+        if rec.get("lang") == "ts" or os.path.exists(os.path.join(dst, "package.json")):
+            try:
+                ts = json.loads(subprocess.run(["node", os.path.join(ROOT, "router_migrate", "ts", "tool.mjs"), "scan", dst], capture_output=True, text=True).stdout)
+                sc["sites"] += ts.get("sites", [])
+            except ValueError:
+                pass
+        p = planmod.build(sc, cat, measure_only=True)
+        diff = subprocess.run("git -C %s add -A -N . >/dev/null 2>&1; git -C %s diff -- . ':(exclude)out' ':(exclude).router-migrate'" % (dst, dst),
+                              shell=True, capture_output=True, text=True).stdout
+        open(os.path.join(RE.LOGS, name + ".baseline.diff"), "w").write(diff)
+        res[name].update(tests_after=RE.count(after, rec.get("test_kind", "unit")) if after else None, typecheck_after=tc, summary=p["summary"],
+                         diff_lines=sum(1 for l in diff.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))),
+                         sites=[{k: s.get(k) for k in ("file", "line", "sdk", "surface", "outcome", "reason")} for s in p["sites"] if s["prod"]])
+        json.dump(res, open(OUT, "w"), indent=1)
+        print("scored %s: %s; tests %s -> %s; diff %d lines" % (name, {k: p["summary"][k] for k in ("sites_found", "migrated", "flagged")},
+                                                             res[name]["tests_before"], res[name]["tests_after"], res[name]["diff_lines"]))
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("phase", choices=["prepare", "score"])
+    ap.add_argument("--only", required=True)
+    a = ap.parse_args()
+    (prepare if a.phase == "prepare" else score)(a.only.split(","))

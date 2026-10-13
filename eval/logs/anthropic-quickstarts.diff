@@ -1,0 +1,621 @@
+--- a/agents/agent.py
++++ b/agents/agent.py
+@@ -12,6 +12,10 @@
+ from .utils.connections import setup_mcp_connections
+ from .utils.history_util import MessageHistory
+ from .utils.tool_util import execute_tools
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ 
+ @dataclass
+@@ -61,9 +65,9 @@
+         self.config = config or ModelConfig()
+         self.mcp_servers = mcp_servers or []
+         self.message_params = message_params or {}
+-        self.client = client or Anthropic(
++        self.client = client or _router_wrap_anthropic(Anthropic(
+             api_key=os.environ.get("ANTHROPIC_API_KEY", "")
+-        )
++        ))
+         self.history = MessageHistory(
+             model=self.config.model,
+             system=self.system,
+--- a/browser-toolset/python/run.py
++++ b/browser-toolset/python/run.py
+@@ -31,6 +31,7 @@
+ from anthropic.tools.browser import BetaURLContext, BetaURLPolicy
+ 
+ from cdp_browser import CdpBrowser
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ 
+ def env_list(name: str, default: str) -> list[str]:
+@@ -68,7 +69,7 @@
+     args = parser.parse_args()
+     task = " ".join(args.task) or "Open example.com and tell me the page heading."
+     try:
+-        client = Anthropic()
++        client = _router_wrap_anthropic(Anthropic())
+         browser = CdpBrowser(
+             headless=os.environ.get("HEADLESS", "1") != "0",
+             url_policy=example_policy(env_list("ALLOWED_DOMAINS", "example.com,iana.org")),
+--- a/browser-toolset/typescript/run.ts
++++ b/browser-toolset/typescript/run.ts
+@@ -23,6 +23,7 @@
+ import Anthropic from '@anthropic-ai/sdk';
+ import { ToolError, type BetaURLPolicy } from '@anthropic-ai/sdk/helpers/beta/toolsets';
+ import { CdpBrowser } from './cdp-browser.js';
++import { routerOptions } from './lib/routerRuntime';
+ 
+ /** A comma-separated environment variable as a lower-cased list, blanks dropped. */
+ export function envList(name: string, fallback: string): string[] {
+@@ -55,7 +56,7 @@
+ 
+ async function main(): Promise<void> {
+   const task = process.argv.slice(2).join(' ') || 'Open example.com and tell me the page heading.';
+-  const client = new Anthropic();
++  const client = new Anthropic({ ...routerOptions() });
+   const browser = await CdpBrowser.launch({
+     headless: process.env['HEADLESS'] !== '0',
+     urlPolicy: examplePolicy(envList('ALLOWED_DOMAINS', 'example.com,iana.org')),
+--- a/browser-use-demo/browser_use_demo/loop.py
++++ b/browser-use-demo/browser_use_demo/loop.py
+@@ -24,6 +24,10 @@
+ 
+ from .message_handler import MessageBuilder, ResponseProcessor
+ from .tools import BrowserTool, ToolCollection, ToolResult
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ PROMPT_CACHING_BETA_FLAG = "prompt-caching-2024-07-31"
+ 
+@@ -104,7 +108,7 @@
+         enable_prompt_caching = False
+ 
+         if provider == APIProvider.ANTHROPIC:
+-            client = Anthropic(api_key=api_key, max_retries=4)
++            client = _router_wrap_anthropic(Anthropic(api_key=api_key, max_retries=4))
+             enable_prompt_caching = True
+         elif provider == APIProvider.VERTEX:
+             client = AnthropicVertex()
+--- a/browser-use-demo/browser_use_demo/tools/browser.py
++++ b/browser-use-demo/browser_use_demo/tools/browser.py
+@@ -20,6 +20,10 @@
+ from ..display_constants import BROWSER_HEIGHT, BROWSER_WIDTH, DISPLAY_NUM
+ from .base import BaseAnthropicTool, ToolError, ToolResult
+ from .coordinate_scaling import CoordinateScaler
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ # Simple logging for debugging - removed, using print directly
+ 
+@@ -920,7 +924,7 @@
+                 try:
+                     from anthropic import AsyncAnthropic
+ 
+-                    client = AsyncAnthropic(api_key=api_key)
++                    client = _router_wrap_anthropic(AsyncAnthropic(api_key=api_key))
+ 
+                     prompt = f"""You are helping find elements on a web page. The user wants to find: "{search_query}"
+ 
+--- a/computer-toolset/python/run.py
++++ b/computer-toolset/python/run.py
+@@ -28,6 +28,7 @@
+ from anthropic.tools.computer import BetaComputerConfirmContext
+ 
+ from vnc_computer import VncComputer
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ 
+ def ask(context: BetaComputerConfirmContext) -> bool:
+@@ -44,7 +45,7 @@
+     args = parser.parse_args()
+     task = " ".join(args.task) or "Open a terminal, run date, and tell me today's date and time zone."
+     try:
+-        client = Anthropic()
++        client = _router_wrap_anthropic(Anthropic())
+         computer = VncComputer(
+             host=os.environ.get("VNC_HOST", "127.0.0.1"), port=int(os.environ.get("VNC_PORT", "5900")), confirm=ask
+         )
+--- a/computer-toolset/typescript/run.ts
++++ b/computer-toolset/typescript/run.ts
+@@ -25,11 +25,12 @@
+ 
+ import Anthropic from '@anthropic-ai/sdk';
+ import { VncComputer } from './vnc-computer.js';
++import { routerOptions } from './lib/routerRuntime';
+ 
+ async function main(): Promise<void> {
+   const task =
+     process.argv.slice(2).join(' ') || "Open a terminal, run date, and tell me today's date and time zone.";
+-  const client = new Anthropic();
++  const client = new Anthropic({ ...routerOptions() });
+   // `terminal: false` reads plain lines, so Ctrl-C still stops the run.
+   const terminal = readline.createInterface({ input, output, terminal: false });
+   const computer = await VncComputer.connect({
+--- a/computer-use-best-practices/computer_use/loop.py
++++ b/computer-use-best-practices/computer_use/loop.py
+@@ -50,6 +50,10 @@
+ from .formatters import StripImagesAtIntervals, StripOldestImages
+ from .tools import ToolCollection, ToolResult
+ from .trajectory import Trajectory
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ T = TypeVar("T")
+ 
+@@ -225,7 +229,7 @@
+     if provider == "bedrock":
+         return AnthropicBedrock()
+ 
+-    return anthropic.Anthropic()
++    return _router_wrap_anthropic(anthropic.Anthropic())
+ 
+ 
+ def _make_image_pruner(max_message_mb: float | None = None) -> Callable[[list[MessageParam]], None]:
+--- a/computer-use-best-practices/dev_ui/localization_demo/server.py
++++ b/computer-use-best-practices/dev_ui/localization_demo/server.py
+@@ -33,12 +33,16 @@
+ import constants
+ from computer_use.image import resize_and_encode
+ from computer_use.loop import _effort_kwargs
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ app = FastAPI()
+ _static = Path(__file__).parent / "static"
+ _assets = Path(__file__).parent.parent / "assets"
+ app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+-_client = anthropic.Anthropic()
++_client = _router_wrap_anthropic(anthropic.Anthropic())
+ 
+ _POINT_AT_TOOL: ToolParam = {
+     "name": "point_at",
+--- a/computer-use-demo/computer_use_demo/loop.py
++++ b/computer-use-demo/computer_use_demo/loop.py
+@@ -37,6 +37,10 @@
+     ToolVersion,
+ )
+ from .tools.base import ToolFailure
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    from router_runtime import wrap_anthropic as _router_wrap_anthropic
+ 
+ # The tool_result content a toolset member call receives when an earlier
+ # member call in the same turn failed (the exact text is part of the computer
+@@ -122,7 +126,7 @@
+             betas.append("token-efficient-tools-2025-02-19")
+         image_truncation_threshold = only_n_most_recent_images or 0
+         if provider == APIProvider.ANTHROPIC:
+-            client = Anthropic(api_key=api_key, max_retries=4)
++            client = _router_wrap_anthropic(Anthropic(api_key=api_key, max_retries=4))
+             enable_prompt_caching = True
+         elif provider == APIProvider.VERTEX:
+             client = AnthropicVertex()
+--- a/customer-support-agent/app/api/chat/route.ts
++++ b/customer-support-agent/app/api/chat/route.ts
+@@ -3,9 +3,11 @@
+ import { retrieveContext, RAGSource } from "@/app/lib/utils";
+ import crypto from "crypto";
+ import customerSupportCategories from "@/app/lib/customer_support_categories.json";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+ const anthropic = new Anthropic({
+   apiKey: process.env.ANTHROPIC_API_KEY,
++  ...routerOptions(),
+ });
+ 
+ // Debug message helper function
+--- a/financial-data-analyst/app/api/finance/route.ts
++++ b/financial-data-analyst/app/api/finance/route.ts
+@@ -2,10 +2,12 @@
+ import { NextRequest } from "next/server";
+ import Anthropic from "@anthropic-ai/sdk";
+ import type { ChartData } from "@/types/chart";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+ // Initialize Anthropic client with correct headers
+ const anthropic = new Anthropic({
+   apiKey: process.env.ANTHROPIC_API_KEY!,
++  ...routerOptions(),
+ });
+ 
+ export const runtime = "edge";
+--- a/managed-agents/assistant-ui/lib/anthropic.ts
++++ b/managed-agents/assistant-ui/lib/anthropic.ts
+@@ -1,11 +1,12 @@
+ import { existsSync, readFileSync } from "node:fs";
+ import { join } from "node:path";
+ import Anthropic from "@anthropic-ai/sdk";
++import { routerOptions } from "./routerRuntime";
+ 
+ // The one Anthropic client for the whole server. `new Anthropic()` reads
+ // ANTHROPIC_API_KEY, and falls back to `ant auth login` CLI credentials when
+ // the variable is unset, so .env can carry no key at all.
+-export const client = new Anthropic();
++export const client = new Anthropic({ ...routerOptions() });
+ 
+ // The agent and environment come from claude-lock.json at the project root,
+ // where `ant apply agents environments` records what it created. CLAUDE_AGENT_ID
+--- a/managed-agents/chat-sdk/setup/create-agent.ts
++++ b/managed-agents/chat-sdk/setup/create-agent.ts
+@@ -4,6 +4,7 @@
+ 
+ import Anthropic from "@anthropic-ai/sdk";
+ import { AGENT_DESCRIPTION, AGENT_NAME, MODEL, SYSTEM_PROMPT } from "./agent-config";
++import { routerOptions } from "../src/lib/routerRuntime";
+ 
+ for (const name of ["CLAUDE_AGENT_ID", "CLAUDE_ENVIRONMENT_ID"]) {
+   const value = process.env[name];
+@@ -17,7 +18,7 @@
+   }
+ }
+ 
+-const client = new Anthropic();
++const client = new Anthropic({ ...routerOptions() });
+ 
+ // Tag and print each ID as soon as its resource exists, so a crash between
+ // creates leaves nothing unfindable in the Console.
+--- a/managed-agents/chat-sdk/setup/update-agent.ts
++++ b/managed-agents/chat-sdk/setup/update-agent.ts
+@@ -5,6 +5,7 @@
+ 
+ import Anthropic from "@anthropic-ai/sdk";
+ import { AGENT_DESCRIPTION, AGENT_NAME, MODEL, SYSTEM_PROMPT } from "./agent-config";
++import { routerOptions } from "../src/lib/routerRuntime";
+ 
+ const agentId = process.env.CLAUDE_AGENT_ID;
+ if (!agentId || agentId.endsWith("...")) {
+@@ -12,7 +13,7 @@
+   process.exit(1);
+ }
+ 
+-const client = new Anthropic();
++const client = new Anthropic({ ...routerOptions() });
+ 
+ // Updates take the current version (optimistic concurrency) and return the
+ // new one.
+--- a/managed-agents/chat-sdk/src/managed-agents.ts
++++ b/managed-agents/chat-sdk/src/managed-agents.ts
+@@ -10,8 +10,9 @@
+ } from "@anthropic-ai/sdk/lib/sessions/accumulate";
+ import { toolLabel, toolsFence, truncate, TITLE_MAX, type BriefStats, type ToolCall } from "./brief";
+ import { briefCard } from "./card";
+-
+-export const client = new Anthropic();
++import { routerOptions } from "./lib/routerRuntime";
++
++export const client = new Anthropic({ ...routerOptions() });
+ 
+ // Fresh sessions carry this title until the first message renames them; the
+ // retitle gate in runTurn and the sidebar fallback (src/sessions.ts) must
+--- a/managed-agents/linear/src/agent.ts
++++ b/managed-agents/linear/src/agent.ts
+@@ -3,8 +3,9 @@
+ import { getAccessToken } from "./oauth";
+ import { AGENT_ID, ENVIRONMENT_ID } from "./resources";
+ import { signRoute } from "./route-signature";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+-const client = new Anthropic();
++const client = new Anthropic({ ...routerOptions() });
+ 
+ // Linear session → the Claude session currently working on it, so Stop can
+ // interrupt that run. This is the one piece of state the bridge keeps, and it
+--- a/managed-agents/linear/src/managed-agents-webhook.ts
++++ b/managed-agents/linear/src/managed-agents-webhook.ts
+@@ -10,8 +10,9 @@
+ import { verifyRoute } from "./route-signature";
+ import { getAccessToken, isAllowedOrg, LinearInstallRevokedError, NoLinearTokenError } from "./oauth";
+ import { AGENT_ID, ENVIRONMENT_ID } from "./resources";
+-
+-const client = new Anthropic();
++import { routerOptions } from "./lib/routerRuntime";
++
++const client = new Anthropic({ ...routerOptions() });
+ 
+ // Dedupe retries (same event.id across retries). Swap for Redis/DB in prod.
+ // "Handled" and "being handled" are separate: if a slow first delivery times
+--- a/managed-agents/mcp-server-typescript/src/managed-agents.ts
++++ b/managed-agents/mcp-server-typescript/src/managed-agents.ts
+@@ -1,9 +1,10 @@
+ import Anthropic from "@anthropic-ai/sdk";
+ import { allowedAgentIds, parseEventId } from "./scope";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+ // The functions below take IDs that tools.ts has already run through
+ // scope.ts. Call them from anywhere else and you skip the allowlist.
+-export const client = new Anthropic();
++export const client = new Anthropic({ ...routerOptions() });
+ 
+ if (!process.env.CLAUDE_ENVIRONMENT_ID) {
+   throw new Error("CLAUDE_ENVIRONMENT_ID is required (see README.md, step 1)");
+--- a/managed-agents/roadtrip-planner/src/lib/client.ts
++++ b/managed-agents/roadtrip-planner/src/lib/client.ts
+@@ -1,6 +1,7 @@
+ import Anthropic from "@anthropic-ai/sdk";
+ import type { BetaManagedAgentsSession } from "@anthropic-ai/sdk/resources/beta/sessions/sessions";
+ import { plannerAgentId } from "./resources";
++import { routerOptions } from "./routerRuntime";
+ 
+ /**
+  * The shared pieces of the server side: one SDK client (auth comes from
+@@ -9,7 +10,7 @@
+  * check every route runs on that cookie. Every other API call lives in the
+  * route that triggers it. There is no service layer.
+  */
+-export const client = new Anthropic();
++export const client = new Anthropic({ ...routerOptions() });
+ 
+ export const SESSION_COOKIE = "roadtrip_planner_session_id";
+ 
+--- a/managed-agents/self-hosted-sandboxes/cloudflare-containers/src/container.ts
++++ b/managed-agents/self-hosted-sandboxes/cloudflare-containers/src/container.ts
+@@ -13,6 +13,7 @@
+ import Anthropic from "@anthropic-ai/sdk";
+ import { Container } from "@cloudflare/containers";
+ import type { Env } from "./index";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+ const STREAM_BACKOFF_MS = 1_000;
+ const STREAM_BACKOFF_CAP_MS = 10_000;
+@@ -77,7 +78,7 @@
+    * keeps Cloudflare's `sleepAfter` from reclaiming the VM mid-session.
+    */
+   private async lifecycleWatch(opts: DispatchOpts, ctrl: AbortController): Promise<void> {
+-    const client = new Anthropic({ authToken: opts.environmentKey, baseURL: opts.baseURL });
++    const client = new Anthropic({ authToken: opts.environmentKey, baseURL: opts.baseURL, ...routerOptions() });
+     let backoff = STREAM_BACKOFF_MS;
+     while (!ctrl.signal.aborted) {
+       try {
+--- a/managed-agents/self-hosted-sandboxes/cloudflare-containers/src/index.ts
++++ b/managed-agents/self-hosted-sandboxes/cloudflare-containers/src/index.ts
+@@ -7,6 +7,7 @@
+  */
+ import Anthropic from "@anthropic-ai/sdk";
+ import type { SandboxContainer } from "./container";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+ export { SandboxContainer } from "./container";
+ 
+@@ -207,6 +208,7 @@
+       baseURL: env.ANTHROPIC_BASE_URL,
+       // Pass the whsec_ secret as-is: the SDK decodes its URL-safe base64 internally.
+       webhookKey: env.ANTHROPIC_WEBHOOK_SECRET,
++      ...routerOptions(),
+     });
+ 
+     const body = await req.text();
+--- a/managed-agents/self-hosted-sandboxes/cloudflare-worker/src/index.ts
++++ b/managed-agents/self-hosted-sandboxes/cloudflare-worker/src/index.ts
+@@ -8,6 +8,7 @@
+  */
+ import Anthropic from "@anthropic-ai/sdk";
+ import type { SandboxRunner } from "./runner";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+ export { SandboxRunner } from "./runner";
+ 
+@@ -179,6 +180,7 @@
+       baseURL: env.ANTHROPIC_BASE_URL,
+       // Pass the whsec_ secret as-is: the SDK decodes its URL-safe base64 internally.
+       webhookKey: env.ANTHROPIC_WEBHOOK_SECRET,
++      ...routerOptions(),
+     });
+ 
+     const body = await req.text();
+--- a/managed-agents/self-hosted-sandboxes/cloudflare-worker/src/runner.ts
++++ b/managed-agents/self-hosted-sandboxes/cloudflare-worker/src/runner.ts
+@@ -21,6 +21,7 @@
+ import { DurableObject } from "cloudflare:workers";
+ import type { Env } from "./index";
+ import { type FakeFS, fakeTools } from "./tools";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+ const HEARTBEAT_DEFAULT_MS = 30_000;
+ 
+@@ -53,6 +54,7 @@
+       authToken: opts.environmentKey,
+       baseURL: this.env.ANTHROPIC_BASE_URL,
+       logLevel: "info", // surface runner lifecycle in `wrangler tail`
++      ...routerOptions(),
+     });
+ 
+     // Run detached so the webhook can return.
+--- a/managed-agents/self-hosted-sandboxes/daytona/daytona_webhook.py
++++ b/managed-agents/self-hosted-sandboxes/daytona/daytona_webhook.py
+@@ -26,6 +26,7 @@
+ from anthropic.types.beta import UnwrapWebhookEvent
+ from daytona_sdk import CreateSandboxParams, Daytona
+ from fastapi import FastAPI, HTTPException, Request, Response
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ # The SDK the runner needs inside the sandbox. handle_item() has accepted the
+ # per-session work secret since 0.125.0.
+@@ -72,10 +73,10 @@
+     client, so do not ``await`` it. The ``whsec_`` secret is passed to
+     ``webhook_key`` as-is: the SDK decodes its URL-safe base64 internally.
+     """
+-    return anthropic.AsyncAnthropic(
++    return _router_wrap_anthropic(anthropic.AsyncAnthropic(
+         auth_token=os.environ["ANTHROPIC_ENVIRONMENT_KEY"],
+         webhook_key=os.environ["ANTHROPIC_WEBHOOK_SECRET"],
+-    )
++    ))
+ 
+ 
+ def _verify_webhook(
+--- a/managed-agents/self-hosted-sandboxes/daytona/sandbox_runner.py
++++ b/managed-agents/self-hosted-sandboxes/daytona/sandbox_runner.py
+@@ -41,6 +41,7 @@
+ import sys
+ 
+ from anthropic import AsyncAnthropic
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ # EnvironmentWorker reports lifecycle (start, idle-out, heartbeat shutdown,
+ # stream reconnects, tool dispatch) at INFO via stdlib logging. Without a
+@@ -84,7 +85,7 @@
+     # a volume there. Daytona's image has no such directory.
+     os.makedirs(WORKDIR, exist_ok=True)
+ 
+-    async with AsyncAnthropic(auth_token=credential) as client:
++    async with _router_wrap_anthropic(AsyncAnthropic(auth_token=credential)) as client:
+         await client.beta.environments.work.worker(
+             environment_key=credential,
+             workdir=WORKDIR,
+--- a/managed-agents/self-hosted-sandboxes/docker-memory/worker.py
++++ b/managed-agents/self-hosted-sandboxes/docker-memory/worker.py
+@@ -33,6 +33,7 @@
+ 
+ from anthropic import AsyncAnthropic
+ from anthropic.lib.environments import EnvironmentWorker
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ 
+ def sessions_token(secret: str) -> str | None:
+@@ -63,7 +64,7 @@
+     assert task is not None
+     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+ 
+-    client = AsyncAnthropic(auth_token=token)
++    client = _router_wrap_anthropic(AsyncAnthropic(auth_token=token))
+     worker = EnvironmentWorker(client, workdir="/workspace")
+     # handle_item reads ANTHROPIC_{WORK_ID,ENVIRONMENT_ID,SESSION_ID} from the
+     # environment and uses the token inside work_secret for every call it
+--- a/managed-agents/self-hosted-sandboxes/modal/modal_sandbox_webhook.py
++++ b/managed-agents/self-hosted-sandboxes/modal/modal_sandbox_webhook.py
+@@ -42,6 +42,7 @@
+ from fastapi import HTTPException, Request, Response
+ 
+ import modal
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ APP_NAME = "self-hosted-sandboxes"
+ SECRET_NAME = "self-hosted-sandboxes-secrets"
+@@ -105,10 +106,10 @@
+     Lazy because ``modal deploy`` imports this module locally, where the
+     secret env vars are not set. Constructing at module scope breaks deploy.
+     """
+-    return anthropic.AsyncAnthropic(
++    return _router_wrap_anthropic(anthropic.AsyncAnthropic(
+         auth_token=os.environ["ANTHROPIC_ENVIRONMENT_KEY"],
+         webhook_key=os.environ["ANTHROPIC_WEBHOOK_SECRET"],
+-    )
++    ))
+ 
+ 
+ def _verify_webhook(
+--- a/managed-agents/self-hosted-sandboxes/modal/sandbox_runner.py
++++ b/managed-agents/self-hosted-sandboxes/modal/sandbox_runner.py
+@@ -41,6 +41,7 @@
+ import sys
+ 
+ from anthropic import AsyncAnthropic
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ # EnvironmentWorker reports lifecycle (start, idle-out, heartbeat shutdown,
+ # stream reconnects, tool dispatch) at INFO via stdlib logging. Without a
+@@ -84,7 +85,7 @@
+     # a volume there. Daytona's image has no such directory.
+     os.makedirs(WORKDIR, exist_ok=True)
+ 
+-    async with AsyncAnthropic(auth_token=credential) as client:
++    async with _router_wrap_anthropic(AsyncAnthropic(auth_token=credential)) as client:
+         await client.beta.environments.work.worker(
+             environment_key=credential,
+             workdir=WORKDIR,
+--- a/managed-agents/self-hosted-sandboxes/vercel/api/webhook.ts
++++ b/managed-agents/self-hosted-sandboxes/vercel/api/webhook.ts
+@@ -26,6 +26,7 @@
+ import { fileURLToPath } from "node:url";
+ import Anthropic from "@anthropic-ai/sdk";
+ import { Sandbox } from "@vercel/sandbox";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ // handleItem() has accepted the per-session work secret since 0.124.0.
+ const SDK_VERSION = ">=0.129.0 <1.0.0";
+@@ -393,6 +394,7 @@
+     baseURL: baseURL(),
+     // Pass the whsec_ secret as-is: the SDK decodes its URL-safe base64 internally.
+     webhookKey: requireEnv("ANTHROPIC_WEBHOOK_SECRET"),
++    ...routerOptions(),
+   });
+ 
+   const body = await req.text();
+--- a/managed-agents/self-hosted-sandboxes/vercel/runner/runner.mjs
++++ b/managed-agents/self-hosted-sandboxes/vercel/runner/runner.mjs
+@@ -33,6 +33,7 @@
+  *   WORKDIR                   - agent working tree (default /workspace)
+  */
+ import Anthropic from "@anthropic-ai/sdk";
++import { routerOptions } from "../lib/routerRuntime";
+ 
+ // Created + chown'd by the webhook before the runner starts.
+ const WORKDIR = process.env.WORKDIR ?? "/workspace";
+@@ -69,6 +70,7 @@
+ const client = new Anthropic({
+   authToken: credential,
+   logLevel: "info", // show worker lifecycle (start/idle/heartbeat shutdown) in sandbox logs
++  ...routerOptions(),
+ });
+ 
+ console.log(
+--- a/managed-agents/sentry/managed_agents.py
++++ b/managed-agents/sentry/managed_agents.py
+@@ -8,6 +8,7 @@
+ 
+ from anthropic import Anthropic
+ from dotenv import dotenv_values, load_dotenv
++from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+ 
+ # override=True matches ./agents/setup.sh, which sources .env over whatever the
+ # shell exports. Without it an ANTHROPIC_API_KEY in your shell would make
+@@ -20,7 +21,7 @@
+ # explicitly when listing session-scoped files (run_now.py).
+ BETAS = ["managed-agents-2026-04-01"]
+ 
+-client = Anthropic()
++client = _router_wrap_anthropic(Anthropic())
+ 
+ 
+ def require_env(name: str) -> str:
+--- a/managed-agents/slack/src/agent.ts
++++ b/managed-agents/slack/src/agent.ts
+@@ -1,8 +1,9 @@
+ import Anthropic from "@anthropic-ai/sdk";
+ import { AGENT_ID, ENVIRONMENT_ID } from "./resources";
+ import { signRoute } from "./route-signature";
++import { routerOptions } from "./lib/routerRuntime";
+ 
+-const client = new Anthropic();
++const client = new Anthropic({ ...routerOptions() });
+ 
+ export interface SlackMention {
+   channel: string;
+--- a/managed-agents/slack/src/managed-agents-webhook.ts
++++ b/managed-agents/slack/src/managed-agents-webhook.ts
+@@ -2,8 +2,9 @@
+ import { ErrorCode, WebClient } from "@slack/web-api";
+ import { verifyRoute } from "./route-signature";
+ import { AGENT_ID, ENVIRONMENT_ID } from "./resources";
+-
+-const client = new Anthropic();
++import { routerOptions } from "./lib/routerRuntime";
++
++const client = new Anthropic({ ...routerOptions() });
+ const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+ 
+ // Dedupe retries (same event.id across retries). Swap for Redis/DB in prod.
