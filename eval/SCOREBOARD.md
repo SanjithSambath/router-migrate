@@ -1,6 +1,6 @@
 # router-migrate eval scoreboard
 
-Generated 2026-10-13 02:07 PDT by `make eval` (eval/run_eval.py). 15 pinned open-source repos.
+Generated 2026-10-13 02:35 PDT by `make eval` (eval/run_eval.py). 15 pinned open-source repos.
 
 **Totals:** 170 production LLM sites, 48 migrated (28% of all sites, 45% of Router-eligible sites), 9 handoff, 97 kept, 16 flagged. Tests: 15 repos unchanged, 0 worse, 0 without runnable tests.
 
@@ -14,7 +14,7 @@ Generated 2026-10-13 02:07 PDT by `make eval` (eval/run_eval.py). 15 pinned open
 | anthropics/anthropic-quickstarts | `9ec32b91df` | 12 | 4 | 0 | 2 | 6 | 33% | 40% | 189 passed | 189 passed | N/A: suite mocks the SDK/HTTP | 100% (3/3) | 100% | 173 | 3.8s |
 | simonw/llm-anthropic | `b66cdf112c` | 5 | 3 | 0 | 1 | 1 | 60% | 75% | 123 passed | 123 passed | N/A: suite mocks the SDK/HTTP | 100% (2/2) | 100% | 19 | 2.0s |
 | di-sukharev/opencommit | `a84b7cc597` | 5 | 2 | 0 | 3 | 0 | 40% | 67% | 243 passed | 243 passed | N/A: suite mocks the SDK/HTTP | 100% (2/2) | 100% | 6 | 0.3s |
-| mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 0 | 0 | 10 | 5 | 0% | 0% | 2 passed, 1 failed | 2 passed, 1 failed | N/A: suite mocks the SDK/HTTP | - | - | 0 | 0.2s |
+| mckaywrigley/chatbot-ui | `81328b61d2` | 15 | 0 | 0 | 10 | 5 | 0% | 0% | 2 passed, 1 failed | 2 passed, 1 failed | N/A: suite mocks the SDK/HTTP | - | - | 0 | 0.3s |
 | openai/openai-responses-starter-app | `0fae283f12` | 7 | 1 | 0 | 6 | 0 | 14% | 100% | tsc: 0 errors | tsc: 0 errors | N/A: suite mocks the SDK/HTTP | 100% (1/1) | 100% | 18 | 0.3s |
 | vercel/ai-chatbot | `c2f8235e1f` | 9 | 0 | 9 | 0 | 0 | 0% | 0% | tsc: 0 errors | tsc: 0 errors | N/A: suite mocks the SDK/HTTP | - | - | 0 | 0.2s |
 | Nutlope/aicommits | `a414dd43b6` | 4 | 4 | 0 | 0 | 0 | 100% | 100% | 79 passed | 79 passed | N/A: suite mocks the SDK/HTTP | 100% (2/2) | 100% | 6 | 0.3s |
