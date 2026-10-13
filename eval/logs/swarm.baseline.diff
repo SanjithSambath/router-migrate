@@ -1,0 +1,865 @@
+diff --git a/README.md b/README.md
+index bcc1e19..405f962 100644
+--- a/README.md
++++ b/README.md
+@@ -21,6 +21,18 @@ or
+ pip install git+https://github.com/openai/swarm.git
+ ```
+ 
++### Configuration (Router)
++
++Swarm sends every request to [Router](https://api.router.com/v1) through the OpenAI Responses API
++(`POST /v1/responses`). Router holds the provider credentials, so no provider API key is needed.
++
++```shell
++export RAMP_ROUTER_API_KEY=...        # Router API key
++export ROUTER_MODEL=<router-model-id> # a model ID returned by GET https://api.router.com/v1/models
++```
++
++`ROUTER_EVAL_MODEL` optionally overrides the model used by the example LLM-judge evals.
++
+ ## Usage
+ 
+ ```python
+@@ -103,7 +115,7 @@ Check out `/examples` for inspiration! Learn more about each one in its README.
+ 
+ ## Running Swarm
+ 
+-Start by instantiating a Swarm client (which internally just instantiates an `OpenAI` client).
++Start by instantiating a Swarm client (which internally just instantiates an `OpenAI` SDK client pointed at Router, using `RAMP_ROUTER_API_KEY`).
+ 
+ ```python
+ from swarm import Swarm
+@@ -157,7 +169,7 @@ While it's tempting to personify an `Agent` as "someone who does X", it can also
+ | Field            | Type                     | Description                                                                   | Default                      |
+ | ---------------- | ------------------------ | ----------------------------------------------------------------------------- | ---------------------------- |
+ | **name**         | `str`                    | The name of the agent.                                                        | `"Agent"`                    |
+-| **model**        | `str`                    | The model to be used by the agent.                                            | `"gpt-4o"`                   |
++| **model**        | `str`                    | The Router model ID to be used by the agent.                                  | `$ROUTER_MODEL`              |
+ | **instructions** | `str` or `func() -> str` | Instructions for the agent, can be a string or a callable returning a string. | `"You are a helpful agent."` |
+ | **functions**    | `List`                   | A list of functions that the agent can call.                                  | `[]`                         |
+ | **tool_choice**  | `str`                    | The tool choice for the agent, if any.                                        | `None`                       |
+@@ -326,7 +338,7 @@ for chunk in stream:
+    print(chunk)
+ ```
+ 
+-Uses the same events as [Chat Completions API streaming](https://platform.openai.com/docs/api-reference/streaming). See `process_and_print_streaming_response` in `/swarm/repl/repl.py` as an example.
++Responses API stream events from Router are converted to the same delta shape as [Chat Completions API streaming](https://platform.openai.com/docs/api-reference/streaming). See `process_and_print_streaming_response` in `/swarm/repl/repl.py` as an example.
+ 
+ Two new event types have been added:
+ 
+diff --git a/examples/customer_service_streaming/src/evals/eval_function.py b/examples/customer_service_streaming/src/evals/eval_function.py
+index 1149a18..aea64da 100644
+--- a/examples/customer_service_streaming/src/evals/eval_function.py
++++ b/examples/customer_service_streaming/src/evals/eval_function.py
+@@ -1,9 +1,8 @@
+-from src.utils import get_completion
++from src.utils import get_completion, get_router_model
+ from configs.prompts import EVAL_GROUNDTRUTH_PROMPT
+ import json
+ import re
+ import ast
+-from openai import OpenAI
+ 
+ class EvalFunction:
+ 
+@@ -42,17 +41,15 @@ class EvalFunction:
+   def name(self):
+     extract_name_prompt = "You will be provided with a sentence. Your goal is to extract the full names you see in the sentence. Return the names as an array of strings."
+     response = self.plan['step'][-1]
+-    completion_result = self.client.chat.completions.create(
+-       model="gpt-4-turbo-preview",
+-       max_tokens=100,
++    completion_result = self.client.responses.create(
++       model=get_router_model("ROUTER_EVAL_MODEL"),
++       max_output_tokens=100,
+        temperature=0,
+-       messages=[
+-        {"role": "system",
+-         "content": extract_name_prompt
+-         },
++       instructions=extract_name_prompt,
++       input=[
+          {"role": "user", "content": f"SENTENCE:\n{response}"}]
+     )
+-    name_extract = completion_result.choices[0].message.content
++    name_extract = completion_result.output_text
+     print(f"Name extracted: {name_extract}")
+     try:
+        names = ast.literal_eval(name_extract)
+diff --git a/examples/customer_service_streaming/src/swarm/swarm.py b/examples/customer_service_streaming/src/swarm/swarm.py
+index a5743ee..82f2849 100644
+--- a/examples/customer_service_streaming/src/swarm/swarm.py
++++ b/examples/customer_service_streaming/src/swarm/swarm.py
+@@ -1,5 +1,6 @@
+ import json
+ from openai import OpenAI
++from src.utils import get_router_client
+ from src.tasks.task import Task, EvaluationTask
+ from src.swarm.engines.assistants_engine import AssistantsEngine
+ from src.swarm.engines.local_engine import LocalEngine
+@@ -19,14 +20,18 @@ class Swarm:
+         """
+         Processes all tasks in the order they are listed in self.tasks.
+         """
+-        client = OpenAI()
+         # Initialize swarm first
+         if self.engine_name == 'assistants':
++            # NOT MIGRATED TO ROUTER: this engine depends on the OpenAI Assistants API
++            # (beta.assistants / beta.threads), which Router does not expose. It still talks
++            # to OpenAI directly and needs a provider key.
++            client = OpenAI()
+             print(f"{Colors.GREY}Selected engine: Assistants{Colors.ENDC}")
+             self.engine = AssistantsEngine(client, self.tasks)
+             self.engine.deploy(client, test_mode, test_file_paths)
+ 
+         elif self.engine_name == 'local':
++            client = get_router_client()
+             print(f"{Colors.GREY}Selected engine: Local{Colors.ENDC}")
+             self.engine = LocalEngine(client, self.tasks, persist=self.persist)
+             self.engine.deploy(client, test_mode, test_file_paths)
+diff --git a/examples/customer_service_streaming/src/utils.py b/examples/customer_service_streaming/src/utils.py
+index 7e6c36b..0018ff9 100644
+--- a/examples/customer_service_streaming/src/utils.py
++++ b/examples/customer_service_streaming/src/utils.py
+@@ -1,39 +1,113 @@
++import os
++from types import SimpleNamespace
++
++from openai import OpenAI
++
++# Router: one OpenAI Responses-compatible API in front of all providers.
++ROUTER_BASE_URL = "https://api.router.com/v1"
++ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY"
++ROUTER_MODEL_ENV = "ROUTER_MODEL"
++
++
++def get_router_client():
++    """OpenAI SDK client pointed at Router. Router holds the provider credentials."""
++    api_key = os.environ.get(ROUTER_API_KEY_ENV)
++    if not api_key:
++        # Fail loudly instead of letting the SDK fall back to a provider key (OPENAI_API_KEY).
++        raise RuntimeError(f"{ROUTER_API_KEY_ENV} is not set.")
++    return OpenAI(base_url=ROUTER_BASE_URL, api_key=api_key)
++
++
++def get_router_model(env_var=ROUTER_MODEL_ENV):
++    """Router model ID (from GET /v1/models) read from env_var, falling back to ROUTER_MODEL."""
++    model = os.environ.get(env_var) or os.environ.get(ROUTER_MODEL_ENV)
++    if not model:
++        raise ValueError(f"Set {env_var} (or {ROUTER_MODEL_ENV}) to a Router model ID.")
++    return model
++
++
++def _to_responses_tool(tool):
++    """Chat Completions function tool -> Responses function tool (same definition)."""
++    if tool.get("type") == "function" and "function" in tool:
++        fn = tool["function"]
++        return {
++            "type": "function",
++            "name": fn["name"],
++            "description": fn.get("description", ""),
++            "parameters": fn.get("parameters", {"type": "object", "properties": {}}),
++            # Chat Completions defaults to non-strict schemas; Responses defaults to strict.
++            "strict": fn.get("strict", False),
++        }
++    return tool
++
++
++def _response_to_message(response):
++    """Responses output -> message-like object exposing .role, .content and .tool_calls."""
++    text_parts, tool_calls = [], []
++    for item in response.output:
++        if item.type == "message":
++            for part in item.content:
++                if part.type == "output_text":
++                    text_parts.append(part.text)
++        elif item.type == "function_call":
++            tool_calls.append(
++                SimpleNamespace(
++                    id=item.call_id,
++                    type="function",
++                    function=SimpleNamespace(name=item.name, arguments=item.arguments),
++                )
++            )
++    return SimpleNamespace(
++        role="assistant",
++        content="".join(text_parts) if text_parts else None,
++        tool_calls=tool_calls or None,
++    )
++
++
+ def get_completion(client,
+     messages: list[dict[str, str]],
+-    model: str = "gpt-4-0125-preview",
++    model: str = None,
+     max_tokens=2000,
+     temperature=0.7,
+-    tools=None, 
++    tools=None,
+     stream=False,):
+ 
++    # System messages -> instructions; the rest -> input
++    instructions = [m["content"] for m in messages if m.get("role") == "system"]
++    input_messages = [m for m in messages if m.get("role") != "system"]
++
+     # Prepare the request parameters
+     request_params = {
+-        "model": model,
+-        "messages": messages,
+-        "max_tokens": max_tokens,
++        "model": model or get_router_model(),
++        "input": input_messages,
++        "max_output_tokens": max_tokens,
+         "temperature": temperature,
+         "stream": stream,
+     }
++    if instructions:
++        request_params["instructions"] = "\n\n".join(instructions)
+ 
+     if tools and isinstance(tools, list):
+-        request_params["tools"] = tools  # Tools are already in dictionary format
++        request_params["tools"] = [_to_responses_tool(t) for t in tools]
+ 
+     # Make the API call with the possibility of streaming
+     if stream:
+-        completion = client.chat.completions.create(**request_params)
+-        # create variables to collect the stream of chunks
++        completion = client.responses.create(**request_params)
++        # create variables to collect the stream of events
+         collected_chunks = []
+         collected_messages = []
+-        for chunk in completion:
+-            collected_chunks.append(chunk)  # save the event response
+-            chunk_message = chunk.choices[0].delta.content  # extract the message
++        for event in completion:
++            collected_chunks.append(event)  # save the event response
++            if event.type != "response.output_text.delta":
++                continue
++            chunk_message = event.delta  # extract the message
+             collected_messages.append(chunk_message)  # save the message
+             print(chunk_message, end="")  # print the message
+             # yield chunk_message  # Yield each part of the completion as it arrives
+-        return collected_messages  # Returns the whole completion 
++        return collected_messages  # Returns the whole completion
+     else:
+-        completion = client.chat.completions.create(**request_params)
+-        return completion.choices[0].message  # Returns the whole completion 
++        completion = client.responses.create(**request_params)
++        return _response_to_message(completion)  # Returns the whole completion
+ 
+ 
+ def is_dict_empty(d):
+diff --git a/examples/triage_agent/evals_util.py b/examples/triage_agent/evals_util.py
+index 5996f3b..d528d04 100644
+--- a/examples/triage_agent/evals_util.py
++++ b/examples/triage_agent/evals_util.py
+@@ -1,9 +1,16 @@
+-from openai import OpenAI
++import os
++
+ import instructor
+ from pydantic import BaseModel
+ from typing import Optional
+ 
+-__client = instructor.from_openai(OpenAI())
++from swarm.router import router_client, ROUTER_MODEL_ENV
++
++# Instructor in Responses mode: requests go to Router's POST /v1/responses.
++__client = instructor.from_openai(router_client(), mode=instructor.Mode.RESPONSES_TOOLS)
++
++# Router model ID (from GET /v1/models) for the LLM judge; falls back to ROUTER_MODEL.
++EVAL_MODEL = os.environ.get("ROUTER_EVAL_MODEL") or os.environ.get(ROUTER_MODEL_ENV)
+ 
+ 
+ class BoolEvalResult(BaseModel):
+@@ -12,8 +19,10 @@ class BoolEvalResult(BaseModel):
+ 
+ 
+ def evaluate_with_llm_bool(instruction, data) -> BoolEvalResult:
+-    eval_result, _ = __client.chat.completions.create_with_completion(
+-        model="gpt-4o",
++    if not EVAL_MODEL:
++        raise ValueError(f"Set ROUTER_EVAL_MODEL or {ROUTER_MODEL_ENV} to a Router model ID.")
++    eval_result, _ = __client.create_with_completion(
++        model=EVAL_MODEL,
+         messages=[
+             {"role": "system", "content": instruction},
+             {"role": "user", "content": data},
+diff --git a/setup.cfg b/setup.cfg
+index e64c27e..0f382a0 100644
+--- a/setup.cfg
++++ b/setup.cfg
+@@ -13,7 +13,7 @@ zip_safe = True
+ include_package_data = True
+ install_requires =
+     numpy
+-    openai>=1.33.0
++    openai>=1.66.0
+     pytest
+     requests
+     tqdm
+diff --git a/swarm/core.py b/swarm/core.py
+index 65dedf1..a80692c 100644
+--- a/swarm/core.py
++++ b/swarm/core.py
+@@ -4,11 +4,8 @@ import json
+ from collections import defaultdict
+ from typing import List, Callable, Union
+ 
+-# Package/library imports
+-from openai import OpenAI
+-
+-
+ # Local imports
++from .router import router_client, ROUTER_MODEL_ENV
+ from .util import function_to_json, debug_print, merge_chunk
+ from .types import (
+     Agent,
+@@ -23,10 +20,201 @@ from .types import (
+ __CTX_VARS_NAME__ = "context_variables"
+ 
+ 
++# --- Responses API transport helpers -------------------------------------------------
++# Swarm's public message format (Response.messages, history passed to run()) stays
++# chat-style. These helpers translate it to/from the OpenAI Responses schema that
++# Router speaks, so only the transport changes.
++
++
++def _to_responses_tools(tools: List[dict]) -> List[dict]:
++    """Chat Completions function tool -> Responses function tool (same name/description/schema)."""
++    converted = []
++    for tool in tools:
++        if tool.get("type") == "function" and "function" in tool:
++            fn = tool["function"]
++            converted.append(
++                {
++                    "type": "function",
++                    "name": fn["name"],
++                    "description": fn.get("description", ""),
++                    "parameters": fn["parameters"],
++                    # Chat Completions defaults to non-strict schemas; Responses defaults to strict.
++                    "strict": fn.get("strict", False),
++                }
++            )
++        else:
++            converted.append(tool)
++    return converted
++
++
++def _to_responses_tool_choice(tool_choice):
++    if (
++        isinstance(tool_choice, dict)
++        and tool_choice.get("type") == "function"
++        and "function" in tool_choice
++    ):
++        return {"type": "function", "name": tool_choice["function"]["name"]}
++    return tool_choice
++
++
++def _text_content(content, role: str):
++    """Convert chat message content to Responses content. Only text is supported."""
++    if not isinstance(content, list):
++        return content
++    if role == "assistant":
++        texts = []
++        for part in content:
++            if isinstance(part, dict) and part.get("type") == "text":
++                texts.append(part["text"])
++            else:
++                raise ValueError(
++                    f"Unsupported assistant content part for Router migration: {part!r}"
++                )
++        return "".join(texts)
++    parts = []
++    for part in content:
++        if isinstance(part, dict) and part.get("type") == "text":
++            parts.append({"type": "input_text", "text": part["text"]})
++        else:
++            # Image/audio/file parts need a Router model confirmed to support that modality.
++            raise ValueError(
++                f"Unsupported content part for Router migration (text only): {part!r}"
++            )
++    return parts
++
++
++def _to_responses_input(history: List[dict]) -> List[dict]:
++    """Chat-style history -> Responses input items."""
++    items = []
++    for message in history:
++        role = message.get("role")
++        if role == "tool":
++            items.append(
++                {
++                    "type": "function_call_output",
++                    "call_id": message["tool_call_id"],
++                    "output": message.get("content") or "",
++                }
++            )
++            continue
++        content = message.get("content")
++        if role == "assistant":
++            if content:
++                items.append(
++                    {"role": "assistant", "content": _text_content(content, role)}
++                )
++            for tool_call in message.get("tool_calls") or []:
++                items.append(
++                    {
++                        "type": "function_call",
++                        "call_id": tool_call["id"],
++                        "name": tool_call["function"]["name"],
++                        "arguments": tool_call["function"]["arguments"],
++                    }
++                )
++            continue
++        items.append({"role": role, "content": _text_content(content, role)})
++    return items
++
++
++def _response_to_message(response) -> dict:
++    """Responses output -> chat-style assistant message dict (as previously stored in history)."""
++    text_parts, refusal_parts, tool_calls = [], [], []
++    for item in response.output:
++        if item.type == "message":
++            for part in item.content:
++                if part.type == "output_text":
++                    text_parts.append(part.text)
++                elif part.type == "refusal":
++                    refusal_parts.append(part.refusal)
++        elif item.type == "function_call":
++            tool_calls.append(
++                {
++                    "id": item.call_id,
++                    "type": "function",
++                    "function": {"name": item.name, "arguments": item.arguments},
++                }
++            )
++        # Other item types (e.g. reasoning) have no chat-message equivalent.
++    return {
++        "content": "".join(text_parts) if text_parts else None,
++        "refusal": "".join(refusal_parts) if refusal_parts else None,
++        "role": "assistant",
++        "function_call": None,
++        "tool_calls": tool_calls or None,
++    }
++
++
++def _empty_delta() -> dict:
++    return {
++        "content": None,
++        "function_call": None,
++        "refusal": None,
++        "role": None,
++        "tool_calls": None,
++    }
++
++
++def _stream_event_to_delta(event):
++    """Responses SSE event -> chat-style streaming delta (None for events with no delta)."""
++    event_type = getattr(event, "type", None)
++    if event_type == "response.created":
++        delta = _empty_delta()
++        delta["role"] = "assistant"
++        return delta
++    if event_type == "response.output_text.delta":
++        delta = _empty_delta()
++        delta["content"] = event.delta
++        return delta
++    if event_type == "response.refusal.delta":
++        delta = _empty_delta()
++        delta["refusal"] = event.delta
++        return delta
++    if event_type == "response.output_item.added" and event.item.type == "function_call":
++        delta = _empty_delta()
++        delta["tool_calls"] = [
++            {
++                "index": event.output_index,
++                "id": event.item.call_id,
++                "type": "function",
++                "function": {"name": event.item.name, "arguments": ""},
++            }
++        ]
++        return delta
++    if event_type == "response.function_call_arguments.delta":
++        delta = _empty_delta()
++        delta["tool_calls"] = [
++            {
++                "index": event.output_index,
++                "id": None,
++                "type": None,
++                "function": {"name": None, "arguments": event.delta},
++            }
++        ]
++        return delta
++    if event_type in ("response.failed", "error"):
++        raise RuntimeError(f"Router streaming error: {event}")
++    return None
++
++
++def _to_tool_call_objects(tool_calls: List[dict]) -> List[ChatCompletionMessageToolCall]:
++    return [
++        ChatCompletionMessageToolCall(
++            id=tool_call["id"],
++            function=Function(
++                arguments=tool_call["function"]["arguments"],
++                name=tool_call["function"]["name"],
++            ),
++            type=tool_call["type"],
++        )
++        for tool_call in tool_calls
++    ]
++
++
+ class Swarm:
+     def __init__(self, client=None):
+         if not client:
+-            client = OpenAI()
++            client = router_client()
+         self.client = client
+ 
+     def get_chat_completion(
+@@ -37,15 +225,18 @@ class Swarm:
+         model_override: str,
+         stream: bool,
+         debug: bool,
+-    ) -> ChatCompletionMessage:
++    ):
++        """Calls Router's Responses API (POST /v1/responses) for the active agent."""
+         context_variables = defaultdict(str, context_variables)
+         instructions = (
+             agent.instructions(context_variables)
+             if callable(agent.instructions)
+             else agent.instructions
+         )
+-        messages = [{"role": "system", "content": instructions}] + history
+-        debug_print(debug, "Getting chat completion for...:", messages)
++        input_items = _to_responses_input(history)
++        debug_print(
++            debug, "Getting response for...:", {"instructions": instructions, "input": input_items}
++        )
+ 
+         tools = [function_to_json(f) for f in agent.functions]
+         # hide context_variables from model
+@@ -55,18 +246,28 @@ class Swarm:
+             if __CTX_VARS_NAME__ in params["required"]:
+                 params["required"].remove(__CTX_VARS_NAME__)
+ 
++        model = model_override or agent.model
++        if not model:
++            raise ValueError(
++                f"No model configured for agent '{agent.name}'. Set {ROUTER_MODEL_ENV} to a "
++                "model ID returned by Router's GET /v1/models, or pass Agent(model=...)."
++            )
++
+         create_params = {
+-            "model": model_override or agent.model,
+-            "messages": messages,
+-            "tools": tools or None,
+-            "tool_choice": agent.tool_choice,
++            "model": model,
++            "instructions": instructions,
++            "input": input_items,
+             "stream": stream,
+         }
+ 
+         if tools:
++            create_params["tools"] = _to_responses_tools(tools)
+             create_params["parallel_tool_calls"] = agent.parallel_tool_calls
+ 
+-        return self.client.chat.completions.create(**create_params)
++        if agent.tool_choice is not None:
++            create_params["tool_choice"] = _to_responses_tool_choice(agent.tool_choice)
++
++        return self.client.responses.create(**create_params)
+ 
+     def handle_function_result(self, result, debug) -> Result:
+         match result:
+@@ -155,6 +356,7 @@ class Swarm:
+ 
+             message = {
+                 "content": "",
++                "refusal": "",
+                 "sender": agent.name,
+                 "role": "assistant",
+                 "function_call": None,
+@@ -178,8 +380,11 @@ class Swarm:
+             )
+ 
+             yield {"delim": "start"}
+-            for chunk in completion:
+-                delta = json.loads(chunk.choices[0].delta.json())
++            for event in completion:
++                # Responses SSE events -> chat-style deltas (same shape callers consumed before)
++                delta = _stream_event_to_delta(event)
++                if delta is None:
++                    continue
+                 if delta["role"] == "assistant":
+                     delta["sender"] = active_agent.name
+                 yield delta
+@@ -188,6 +393,8 @@ class Swarm:
+                 merge_chunk(message, delta)
+             yield {"delim": "end"}
+ 
++            if not message["refusal"]:
++                message["refusal"] = None
+             message["tool_calls"] = list(
+                 message.get("tool_calls", {}).values())
+             if not message["tool_calls"]:
+@@ -200,16 +407,7 @@ class Swarm:
+                 break
+ 
+             # convert tool_calls to objects
+-            tool_calls = []
+-            for tool_call in message["tool_calls"]:
+-                function = Function(
+-                    arguments=tool_call["function"]["arguments"],
+-                    name=tool_call["function"]["name"],
+-                )
+-                tool_call_object = ChatCompletionMessageToolCall(
+-                    id=tool_call["id"], function=function, type=tool_call["type"]
+-                )
+-                tool_calls.append(tool_call_object)
++            tool_calls = _to_tool_call_objects(message["tool_calls"])
+ 
+             # handle function calls, updating context_variables, and switching agents
+             partial_response = self.handle_tool_calls(
+@@ -265,20 +463,22 @@ class Swarm:
+                 stream=stream,
+                 debug=debug,
+             )
+-            message = completion.choices[0].message
++            # inspect response.output (text, refusals, function calls) rather than output_text only
++            message = _response_to_message(completion)
+             debug_print(debug, "Received completion:", message)
+-            message.sender = active_agent.name
+-            history.append(
+-                json.loads(message.model_dump_json())
+-            )  # to avoid OpenAI types (?)
++            message["sender"] = active_agent.name
++            history.append(message)
+ 
+-            if not message.tool_calls or not execute_tools:
++            if not message["tool_calls"] or not execute_tools:
+                 debug_print(debug, "Ending turn.")
+                 break
+ 
+             # handle function calls, updating context_variables, and switching agents
+             partial_response = self.handle_tool_calls(
+-                message.tool_calls, active_agent.functions, context_variables, debug
++                _to_tool_call_objects(message["tool_calls"]),
++                active_agent.functions,
++                context_variables,
++                debug,
+             )
+             history.extend(partial_response.messages)
+             context_variables.update(partial_response.context_variables)
+diff --git a/swarm/router.py b/swarm/router.py
+new file mode 100644
+index 0000000..bd3168e
+--- /dev/null
++++ b/swarm/router.py
+@@ -0,0 +1,28 @@
++"""Router configuration: one OpenAI Responses-compatible endpoint in front of all providers.
++
++Router holds the provider credentials, so the only secret the application needs is
++RAMP_ROUTER_API_KEY. Model IDs are account-specific and must come from Router's
++`GET /v1/models`; they are read from the environment rather than hardcoded.
++"""
++
++import os
++
++from openai import OpenAI
++
++ROUTER_BASE_URL = "https://api.router.com/v1"
++ROUTER_API_KEY_ENV = "RAMP_ROUTER_API_KEY"
++ROUTER_MODEL_ENV = "ROUTER_MODEL"
++
++
++def router_client(**kwargs) -> OpenAI:
++    """Return an OpenAI SDK client pointed at Router, authenticated with RAMP_ROUTER_API_KEY."""
++    api_key = os.environ.get(ROUTER_API_KEY_ENV)
++    if not api_key:
++        # Fail loudly instead of letting the SDK fall back to a provider key (OPENAI_API_KEY).
++        raise RuntimeError(f"{ROUTER_API_KEY_ENV} is not set.")
++    return OpenAI(base_url=ROUTER_BASE_URL, api_key=api_key, **kwargs)
++
++
++def default_model():
++    """Default Router model ID (from GET /v1/models), read from ROUTER_MODEL."""
++    return os.environ.get(ROUTER_MODEL_ENV) or None
+diff --git a/swarm/types.py b/swarm/types.py
+index 0099abb..badf253 100644
+--- a/swarm/types.py
++++ b/swarm/types.py
+@@ -6,14 +6,17 @@ from openai.types.chat.chat_completion_message_tool_call import (
+ from typing import List, Callable, Union, Optional
+ 
+ # Third-party imports
+-from pydantic import BaseModel
++from pydantic import BaseModel, Field
++
++from .router import default_model
+ 
+ AgentFunction = Callable[[], Union[str, "Agent", dict]]
+ 
+ 
+ class Agent(BaseModel):
+     name: str = "Agent"
+-    model: str = "gpt-4o"
++    # Router model ID (from GET /v1/models); defaults to the ROUTER_MODEL env var.
++    model: Optional[str] = Field(default_factory=default_model)
+     instructions: Union[str, Callable[[], str]] = "You are a helpful agent."
+     functions: List[AgentFunction] = []
+     tool_choice: str = None
+diff --git a/tests/mock_client.py b/tests/mock_client.py
+index 9551c25..0248f8a 100644
+--- a/tests/mock_client.py
++++ b/tests/mock_client.py
+@@ -1,67 +1,70 @@
+ from unittest.mock import MagicMock
+-from swarm.types import ChatCompletionMessage, ChatCompletionMessageToolCall, Function
+-from openai import OpenAI
+-from openai.types.chat.chat_completion import ChatCompletion, Choice
++from openai.types.responses import (
++    Response,
++    ResponseFunctionToolCall,
++    ResponseOutputMessage,
++    ResponseOutputText,
++)
+ import json
+ 
+ 
+-def create_mock_response(message, function_calls=[], model="gpt-4o"):
+-    role = message.get("role", "assistant")
++def create_mock_response(message, function_calls=[], model="mock-model"):
+     content = message.get("content", "")
+-    tool_calls = (
+-        [
+-            ChatCompletionMessageToolCall(
+-                id="mock_tc_id",
+-                type="function",
+-                function=Function(
+-                    name=call.get("name", ""),
+-                    arguments=json.dumps(call.get("args", {})),
+-                ),
++    output = []
++    if content:
++        output.append(
++            ResponseOutputMessage(
++                id="mock_msg_id",
++                type="message",
++                role="assistant",
++                status="completed",
++                content=[
++                    ResponseOutputText(type="output_text", text=content, annotations=[])
++                ],
+             )
+-            for call in function_calls
+-        ]
+-        if function_calls
+-        else None
+-    )
++        )
++    for call in function_calls or []:
++        output.append(
++            ResponseFunctionToolCall(
++                id="mock_fc_id",
++                type="function_call",
++                call_id="mock_tc_id",
++                name=call.get("name", ""),
++                arguments=json.dumps(call.get("args", {})),
++                status="completed",
++            )
++        )
+ 
+-    return ChatCompletion(
+-        id="mock_cc_id",
+-        created=1234567890,
++    # model_construct: only the fields Swarm reads are needed for the mock
++    return Response.model_construct(
++        id="mock_resp_id",
++        object="response",
++        created_at=1234567890,
+         model=model,
+-        object="chat.completion",
+-        choices=[
+-            Choice(
+-                message=ChatCompletionMessage(
+-                    role=role, content=content, tool_calls=tool_calls
+-                ),
+-                finish_reason="stop",
+-                index=0,
+-            )
+-        ],
++        output=output,
+     )
+ 
+ 
+ class MockOpenAIClient:
+     def __init__(self):
+-        self.chat = MagicMock()
+-        self.chat.completions = MagicMock()
++        self.responses = MagicMock()
+ 
+-    def set_response(self, response: ChatCompletion):
++    def set_response(self, response: Response):
+         """
+         Set the mock to return a specific response.
+-        :param response: A ChatCompletion response to return.
++        :param response: A Responses API response to return.
+         """
+-        self.chat.completions.create.return_value = response
++        self.responses.create.return_value = response
+ 
+-    def set_sequential_responses(self, responses: list[ChatCompletion]):
++    def set_sequential_responses(self, responses: list[Response]):
+         """
+         Set the mock to return different responses sequentially.
+-        :param responses: A list of ChatCompletion responses to return in order.
++        :param responses: A list of Responses API responses to return in order.
+         """
+-        self.chat.completions.create.side_effect = responses
++        self.responses.create.side_effect = responses
+ 
+     def assert_create_called_with(self, **kwargs):
+-        self.chat.completions.create.assert_called_with(**kwargs)
++        self.responses.create.assert_called_with(**kwargs)
+ 
+ 
+ # Initialize the mock client
+@@ -84,13 +87,9 @@ client.set_sequential_responses(
+ )
+ 
+ # This should return the first mock response
+-first_response = client.chat.completions.create()
+-print(
+-    first_response.choices[0].message
+-)  # Outputs: role='agent' content='First response'
++first_response = client.responses.create()
++print(first_response.output)  # Outputs: message item + function_call item
+ 
+ # This should return the second mock response
+-second_response = client.chat.completions.create()
+-print(
+-    second_response.choices[0].message
+-)  # Outputs: role='agent' content='Second response'
++second_response = client.responses.create()
++print(second_response.output_text)  # Outputs: Second
+diff --git a/tests/test_core.py b/tests/test_core.py
+index c440729..49ec1f3 100644
+--- a/tests/test_core.py
++++ b/tests/test_core.py
+@@ -7,6 +7,12 @@ import json
+ DEFAULT_RESPONSE_CONTENT = "sample response content"
+ 
+ 
++@pytest.fixture(autouse=True)
++def router_model_env(monkeypatch):
++    # Agent.model defaults to ROUTER_MODEL; the mock client ignores the value.
++    monkeypatch.setenv("ROUTER_MODEL", "mock-model")
++
++
+ @pytest.fixture
+ def mock_openai_client():
+     m = MockOpenAIClient()
