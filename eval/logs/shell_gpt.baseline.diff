@@ -1,0 +1,547 @@
+diff --git a/.github/workflows/lint_test.yml b/.github/workflows/lint_test.yml
+index e1f9c94..2bcfb73 100644
+--- a/.github/workflows/lint_test.yml
++++ b/.github/workflows/lint_test.yml
+@@ -34,5 +34,7 @@ jobs:
+       run: mypy sgpt --exclude llm_functions
+     - name: tests
+       run: |
+-        export OPENAI_API_KEY=test_api_key
++        # Placeholders only: tests mock the Router client, no real key or model is used.
++        export RAMP_ROUTER_API_KEY=test_api_key
++        export DEFAULT_MODEL=test-model
+         pytest tests/ -p no:warnings -v -s
+diff --git a/README.md b/README.md
+index 3573eb2..33ce0bc 100644
+--- a/README.md
++++ b/README.md
+@@ -7,7 +7,7 @@ https://github.com/TheR1D/shell_gpt/assets/16740832/721ddb19-97e7-428f-a0ee-107d
+ ```shell
+ pip install shell-gpt
+ ```
+-By default, ShellGPT uses OpenAI's API and GPT-4 model. You'll need an API key, you can generate one [here](https://platform.openai.com/api-keys). You will be prompted for your key which will then be stored in `~/.config/shell_gpt/.sgptrc`. OpenAI API is not free of charge, please refer to the [OpenAI pricing](https://openai.com/pricing) for more information.
++ShellGPT sends all requests through Router (`https://api.router.com/v1`), an OpenAI Responses-compatible gateway. You'll need a Router API key in `RAMP_ROUTER_API_KEY`; if it is not set you will be prompted for it and it will be stored in `~/.config/shell_gpt/.sgptrc`. Set `DEFAULT_MODEL` (or pass `--model`) to a model ID available to your account, as listed by `GET /v1/models`.
+ 
+ > [!TIP]
+ > Alternatively, you can run open-source models locally for free. This requires setting up your own LLM backend, such as [Ollama](https://github.com/ollama/ollama). To get ShellGPT working with Ollama, follow this detailed [guide](https://github.com/TheR1D/shell_gpt/wiki/Ollama)
+@@ -359,10 +359,8 @@ This is just some examples of what we can do using OpenAI GPT models, I'm sure y
+ ### Runtime configuration file
+ You can setup some parameters in runtime configuration file `~/.config/shell_gpt/.sgptrc`:
+ ```text
+-# API key, also it is possible to define OPENAI_API_KEY env.
+-OPENAI_API_KEY=your_api_key
+-# Base URL of the backend server. If "default" URL will be resolved based on --model.
+-API_BASE_URL=default
++# Router API key, also it is possible to define RAMP_ROUTER_API_KEY env.
++RAMP_ROUTER_API_KEY=your_router_api_key
+ # Max amount of cached message per chat session.
+ CHAT_CACHE_LENGTH=100
+ # Chat cache folder.
+@@ -373,8 +371,8 @@ CACHE_LENGTH=100
+ CACHE_PATH=/tmp/shell_gpt/cache
+ # Request timeout in seconds.
+ REQUEST_TIMEOUT=60
+-# Default OpenAI model to use.
+-DEFAULT_MODEL=gpt-5.4-mini
++# Default Router model ID to use (see GET /v1/models). No built-in default.
++DEFAULT_MODEL=your_router_model_id
+ # Default color for shell and code completions.
+ DEFAULT_COLOR=magenta
+ # When in --shell mode, default to "Y" for no input.
+@@ -389,8 +387,6 @@ OPENAI_FUNCTIONS_PATH=/Users/user/.config/shell_gpt/functions
+ SHOW_FUNCTIONS_OUTPUT=false
+ # Allows LLM to use functions.
+ OPENAI_USE_FUNCTIONS=true
+-# Enforce LiteLLM usage (for local LLMs).
+-USE_LITELLM=false
+ # Control how markdown live rendering handles overflow when output exceeds terminal height.
+ # Possible values: ellipsis, visible, crop
+ MARKDOWN_LIVE_VERTICAL_OVERFLOW=ellipsis
+@@ -424,7 +420,7 @@ With `visible` mode, you can continuously observe generated markdown output, too
+ │   prompt      [PROMPT]  The prompt to generate completions for.                                          │
+ ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ╭─ Options ────────────────────────────────────────────────────────────────────────────────────────────────╮
+-│ --model            TEXT                       Large language model to use. [default: gpt-5.4-mini]       │
++│ --model            TEXT                       Router model ID to use. [default: DEFAULT_MODEL]           │
+ │ --temperature      FLOAT RANGE [0.0<=x<=2.0]  Randomness of generated output. [default: 0.0]             │
+ │ --top-p            FLOAT RANGE [0.0<=x<=1.0]  Limits highest probable tokens (words). [default: 1.0]     │
+ │ --md             --no-md                      Prettify markdown output. [default: md]                    │
+@@ -455,20 +451,22 @@ With `visible` mode, you can continuously observe generated markdown output, too
+ ```
+ 
+ ## Docker
+-Run the container using the `OPENAI_API_KEY` environment variable, and a docker volume to store cache. Consider to set the environment variables `OS_NAME` and `SHELL_NAME` according to your preferences.
++Run the container using the `RAMP_ROUTER_API_KEY` and `DEFAULT_MODEL` environment variables, and a docker volume to store cache. Consider to set the environment variables `OS_NAME` and `SHELL_NAME` according to your preferences.
+ ```shell
+ docker run --rm \
+-           --env OPENAI_API_KEY=api_key \
++           --env RAMP_ROUTER_API_KEY \
++           --env DEFAULT_MODEL \
+            --env OS_NAME=$(uname -s) \
+            --env SHELL_NAME=$(echo $SHELL) \
+            --volume gpt-cache:/tmp/shell_gpt \
+        ghcr.io/ther1d/shell_gpt -s "update my system"
+ ```
+ 
+-Example of a conversation, using an alias and the `OPENAI_API_KEY` environment variable:
++Example of a conversation, using an alias and the `RAMP_ROUTER_API_KEY` environment variable:
+ ```shell
+-alias sgpt="docker run --rm --volume gpt-cache:/tmp/shell_gpt --env OPENAI_API_KEY --env OS_NAME=$(uname -s) --env SHELL_NAME=$(echo $SHELL) ghcr.io/ther1d/shell_gpt"
+-export OPENAI_API_KEY="your OPENAI API key"
++alias sgpt="docker run --rm --volume gpt-cache:/tmp/shell_gpt --env RAMP_ROUTER_API_KEY --env DEFAULT_MODEL --env OS_NAME=$(uname -s) --env SHELL_NAME=$(echo $SHELL) ghcr.io/ther1d/shell_gpt"
++export RAMP_ROUTER_API_KEY="your Router API key"
++export DEFAULT_MODEL="your Router model ID"
+ sgpt --chat rainbow "what are the colors of a rainbow"
+ sgpt --chat rainbow "inverse the list of your last answer"
+ sgpt --chat rainbow "translate your last answer in french"
+diff --git a/pyproject.toml b/pyproject.toml
+index 2aa72f3..b6a1abf 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -34,9 +34,6 @@ dependencies = [
+ ]
+ 
+ [project.optional-dependencies]
+-litellm = [
+-    "litellm == 1.83.4"
+-]
+ test = [
+     "pytest >= 7.2.2, < 8.0.0",
+     "requests-mock[fixture] >= 1.10.0, < 2.0.0",
+diff --git a/sgpt/app.py b/sgpt/app.py
+index 2778837..dbac5e9 100644
+--- a/sgpt/app.py
++++ b/sgpt/app.py
+@@ -3,6 +3,7 @@ import os
+ # To allow users to use arrow keys in the REPL.
+ import readline  # noqa: F401
+ import sys
++from typing import Optional
+ 
+ import typer
+ from click import UsageError
+@@ -30,9 +31,10 @@ def main(
+         show_default=False,
+         help="The prompt to generate completions for.",
+     ),
+-    model: str = typer.Option(
+-        cfg.get("DEFAULT_MODEL"),
+-        help="Large language model to use.",
++    model: Optional[str] = typer.Option(
++        None,
++        help="Router model ID to use. [default: DEFAULT_MODEL]",
++        show_default=False,
+     ),
+     temperature: float = typer.Option(
+         cfg.get("DEFAULT_TEMPERATURE"),
+@@ -206,6 +208,9 @@ def main(
+         else SystemRole.get(role)
+     )
+ 
++    # Model IDs are account-specific Router IDs, read from config/env (DEFAULT_MODEL).
++    model = model or cfg.get("DEFAULT_MODEL")
++
+     function_schemas = (get_openai_schemas() or None) if functions else None
+ 
+     if repl:
+diff --git a/sgpt/config.py b/sgpt/config.py
+index 283e9c2..fa8d0ad 100644
+--- a/sgpt/config.py
++++ b/sgpt/config.py
+@@ -22,7 +22,9 @@ DEFAULT_CONFIG = {
+     "CHAT_CACHE_LENGTH": int(os.getenv("CHAT_CACHE_LENGTH", "100")),
+     "CACHE_LENGTH": int(os.getenv("CHAT_CACHE_LENGTH", "100")),
+     "REQUEST_TIMEOUT": int(os.getenv("REQUEST_TIMEOUT", "60")),
+-    "DEFAULT_MODEL": os.getenv("DEFAULT_MODEL", "gpt-5.4-mini"),
++    # Router model ID (account-specific, list them with GET /v1/models).
++    # Intentionally no default: set DEFAULT_MODEL or pass --model.
++    "DEFAULT_MODEL": os.getenv("DEFAULT_MODEL", ""),
+     "DEFAULT_TEMPERATURE": os.getenv("DEFAULT_TEMPERATURE", 0.0),
+     "DEFAULT_COLOR": os.getenv("DEFAULT_COLOR", "magenta"),
+     "ROLE_STORAGE_PATH": os.getenv("ROLE_STORAGE_PATH", str(ROLE_STORAGE_PATH)),
+@@ -32,9 +34,7 @@ DEFAULT_CONFIG = {
+     "OPENAI_FUNCTIONS_PATH": os.getenv("OPENAI_FUNCTIONS_PATH", str(FUNCTIONS_PATH)),
+     "OPENAI_USE_FUNCTIONS": os.getenv("OPENAI_USE_FUNCTIONS", "true"),
+     "SHOW_FUNCTIONS_OUTPUT": os.getenv("SHOW_FUNCTIONS_OUTPUT", "false"),
+-    "API_BASE_URL": os.getenv("API_BASE_URL", "default"),
+     "PRETTIFY_MARKDOWN": os.getenv("PRETTIFY_MARKDOWN", "true"),
+-    "USE_LITELLM": os.getenv("USE_LITELLM", "false"),
+     "SHELL_INTERACTION": os.getenv("SHELL_INTERACTION ", "true"),
+     "MARKDOWN_LIVE_VERTICAL_OVERFLOW": os.getenv(
+         "MARKDOWN_LIVE_VERTICAL_OVERFLOW", "visible"
+@@ -62,9 +62,11 @@ class Config(dict):  # type: ignore
+         else:
+             config_path.parent.mkdir(parents=True, exist_ok=True)
+             # Don't write API key to config file if it is in the environment.
+-            if not defaults.get("OPENAI_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+-                __api_key = getpass(prompt="Please enter your OpenAI API key: ")
+-                defaults["OPENAI_API_KEY"] = __api_key
++            if not defaults.get("RAMP_ROUTER_API_KEY") and not os.getenv(
++                "RAMP_ROUTER_API_KEY"
++            ):
++                __api_key = getpass(prompt="Please enter your Router API key: ")
++                defaults["RAMP_ROUTER_API_KEY"] = __api_key
+             super().__init__(**defaults)
+             self._write()
+ 
+diff --git a/sgpt/handlers/handler.py b/sgpt/handlers/handler.py
+index a3a34bb..fa209c4 100644
+--- a/sgpt/handlers/handler.py
++++ b/sgpt/handlers/handler.py
+@@ -2,6 +2,7 @@ import json
+ from pathlib import Path
+ from typing import Any, Callable, Dict, Generator, List, Optional, cast
+ 
++from openai import OpenAI
+ from rich.live_render import VerticalOverflowMethod
+ 
+ from ..cache import Cache
+@@ -10,27 +11,78 @@ from ..function import get_function
+ from ..printer import MarkdownPrinter, Printer, TextPrinter
+ from ..role import DefaultRoles, SystemRole
+ 
+-completion: Callable[..., Any] = lambda *args, **kwargs: Generator[Any, None, None]
+-
+-base_url = cfg.get("API_BASE_URL")
+-use_litellm = cfg.get("USE_LITELLM") == "true"
+-additional_kwargs = {
+-    "timeout": int(cfg.get("REQUEST_TIMEOUT")),
+-    "api_key": cfg.get("OPENAI_API_KEY"),
+-    "base_url": None if base_url == "default" else base_url,
+-}
+-
+-if use_litellm:
+-    import litellm  # type: ignore
+-
+-    completion = litellm.completion
+-    litellm.suppress_debug_info = True
+-else:
+-    from openai import OpenAI
+-
+-    client = OpenAI(**additional_kwargs)  # type: ignore
+-    completion = client.chat.completions.create
+-    additional_kwargs = {}
++# All LLM traffic goes through Router (OpenAI Responses-compatible gateway).
++# Router holds the provider credentials; only RAMP_ROUTER_API_KEY is sent.
++ROUTER_BASE_URL = "https://api.router.com/v1"
++
++client = OpenAI(
++    base_url=ROUTER_BASE_URL,
++    api_key=cfg.get("RAMP_ROUTER_API_KEY"),
++    timeout=int(cfg.get("REQUEST_TIMEOUT")),
++)
++completion: Callable[..., Any] = client.responses.create
++additional_kwargs: Dict[str, Any] = {}
++
++
++def to_responses_tools(functions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    """
++    Convert Chat Completions tool schemas ({"type": "function", "function": {...}})
++    to the flat Responses function tool shape. Definitions themselves are unchanged.
++    """
++    tools = []
++    for schema in functions:
++        function = schema.get("function", schema)
++        tools.append(
++            {
++                "type": "function",
++                "name": function["name"],
++                "description": function.get("description", ""),
++                "parameters": function.get("parameters", {}),
++                # Chat Completions default; Responses defaults to strict mode.
++                "strict": False,
++            }
++        )
++    return tools
++
++
++def to_responses_input(
++    messages: List[Dict[str, Any]],
++) -> tuple[Optional[str], List[Dict[str, Any]]]:
++    """
++    Convert the internally stored chat-style message list into Responses
++    `instructions` (system messages) and `input` items.
++    """
++    instructions: List[str] = []
++    input_items: List[Dict[str, Any]] = []
++    for message in messages:
++        role = message["role"]
++        if role == "system":
++            instructions.append(message["content"])
++        elif role == "tool":
++            input_items.append(
++                {
++                    "type": "function_call_output",
++                    "call_id": message["tool_call_id"],
++                    "output": message["content"],
++                }
++            )
++        elif role == "assistant" and message.get("tool_calls"):
++            if message.get("content"):
++                input_items.append(
++                    {"role": "assistant", "content": message["content"]}
++                )
++            for tool_call in message["tool_calls"]:
++                input_items.append(
++                    {
++                        "type": "function_call",
++                        "call_id": tool_call["id"],
++                        "name": tool_call["function"]["name"],
++                        "arguments": tool_call["function"]["arguments"],
++                    }
++                )
++        else:
++            input_items.append({"role": role, "content": message["content"]})
++    return ("\n\n".join(instructions) or None), input_items
+ 
+ 
+ class Handler:
+@@ -38,9 +90,6 @@ class Handler:
+ 
+     def __init__(self, role: SystemRole, markdown: bool) -> None:
+         self.role = role
+-
+-        api_base_url = cfg.get("API_BASE_URL")
+-        self.base_url = None if api_base_url == "default" else api_base_url
+         self.timeout = int(cfg.get("REQUEST_TIMEOUT"))
+ 
+         self.markdown = "APPLY MARKDOWN" in self.role.role and markdown
+@@ -117,42 +166,40 @@ class Handler:
+ 
+         if functions:
+             additional_kwargs["tool_choice"] = "auto"
+-            additional_kwargs["tools"] = functions
++            additional_kwargs["tools"] = to_responses_tools(functions)
+             additional_kwargs["parallel_tool_calls"] = False
+ 
++        instructions, input_items = to_responses_input(messages)
++        if instructions is not None:
++            additional_kwargs["instructions"] = instructions
++        else:
++            additional_kwargs.pop("instructions", None)
++
+         response = completion(
+             model=model,
+             temperature=temperature,
+             top_p=top_p,
+-            messages=messages,
++            input=input_items,
+             stream=True,
+             **additional_kwargs,
+         )
+ 
+         try:
+-            for chunk in response:
+-                if not chunk.choices:
+-                    continue
+-                delta = chunk.choices[0].delta
+-
+-                # LiteLLM uses dict instead of Pydantic object like OpenAI does.
+-                tool_calls = (
+-                    delta.get("tool_calls") if use_litellm else delta.tool_calls
+-                )
+-                if tool_calls:
+-                    for tool_call in tool_calls:
+-                        if use_litellm:
+-                            # TODO: test.
+-                            tool_call_id = tool_call.get("id") or tool_call_id
+-                            name = tool_call.get("function", {}).get("name") or name
+-                            arguments += tool_call.get("function", {}).get(
+-                                "arguments", ""
+-                            )
+-                        else:
+-                            tool_call_id = tool_call.id or tool_call_id
+-                            name = tool_call.function.name or name
+-                            arguments += tool_call.function.arguments or ""
+-                if chunk.choices[0].finish_reason == "tool_calls":
++            for event in response:
++                if event.type == "response.output_text.delta":
++                    yield event.delta or ""
++                elif (
++                    event.type == "response.output_item.done"
++                    and event.item.type == "function_call"
++                ):
++                    tool_call_id = event.item.call_id
++                    name = event.item.name
++                    arguments = event.item.arguments
++                elif event.type == "response.failed":
++                    raise RuntimeError(f"Router request failed: {event.response.error}")
++                elif event.type == "error":
++                    raise RuntimeError(f"Router request failed: {event.message}")
++                elif event.type == "response.completed" and name:
+                     yield from self.handle_function_call(
+                         messages, tool_call_id, name, arguments
+                     )
+@@ -165,8 +212,6 @@ class Handler:
+                         caching=False,
+                     )
+                     return
+-
+-                yield delta.content or ""
+         except KeyboardInterrupt:
+             response.close()
+ 
+diff --git a/tests/_integration.py b/tests/_integration.py
+index 958eb62..26eedbc 100644
+--- a/tests/_integration.py
++++ b/tests/_integration.py
+@@ -1,8 +1,9 @@
+ """
+ This test module will execute real commands using shell.
+ This means it will call sgpt.py with command line arguments.
+-Make sure you have your API key in place ~/.cfg/shell_gpt/.sgptrc
+-or ENV variable OPENAI_API_KEY.
++Make sure you have your Router API key in place ~/.cfg/shell_gpt/.sgptrc
++or ENV variable RAMP_ROUTER_API_KEY, and DEFAULT_MODEL set to a Router
++model ID from GET /v1/models.
+ It is useful for quick tests, saves a bit time.
+ """
+ 
+@@ -35,8 +36,8 @@ class TestShellGpt(TestCase):
+     def setUpClass(cls):
+         # Response streaming should be enabled for these tests.
+         assert cfg.get("DISABLE_STREAMING") == "false"
+-        # ShellGPT optimised and tested with gpt-5.4-mini.
+-        assert cfg.get("DEFAULT_MODEL") == "gpt-5.4-mini"
++        # Router model ID must come from configuration (GET /v1/models).
++        assert cfg.get("DEFAULT_MODEL")
+         # Make sure we will not call any functions.
+         assert cfg.get("OPENAI_USE_FUNCTIONS") == "false"
+ 
+diff --git a/tests/test_code.py b/tests/test_code.py
+index 76aad75..ca31624 100644
+--- a/tests/test_code.py
++++ b/tests/test_code.py
+@@ -78,7 +78,6 @@ def test_code_chat(completion):
+         {"role": "user", "content": "print hello"},
+         {"role": "assistant", "content": "print('hello')"},
+         {"role": "user", "content": "also print world"},
+-        {"role": "assistant", "content": "print('hello')\nprint('world')"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+@@ -110,7 +109,6 @@ def test_code_repl(completion):
+         {"role": "user", "content": "print hello"},
+         {"role": "assistant", "content": "print('hello')"},
+         {"role": "user", "content": "also print world"},
+-        {"role": "assistant", "content": "print('hello')\nprint('world')"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+diff --git a/tests/test_default.py b/tests/test_default.py
+index 6dc2054..2b76acf 100644
+--- a/tests/test_default.py
++++ b/tests/test_default.py
+@@ -98,7 +98,6 @@ def test_default_chat(completion):
+         {"role": "user", "content": "my number is 2"},
+         {"role": "assistant", "content": "ok"},
+         {"role": "user", "content": "my number + 2?"},
+-        {"role": "assistant", "content": "4"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+@@ -141,7 +140,6 @@ def test_default_repl(completion):
+         {"role": "user", "content": "my number is 6"},
+         {"role": "assistant", "content": "ok"},
+         {"role": "user", "content": "my number + 2?"},
+-        {"role": "assistant", "content": "8"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+@@ -174,7 +172,6 @@ def test_default_repl_stdin(completion):
+         {"role": "user", "content": "this is stdin\n\n\n\nprompt"},
+         {"role": "assistant", "content": "ok init"},
+         {"role": "user", "content": "another"},
+-        {"role": "assistant", "content": "ok another"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+diff --git a/tests/test_shell.py b/tests/test_shell.py
+index 331df6e..eb3d32e 100644
+--- a/tests/test_shell.py
++++ b/tests/test_shell.py
+@@ -114,7 +114,6 @@ def test_shell_chat(completion):
+         {"role": "user", "content": "list folder"},
+         {"role": "assistant", "content": "ls"},
+         {"role": "user", "content": "sort by name"},
+-        {"role": "assistant", "content": "ls | sort"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+@@ -147,7 +146,6 @@ def test_shell_repl(completion, mock_system):
+         {"role": "user", "content": "list folder"},
+         {"role": "assistant", "content": "ls"},
+         {"role": "user", "content": "sort by name"},
+-        {"role": "assistant", "content": "ls | sort"},
+     ]
+     expected_args = comp_args(role, "", messages=expected_messages)
+     completion.assert_called_with(**expected_args)
+diff --git a/tests/utils.py b/tests/utils.py
+index 1be59ed..19ff150 100644
+--- a/tests/utils.py
++++ b/tests/utils.py
+@@ -1,11 +1,8 @@
+-from datetime import datetime
+ from typing import Any
+ 
+ import typer
+ from click import UsageError
+-from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+-from openai.types.chat.chat_completion_chunk import Choice as StreamChoice
+-from openai.types.chat.chat_completion_chunk import ChoiceDelta
++from openai.types.responses import ResponseTextDeltaEvent
+ from typer.testing import CliRunner
+ 
+ from sgpt import main
+@@ -25,20 +22,16 @@ def assert_usage_error(result, message=None):
+ 
+ def mock_comp(tokens_string):
+     return [
+-        ChatCompletionChunk(
+-            id="foo",
+-            model=cfg.get("DEFAULT_MODEL"),
+-            object="chat.completion.chunk",
+-            choices=[
+-                StreamChoice(
+-                    index=0,
+-                    finish_reason=None,
+-                    delta=ChoiceDelta(content=token, role="assistant"),
+-                ),
+-            ],
+-            created=int(datetime.now().timestamp()),
++        ResponseTextDeltaEvent(
++            type="response.output_text.delta",
++            item_id="foo",
++            output_index=0,
++            content_index=0,
++            delta=token,
++            logprobs=[],
++            sequence_number=index,
+         )
+-        for token in tokens_string
++        for index, token in enumerate(tokens_string)
+     ]
+ 
+ 
+@@ -56,11 +49,19 @@ def cmd_args(**kwargs: Any) -> list[str]:
+ 
+ 
+ def comp_args(role, prompt, **kwargs):
+-    return {
+-        "messages": [
++    messages = kwargs.pop(
++        "messages",
++        [
+             {"role": "system", "content": role.role},
+             {"role": "user", "content": prompt},
+         ],
++    )
++    # Responses API: system message -> instructions, the rest -> input.
++    instructions = [m["content"] for m in messages if m["role"] == "system"]
++    input_items = [m for m in messages if m["role"] != "system"]
++    return {
++        "instructions": "\n\n".join(instructions),
++        "input": input_items,
+         "model": cfg.get("DEFAULT_MODEL"),
+         "temperature": 0.0,
+         "top_p": 1.0,

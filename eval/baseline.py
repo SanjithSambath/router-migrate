@@ -134,6 +134,11 @@ def score(names):
         diff = subprocess.run("git -C %s add -A -N . >/dev/null 2>&1; git -C %s diff -- . ':(exclude)out' ':(exclude).router-migrate'" % (dst, dst),
                               shell=True, capture_output=True, text=True).stdout
         open(os.path.join(RE.LOGS, name + ".baseline.diff"), "w").write(diff)
+        changed = subprocess.run("git -C %s add -A -N . >/dev/null 2>&1; git -C %s diff --name-status" % (dst, dst), shell=True,
+                                 capture_output=True, text=True).stdout.splitlines()
+        tfiles = [l.split("\t")[-1] for l in changed if re.search(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.[jt]sx?$|(^|/)test_[^/]*\.py$", l.split("\t")[-1])]
+        res[name].update(test_files_changed=len(tfiles), test_files_deleted=sum(1 for l in changed if l.startswith("D") and l.split("\t")[-1] in tfiles),
+                         files_changed=len(changed), files_deleted=sum(1 for l in changed if l.startswith("D")))
         res[name].update(per_original_site=orig, tests_after=RE.count(after, rec.get("test_kind", "unit")) if after else None, typecheck_after=tc, summary=p["summary"],
                          diff_lines=sum(1 for l in diff.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))),
                          sites=[{k: s.get(k) for k in ("file", "line", "sdk", "surface", "outcome", "reason")} for s in p["sites"] if s["prod"]])
