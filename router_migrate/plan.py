@@ -120,6 +120,10 @@ def _model_check(s, catalog):
 
 def _classify(s, surface, clients, patched, by_sdk, catalog):
     sdk = s["sdk"]
+    if not s["prod"]:
+        via = s.get("client_id") if s.get("client_id") in patched else (s["id"] if s["id"] in patched else None)
+        if via is None:
+            return "kept", "non-production code (tests/examples/evals): reported, not edited (use --include-nonprod)", None
     if s["kind"] == "raw_http":
         return "handoff", "raw HTTP to %s %s: rewrite onto the OpenAI/Anthropic SDK (then the runtime applies) or call Router directly" % (
             "api.openai.com" if sdk == "openai" else "api.anthropic.com", surface), None
@@ -147,8 +151,6 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
     cid = None
     if s["kind"] == "client":
         cid = s["id"] if s["id"] in patched else None
-        if cid is None and not s["prod"] and not False:
-            return "kept", "non-production code (tests/examples/evals) is not edited by default; use --include-nonprod", None
         if cid is None:
             tgt = client_target(s)
             if tgt.startswith("other:"):

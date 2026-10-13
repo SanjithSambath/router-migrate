@@ -13,7 +13,7 @@ from .catalog import Catalog
 from .runtime import render
 
 STATE = ".router-migrate"
-SIM_KEY = "sk-routgw-sim-not-a-real-key"
+SIM_KEY = "rm-sim-key-not-a-real-key"
 
 
 # ------------------------------------------------------------------------------------------------ tests

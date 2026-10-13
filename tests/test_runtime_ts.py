@@ -17,7 +17,7 @@ ROOT = os.path.dirname(HERE)
 def test_ts_runtime_end_to_end(tmp_path, sim):
     p = tmp_path / "routerRuntime.ts"
     p.write_text(render("routerRuntime.ts", Catalog.load()))
-    env = dict(os.environ, RAMP_ROUTER_API_KEY="sk-routgw-test-not-a-real-key", RAMP_ROUTER_BASE_URL=sim.base, NODE_NO_WARNINGS="1")
+    env = dict(os.environ, RAMP_ROUTER_API_KEY="rm-test-key-not-a-real-key", RAMP_ROUTER_BASE_URL=sim.base, NODE_NO_WARNINGS="1")
     r = subprocess.run(["node", os.path.join(HERE, "ts", "runtime_check.mjs"), str(p)], cwd=ROOT, env=env,
                        capture_output=True, text=True, timeout=120)
     lines = [l for l in r.stdout.splitlines() if l.startswith("[")]

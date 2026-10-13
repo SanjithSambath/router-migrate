@@ -26,7 +26,7 @@ def rt(tmp_path, monkeypatch, sim):
     """A freshly rendered router_runtime module, activated against router-sim."""
     p = tmp_path / "router_runtime.py"
     p.write_text(render("router_runtime.py", Catalog.load()))
-    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "sk-routgw-test-not-a-real-key")
+    monkeypatch.setenv("RAMP_ROUTER_API_KEY", "rm-test-key-not-a-real-key")
     monkeypatch.setenv("RAMP_ROUTER_BASE_URL", sim.base)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-provider-test")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")

@@ -83,6 +83,9 @@ def runtime_location(root, rel_file):
 
 def import_block(dots, names):
     imp = ", ".join("%s as %s" % (n, alias(n)) for n in names)
+    if len(names) > 1:
+        ind = "        " if dots else "    "
+        imp = "(\n" + "".join("%s%s as %s,\n" % (ind, n, alias(n)) for n in names) + ind[:-4] + ")"
     if dots:
         return ("try:  # %s: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n"
                 "    from %srouter_runtime import %s\n"

@@ -887,8 +887,12 @@ function insertProperty(sf, obj, propText, edits) {
     const rest = text.slice(after, lineEndOf(text, after));
     const restIsTrivia = /^\s*(\/\/.*)?$/.test(rest);
     const at = restIsTrivia ? lineEndOf(text, after) : after;
-    if (comma < 0) edits.push({ start: last.end, end: last.end, text: "," });
-    edits.push({ start: at, end: at, text: `\n${indent}${propText}${comma >= 0 ? "," : ""}` });
+    const line = `\n${indent}${propText}${comma >= 0 ? "," : ""}`;
+    if (comma < 0 && at === last.end) edits.push({ start: at, end: at, text: "," + line });
+    else {
+      if (comma < 0) edits.push({ start: last.end, end: last.end, text: "," });
+      edits.push({ start: at, end: at, text: line });
+    }
   } else if (comma >= 0) {
     edits.push({ start: comma, end: comma, text: ` ${propText}` });
   } else {
@@ -999,6 +1003,25 @@ function patchLangChain(sf, node, key, isJs, edits, needs) {
   return { action: `wrap_options_expression_${key}` };
 }
 
+// major version of @ai-sdk/openai declared by the nearest package.json (null if unknown)
+function aiSdkOpenAIMajor(fileAbs) {
+  let d = path.dirname(fileAbs);
+  while (true) {
+    const pkg = readPkg(d);
+    if (pkg) {
+      const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}), ...(pkg.peerDependencies || {}) };
+      const range = deps["@ai-sdk/openai"];
+      if (range) {
+        const m = /(\d+)/.exec(String(range));
+        return m ? +m[1] : null;
+      }
+    }
+    const up = path.dirname(d);
+    if (up === d) return null;
+    d = up;
+  }
+}
+
 // Replace a default provider import specifier (openai / anthropic) with its factory.
 function patchDefaultProvider(sf, f, bindings, edits, needs, consts) {
   const b = f.info.binding;
@@ -1026,7 +1049,9 @@ function patchDefaultProvider(sf, f, bindings, edits, needs, consts) {
     edits.push({ start: el.getStart(sf), end: el.end, text: factoryName });
     factoryLocal = factoryName;
   }
-  consts.push(`const ${f.info.local} = ${factoryLocal}({ ...routerOptions() })`);
+  // @ai-sdk/openai < 2: the default instance is compatibility "strict" while createOpenAI() defaults to "compatible"
+  const strict = factoryName === "createOpenAI" && aiSdkOpenAIMajor(sf.fileName) !== null && aiSdkOpenAIMajor(sf.fileName) < 2;
+  consts.push(`const ${f.info.local} = ${factoryLocal}({ ${strict ? 'compatibility: "strict", ' : ""}...routerOptions() })`);
   needs.add("routerOptions");
   return { action: "default_provider_to_factory" };
 }
@@ -1098,7 +1123,8 @@ function importEdits(sf, specifier, needs, consts, cjs, edits) {
 }
 
 function applyEdits(text, edits) {
-  const sorted = [...edits].sort((a, b) => b.start - a.start || b.end - a.end);
+  // right to left; for equal positions apply later edits first so earlier-planned text stays in front
+  const sorted = edits.map((e, i) => ({ ...e, i })).sort((a, b) => b.start - a.start || b.end - a.end || b.i - a.i);
   let out = text;
   let prevStart = Infinity;
   for (const e of sorted) {

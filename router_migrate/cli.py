@@ -168,7 +168,12 @@ def do_apply(root, live=False, dry_run=False, quiet=False):
         pt["site_id"] for pt in p["patches"] for e in log["edits"] if e["lang"] == "py" and e["file"] == pt["file"] and e["line"] == pt["line"] and e["col"] == pt["col"]}
     log["patched_site_ids"] = sorted(x for x in patched_ids if x)
     # a site whose client patch failed is not migrated: downgrade honestly
-    p = reconcile(p, set(log["patched_site_ids"]), {pt["site_id"] for pt in p["patches"]})
+    why = {}
+    for pt in p["patches"]:
+        for sk in log["skipped"]:
+            if sk.get("site_id") == pt["site_id"] or (sk.get("file") == pt["file"] and sk.get("line") == pt["line"] and sk.get("col") == pt["col"]):
+                why[pt["site_id"]] = sk.get("reason")
+    p = reconcile(p, set(log["patched_site_ids"]), {pt["site_id"] for pt in p["patches"]}, why)
     diff = []
     for f in sorted(originals):
         new = open(os.path.join(work, f), encoding="utf-8").read()
@@ -192,13 +197,15 @@ def do_apply(root, live=False, dry_run=False, quiet=False):
     return log
 
 
-def reconcile(p, patched_ids, attempted):
+def reconcile(p, patched_ids, attempted, why=None):
     failed = attempted - patched_ids
     if not failed:
         return p
+    why = why or {}
     for s in p["sites"]:
-        if s["outcome"] == "migrated" and (s.get("via_client") in failed or (s["kind"] == "client" and s["id"] in failed)):
-            s["outcome"], s["reason"] = "flagged", "client patch could not be applied safely (see apply.json skipped); " + s["reason"]
+        cid = s["id"] if s["kind"] == "client" and s["id"] in failed else s.get("via_client")
+        if s["outcome"] == "migrated" and cid in failed:
+            s["outcome"], s["reason"] = "flagged", "client construction left unchanged: %s" % why.get(cid, "patch could not be applied safely")
     p["summary"] = planmod.summarize(p["sites"])
     return p
 
