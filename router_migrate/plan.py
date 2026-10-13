@@ -134,6 +134,8 @@ def build(scan, catalog, include_nonprod=False):
         is_framework_client = s["kind"] == "client" and s["surface"] in FRAMEWORK_CLIENT_SURFACE
         if is_framework_client and vercel_calls and s["surface"] in VERCEL_PROVIDERS:
             continue
+        if s["kind"] == "call" and s["sdk"] in ("langchain-openai", "langchain-anthropic", "llamaindex-openai"):
+            continue  # LangChain/LlamaIndex sites are their model constructions; .invoke()/.stream() would double count
         if s["kind"] not in ("call", "module_client", "raw_http") and not is_framework_client:
             continue
         if s["kind"] == "raw_http" and s["surface"] == "other":
