@@ -4,9 +4,9 @@
   "python": "3.12",
   "setup": [
     "rm -rf \"$ENV\"",
-    ".venv/bin/uv venv --python 3.12 \"$ENV\"",
-    "POETRY_CACHE_DIR=\"$PWD/.tools/poetry-cache\" POETRY_VIRTUALENVS_CREATE=false .venv/bin/uv tool run --python 3.12 --from poetry==2.5.1 --with poetry-plugin-export==1.10.1 poetry -C \"$SRC/backend\" export --with dev --without-hashes -f requirements.txt -o \"$(cd \"$ENV\" && pwd)/poetry-export.txt\"",
-    ".venv/bin/uv pip install --python \"$ENV/bin/python\" -r \"$ENV/poetry-export.txt\""
+    ". scripts/env.sh && .venv/bin/uv venv --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && POETRY_CACHE_DIR=\"$PWD/.tools/poetry-cache\" POETRY_VIRTUALENVS_CREATE=false .venv/bin/uv tool run --python 3.12 --from poetry==2.5.1 --with poetry-plugin-export==1.10.1 poetry -C \"$SRC/backend\" export --with dev --without-hashes -f requirements.txt -o \"$(cd \"$ENV\" && pwd)/poetry-export.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install --python \"$ENV/bin/python\" -r \"$ENV/poetry-export.txt\""
   ],
   "test_cmd": "cd backend && $PY -m pytest -p no:cacheprovider",
   "test_env": {},
@@ -19,5 +19,5 @@
     "seconds": 10.7,
     "exit": 0
   },
-  "notes": "Baseline measured with cwd=$SRC=eval/work/base/<name> under a clean env (env -i HOME/PATH/LANG + test_env, RAMP_ROUTER_API_KEY unset, no provider API keys) with outbound network denied via macOS sandbox-exec (loopback + unix sockets allowed); counts were identical on a from-scratch rebuild into eval/work/envs/<name>-check (since deleted). No CI workflow exists; command follows root package.json test:backend / AGENTS.md (`cd backend && poetry run pytest`; backend/pytest.ini sets testpaths=tests, asyncio_mode=auto). Deps come from backend/poetry.lock: poetry 2.5.1 + poetry-plugin-export 1.10.1 run ephemerally via `uv tool run` (cached in .tools/uv-tools/.tools/uv-cache, poetry cache in .tools/poetry-cache) export main+dev groups to $ENV/poetry-export.txt (fully pinned), installed with uv pip; no poetry venv is created and $SRC is not modified. Python 3.12 (pyproject ^3.10; Dockerfile uses 3.12.3). No deselections and no skips; all LLM clients are hand-rolled fakes. If a migration changes backend/pyproject.toml deps without updating poetry.lock, the export step will fail (poetry refuses a stale lock) - run `poetry lock` in that case. Tests write gitignored backend/evals_data/."
+  "notes": "Each setup command that runs uv sources scripts/env.sh itself so caches/Python installs stay in .tools. Baseline measured with cwd=$SRC=eval/work/base/<name> under a clean env (env -i HOME/PATH/LANG + test_env, RAMP_ROUTER_API_KEY unset, no provider API keys) with outbound network denied via macOS sandbox-exec (loopback + unix sockets allowed); counts were identical on a from-scratch rebuild into eval/work/envs/<name>-check (since deleted). No CI workflow exists; command follows root package.json test:backend / AGENTS.md (`cd backend && poetry run pytest`; backend/pytest.ini sets testpaths=tests, asyncio_mode=auto). Deps come from backend/poetry.lock: poetry 2.5.1 + poetry-plugin-export 1.10.1 run ephemerally via `uv tool run` (cached in .tools/uv-tools/.tools/uv-cache, poetry cache in .tools/poetry-cache) export main+dev groups to $ENV/poetry-export.txt (fully pinned), installed with uv pip; no poetry venv is created and $SRC is not modified. Python 3.12 (pyproject ^3.10; Dockerfile uses 3.12.3). No deselections and no skips; all LLM clients are hand-rolled fakes. If a migration changes backend/pyproject.toml deps without updating poetry.lock, the export step will fail (poetry refuses a stale lock) - run `poetry lock` in that case. Tests write gitignored backend/evals_data/."
 }

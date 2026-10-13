@@ -25,4 +25,8 @@ def compact_catalog(catalog):
 def render(name, catalog):
     src = open(os.path.join(HERE, name)).read()
     blob = json.dumps(compact_catalog(catalog), separators=(",", ":"), sort_keys=True)
+    if name.endswith(".ts"):  # embedded in String.raw`...`: keep it template-safe; JSON.parse decodes the \u escapes
+        blob = blob.replace("`", "\\u0060").replace("${", "$\\u007b")
+    elif name.endswith(".py"):  # embedded in r"""...""" 
+        blob = blob.replace('"""', '\\u0022\\u0022\\u0022')
     return src.replace(PLACEHOLDER, blob)
