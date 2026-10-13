@@ -72,6 +72,19 @@ def test_policy_logs_once_without_content(rt, sim, capsys):
     rt.set_policy(None)
 
 
+def test_flex_dropped_for_fallbacks_is_logged_once(rt, sim, capsys):
+    """allow_flex_tier + fallbacks on one feature: Router ignores Flex with a models list, so the runtime drops it and says so."""
+    fx = json.load(open(os.path.join(os.path.dirname(__file__), "fixtures", "policy", "fallbacks_become_models_list.json")))
+    fx["request"]["model"] = "gpt-5.4-mini"  # has a measured flex tier, so only the models list can cancel Flex
+    rt.set_policy(fx["policy"], "fbflex0000000000")
+    for _ in range(2):
+        send(rt, fx)
+    body = sim.records[-1]["request"]
+    assert "allow_flex_tier" not in body and body.get("models")
+    assert capsys.readouterr().err.count("allow_flex_tier dropped") == 1
+    rt.set_policy(None)
+
+
 def test_compiled_module_is_loaded_from_beside_the_runtime(tmp_path, sim, monkeypatch):
     """apply --decisions writes router_policy.py next to router_runtime.py; the runtime picks it up with no other change."""
     import importlib.util

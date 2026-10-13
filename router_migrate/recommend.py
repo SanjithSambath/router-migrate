@@ -417,6 +417,7 @@ def build(root, plan, catalog, repo=None, scan=None):
             consider("tier.flex_background", ss, "%s has no flex tier" % rid)
         else:
             consider("tier.flex_background", ss, "model chosen at runtime (%s); flex eligibility unknown" % (sg["model_value"] or "no default found"))
+        flex_card = cards[-1] if cards and cards[-1]["rule"] == "tier.flex_background" and cards[-1]["scope"]["features"] == [feat] else None
         # ---- fallback.candidates
         cands = fallback_candidates(catalog, rid) if rid else []
         if cands:
@@ -428,6 +429,9 @@ def build(root, plan, catalog, repo=None, scan=None):
                                                            {"level": "L0", "fact": "Router's models list advances on 403/unknown model (measured)", "source": "measured"}]},
                                {"per_call_pct": 0, "monthly_usd": None, "ignores": "price of the fallback model on the requests that fail over"},
                                2, "none", options=[{"fallbacks": cands[:1]}, {"fallbacks": cands}], etag=_etag(root, ss[0], row)))
+            if flex_card:  # Router ignores allow_flex_tier when a models list is sent [measured], so the two cards exclude each other
+                cards[-1]["loses"].append("Flex: Router ignores allow_flex_tier when a models list is sent (measured), so this cancels the Flex card for %s" % feat)
+                flex_card["loses"].append("cancelled if the fallback card for %s is also approved (Router ignores Flex with a models list, measured)" % feat)
         else:
             consider("fallback.candidates", ss, "model chosen at runtime; candidates need a known model" if not rid else "no capability-matched candidate within 0.5-2x price")
 

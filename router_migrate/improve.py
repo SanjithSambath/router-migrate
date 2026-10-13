@@ -197,7 +197,7 @@ def apply_decisions(root, catalog, dry_run=False):
             for sid in c["scope"]["sites"]:
                 unlocks["sites"][sid] = {"card": c["id"], "rule": c["rule"]}
             applied.append({"card": c["id"], "rule": c["rule"], "kind": "code", "file": cl["file"]})
-    log = {"applied": applied, "skipped": skipped, "policy_hash": None, "files": files}
+    log = {"applied": applied, "skipped": skipped, "policy_hash": None, "files": files, "warnings": flex_conflicts(p)}
     if p and not dry_run:
         if not pol.policy_valid(p):
             raise SystemExit("approved cards produced an invalid policy (bug); nothing written")
@@ -209,6 +209,17 @@ def apply_decisions(root, catalog, dry_run=False):
         save(root, "unlocks.json", unlocks)
         event(root, "apply_decisions", "done", {"applied": len(applied), "skipped": len(skipped)})
     return log
+
+
+def flex_conflicts(p):
+    """Features whose effective policy has both allow_flex_tier and fallbacks: the runtime sends a models list, which Router
+    serves without Flex [measured], so the Flex approval has no effect there."""
+    out = []
+    for name in sorted((p or {}).get("features") or {}):
+        eff = pol.policy_for(name, p)
+        if eff.get("allow_flex_tier") and eff.get("fallbacks"):
+            out.append("%s: allow_flex_tier has no effect because fallbacks are also set (Router ignores Flex with a models list)" % name)
+    return out
 
 
 def runtime_paths(root):

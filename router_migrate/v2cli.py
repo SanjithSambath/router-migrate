@@ -53,6 +53,8 @@ def cmd_apply_decisions(root):
         print("  applied %s (%s)" % (x["card"], x["rule"]))
     for x in log["skipped"]:
         print("  skipped %s: %s" % (x["card"], x["reason"]))
+    for w in log.get("warnings") or []:
+        print("  warning %s" % w)
     return 0
 
 

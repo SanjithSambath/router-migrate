@@ -493,6 +493,7 @@ def _apply_policy(nb, caller_body, feature):
             nb["models"] = [nb.pop("model")] + cands
             if nb.pop("allow_flex_tier", None) is not None and not caller_tier:
                 _service_tier(nb)  # flex does not apply to a models list [measured]; keep v1's default tier
+                _policy_log("flexfb:%s" % fid, "allow_flex_tier dropped for %s: Router ignores Flex with a models list (fallbacks win)" % fid)
     return nb
 
 
