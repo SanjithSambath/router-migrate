@@ -32,3 +32,13 @@ def test_manten():
 
 def test_unknown_output():
     assert parse_counts("hello")["passed"] is None
+
+
+def test_node24_spec_reporter():
+    c = parse_counts("\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0\n")
+    assert (c["passed"], c["failed"]) == (4, 0)
+
+
+def test_manten_bare():
+    c = parse_counts("\u2714 x (3ms)\n\n4s\n79 passed\n\n")
+    assert c["passed"] == 79

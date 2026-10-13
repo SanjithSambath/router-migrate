@@ -1,0 +1,38 @@
+--- a/src/commands/pr.ts
++++ b/src/commands/pr.ts
+@@ -10,6 +10,7 @@
+ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+ import { KnownError, handleCommandError } from '../utils/error.js';
+ import { isInteractive } from '../utils/headless.js';
++import { routerOptions } from '../lib/routerRuntime.js';
+ 
+ type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'azure';
+ 
+@@ -178,7 +179,7 @@
+ 			}
+ 			const aiProvider =
+ 				baseUrl === 'https://api.openai.com/v1'
+-					? createOpenAI({ apiKey })
++					? createOpenAI({ apiKey, ...routerOptions() })
+ 					: createOpenAICompatible({
+ 							name: 'custom',
+ 							apiKey,
+--- a/src/feature/providers/base.ts
++++ b/src/feature/providers/base.ts
+@@ -8,6 +8,7 @@
+ } from 'ai';
+ import { fetchModels } from '../models.js';
+ import type { ValidConfig } from '../../utils/config-types.js';
++import { routerOptions } from '../../lib/routerRuntime.js';
+ 
+ const isLoopbackUrl = (baseUrl: string): boolean => {
+ 	try {
+@@ -186,7 +187,7 @@
+ 		const apiKey = this.getApiKey() || '';
+ 		const provider = (() => {
+ 			if (this.name === 'openai') {
+-				return createOpenAI({ apiKey });
++				return createOpenAI({ apiKey, ...routerOptions() });
+ 			}
+ 
+ 			if (this.name === 'togetherai') {

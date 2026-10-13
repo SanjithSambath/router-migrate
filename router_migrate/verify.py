@@ -40,9 +40,9 @@ def parse_counts(out):
         add("errors", int(m.group(1)) if not re.search(r"Tests:", out) else 0)
     if found:
         return c
-    p = re.findall(r"^# pass (\d+)", out, re.M)  # node:test / tap
+    p = re.findall(r"^(?:#|\u2139) pass (\d+)", out, re.M)  # node:test (tap "# pass N", spec reporter "ℹ pass N")
     if p:
-        f = re.findall(r"^# fail (\d+)", out, re.M)
+        f = re.findall(r"^(?:#|\u2139) fail (\d+)", out, re.M)
         c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
         return c
     p = re.findall(r"(\d+) passing", out)  # mocha
@@ -50,9 +50,9 @@ def parse_counts(out):
         f = re.findall(r"(\d+) failing", out)
         c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
         return c
-    p = re.findall(r"(\d+) tests? passed", out)  # manten and similar
+    p = re.findall(r"^\s*(\d+) (?:tests? )?passed\s*$", out, re.M)  # manten ("79 passed") and similar
     if p:
-        f = re.findall(r"(\d+) tests? failed", out)
+        f = re.findall(r"^\s*(\d+) (?:tests? )?failed\s*$", out, re.M)
         c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
     return c
 

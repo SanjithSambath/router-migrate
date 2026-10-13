@@ -1,0 +1,140 @@
+--- a/app/ai_sdk/agent/action.ts
++++ b/app/ai_sdk/agent/action.ts
+@@ -9,6 +9,7 @@
+ } from "@langchain/classic/agents";
+ import { pull } from "@langchain/classic/hub";
+ import { createStreamableValue } from "@ai-sdk/rsc";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+ export async function runAgent(input: string) {
+   "use server";
+@@ -20,7 +21,7 @@
+       "hwchase17/openai-tools-agent",
+     );
+ 
+-    const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
++    const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0, configuration: { ...routerOptions() } });
+ 
+     const agent = createToolCallingAgent({
+       llm,
+--- a/app/ai_sdk/tools/action.ts
++++ b/app/ai_sdk/tools/action.ts
+@@ -7,6 +7,7 @@
+ import { Runnable } from "@langchain/core/runnables";
+ import { zodToJsonSchema } from "zod-to-json-schema";
+ import { JsonOutputKeyToolsParser } from "@langchain/core/output_parsers/openai_tools";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+ const Weather = z
+   .object({
+@@ -38,6 +39,7 @@
+     const llm = new ChatOpenAI({
+       model: "gpt-4o-mini",
+       temperature: 0,
++      configuration: { ...routerOptions() },
+     });
+ 
+     let chain: Runnable;
+--- a/app/api/chat/agents/route.ts
++++ b/app/api/chat/agents/route.ts
+@@ -12,6 +12,7 @@
+   HumanMessage,
+   SystemMessage,
+ } from "@langchain/core/messages";
++import { routerOptions } from "../../../../lib/routerRuntime";
+ 
+ export const runtime = "edge";
+ 
+@@ -74,6 +75,7 @@
+     const chat = new ChatOpenAI({
+       model: "gpt-4o-mini",
+       temperature: 0,
++      configuration: { ...routerOptions() },
+     });
+ 
+     /**
+--- a/app/api/chat/retrieval/route.ts
++++ b/app/api/chat/retrieval/route.ts
+@@ -9,6 +9,7 @@
+ import { Document } from "@langchain/core/documents";
+ import { RunnableSequence } from "@langchain/core/runnables";
+ import { StringOutputParser } from "@langchain/core/output_parsers";
++import { routerOptions } from "../../../../lib/routerRuntime";
+ 
+ export const runtime = "edge";
+ 
+@@ -80,6 +81,7 @@
+     const model = new ChatOpenAI({
+       model: "gpt-4o-mini",
+       temperature: 0.2,
++      configuration: { ...routerOptions() },
+     });
+ 
+     const client = createClient(
+--- a/app/api/chat/retrieval_agents/route.ts
++++ b/app/api/chat/retrieval_agents/route.ts
+@@ -14,6 +14,7 @@
+ import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
+ import { createRetrieverTool } from "@langchain/classic/tools/retriever";
+ import { createReactAgent } from "@langchain/langgraph/prebuilt";
++import { routerOptions } from "../../../../lib/routerRuntime";
+ 
+ export const runtime = "edge";
+ 
+@@ -76,6 +77,7 @@
+     const chatModel = new ChatOpenAI({
+       model: "gpt-4o-mini",
+       temperature: 0.2,
++      configuration: { ...routerOptions() },
+     });
+ 
+     const client = createClient(
+--- a/app/api/chat/route.ts
++++ b/app/api/chat/route.ts
+@@ -4,6 +4,7 @@
+ import { ChatOpenAI } from "@langchain/openai";
+ import { PromptTemplate } from "@langchain/core/prompts";
+ import { StringOutputParser } from "@langchain/core/output_parsers";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+ export const runtime = "edge";
+ 
+@@ -51,6 +52,7 @@
+     const model = new ChatOpenAI({
+       temperature: 0.8,
+       model: "gpt-4o-mini",
++      configuration: { ...routerOptions() },
+     });
+ 
+     const outputParser = new StringOutputParser();
+--- a/app/api/chat/structured_output/route.ts
++++ b/app/api/chat/structured_output/route.ts
+@@ -4,6 +4,7 @@
+ 
+ import { ChatOpenAI } from "@langchain/openai";
+ import { PromptTemplate } from "@langchain/core/prompts";
++import { routerOptions } from "../../../../lib/routerRuntime";
+ 
+ export const runtime = "edge";
+ 
+@@ -34,6 +35,7 @@
+     const model = new ChatOpenAI({
+       temperature: 0.8,
+       model: "gpt-4o-mini",
++      configuration: { ...routerOptions() },
+     });
+ 
+     /**
+--- a/app/langgraph/agent/agent.ts
++++ b/app/langgraph/agent/agent.ts
+@@ -5,8 +5,9 @@
+   Annotation,
+ } from "@langchain/langgraph";
+ import { ChatOpenAI } from "@langchain/openai";
++import { routerOptions } from "../../../lib/routerRuntime";
+ 
+-const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
++const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0, configuration: { ...routerOptions() } });
+ 
+ const builder = new StateGraph(
+   Annotation.Root({
