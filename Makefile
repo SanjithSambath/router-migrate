@@ -25,3 +25,6 @@ clean:
 
 compat:           ## runtime smoke under every prepared eval env (different openai/anthropic/httpx(2) versions)
 	@for e in eval/work/envs/*/; do [ -x $$e/bin/python ] && echo "$$(basename $$e): $$(PYTHONPATH=$$PWD $$e/bin/python tests/compat_check.py 2>&1 | tail -1)"; done
+
+compat-ts:        ## TS runtime smoke with each prepared TS eval repo's own SDK versions
+	$(PY) tests/ts_compat.py
