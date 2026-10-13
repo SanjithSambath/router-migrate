@@ -1,0 +1,1719 @@
+diff --git a/.env.example b/.env.example
+index e95fead..56bbb15 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,3 +1,4 @@
+-OPENAI_API_KEY=
++RAMP_ROUTER_API_KEY=
+ 
+-TOGETHER_API_KEY=
+\ No newline at end of file
++# Model ID from Router's GET /v1/models (account-specific)
++ROUTER_MODEL=
+diff --git a/.github/workflows/test.yml b/.github/workflows/test.yml
+index 66ba3c4..bc679a5 100644
+--- a/.github/workflows/test.yml
++++ b/.github/workflows/test.yml
+@@ -43,6 +43,7 @@ jobs:
+           tinyproxy
+       - name: Test
+         env:
+-          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
++          RAMP_ROUTER_API_KEY: ${{ secrets.RAMP_ROUTER_API_KEY }}
++          ROUTER_MODEL: ${{ vars.ROUTER_MODEL }}
+         run: |
+           pnpm test
+diff --git a/AGENTS.md b/AGENTS.md
+index ec54a3c..535f6da 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -7,10 +7,10 @@
+ - **Test single file:** `pnpm tsx tests/specs/<file>.ts`
+ 
+ ## Architecture
+-CLI tool that generates git commit messages using AI (OpenAI/Together AI or any OpenAI compatible endpoint).
++CLI tool that generates git commit messages using AI. Hosted models are served through Router's OpenAI Responses API (`RAMP_ROUTER_API_KEY`, model from `ROUTER_MODEL`); Ollama and LM Studio run locally.
+ - `src/cli.ts` - Main entry point using cleye for CLI parsing
+ - `src/commands/` - CLI subcommands (aicommits, config, hook, model, pr, setup)
+-- `src/utils/` - Shared utilities (git, openai, config, prompts)
++- `src/utils/` - Shared utilities (git, config, prompts)
+ - `src/feature/` - Feature-specific logic
+ - `tests/specs/` - Test files using manten framework
+ 
+diff --git a/CONTRIBUTING.md b/CONTRIBUTING.md
+index 9f45864..515c2fe 100644
+--- a/CONTRIBUTING.md
++++ b/CONTRIBUTING.md
+@@ -50,13 +50,13 @@ node ./dist/cli.mjs
+ 
+ ## Testing
+ 
+-Testing requires passing in `OPENAI_API_KEY` as an environment variable:
++Testing requires passing in `RAMP_ROUTER_API_KEY` and `ROUTER_MODEL` (a model ID from Router's `GET /v1/models`) as environment variables:
+ 
+ ```sh
+-OPENAI_API_KEY=<your OPENAI key> pnpm test
++RAMP_ROUTER_API_KEY=<your Router key> ROUTER_MODEL=<model id> pnpm test
+ ```
+ 
+-You can still run tests that don't require `OPENAI_API_KEY` but will not test the main functionality:
++You can still run tests that don't require `RAMP_ROUTER_API_KEY` but will not test the main functionality:
+ 
+ ```
+ pnpm test
+diff --git a/README.md b/README.md
+index 9cf264f..57baf2e 100644
+--- a/README.md
++++ b/README.md
+@@ -21,47 +21,39 @@
+    npm install -g aicommits
+    ```
+ 
+-2. Run the setup command to choose your AI provider:
++2. Export your Router API key, then run the setup command to choose your AI provider:
+ 
+    ```sh
++   export RAMP_ROUTER_API_KEY=<your Router API key>
+    aicommits setup
+    ```
+ 
+ This will guide you through:
+ 
+-- Selecting your AI provider (sets the `provider` config)
+-- Configuring your API key
+-- **Automatically fetching and selecting from available models** (when supported)
++- Selecting your AI provider
++- **Automatically fetching and selecting from available models** (Router models come from `GET /v1/models`)
+ - **Choosing your preferred commit message format** (`plain`, `conventional`,
+   `conventional+body`, `gitmoji`, or `subject+body`)
+ 
+-  Supported providers include:
++  Supported providers:
+ 
+-  - **TogetherAI** (recommended) - Get your API key from [TogetherAI](https://api.together.ai/)
+-  - **OpenAI** - Get your API key from [OpenAI API Keys page](https://platform.openai.com/account/api-keys)
+-  - **Groq** - Get your API key from [Groq Console](https://console.groq.com/keys)
+-  - **xAI** - Get your API key from [xAI Console](https://console.x.ai/)
+-  - **OpenRouter** - Get your API key from [OpenRouter](https://openrouter.ai/keys)
++  - **Router** - Hosted models from multiple providers through one OpenAI Responses-compatible API at `https://api.router.com/v1`. Authenticates with `RAMP_ROUTER_API_KEY`; provider API keys are never sent by aicommits.
+   - **Ollama** (local) - Run AI models locally with [Ollama](https://ollama.ai)
+   - **LM Studio** (local) - No API key required. Runs on your computer via [LM Studio](https://lmstudio.ai/)
+-  - **Custom OpenAI-compatible endpoint** - Use any service that implements the OpenAI API
+ 
+-  Together AI, OpenAI, xAI, and LM Studio models use the agentic generation
+-  flow. Tested Together models without compatible tool calls use the one-shot
+-  path; OpenAI, xAI, and LM Studio fall back when an endpoint rejects tools.
+-  LM Studio also falls back when a local model does not submit the required
+-  tool call. Other providers continue through the one-shot flow.
++  Router and LM Studio models use the agentic generation flow and fall back to
++  the one-shot flow when an endpoint rejects tools. LM Studio also falls back
++  when a local model does not submit the required tool call. Ollama uses the
++  one-shot flow.
+ 
+-  **For CI/CD environments**, you can also set up configuration via the config file:
++  **For CI/CD environments**, configure Router through environment variables:
+ 
+   ```bash
+-  aicommits config set OPENAI_API_KEY="your_api_key_here"
+-  aicommits config set OPENAI_BASE_URL="your_api_endpoint"  # Optional, for custom endpoints
+-  aicommits config set OPENAI_MODEL="your_model_choice"     # Optional, defaults to provider default
++  export RAMP_ROUTER_API_KEY="<your Router API key>"
++  export ROUTER_MODEL="<model id from GET /v1/models>"
++  export ROUTER_FALLBACK_MODEL="<model id>"  # Optional, retried once if ROUTER_MODEL fails
+   ```
+ 
+-  > **Note:** When using environment variables, ensure all related variables (e.g., `OPENAI_API_KEY` and `OPENAI_BASE_URL`) are set consistently to avoid configuration mismatches with the config file.
+-
+   This will create a `.aicommits` file in your home directory.
+ 
+ ### Upgrading
+@@ -214,14 +206,17 @@ aicommits hook uninstall
+ 
+ ### Environment Variables
+ 
+-You can also configure aicommits using environment variables instead of the config file.
++Router is configured with environment variables:
++
++- `RAMP_ROUTER_API_KEY` (required): your Router API key.
++- `ROUTER_MODEL`: the model ID to use. Model IDs are account-specific; list them with `GET https://api.router.com/v1/models` or `aicommits model`. Overrides a model saved with `aicommits model`.
++- `ROUTER_FALLBACK_MODEL` (optional): model ID retried once if the main model fails.
+ 
+ **Example:**
+ 
+ ```bash
+-export OPENAI_API_KEY="sk-..."
+-export OPENAI_BASE_URL="https://api.example.com"
+-export OPENAI_MODEL="gpt-4"
++export RAMP_ROUTER_API_KEY="<your Router API key>"
++export ROUTER_MODEL="<model id>"
+ aicommits  # Uses environment variables
+ ```
+ 
+@@ -242,7 +237,7 @@ To view all current configuration options that differ from defaults, run:
+ aicommits config
+ ```
+ 
+-This will display only non-default configuration values with API keys masked for security. If no custom configuration is set, it will show "(using all default values)".
++This will display only non-default configuration values. The Router API key is never printed; only whether `RAMP_ROUTER_API_KEY` is set. If no custom configuration is set, it will show "(using all default values)".
+ 
+ ### Changing your model
+ 
+@@ -282,16 +277,16 @@ To retrieve a configuration option, use the command:
+ aicommits config get <key>
+ ```
+ 
+-For example, to retrieve the API key, you can use:
++For example, to retrieve the model, you can use:
+ 
+ ```sh
+-aicommits config get OPENAI_API_KEY
++aicommits config get OPENAI_MODEL
+ ```
+ 
+ You can also retrieve multiple configuration options at once by separating them with spaces:
+ 
+ ```sh
+-aicommits config get OPENAI_API_KEY generate
++aicommits config get OPENAI_MODEL generate
+ ```
+ 
+ ### Setting a configuration value
+@@ -302,35 +297,29 @@ To set a configuration option, use the command:
+ aicommits config set <key>=<value>
+ ```
+ 
+-For example, to set the API key, you can use:
++For example, to set the commit format, you can use:
+ 
+ ```sh
+-aicommits config set OPENAI_API_KEY=<your-api-key>
++aicommits config set type=conventional
+ ```
+ 
+ You can also set multiple configuration options at once by separating them with spaces, like
+ 
+ ```sh
+-aicommits config set OPENAI_API_KEY=<your-api-key> generate=3 locale=en
++aicommits config set type=conventional generate=3 locale=en
+ ```
+ 
+ ### Config Options
+ 
+-#### OPENAI_API_KEY
+-
+-Your OpenAI API key or custom provider API Key
+-
+ #### OPENAI_BASE_URL
+ 
+-Custom OpenAI-compatible API endpoint URL.
++Endpoint of a local provider (Ollama or LM Studio). Set automatically during
++`aicommits setup`. When it is unset, aicommits uses Router.
+ 
+ #### OPENAI_MODEL
+ 
+-Model to use for OpenAI-compatible providers.
+-
+-#### provider
+-
+-The selected AI provider. Set automatically during `aicommits setup`. Valid values: `openai`, `togetherai`, `groq`, `xai`, `openrouter`, `ollama`, `lmstudio`, `custom`.
++Model to use. For Router, the `ROUTER_MODEL` environment variable takes
++precedence over this value.
+ 
+ #### locale
+ 
+@@ -348,10 +337,10 @@ Note, this will use more tokens as it generates more results.
+ 
+ #### timeout
+ 
+-The timeout for network requests to the OpenAI API in milliseconds.
++The timeout for model requests in milliseconds.
+ 
+-Default: `10000` (10 seconds) for hosted providers, `60000` (60 seconds) for
+-Together AI and local providers.
++Default: `10000` (10 seconds) for Router, `60000` (60 seconds) for local
++providers.
+ 
+ ```sh
+ aicommits config set timeout=20000 # 20s
+diff --git a/package.json b/package.json
+index 48da621..29274f5 100644
+--- a/package.json
++++ b/package.json
+@@ -28,7 +28,6 @@
+ 		"release": "semantic-release",
+ 		"type-check": "tsc",
+ 		"test": "tsx tests",
+-		"test:together-tools": "tsx scripts/test-together-tool-compatibility.ts",
+ 		"prepack": "pnpm build"
+ 	},
+ 	"devDependencies": {
+diff --git a/src/commands/aicommits.ts b/src/commands/aicommits.ts
+index f465a67..f408992 100644
+--- a/src/commands/aicommits.ts
++++ b/src/commands/aicommits.ts
+@@ -92,7 +92,7 @@ export default async (
+ 				return;
+ 			} else {
+ 				throw new KnownError(
+-					'No configuration found. Run `aicommits setup` in an interactive terminal, or set environment variables (OPENAI_API_KEY, etc.)'
++					'No configuration found. Run `aicommits setup` in an interactive terminal, or set the RAMP_ROUTER_API_KEY and ROUTER_MODEL environment variables.'
+ 				);
+ 			}
+ 		}
+@@ -109,8 +109,8 @@ export default async (
+ 			);
+ 		}
+ 
+-		// Use the unified model setting or provider default
+-		config.model = config.OPENAI_MODEL || providerInstance.getDefaultModel();
++		// Use the configured model (ROUTER_MODEL for Router) or provider default
++		config.model = providerInstance.resolveModel(config.OPENAI_MODEL);
+ 		const { requiresBody } = getCommitTypePolicy(config.type);
+ 		const includeBody = includeDescription || requiresBody;
+ 		const generationCount = requiresBody ? 1 : config.generate;
+diff --git a/src/commands/config.ts b/src/commands/config.ts
+index c4c0c4c..f555ac5 100644
+--- a/src/commands/config.ts
++++ b/src/commands/config.ts
+@@ -3,6 +3,10 @@ import { red } from 'kolorist';
+ import { hasOwn } from '../utils/config-types.js';
+ import { getConfig, setConfigs } from '../utils/config-runtime.js';
+ import { KnownError, handleCommandError } from '../utils/error.js';
++import {
++	ROUTER_API_KEY_ENV,
++	getRouterApiKey,
++} from '../feature/providers/router.js';
+ 
+ export default command(
+ 	{
+@@ -22,8 +26,13 @@ export default command(
+ 				const config = await getConfig({}, {}, true);
+ 
+ 				console.log('Provider:', config.provider);
+-				if (config.OPENAI_API_KEY) {
+-					console.log('API Key:', `${config.OPENAI_API_KEY.substring(0, 4)}****`);
++				if (config.provider === 'router') {
++					console.log(
++						'API Key:',
++						getRouterApiKey()
++							? `${ROUTER_API_KEY_ENV} (set)`
++							: `${ROUTER_API_KEY_ENV} (not set)`
++					);
+ 				}
+ 				if (config.OPENAI_BASE_URL) {
+ 					console.log('Base URL:', config.OPENAI_BASE_URL);
+@@ -37,14 +46,10 @@ export default command(
+ 
+ 			if (mode === 'get') {
+ 				const config = await getConfig({}, {}, true);
+-				const sensitiveKeys = ['OPENAI_API_KEY', 'TOGETHER_API_KEY', 'api-key'];
+ 				for (const key of keyValues) {
+ 					if (hasOwn(config, key)) {
+ 						const value = config[key as keyof typeof config];
+-						const displayValue = sensitiveKeys.includes(key)
+-							? `${String(value).substring(0, 4)}****`
+-							: String(value);
+-						console.log(`${key}=${displayValue}`);
++						console.log(`${key}=${String(value)}`);
+ 					}
+ 				}
+ 				return;
+diff --git a/src/commands/pr.ts b/src/commands/pr.ts
+index 8031564..97cbcc7 100644
+--- a/src/commands/pr.ts
++++ b/src/commands/pr.ts
+@@ -6,8 +6,6 @@ import { assertGitRepo } from '../utils/git.js';
+ import { getConfig } from '../utils/config-runtime.js';
+ import { getProvider } from '../feature/providers/index.js';
+ import { generateText } from 'ai';
+-import { createOpenAI } from '@ai-sdk/openai';
+-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+ import { KnownError, handleCommandError } from '../utils/error.js';
+ import { isInteractive } from '../utils/headless.js';
+ 
+@@ -161,29 +159,17 @@ export default command(
+ 				throw new KnownError('No provider configured');
+ 			}
+ 
+-			let baseUrl = configProvider.getBaseUrl();
+-			if (!baseUrl || baseUrl === '') {
++			const validation = configProvider.validateConfig();
++			if (!validation.valid) {
+ 				throw new KnownError(
+-					'Base URL not configured. Please run `aicommits setup` to configure your provider.'
++					`Provider configuration issues: ${validation.errors.join(
++						', '
++					)}. Run \`aicommits setup\` to reconfigure.`
+ 				);
+ 			}
+-			if (!baseUrl.endsWith('/v1')) {
+-				baseUrl += '/v1';
+-			}
+-			const apiKey = configProvider.getApiKey();
+-			if (!apiKey) {
+-				throw new KnownError(
+-					'API key not configured. Please run `aicommits setup` to configure your provider.'
+-				);
+-			}
+-			const aiProvider =
+-				baseUrl === 'https://api.openai.com/v1'
+-					? createOpenAI({ apiKey })
+-					: createOpenAICompatible({
+-							name: 'custom',
+-							apiKey,
+-							baseURL: baseUrl,
+-					  });
++			const model = configProvider.resolveModel(config.OPENAI_MODEL);
++			const languageModel = configProvider.getLanguageModel(model);
++			const providerOptions = configProvider.getProviderOptions('pr');
+ 
+ 			const generating = spinner();
+ 			generating.start(
+@@ -194,22 +180,24 @@ export default command(
+ 
+ 			// Generate PR title
+ 			const titleResult = await generateText({
+-				model: aiProvider(config.model) as any,
++				model: languageModel,
+ 				system:
+ 					'Generate a concise PR title based on the following git diff. The title should be under 72 characters.',
+ 				prompt: diff,
+ 				maxRetries: 2,
++				providerOptions,
+ 			});
+ 
+ 			const title = titleResult.text;
+ 
+ 			// Generate PR body
+ 			const bodyResult = await generateText({
+-				model: aiProvider(config.model) as any,
++				model: languageModel,
+ 				system:
+ 					'Generate a concise PR description based on the following git diff. Format using Markdown with headings like ### Summary, ### Changes, ### Review Notes. Provide a high-level summary of the changes, what was implemented or fixed, and any specific details reviewers should consider. Avoid listing individual files.',
+ 				prompt: diff,
+ 				maxRetries: 2,
++				providerOptions,
+ 			});
+ 
+ 			const body = bodyResult.text;
+diff --git a/src/commands/prepare-commit-msg-hook.ts b/src/commands/prepare-commit-msg-hook.ts
+index 414c7bb..e680307 100644
+--- a/src/commands/prepare-commit-msg-hook.ts
++++ b/src/commands/prepare-commit-msg-hook.ts
+@@ -60,8 +60,8 @@ export default () =>
+ 
+ 		const timeout = providerInstance.getRequestTimeout(config.timeout);
+ 
+-		// Use the unified model or provider default
+-		let modelName = config.OPENAI_MODEL || providerInstance.getDefaultModel();
++		// Use the configured model (ROUTER_MODEL for Router) or provider default
++		let modelName = providerInstance.resolveModel(config.OPENAI_MODEL);
+ 		const { requiresBody } = getCommitTypePolicy(config.type);
+ 		const generationCount = requiresBody ? 1 : config.generate;
+ 		const attemptGeneration = async () => {
+diff --git a/src/commands/setup.ts b/src/commands/setup.ts
+index 5604716..abd4b58 100644
+--- a/src/commands/setup.ts
++++ b/src/commands/setup.ts
+@@ -6,6 +6,7 @@ import {
+ 	getProvider,
+ 	getAvailableProviders,
+ 	getProviderBaseUrl,
++	getProviderDef,
+ } from '../feature/providers/index.js';
+ import { KnownError, handleCommandError } from '../utils/error.js';
+ import { isInteractive } from '../utils/headless.js';
+@@ -41,34 +42,10 @@ export default command(
+ 			}
+ 			const providerChoice = choice as string;
+ 
+-			// Ask for custom base URL if custom provider
+-			let customBaseUrl = '';
+-			if (providerChoice === 'custom') {
+-				const baseUrlInput = await text({
+-					message: 'Enter your custom API endpoint:',
+-					validate: (value: string) => {
+-						if (!value) return 'Endpoint is required';
+-						try {
+-							new URL(value);
+-						} catch {
+-							return 'Invalid URL format';
+-						}
+-						return;
+-					},
+-				});
+-				if (isCancel(baseUrlInput)) {
+-					outro('Setup cancelled');
+-					return;
+-				}
+-				customBaseUrl = baseUrlInput as string;
+-			}
+-
+-			// Set default base URL for the provider
+-			let defaultBaseUrl = customBaseUrl || getProviderBaseUrl(providerChoice);
+-
+-			// Set defaults
+-			config.OPENAI_BASE_URL = defaultBaseUrl;
+-			config.OPENAI_API_KEY = '';
++			// Router's endpoint is fixed; only local providers store a base URL
++			const providerBaseUrl = getProviderBaseUrl(providerChoice);
++			config.OPENAI_BASE_URL =
++				getProviderDef(providerChoice)?.isLocal ? providerBaseUrl : '';
+ 			config.OPENAI_MODEL = '';
+ 
+ 			// Get provider instance
+@@ -149,6 +126,10 @@ export default command(
+ 					v !== '' &&
+ 					typeof v === 'string'
+ 			) as [string, string][];
++			if (!config.OPENAI_BASE_URL) {
++				// Clear a previously saved endpoint so Router is detected
++				finalUpdates.push(['OPENAI_BASE_URL', '']);
++			}
+ 			await setConfigs(finalUpdates);
+ 
+ 			outro(`✅ Setup complete! You're now using ${provider.displayName}.`);
+diff --git a/src/feature/providers/base.ts b/src/feature/providers/base.ts
+index a62d67a..4631a01 100644
+--- a/src/feature/providers/base.ts
++++ b/src/feature/providers/base.ts
+@@ -1,6 +1,5 @@
+ import { createOpenAI } from '@ai-sdk/openai';
+ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+-import { createTogetherAI } from '@ai-sdk/togetherai';
+ import type {
+ 	JSONValue,
+ 	LanguageModel,
+@@ -8,6 +7,12 @@ import type {
+ } from 'ai';
+ import { fetchModels } from '../models.js';
+ import type { ValidConfig } from '../../utils/config-types.js';
++import { KnownError } from '../../utils/error.js';
++import {
++	ROUTER_API_KEY_ENV,
++	ROUTER_MODEL_ENV,
++	getRouterApiKey,
++} from './router.js';
+ 
+ const isLoopbackUrl = (baseUrl: string): boolean => {
+ 	try {
+@@ -32,6 +37,11 @@ export type ProviderDef = {
+ 	headers?: Record<string, string>;
+ 	cacheModels?: boolean;
+ 	isLocal?: boolean;
++	// Served through Router's OpenAI Responses API instead of Chat Completions.
++	usesResponsesApi?: boolean;
++	providerOptions?: (
++		feature: string
++	) => Record<string, Record<string, JSONValue>>;
+ 	agenticGeneration?: {
+ 		supports?: (model: string) => boolean;
+ 		callOptions?: (model: string) => GenerationCallOptions;
+@@ -73,29 +83,13 @@ export class Provider {
+ 	}
+ 
+ 	async setup(): Promise<[string, string][]> {
+-		const { text, password, isCancel } = await import('@clack/prompts');
++		const { text, isCancel } = await import('@clack/prompts');
+ 		const updates: [string, string][] = [];
+ 
+-		if (this.def.requiresApiKey) {
+-			const currentKey = this.getApiKey();
+-			const apiKey = await password({
+-				message: currentKey
+-					? `Enter your API key (leave empty to keep current: ${currentKey.substring(
+-							0,
+-							4
+-					  )}****):`
+-					: 'Enter your API key:',
+-				validate: (value) => {
+-					if (!value && !currentKey) return 'API key is required';
+-					return;
+-				},
+-			});
+-			if (isCancel(apiKey)) {
+-				throw new Error('Setup cancelled');
+-			}
+-			if (apiKey) {
+-				updates.push(['OPENAI_API_KEY', apiKey as string]);
+-			}
++		if (this.def.requiresApiKey && !this.getApiKey()) {
++			throw new KnownError(
++				`${ROUTER_API_KEY_ENV} is not set. Export your Router API key in that environment variable, then run \`aicommits setup\` again.`
++			);
+ 		}
+ 
+ 		if (this.name === 'ollama') {
+@@ -139,13 +133,11 @@ export class Provider {
+ 	}
+ 
+ 	getApiKey(): string | undefined {
+-		return this.def.requiresApiKey ? this.config.OPENAI_API_KEY : undefined;
++		// The Router key is only ever read from the environment.
++		return this.def.requiresApiKey ? getRouterApiKey() : undefined;
+ 	}
+ 
+ 	getBaseUrl(): string {
+-		if (this.name === 'custom') {
+-			return this.config.OPENAI_BASE_URL || '';
+-		}
+ 		return this.def.baseUrl;
+ 	}
+ 
+@@ -153,6 +145,22 @@ export class Provider {
+ 		return this.def.defaultModels[0] || '';
+ 	}
+ 
++	resolveModel(configuredModel?: string): string {
++		const model = configuredModel || this.getDefaultModel();
++		if (!model) {
++			throw new KnownError(
++				`No model configured. Set ${ROUTER_MODEL_ENV} to a model ID returned by Router's GET /v1/models, or run \`aicommits model\`.`
++			);
++		}
++		return model;
++	}
++
++	getProviderOptions(
++		feature: string
++	): Record<string, Record<string, JSONValue>> | undefined {
++		return this.def.providerOptions?.(feature);
++	}
++
+ 	getFallbackModel(model: string): string | undefined {
+ 		if (!this.def.fallbackModel) return;
+ 		if (this.def.fallbackModel !== model) {
+@@ -184,23 +192,23 @@ export class Provider {
+ 	getLanguageModel(model: string): LanguageModel {
+ 		const baseUrl = this.getBaseUrl();
+ 		const apiKey = this.getApiKey() || '';
+-		const provider = (() => {
+-			if (this.name === 'openai') {
+-				return createOpenAI({ apiKey });
+-			}
+-
+-			if (this.name === 'togetherai') {
+-				return createTogetherAI({ apiKey, baseURL: baseUrl });
+-			}
+-
+-			return createOpenAICompatible({
++		if (this.def.usesResponsesApi) {
++			return createOpenAI({
+ 				name: this.name,
+ 				apiKey,
+ 				baseURL: baseUrl,
+ 				headers: this.getHeaders(),
+-			});
+-		})();
+-		return provider(model);
++			}).responses(model);
++		}
++
++		// Local providers (Ollama, LM Studio) run on the user's machine and are
++		// not reachable through Router.
++		return createOpenAICompatible({
++			name: this.name,
++			apiKey,
++			baseURL: baseUrl,
++			headers: this.getHeaders(),
++		})(model);
+ 	}
+ 
+ 	getGenerationModel(model: string): GenerationModel {
+@@ -230,10 +238,7 @@ export class Provider {
+ 	validateConfig(): { valid: boolean; errors: string[] } {
+ 		const errors: string[] = [];
+ 		if (this.def.requiresApiKey && !this.getApiKey()) {
+-			errors.push(`${this.displayName} API key is required`);
+-		}
+-		if (this.name === 'custom' && !this.getBaseUrl()) {
+-			errors.push('Custom endpoint is required');
++			errors.push(`${ROUTER_API_KEY_ENV} is not set`);
+ 		}
+ 		return { valid: errors.length === 0, errors };
+ 	}
+diff --git a/src/feature/providers/providers-data.ts b/src/feature/providers/providers-data.ts
+index f9575b0..929972f 100644
+--- a/src/feature/providers/providers-data.ts
++++ b/src/feature/providers/providers-data.ts
+@@ -1,19 +1,7 @@
+-import { TogetherProvider } from './together.js';
+-import { OpenAiProvider } from './openai.js';
++import { RouterProvider } from './router.js';
+ import { OllamaProvider } from './ollama.js';
+-import { OpenAiCustom } from './openaiCustom.js';
+-import { OpenRouterProvider } from './openrouter.js';
+ import { LMStudioProvider } from './lmstudio.js';
+-import { GroqProvider } from './groq.js';
+-import { XAiProvider } from './xai.js';
+ 
+-export const providers = [
+-	TogetherProvider,
+-	OpenAiProvider,
+-	GroqProvider,
+-	XAiProvider,
+-	OllamaProvider,
+-	LMStudioProvider,
+-	OpenRouterProvider,
+-	OpenAiCustom,
+-];
++// Every hosted model is served through Router. Local providers stay direct
++// because they run on the user's machine.
++export const providers = [RouterProvider, OllamaProvider, LMStudioProvider];
+diff --git a/src/feature/providers/router.ts b/src/feature/providers/router.ts
+new file mode 100644
+index 0000000..e2a9feb
+--- /dev/null
++++ b/src/feature/providers/router.ts
+@@ -0,0 +1,45 @@
++import type { JSONValue } from 'ai';
++import type { ProviderDef } from './base.js';
++
++export const ROUTER_DEFAULT_BASE_URL = 'https://api.router.com/v1';
++export const ROUTER_API_KEY_ENV = 'RAMP_ROUTER_API_KEY';
++export const ROUTER_MODEL_ENV = 'ROUTER_MODEL';
++export const ROUTER_FALLBACK_MODEL_ENV = 'ROUTER_FALLBACK_MODEL';
++
++const readEnv = (name: string) => process.env[name]?.trim() || undefined;
++
++export const getRouterApiKey = () => readEnv(ROUTER_API_KEY_ENV);
++
++// Router model IDs are account-specific (see `GET /v1/models`), so they are
++// only ever read from configuration, never hardcoded.
++export const getRouterModel = () => readEnv(ROUTER_MODEL_ENV);
++
++// Router-only request settings travel in the Responses body. `store: false`
++// keeps every request self-contained (the previous Chat Completions transport
++// was stateless), and `metadata` labels spend by feature.
++export const getRouterProviderOptions = (
++	feature: string
++): Record<string, Record<string, JSONValue>> => ({
++	openai: {
++		store: false,
++		metadata: { app: 'aicommits', feature },
++	},
++});
++
++export const RouterProvider: ProviderDef = {
++	name: 'router',
++	displayName: 'Router',
++	// ROUTER_BASE_URL is an optional override (for example, a local mock in tests).
++	baseUrl: readEnv('ROUTER_BASE_URL') || ROUTER_DEFAULT_BASE_URL,
++	defaultModels: [],
++	fallbackModel: readEnv(ROUTER_FALLBACK_MODEL_ENV),
++	requiresApiKey: true,
++	isLocal: false,
++	usesResponsesApi: true,
++	providerOptions: getRouterProviderOptions,
++	agenticGeneration: {
++		callOptions: () => ({
++			providerOptions: getRouterProviderOptions('commit-message'),
++		}),
++	},
++};
+diff --git a/src/utils/config-runtime.ts b/src/utils/config-runtime.ts
+index 1e541fd..dce2fe9 100644
+--- a/src/utils/config-runtime.ts
++++ b/src/utils/config-runtime.ts
+@@ -12,29 +12,31 @@ import {
+ 	type RawConfig,
+ } from './config-types.js';
+ import { providers } from '../feature/providers/providers-data.js';
++import {
++	getRouterApiKey,
++	getRouterModel,
++} from '../feature/providers/router.js';
+ 
+-const getDefaultBaseUrl = (): string => {
+-	const openaiProvider = providers.find((p) => p.name === 'openai');
+-	return openaiProvider?.baseUrl || '';
+-};
++// Provider API keys from earlier versions. Router credentials are read from
++// RAMP_ROUTER_API_KEY only, so these are removed whenever the config is written.
++const LEGACY_PROVIDER_KEYS = ['OPENAI_API_KEY', 'TOGETHER_API_KEY'];
+ 
+-const detectProvider = (
+-	baseUrl?: string,
+-	apiKey?: string
+-): string | undefined => {
++const detectProvider = (baseUrl?: string): string | undefined => {
+ 	if (baseUrl) {
+-		const matchingProvider = providers.find(
++		const localProvider = providers.find(
+ 			(p) =>
+-				p.baseUrl === baseUrl ||
+-				(p.name === 'ollama' && baseUrl.startsWith(p.baseUrl.slice(0, -3)))
++				p.isLocal &&
++				(p.baseUrl === baseUrl ||
++					(p.name === 'ollama' && baseUrl.startsWith(p.baseUrl.slice(0, -3))))
+ 		);
+-		if (matchingProvider) {
+-			return matchingProvider.name;
+-		} else {
+-			return 'custom';
++		if (localProvider) {
++			return localProvider.name;
+ 		}
+-	} else if (apiKey) {
+-		return 'openai';
++	}
++
++	// Every hosted model is served through Router.
++	if (baseUrl || getRouterApiKey()) {
++		return 'router';
+ 	}
+ };
+ 
+@@ -78,24 +80,26 @@ export const getConfig = async (
+ 		}
+ 	}
+ 
+-	// Detect provider from OPENAI_BASE_URL or default to OpenAI if only API key is set
+-	let provider: string | undefined;
+-	let baseUrl = parsedConfig.OPENAI_BASE_URL as string | undefined;
+-	const apiKey = parsedConfig.OPENAI_API_KEY as string | undefined;
++	// Local endpoints are detected from OPENAI_BASE_URL; everything else uses Router
++	const provider = detectProvider(
++		parsedConfig.OPENAI_BASE_URL as string | undefined
++	);
+ 
+-	// If only API key is provided without base URL, default to OpenAI
+-	if (!baseUrl && apiKey) {
+-		baseUrl = getDefaultBaseUrl();
+-		parsedConfig.OPENAI_BASE_URL = baseUrl;
++	// The Router model ID comes from the ROUTER_MODEL environment variable,
++	// which takes precedence over a model saved by `aicommits model`.
++	const routerModel = provider === 'router' ? getRouterModel() : undefined;
++	if (routerModel) {
++		parsedConfig.OPENAI_MODEL = routerModel;
+ 	}
+ 
+-	provider = detectProvider(baseUrl, apiKey);
+-
+ 	return { ...parsedConfig, model: parsedConfig.OPENAI_MODEL, provider } as ValidConfig;
+ };
+ 
+ export const setConfigs = async (keyValues: [key: string, value: string][]) => {
+ 	const config = await readConfigFile();
++	for (const legacyKey of LEGACY_PROVIDER_KEYS) {
++		delete (config as Record<string, unknown>)[legacyKey];
++	}
+ 
+ 	for (const [key, value] of keyValues) {
+ 		if (!hasOwn(configParsers, key)) {
+diff --git a/src/utils/config-types.ts b/src/utils/config-types.ts
+index 295a326..05e858a 100644
+--- a/src/utils/config-types.ts
++++ b/src/utils/config-types.ts
+@@ -37,9 +37,6 @@ const parseAssert = (name: string, condition: boolean, message: string) => {
+ };
+ 
+ const configParsers = {
+-	OPENAI_API_KEY(key?: string) {
+-		return key;
+-	},
+ 	OPENAI_BASE_URL(key?: string) {
+ 		return key;
+ 	},
+@@ -123,7 +120,6 @@ type RawConfig = {
+ export type ValidConfig = {
+ 	[Key in ConfigKeys]: ReturnType<(typeof configParsers)[Key]>;
+ } & {
+-	OPENAI_API_KEY: string | undefined;
+ 	OPENAI_BASE_URL: string | undefined;
+ 	OPENAI_MODEL: string;
+ 	model: string;
+diff --git a/tests/specs/cli/commits.ts b/tests/specs/cli/commits.ts
+index 8bce2fa..1bdbf62 100644
+--- a/tests/specs/cli/commits.ts
++++ b/tests/specs/cli/commits.ts
+@@ -14,9 +14,9 @@ export default testSuite(({ describe }) => {
+ 		return;
+ 	}
+ 
+-	if (!process.env.OPENAI_API_KEY) {
++	if (!process.env.RAMP_ROUTER_API_KEY || !process.env.ROUTER_MODEL) {
+ 		console.warn(
+-			'⚠️  process.env.OPENAI_API_KEY is necessary to run these tests. Skipping...'
++			'⚠️  process.env.RAMP_ROUTER_API_KEY and process.env.ROUTER_MODEL are necessary to run these tests. Skipping...'
+ 		);
+ 		return;
+ 	}
+diff --git a/tests/specs/cli/error-cases.ts b/tests/specs/cli/error-cases.ts
+index 965e761..aa5a9fa 100644
+--- a/tests/specs/cli/error-cases.ts
++++ b/tests/specs/cli/error-cases.ts
+@@ -5,7 +5,7 @@ export default testSuite(({ describe }) => {
+ 	describe('Error cases', async ({ test }) => {
+ 		test('Fails on non-Git project', async () => {
+ 			const { fixture, aicommits } = await createFixture({
+-				'.aicommits': 'OPENAI_API_KEY=sk-test-key\nprovider=openai'
++				'.aicommits': 'OPENAI_MODEL=test-model'
+ 			});
+ 			const { stderr, exitCode } = await aicommits([], { reject: false });
+ 			expect(exitCode).toBe(1);
+@@ -15,7 +15,7 @@ export default testSuite(({ describe }) => {
+ 
+ 		test('Fails on no staged files', async () => {
+ 			const { fixture, aicommits } = await createFixture({
+-				'.aicommits': 'OPENAI_API_KEY=sk-test-key\nprovider=openai'
++				'.aicommits': 'OPENAI_MODEL=test-model'
+ 			});
+ 			await createGit(fixture.path);
+ 
+diff --git a/tests/specs/cli/headless.ts b/tests/specs/cli/headless.ts
+index 0bbe7b3..450f7f0 100644
+--- a/tests/specs/cli/headless.ts
++++ b/tests/specs/cli/headless.ts
+@@ -2,36 +2,61 @@ import http from 'node:http';
+ import { testSuite, expect } from 'manten';
+ import { createFixture, createGit } from '../../utils.js';
+ 
++// Mimics Router's OpenAI Responses API: every request is answered with a
++// streamed submitCommitMessage function call.
+ const startAgentServer = async (commitBody: string | null = null) => {
+ 	const requests: string[] = [];
++	const paths: string[] = [];
+ 	const server = http.createServer(async (request, response) => {
+ 		let requestBody = '';
+ 		for await (const chunk of request) requestBody += chunk;
+ 		requests.push(requestBody);
++		paths.push(request.url ?? '');
+ 
+-		const message = {
+-			role: 'assistant',
+-			content: commitBody
+-				? `feat: add test data\n\n${commitBody}`
+-				: 'feat: add test data',
++		const functionCall = {
++			type: 'function_call',
++			id: `fc_${requests.length}`,
++			call_id: `call_${requests.length}`,
++			name: 'submitCommitMessage',
+ 		};
++		const events = [
++			{
++				type: 'response.created',
++				response: {
++					id: `resp_${requests.length}`,
++					created_at: 0,
++					model: 'test-model',
++				},
++			},
++			{
++				type: 'response.output_item.added',
++				output_index: 0,
++				item: { ...functionCall, arguments: '' },
++			},
++			{
++				type: 'response.output_item.done',
++				output_index: 0,
++				item: {
++					...functionCall,
++					arguments: JSON.stringify({
++						subject: 'feat: add test data',
++						body: commitBody,
++					}),
++					status: 'completed',
++				},
++			},
++			{
++				type: 'response.completed',
++				response: {
++					incomplete_details: null,
++					usage: { input_tokens: 10, output_tokens: 5 },
++				},
++			},
++		];
+ 
+-		response.writeHead(200, { 'content-type': 'application/json' });
++		response.writeHead(200, { 'content-type': 'text/event-stream' });
+ 		response.end(
+-			JSON.stringify({
+-				id: `response-${requests.length}`,
+-				object: 'chat.completion',
+-				created: 0,
+-				model: 'test-model',
+-				choices: [
+-					{
+-						index: 0,
+-						message,
+-						finish_reason: 'tool_calls',
+-					},
+-				],
+-				usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+-			})
++			events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
+ 		);
+ 	});
+ 
+@@ -42,20 +67,24 @@ const startAgentServer = async (commitBody: string | null = null) => {
+ 	return {
+ 		baseUrl: `http://127.0.0.1:${address.port}/v1`,
+ 		requests,
++		paths,
+ 		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+ 	};
+ };
+ 
++const routerEnv = (baseUrl: string) => ({
++	CI: '1',
++	RAMP_ROUTER_API_KEY: 'test-key',
++	ROUTER_BASE_URL: baseUrl,
++	ROUTER_MODEL: 'test-model',
++});
++
+ export default testSuite(({ describe }) => {
+ 	describe('Headless mode', ({ test }) => {
+-		test('generates a one-shot message for a custom provider', async () => {
++		test('generates a message through the Router Responses API', async () => {
+ 			const agentServer = await startAgentServer();
+ 			const { fixture, aicommits } = await createFixture({
+-				'.aicommits': [
+-					'OPENAI_API_KEY=test-key',
+-					`OPENAI_BASE_URL=${agentServer.baseUrl}`,
+-					'OPENAI_MODEL=test-model',
+-				].join('\n'),
++				'.aicommits': '',
+ 				'data.json': '{"agentic":true}\n',
+ 			});
+ 			const git = await createGit(fixture.path);
+@@ -64,13 +93,18 @@ export default testSuite(({ describe }) => {
+ 			try {
+ 				const { stdout, exitCode } = await aicommits([], {
+ 					reject: false,
+-					env: { CI: '1' },
++					env: routerEnv(agentServer.baseUrl),
+ 				});
+ 
+ 				expect(exitCode).toBe(0);
+ 				expect(stdout).toBe('feat: add test data');
+ 				expect(agentServer.requests.length).toBe(1);
++				expect(agentServer.paths[0]).toBe('/v1/responses');
+ 				expect(agentServer.requests[0]).toMatch('agentic');
++				expect(JSON.parse(agentServer.requests[0])).toMatchObject({
++					model: 'test-model',
++					store: false,
++				});
+ 			} finally {
+ 				await agentServer.close();
+ 				await fixture.rm();
+@@ -82,11 +116,7 @@ export default testSuite(({ describe }) => {
+ 				'Explain the important implementation context.'
+ 			);
+ 			const { fixture, aicommits } = await createFixture({
+-				'.aicommits': [
+-					'OPENAI_API_KEY=test-key',
+-					`OPENAI_BASE_URL=${agentServer.baseUrl}`,
+-					'OPENAI_MODEL=test-model',
+-				].join('\n'),
++				'.aicommits': '',
+ 				'data.json': '{"agentic":true}\n',
+ 			});
+ 			const git = await createGit(fixture.path);
+@@ -95,7 +125,7 @@ export default testSuite(({ describe }) => {
+ 			try {
+ 				const { stdout, exitCode } = await aicommits(['--description'], {
+ 					reject: false,
+-					env: { CI: '1' },
++					env: routerEnv(agentServer.baseUrl),
+ 				});
+ 
+ 				expect(exitCode).toBe(0);
+@@ -115,9 +145,6 @@ export default testSuite(({ describe }) => {
+ 			const agentServer = await startAgentServer('Explain the conventional change.');
+ 			const { fixture, aicommits } = await createFixture({
+ 				'.aicommits': [
+-					'OPENAI_API_KEY=test-key',
+-					`OPENAI_BASE_URL=${agentServer.baseUrl}`,
+-					'OPENAI_MODEL=test-model',
+ 					'type=conventional+body',
+ 					'generate=2',
+ 				].join('\n'),
+@@ -129,7 +156,7 @@ export default testSuite(({ describe }) => {
+ 			try {
+ 				const { stdout, exitCode } = await aicommits([], {
+ 					reject: false,
+-					env: { CI: '1' },
++					env: routerEnv(agentServer.baseUrl),
+ 				});
+ 
+ 				expect(exitCode).toBe(0);
+@@ -151,9 +178,6 @@ export default testSuite(({ describe }) => {
+ 			const agentServer = await startAgentServer('Explain the plain subject change.');
+ 			const { fixture, aicommits } = await createFixture({
+ 				'.aicommits': [
+-					'OPENAI_API_KEY=test-key',
+-					`OPENAI_BASE_URL=${agentServer.baseUrl}`,
+-					'OPENAI_MODEL=test-model',
+ 					'type=subject+body',
+ 				].join('\n'),
+ 				'data.json': '{"agentic":true}\n',
+@@ -164,7 +188,7 @@ export default testSuite(({ describe }) => {
+ 			try {
+ 				const { stdout, exitCode } = await aicommits([], {
+ 					reject: false,
+-					env: { CI: '1' },
++					env: routerEnv(agentServer.baseUrl),
+ 				});
+ 
+ 				expect(exitCode).toBe(0);
+diff --git a/tests/specs/config.ts b/tests/specs/config.ts
+index 44f8f32..8d88e33 100644
+--- a/tests/specs/config.ts
++++ b/tests/specs/config.ts
+@@ -7,7 +7,7 @@ export default testSuite(({ describe }) => {
+ 	describe('config', async ({ test, describe }) => {
+ 		const { fixture, aicommits } = await createFixture();
+ 		const configPath = path.join(fixture.path, '.aicommits');
+-		const openAiToken = 'OPENAI_API_KEY=abc';
++		const localeSetting = 'locale=fr';
+ 
+ 		test('set unknown config file', async () => {
+ 			const { stderr } = await aicommits(['config', 'set', 'UNKNOWN=1'], {
+@@ -17,7 +17,7 @@ export default testSuite(({ describe }) => {
+ 			expect(stderr).toMatch('Invalid config property: UNKNOWN');
+ 		});
+ 
+-		test('set OPENAI_API_KEY', async () => {
++		test('rejects provider API keys', async () => {
+ 			const { stderr } = await aicommits(
+ 				['config', 'set', 'OPENAI_API_KEY=abc'],
+ 				{
+@@ -25,19 +25,29 @@ export default testSuite(({ describe }) => {
+ 				}
+ 			);
+ 
+-			expect(stderr).toBe('');
++			expect(stderr).toMatch('Invalid config property: OPENAI_API_KEY');
+ 		});
+ 
+ 		await test('set config file', async () => {
+-			await aicommits(['config', 'set', openAiToken]);
++			await aicommits(['config', 'set', localeSetting]);
+ 
+ 			const configFile = await fs.readFile(configPath, 'utf8');
+-			expect(configFile).toMatch(openAiToken);
++			expect(configFile).toMatch(localeSetting);
+ 		});
+ 
+ 		await test('get config file', async () => {
+-			const { stdout } = await aicommits(['config', 'get', 'OPENAI_API_KEY']);
+-			expect(stdout).toBe('OPENAI_API_KEY=abc****');
++			const { stdout } = await aicommits(['config', 'get', 'locale']);
++			expect(stdout).toBe(localeSetting);
++		});
++
++		await test('removes legacy provider API keys on write', async () => {
++			await fs.appendFile(configPath, 'OPENAI_API_KEY=abc\nTOGETHER_API_KEY=abc\n');
++			await aicommits(['config', 'set', localeSetting]);
++
++			const configFile = await fs.readFile(configPath, 'utf8');
++			expect(configFile).not.toMatch('OPENAI_API_KEY');
++			expect(configFile).not.toMatch('TOGETHER_API_KEY');
++			expect(configFile).toMatch(localeSetting);
+ 		});
+ 
+ 		await test('reading unknown config', async () => {
+@@ -73,14 +83,12 @@ export default testSuite(({ describe }) => {
+ 		});
+ 
+ 		await test('accepts type=conventional+body', async () => {
+-			await aicommits(['config', 'set', 'OPENAI_API_KEY=abc']);
+ 			await aicommits(['config', 'set', 'type=conventional+body']);
+ 			const { stdout } = await aicommits(['config', 'get', 'type']);
+ 			expect(stdout).toBe('type=conventional+body');
+ 		});
+ 
+ 		await test('accepts type=subject+body', async () => {
+-			await aicommits(['config', 'set', 'OPENAI_API_KEY=abc']);
+ 			await aicommits(['config', 'set', 'type=subject+body']);
+ 			const { stdout } = await aicommits(['config', 'get', 'type']);
+ 			expect(stdout).toBe('type=subject+body');
+diff --git a/tests/specs/generate-commit-message.ts b/tests/specs/generate-commit-message.ts
+index aa364a1..96af9a0 100644
+--- a/tests/specs/generate-commit-message.ts
++++ b/tests/specs/generate-commit-message.ts
+@@ -1,11 +1,6 @@
+ import { expect, testSuite } from 'manten';
+ import type { LanguageModel } from 'ai';
+ import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
+-import {
+-	supportsTogetherAgenticGeneration,
+-	TogetherProvider,
+-	TOGETHER_NON_AGENTIC_MODELS,
+-} from '../../src/feature/providers/together.js';
+ import { getProvider } from '../../src/feature/providers/index.js';
+ import type { GenerationModel } from '../../src/feature/providers/base.js';
+ import { generateCommitMessage } from '../../src/feature/generate-commit-message.js';
+@@ -91,25 +86,6 @@ const asGenerationModel = (languageModel: LanguageModel): GenerationModel => {
+ 
+ export default testSuite(({ describe }) => {
+ 	describe('generateCommitMessage', ({ test }) => {
+-		test('keeps unknown Together models agentic by default', () => {
+-			expect(supportsTogetherAgenticGeneration('future/model')).toBe(true);
+-			expect(supportsTogetherAgenticGeneration('moonshotai/Kimi-K3')).toBe(
+-				false
+-			);
+-			expect(
+-				supportsTogetherAgenticGeneration('Qwen/Qwen2.5-7B-Instruct-Turbo')
+-			).toBe(false);
+-			expect(supportsTogetherAgenticGeneration('thinkingmachines/Inkling')).toBe(
+-				true
+-			);
+-			expect(TOGETHER_NON_AGENTIC_MODELS.size).toBe(8);
+-			expect(TogetherProvider.defaultModels).toEqual([
+-				'deepseek-ai/DeepSeek-V4-Flash-0731',
+-				'zai-org/GLM-5.3-Flash',
+-				'moonshotai/Kimi-K3',
+-			]);
+-		});
+-
+ 		test('submits a small staged diff in one model call', async () => {
+ 			const { fixture } = await createFixture({
+ 				'src/greeting.ts': `export const greeting = 'hello';\n`,
+@@ -129,8 +105,8 @@ export default testSuite(({ describe }) => {
+ 			);
+ 
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'moonshotai/Kimi-K2.7-Code',
++				provider: 'router.responses',
++				modelId: 'configured-model',
+ 				doStream: toolCallStream(
+ 					'submit-message-1',
+ 					'submitCommitMessage',
+@@ -164,9 +140,12 @@ export default testSuite(({ describe }) => {
+ 				type: 'required',
+ 			});
+ 			expect(model.doStreamCalls[0].maxOutputTokens).toBe(2048);
+-			expect(model.doStreamCalls[0].reasoning).toBe('none');
++			expect(model.doStreamCalls[0].reasoning).toBeUndefined();
+ 			expect(model.doStreamCalls[0].providerOptions).toEqual({
+-				togetherai: { reasoning: { enabled: false } },
++				openai: {
++					store: false,
++					metadata: { app: 'aicommits', feature: 'commit-message' },
++				},
+ 			});
+ 			expect(model.doStreamCalls[0].responseFormat).toBeUndefined();
+ 			expect(finalPrompt).toMatch(
+@@ -179,119 +158,6 @@ export default testSuite(({ describe }) => {
+ 			await fixture.rm();
+ 		});
+ 
+-		test('uses agentic generation for OpenAI models with reasoning disabled', async () => {
+-			const { fixture } = await createFixture({ 'file.txt': 'before\n' });
+-			const git = await createGit(fixture.path);
+-			await git('add', ['.']);
+-			await git('commit', ['-m', 'initial']);
+-			await fixture.writeFile('file.txt', 'after\n');
+-			await git('add', ['file.txt']);
+-			const model = new MockLanguageModelV4({
+-				provider: 'openai.responses',
+-				modelId: 'gpt-5.6-luna',
+-				doStream: toolCallStream(
+-					'submit-message-1',
+-					'submitCommitMessage',
+-					{ subject: 'fix: update fixture', body: null }
+-				),
+-			});
+-
+-			const result = await generateCommitMessage({
+-				model: asGenerationModel(model),
+-				cwd: fixture.path,
+-				files: ['file.txt'],
+-				type: 'conventional',
+-				locale: 'en',
+-				maxLength: 72,
+-				includeBody: false,
+-				timeout: 5000,
+-			});
+-
+-			expect(result.message.subject).toBe('fix: update fixture');
+-			expect(model.doStreamCalls.length).toBe(1);
+-			expect(model.doGenerateCalls.length).toBe(0);
+-			expect(model.doStreamCalls[0].reasoning).toBe('none');
+-			expect(model.doStreamCalls[0].providerOptions).toEqual({
+-				openai: { reasoningEffort: 'none' },
+-			});
+-			await fixture.rm();
+-		});
+-
+-		test('uses minimal reasoning for GPT-5 mini', async () => {
+-			const { fixture } = await createFixture({ 'file.txt': 'before\n' });
+-			const git = await createGit(fixture.path);
+-			await git('add', ['.']);
+-			await git('commit', ['-m', 'initial']);
+-			await fixture.writeFile('file.txt', 'after\n');
+-			await git('add', ['file.txt']);
+-			const model = new MockLanguageModelV4({
+-				provider: 'openai.responses',
+-				modelId: 'gpt-5-mini',
+-				doStream: toolCallStream(
+-					'submit-message-1',
+-					'submitCommitMessage',
+-					{ subject: 'fix: update fixture', body: null }
+-				),
+-			});
+-
+-			const result = await generateCommitMessage({
+-				model: asGenerationModel(model),
+-				cwd: fixture.path,
+-				files: ['file.txt'],
+-				type: 'conventional',
+-				locale: 'en',
+-				maxLength: 72,
+-				includeBody: false,
+-				timeout: 5000,
+-			});
+-
+-			expect(result.message.subject).toBe('fix: update fixture');
+-			expect(model.doStreamCalls.length).toBe(1);
+-			expect(model.doStreamCalls[0].reasoning).toBe('minimal');
+-			expect(model.doStreamCalls[0].providerOptions).toEqual({
+-				openai: { reasoningEffort: 'minimal' },
+-			});
+-			await fixture.rm();
+-		});
+-
+-		test('uses agentic generation for xAI models at their lowest reasoning level', async () => {
+-			const { fixture } = await createFixture({ 'file.txt': 'before\n' });
+-			const git = await createGit(fixture.path);
+-			await git('add', ['.']);
+-			await git('commit', ['-m', 'initial']);
+-			await fixture.writeFile('file.txt', 'after\n');
+-			await git('add', ['file.txt']);
+-			const model = new MockLanguageModelV4({
+-				provider: 'xai.chat',
+-				modelId: 'grok-4.5',
+-				doStream: toolCallStream(
+-					'submit-message-1',
+-					'submitCommitMessage',
+-					{ subject: 'fix: update fixture', body: null }
+-				),
+-			});
+-
+-			const result = await generateCommitMessage({
+-				model: asGenerationModel(model),
+-				cwd: fixture.path,
+-				files: ['file.txt'],
+-				type: 'conventional',
+-				locale: 'en',
+-				maxLength: 72,
+-				includeBody: false,
+-				timeout: 5000,
+-			});
+-
+-			expect(result.message.subject).toBe('fix: update fixture');
+-			expect(model.doStreamCalls.length).toBe(1);
+-			expect(model.doGenerateCalls.length).toBe(0);
+-			expect(model.doStreamCalls[0].reasoning).toBe('low');
+-			expect(model.doStreamCalls[0].providerOptions).toEqual({
+-				xai: { reasoningEffort: 'low' },
+-			});
+-			await fixture.rm();
+-		});
+-
+ 		test('uses agentic generation for LM Studio models that support tools', async () => {
+ 			const { fixture } = await createFixture({ 'file.txt': 'before\n' });
+ 			const git = await createGit(fixture.path);
+@@ -424,8 +290,8 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'xai.chat',
+-				modelId: 'legacy-grok',
++				provider: 'router.responses',
++				modelId: 'configured-model',
+ 				doStream: async () => {
+ 					throw new Error('This model does not support tools.');
+ 				},
+@@ -532,8 +398,8 @@ export default testSuite(({ describe }) => {
+ 			const subject =
+ 				'refactor(provider): replace URL support checks with structured metadata';
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'moonshotai/Kimi-K2.7-Code',
++				provider: 'router.responses',
++				modelId: 'configured-model',
+ 				doStream: toolCallStream(
+ 					'submit-message-1',
+ 					'submitCommitMessage',
+@@ -564,8 +430,8 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'MiniMaxAI/MiniMax-M3',
++				provider: 'router.responses',
++				modelId: 'configured-model',
+ 				doStream: toolCallStream(
+ 					'submit-message-1',
+ 					'submitCommitMessage',
+@@ -599,8 +465,8 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen3.5-9B',
++				provider: 'router.responses',
++				modelId: 'configured-model',
+ 				doStream: [
+ 					toolCallStream(
+ 						'invalid-submit-message-1',
+@@ -645,7 +511,7 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
++				provider: 'router.responses',
+ 				modelId: 'future/tool-model',
+ 				doStream: [
+ 					toolCallStream('empty-message-1', 'submitCommitMessage', {
+@@ -683,7 +549,7 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
++				provider: 'router.responses',
+ 				modelId: 'future/tool-model',
+ 				doStream: [
+ 					toolCallStream('clipped-message-1', 'submitCommitMessage', {
+@@ -724,7 +590,7 @@ export default testSuite(({ describe }) => {
+ 			await git('add', ['large.txt']);
+ 
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
++				provider: 'router.responses',
+ 				modelId: 'future/tool-model',
+ 				doStream: [
+ 					toolCallStream('inspect-diff-1', 'inspectStagedChanges', {
+@@ -784,7 +650,7 @@ export default testSuite(({ describe }) => {
+ 			await git('add', ['.']);
+ 
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
++				provider: 'router.responses',
+ 				modelId: 'future/tool-model',
+ 				doStream: [
+ 					toolCallStream('inspect-diff-1', 'inspectStagedChanges', {
+@@ -872,7 +738,7 @@ export default testSuite(({ describe }) => {
+ 			await fixture.rm();
+ 		});
+ 
+-		test('uses one-shot generation for denylisted Together models', async () => {
++		test('uses one-shot generation for providers without agentic support', async () => {
+ 			const { fixture } = await createFixture({
+ 				'file.txt': 'before\n',
+ 			});
+@@ -883,8 +749,6 @@ export default testSuite(({ describe }) => {
+ 			await git('add', ['file.txt']);
+ 
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: textGeneration('fix: update fixture value'),
+ 			});
+ 
+@@ -917,8 +781,6 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: [
+ 					textGeneration(''),
+ 					textGeneration(''),
+@@ -950,8 +812,6 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('file.txt', 'after\n');
+ 			await git('add', ['file.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: [
+ 					textGeneration('fix: update...'),
+ 					textGeneration('fix: update fixture value'),
+@@ -1091,8 +951,6 @@ export default testSuite(({ describe }) => {
+ 			await fixture.writeFile('large.txt', `${after}\n`);
+ 			await git('add', ['large.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: async () =>
+ 					textGeneration('chore: summarize staged changes'),
+ 			});
+@@ -1129,8 +987,6 @@ export default testSuite(({ describe }) => {
+ 			);
+ 			await git('add', ['large.txt']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: async () =>
+ 					textGeneration('chore: summarize very large staged changes'),
+ 			});
+@@ -1179,8 +1035,6 @@ export default testSuite(({ describe }) => {
+ 			}
+ 			await git('add', ['.']);
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
+-				modelId: 'Qwen/Qwen2.5-7B-Instruct-Turbo',
+ 				doGenerate: async () =>
+ 					textGeneration('chore: summarize representative changes'),
+ 			});
+@@ -1229,7 +1083,7 @@ export default testSuite(({ describe }) => {
+ 				}
+ 			}
+ 			const model = new MockLanguageModelV4({
+-				provider: 'togetherai.chat',
++				provider: 'router.responses',
+ 				modelId: 'future/tool-model',
+ 				doStream: [
+ 					toolCallStream('inspect-diff-1', 'inspectStagedChanges', {
+diff --git a/tests/specs/git-hook.ts b/tests/specs/git-hook.ts
+index 0fdce05..34da6e3 100644
+--- a/tests/specs/git-hook.ts
++++ b/tests/specs/git-hook.ts
+@@ -75,9 +75,9 @@ export default testSuite(({ describe }) => {
+ 		});
+ 
+ 		test('Commits', async () => {
+-			if (!process.env.OPENAI_API_KEY) {
++			if (!process.env.RAMP_ROUTER_API_KEY || !process.env.ROUTER_MODEL) {
+ 				console.warn(
+-					'⚠️  process.env.OPENAI_API_KEY is necessary to run this test. Skipping...'
++					'⚠️  process.env.RAMP_ROUTER_API_KEY and process.env.ROUTER_MODEL are necessary to run this test. Skipping...'
+ 				);
+ 				return;
+ 			}
+diff --git a/tests/specs/providers.ts b/tests/specs/providers.ts
+index 3ed5bed..f14399d 100644
+--- a/tests/specs/providers.ts
++++ b/tests/specs/providers.ts
+@@ -14,17 +14,39 @@ export default testSuite(({ describe }) => {
+ 			expect(createProvider('lmstudio').getRequestTimeout()).toBe(60_000);
+ 		});
+ 
+-		test('uses a ten-second timeout for hosted providers', () => {
+-			expect(createProvider('openai').getRequestTimeout()).toBe(10_000);
++		test('uses a ten-second timeout for Router', () => {
++			expect(createProvider('router').getRequestTimeout()).toBe(10_000);
+ 		});
+ 
+-		test('uses a one-minute timeout for Together generation', () => {
+-			expect(createProvider('togetherai').getRequestTimeout()).toBe(60_000);
++		test('prefers a configured timeout over the provider default', () => {
++			expect(createProvider('lmstudio').getRequestTimeout(20_000)).toBe(
++				20_000
++			);
++		});
++
++		test('sends Router requests through the Responses API', () => {
++			const languageModel = createProvider('router').getLanguageModel(
++				'configured-model'
++			);
++			expect(typeof languageModel).not.toBe('string');
++			if (typeof languageModel !== 'string') {
++				expect(languageModel.provider).toBe('router.responses');
++				expect(languageModel.modelId).toBe('configured-model');
++			}
++		});
++
++		test('does not hardcode Router model IDs', () => {
++			const router = createProvider('router');
++			expect(router.getHighlightedModels()).toEqual([]);
++			expect(() => router.resolveModel('')).toThrow('ROUTER_MODEL');
++			expect(router.resolveModel('configured-model')).toBe(
++				'configured-model'
++			);
+ 		});
+ 
+-		test('lists only Together serverless models', async () => {
++		test('lists Router models from GET /v1/models', async () => {
+ 			const originalFetch = globalThis.fetch;
+-			const provider = createProvider('togetherai');
++			const provider = createProvider('router');
+ 			const providerDefinition = provider.getDefinition();
+ 			const originalCacheModels = providerDefinition.cacheModels;
+ 			const fetchCalls: string[] = [];
+@@ -32,133 +54,44 @@ export default testSuite(({ describe }) => {
+ 			globalThis.fetch = (async (input: string | URL | Request) => {
+ 				fetchCalls.push(String(input));
+ 				return new Response(
+-					JSON.stringify([{ id: 'moonshotai/Kimi-K3', type: 'chat' }]),
++					JSON.stringify({ data: [{ id: 'account-model' }] }),
+ 					{ status: 200 }
+ 				);
+ 			}) as typeof fetch;
+ 
+ 			try {
+ 				expect(await provider.getModels()).toEqual({
+-					models: ['moonshotai/Kimi-K3'],
++					models: ['account-model'],
+ 				});
+ 			} finally {
+ 				globalThis.fetch = originalFetch;
+ 				providerDefinition.cacheModels = originalCacheModels;
+ 			}
+ 
+-			expect(fetchCalls).toEqual([
+-				'https://api.together.xyz/v1/models?serverless=true',
+-			]);
+-		});
+-
+-		test('highlights current fast and smart Together models', () => {
+-			const provider = createProvider('togetherai');
+-			expect(provider.getHighlightedModels()).toEqual([
+-				'deepseek-ai/DeepSeek-V4-Flash-0731',
+-				'zai-org/GLM-5.3-Flash',
+-				'moonshotai/Kimi-K3',
+-			]);
+-			expect(provider.getDefaultModel()).toBe(
+-				'deepseek-ai/DeepSeek-V4-Flash-0731'
+-			);
+-			expect(provider.getFallbackModel('moonshotai/Kimi-K3')).toBe(
+-				'deepseek-ai/DeepSeek-V4-Flash-0731'
+-			);
+-			expect(provider.getFallbackModel('zai-org/GLM-5.3-Flash')).toBe(
+-				'deepseek-ai/DeepSeek-V4-Flash-0731'
+-			);
+-			expect(
+-				provider.getFallbackModel('deepseek-ai/DeepSeek-V4-Flash-0731')
+-			).toBe('zai-org/GLM-5.3-Flash');
+-		});
+-
+-		test('highlights the current xAI models', () => {
+-			expect(createProvider('xai').getHighlightedModels()).toEqual([
+-				'grok-4.5',
+-				'grok-build-0.1',
+-				'grok-4.3',
+-			]);
+-		});
+-
+-		test('keeps non-text xAI models out of the picker', () => {
+-			const filter = createProvider('xai').getDefinition().modelsFilter!;
+-			expect(
+-				filter([
+-					{ id: 'grok-4.5' },
+-					{ id: 'grok-build-0.1' },
+-					{ id: 'grok-imagine-image' },
+-					{ id: 'grok-imagine-video' },
+-					{ id: 'grok-voice' },
+-				])
+-			).toEqual(['grok-4.5', 'grok-build-0.1']);
+-		});
+-
+-		test('uses a one-minute timeout for custom localhost providers', () => {
+-			for (const baseUrl of [
+-				'http://localhost:8080/v1',
+-				'http://127.0.0.1:8080/v1',
+-				'http://[::1]:8080/v1',
+-			]) {
+-				expect(
+-					createProvider('custom', {
+-						OPENAI_BASE_URL: baseUrl,
+-					}).getRequestTimeout()
+-				).toBe(60_000);
+-			}
+-		});
+-
+-		test('uses a ten-second timeout for remote custom providers', () => {
+-			expect(
+-				createProvider('custom', {
+-					OPENAI_BASE_URL: 'https://example.com/v1',
+-				}).getRequestTimeout()
+-			).toBe(10_000);
+-		});
+-
+-		test('prefers a configured timeout over the provider default', () => {
+-			expect(createProvider('lmstudio').getRequestTimeout(20_000)).toBe(
+-				20_000
+-			);
++			expect(fetchCalls).toEqual([`${provider.getBaseUrl()}/models`]);
+ 		});
+ 
+ 		test('owns generation policy at the provider seam', () => {
+ 			expect(
+-				createProvider('togetherai').getGenerationPolicy('moonshotai/Kimi-K3')
+-			).toMatchObject({ mode: 'fallback', isLocal: false });
+-			expect(
+-				createProvider('togetherai').getGenerationPolicy(
+-					'Qwen/Qwen2.5-7B-Instruct-Turbo'
+-				)
+-			).toMatchObject({ mode: 'fallback', isLocal: false });
+-			expect(
+-				createProvider('togetherai').getGenerationPolicy(
+-					'thinkingmachines/Inkling'
+-				)
+-			).toMatchObject({
++				createProvider('router').getGenerationPolicy('configured-model')
++			).toEqual({
+ 				mode: 'agentic',
+ 				isLocal: false,
+-				callOptions: { maxOutputTokens: 2048 },
+-			});
+-			expect(
+-				createProvider('openai').getGenerationPolicy('gpt-5-mini')
+-			).toMatchObject({
+-				mode: 'agentic',
+ 				callOptions: {
+-					reasoning: 'minimal',
+ 					providerOptions: {
+-						openai: { reasoningEffort: 'minimal' },
++						openai: {
++							store: false,
++							metadata: { app: 'aicommits', feature: 'commit-message' },
++						},
+ 					},
+ 				},
+ 			});
+-			expect(
+-				createProvider('openai').getGenerationPolicy('gpt-5.6-luna')
+-			).toMatchObject({
+-				mode: 'agentic',
+-				callOptions: { reasoning: 'none' },
+-			});
+ 			expect(
+ 				createProvider('lmstudio').getGenerationPolicy('local-tool-model')
+ 			).toMatchObject({ mode: 'agentic', isLocal: true });
++			expect(
++				createProvider('ollama').getGenerationPolicy('local-model')
++			).toMatchObject({ mode: 'fallback', isLocal: true });
+ 		});
+ 	});
+ });
+diff --git a/tests/utils.ts b/tests/utils.ts
+index 0ce6878..21bb404 100644
+--- a/tests/utils.ts
++++ b/tests/utils.ts
+@@ -9,6 +9,13 @@ import {
+ 
+ const aicommitsPath = path.resolve('./dist/cli.mjs');
+ 
++// Router settings are read from the environment, so forward them to the CLI
++const routerEnv = Object.fromEntries(
++	['RAMP_ROUTER_API_KEY', 'ROUTER_MODEL', 'ROUTER_BASE_URL']
++		.filter((name) => process.env[name])
++		.map((name) => [name, process.env[name]])
++);
++
+ const createAicommits = (fixture: FsFixture) => {
+ 	const homeEnv = {
+ 		HOME: fixture.path, // Linux
+@@ -22,6 +29,7 @@ const createAicommits = (fixture: FsFixture) => {
+ 			extendEnv: false,
+ 			env: {
+ 				...homeEnv,
++				...routerEnv,
+ 				...options?.env,
+ 			},
+ 
+@@ -59,7 +67,7 @@ export const createFixture = async (source?: string | FileTree) => {
+ };
+ 
+ export const files = Object.freeze({
+-	'.aicommits': `OPENAI_API_KEY=${process.env.OPENAI_API_KEY}`,
++	'.aicommits': '',
+ 	'data.json': Array.from(
+ 		{ length: 10 },
+ 		(_, i) => `${i}. Lorem ipsum dolor sit amet`

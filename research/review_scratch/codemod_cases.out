@@ -1,0 +1,43 @@
+== ns_package
+   plan outcomes: [('app/main.py', 6, 'chat.completions', 'migrated')]
+   check -c import app.main; print('import ok')        before: exit=0 import ok                                | after: exit=1 ModuleNotFoundError: No module named 'router_runtime'
+== script_in_package
+   plan outcomes: [('pkg/sub/tool.py', 6, 'chat.completions', 'migrated')]
+   check pkg/sub/tool.py                               before: exit=0 script ok                                | after: exit=1 ModuleNotFoundError: No module named 'router_runtime'
+   check -c import pkg.sub.tool; print('import ok')    before: exit=0 import ok                                | after: exit=0 import ok
+== preexisting_runtime
+   before: svc/router_runtime.py starts with "def route(x):\n    return 'user"
+   after:  svc/router_runtime.py starts with '# router_runtime.py (vendored '
+   import svc.api -> (1, "ImportError: cannot import name 'route' from 'svc.router_runtime' (/Users/sanjithsambath/code/router-migrate/research/review_scratch/codemod_repos/preexisting_runtime/svc/router_runtime.py)")
+== idempotent
+   run1 outcomes: [('svc/llm.py', 6, 'chat.completions', 'migrated')] summary migrated=1
+   run2 outcomes: [('svc/llm.py', 10, 'chat.completions', 'flagged')] summary migrated=0
+   file unchanged by run2: True
+   run3 (new Anthropic client added) outcomes: [('svc/llm.py', 10, 'chat.completions', 'flagged'), ('svc/llm.py', 16, 'messages', 'flagged')]
+   run3 Anthropic() wrapped: False
+== headers
+   plan outcomes: [('lib/m.py', 16, 'chat.completions', 'migrated')]
+   check -c import lib.m; print('import ok')           before: exit=0 import ok                                | after: exit=0 import ok
+   --- patched lib/m.py (first 20 lines) ---
+   #!/usr/bin/env python
+   # -*- coding: utf-8 -*-
+   """Doc."""
+   from __future__ import annotations
+   from typing import TYPE_CHECKING
+   if TYPE_CHECKING:
+       from openai.types import Model
+   try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+       from .router_runtime import wrap_openai as _router_wrap_openai
+   except ImportError:  # router-migrate: module executed as a script
+       from router_runtime import wrap_openai as _router_wrap_openai
+   try:
+       from openai import OpenAI
+   except ImportError:  # optional dep
+       OpenAI = None
+   __all__ = ['client']
+   client = _router_wrap_openai(OpenAI()) if OpenAI else None
+   
+   def f():
+       return client.chat.completions.create(model='gpt-4o', messages=[])
+== by_name_link
+   plan outcomes: [('b/groq_agent.py', 6, 'chat.completions', 'flagged')]

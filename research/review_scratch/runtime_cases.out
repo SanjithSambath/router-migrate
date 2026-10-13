@@ -1,0 +1,71 @@
+
+== A1 message shapes (multi-system, developer, name, assistant text+tool_calls, list tool content, assistant refusal, empty user)
+   Router body input items:
+      {"role": "system", "content": "You are terse."}
+      {"role": "system", "content": "Second system message."}
+      {"role": "developer", "content": "dev note"}
+      {"role": "user", "content": "What is the weather in Paris? (asked by alice)"}
+      {"role": "user", "content": "and Tokyo (asked by bob)"}
+      {"role": "assistant", "content": "Checking both."}
+      {"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}
+      {"type": "function_call", "call_id": "call_2", "name": "get_weather", "arguments": "{\"city\":\"Tokyo\"}"}
+      {"type": "function_call_output", "call_id": "call_1", "output": "18C sunny"}
+      {"type": "function_call_output", "call_id": "call_2", "output": "19C"}
+      {"role": "user", "content": ""}
+   -> names 'alice'/'bob' present in body: False
+   -> assistant refusal turn kept: False
+   response finish_reason=stop content='pong'
+
+== A2 dropped / forwarded params
+   routed to Router: yes; keys sent: ['frequency_penalty', 'input', 'max_output_tokens', 'metadata', 'model', 'presence_penalty', 'user']
+   seed sent: False (silently dropped, no fallback)   max_output_tokens=16 (caller asked max_tokens=1)
+   presence_penalty forwarded: 0.5 (live check measured only frequency_penalty on gpt-4o-mini)
+
+== A3 metadata key limit
+   caller metadata keys=16, sent metadata keys=17 (OpenAI caps metadata at 16 keys); sim verdict valid=True
+
+== A4 tool_choice allowed_tools (valid Chat Completions shape)
+   RAISED BadRequestError (no provider fallback): Error code: 400 - {'error': {'message': "Missing required parameter: 'tool_choice.name'.", 'type': 'invalid_request_error', 'param': None, 'code': 'missing_requ
+   tool_choice sent to Router: {'type': 'function', 'name': None} | provider requests: 0
+
+== A5 catalog id the account cannot call
+   resolve_model('gpt-5.3-codex') -> gpt-5.3-codex (live: 403 data_residency_mismatch on both surfaces; the runtime would route it and has no fallback on 4xx)
+
+== A6 key handling (Router key only to Router; inert when unset)
+   headers sent to Router: ['accept', 'authorization', 'content-length', 'content-type', 'host', 'user-agent']
+   provider key present in Router request: False
+   key unset -> hosts contacted: ['api.openai.com'] | wrap_openai returns same object: True
+
+== A7 proxy settings after wrap_openai
+   before wrap: client._client._mounts = {'https://': 'HTTPTransport'}
+   after wrap:  client._client._mounts = {} -> HTTPS_PROXY ignored for Router AND provider-fallback traffic
+   explicit httpx.Client(proxy=...): mounts before=1 after=0
+
+== A8 non-streaming calls get the account default tier (flex)
+   non-stream request service_tier sent: None | sim served tier: flex (live: plain calls are served at flex by account default)
+
+== B1 text + two interleaved tool calls + include_usage (expected: both calls intact, finish=tool_calls, usage=12)
+   {'text': 'Let me check.', 'calls': {0: {'id': 'call_A', 'name': 'f', 'args': '{"x":1}'}, 1: {'id': 'call_B', 'name': 'f', 'args': '{"y":2}'}}, 'finish': 'tool_calls', 'usage': 12, 'n_chunks': 9}
+
+== B2 tool-call arguments delivered only in *.done events (no deltas): args lost?
+   {'text': '', 'calls': {0: {'id': 'call_A', 'name': 'f', 'args': ''}}, 'finish': 'tool_calls', 'usage': 12, 'n_chunks': 4}
+
+== B3 streamed refusal (non-stream path maps it to message.refusal)
+   {'text': '', 'calls': {}, 'finish': 'stop', 'usage': 12, 'n_chunks': 3}
+
+== B4 stop string split across deltas (expected text 'abc', finish=stop)
+   {'text': 'abc', 'calls': {}, 'finish': 'stop', 'usage': 12, 'n_chunks': 5}
+
+== B5 incomplete/content_filter while streaming (non-stream path returns 'content_filter')
+   {'text': 'partial', 'calls': {}, 'finish': 'stop', 'usage': 12, 'n_chunks': 4}
+
+== B6 tool call truncated by max_output_tokens (Chat Completions would say finish_reason=length)
+   {'text': '', 'calls': {0: {'id': 'call_A', 'name': 'f', 'args': '{"x": "trunc'}}, 'finish': 'tool_calls', 'usage': 12, 'n_chunks': 5}
+
+== B7 SSE framing with CRLF line endings (valid per the SSE spec)
+   LF framing:   {'text': 'hello', 'calls': {}, 'finish': 'stop', 'usage': 12, 'n_chunks': 4}
+   CRLF framing: {'text': '', 'calls': {}, 'finish': None, 'usage': None, 'n_chunks': 0}
+
+== B8 final event without trailing blank line: sync vs async
+   sync : chunks=3 finish_reasons=['stop']
+   async: chunks=2 finish_reasons=[]

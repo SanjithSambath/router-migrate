@@ -71,7 +71,7 @@ def _routes_via_router(root, rel, depth=0):
     src = open(path, encoding="utf-8", errors="replace").read()
     if ROUTER_MARK.search(src):
         return True
-    if depth >= 2:
+    if depth >= 3:
         return False
     base = os.path.dirname(rel)
     for m in IMPORT_RE.finditer(src):
@@ -82,9 +82,11 @@ def _routes_via_router(root, rel, depth=0):
         cand = os.path.normpath(os.path.join(base if spec.startswith(".") and "/" in spec else ("" if not spec.startswith(".") else base), spec))
         if spec.startswith(".") and "/" not in spec:  # python relative: from .router import x
             cand = os.path.normpath(os.path.join(base, spec.lstrip(".").replace(".", "/")))
-        for ext in ("", ".ts", ".tsx", ".js", ".mjs", ".py", "/index.ts", "/__init__.py"):
-            if os.path.isfile(os.path.join(root, cand + ext)) and _routes_via_router(root, cand + ext, depth + 1):
-                return True
+        stems = [cand] + ([cand[:-3]] if cand.endswith((".js", ".mjs")) else [])  # TS ESM: './x.js' is x.ts on disk
+        for stem in stems:
+            for ext in ("", ".ts", ".tsx", ".js", ".mjs", ".py", "/index.ts", "/__init__.py"):
+                if os.path.isfile(os.path.join(root, stem + ext)) and _routes_via_router(root, stem + ext, depth + 1):
+                    return True
     return False
 
 
@@ -98,11 +100,11 @@ def per_original_site(name, dst):
                                  capture_output=True, text=True).stdout.split())
     out = []
     for s in sites:
-        moved = s["surface"] not in planmod.NO_ENDPOINT and s["file"] in changed and _routes_via_router(dst, s["file"])
+        moved = s["surface"] not in planmod.NO_ENDPOINT and _routes_via_router(dst, s["file"])
         out.append({"file": s["file"], "line": s["line"], "surface": s["surface"], "router_migrate": s["outcome"], "baseline_moved": moved})
     elig = [o for o in out if o["surface"] not in planmod.NO_ENDPOINT]
     return {"sites": out, "sites_found": len(out), "moved": sum(o["baseline_moved"] for o in out), "eligible": len(elig),
-            "method": "site's file changed and it now reaches api.router.com / RAMP_ROUTER_* directly or via a local import (heuristic)"}
+            "method": "site's file reaches api.router.com / RAMP_ROUTER_* directly or through local imports (3 levels); heuristic, generous to the baseline"}
 
 
 def score(names):
