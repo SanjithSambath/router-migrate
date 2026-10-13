@@ -74,6 +74,9 @@ def client_target(c):
         text = str(bu.get("value"))
         if re.search(r"azure|/deployments", text, re.I):
             return "azure"
+        m = re.search(r"\b(custom\w*|profile|user|session|req|request|body|params|tenant|workspace)\??\.[\w.?]*", text)
+        if m:
+            return "other:endpoint chosen at runtime (%s)" % m.group(0)  # user-defined endpoints are not the provider's API
         hosts = [h for h in re.findall(r"https?://([A-Za-z0-9.\-]+)", text) if h not in ("api.openai.com", "api.anthropic.com")]
         if hosts:
             return "other:" + hosts[0]

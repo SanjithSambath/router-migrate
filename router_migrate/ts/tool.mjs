@@ -425,7 +425,17 @@ function analyze(sf, rel) {
     const opts = args && args.length ? skipOuter(args[0]) : null;
     let model = null;
     let base_url = null;
+    let api_key = null;
     if (opts && ts.isObjectLiteralExpression(opts)) {
+      let kp = null;
+      for (const k of ["apiKey", "openAIApiKey", "anthropicApiKey"]) if ((kp = getProp(opts, k))) break;
+      if (kp) {
+        const v = valueOf(propValue(kp)) || { value: null, static: false };
+        const text = v.static ? "" : String(v.value || "");
+        // a key read from the request/user/profile object: per-tenant credentials, not the operator's env key
+        const m = text.match(/\b(profile|user|session|req|request|body|params|tenant|workspace|account)\??\.[\w.?]*/);
+        api_key = { value: v.static ? null : text.slice(0, 120), static: !!v.static, per_tenant: !!m, why: m ? m[0] : null };
+      }
       const mp = getProp(opts, "model") || getProp(opts, "modelName");
       model = mp ? valueOf(propValue(mp)) : null;
       let bp = null;
@@ -442,12 +452,13 @@ function analyze(sf, rel) {
     } else if (opts && info.patch) {
       base_url = { value: null, static: false };
     }
-    return { model, base_url };
+    return { model, base_url, api_key };
   }
 
   function addClient(node, info, args, anchor) {
     const f = clientFields(info, args);
     const site = mkSite(anchor || node, "client", { sdk: info.sdk, surface: info.surface, model: f.model, base_url: f.base_url });
+    if (f.api_key) site.api_key = f.api_key;
     found.push({ site, node, info });
     clientNodes.add(node);
     const r = assignTarget(node);

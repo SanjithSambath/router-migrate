@@ -266,3 +266,22 @@ def test_unresolved_call_when_all_family_clients_are_per_tenant_is_flagged():
     o, p = outcomes([c, a])
     assert o[2][0] == "flagged" and plan.TENANT_REASON in o[2][1]
     assert p["patches"] == []
+
+
+def test_ts_per_tenant_key_and_runtime_endpoint():
+    """chatbot-ui: `new OpenAI({apiKey: profile.openai_api_key})` is per-tenant; `baseURL: customModel.base_url` is not the provider."""
+    from router_migrate import plan as planmod
+    from router_migrate.catalog import Catalog
+    def client(i, **kw):
+        return dict({"id": "ts:r%d.ts:1:0:client" % i, "lang": "ts", "file": "r%d.ts" % i, "line": 1, "col": 0, "kind": "client", "sdk": "openai",
+                     "surface": "OpenAI", "model": None, "base_url": None, "receiver": None, "prod": True}, **kw)
+    def call(i):
+        return {"id": "ts:r%d.ts:5:0:call" % i, "lang": "ts", "file": "r%d.ts" % i, "line": 5, "col": 0, "kind": "call", "sdk": "openai",
+                "surface": "chat.completions", "model": {"value": "gpt-4o-mini", "static": True}, "base_url": None, "receiver": "c",
+                "prod": True, "via_client": "ts:r%d.ts:1:0:client" % i}
+    sites = [client(1, api_key={"value": "profile.openai_api_key", "static": False, "per_tenant": True, "why": "profile.openai_api_key"}), call(1),
+             client(2, base_url={"value": "customModel.base_url", "static": False}), call(2)]
+    assert planmod.client_target(sites[2]).startswith("other:endpoint chosen at runtime")
+    p = planmod.build({"sites": sites, "root": None}, Catalog.load())
+    out = {s["file"]: s["outcome"] for s in p["sites"] if s["kind"] == "call"}
+    assert out == {"r1.ts": "flagged", "r2.ts": "kept"}, [(s["file"], s["reason"]) for s in p["sites"]]
