@@ -20,10 +20,23 @@ import sys
 import time
 import uuid
 
-try:
-    import httpx
-except ImportError:  # pragma: no cover - the OpenAI and Anthropic SDKs both depend on httpx
-    httpx = None
+import importlib
+
+# openai-python <= 2.x and anthropic use `httpx`; openai-python >= 3 uses `httpx2` (same API). The transport classes are built
+# for whichever library each client actually uses.
+_LIBS = {}
+
+
+def _lib(name):
+    if name not in _LIBS:
+        try:
+            _LIBS[name] = importlib.import_module(name)
+        except ImportError:
+            _LIBS[name] = None
+    return _LIBS[name]
+
+
+httpx = _lib("httpx") or _lib("httpx2")
 
 __all__ = ["active", "wrap_openai", "wrap_anthropic", "http_client", "async_http_client", "install_openai_module"]
 VERSION = "0.1.0"
@@ -437,11 +450,11 @@ def plan_request(req):
     return None
 
 
-def _router_request(req, route):
+def _router_request(req, route, h):
     kind, nb, ctx = route
     url = _base() + ("/v1/messages/count_tokens" if kind == "messages" and ctx.get("count") else "/v1/messages" if kind == "messages" else "/v1/responses")
-    return httpx.Request("POST", url, headers=_router_headers(req, anthropic=(kind == "messages")), content=json.dumps(nb).encode(),
-                         extensions=req.extensions)
+    return h.Request("POST", url, headers=_router_headers(req, anthropic=(kind == "messages")), content=json.dumps(nb).encode(),
+                     extensions=req.extensions)
 
 
 def _translate_json(resp_bytes, status, ctx):
@@ -453,8 +466,19 @@ def _translate_json(resp_bytes, status, ctx):
         return resp_bytes
 
 
-if httpx is not None:
-    class _SyncChatStream(httpx.SyncByteStream):
+_CLASSES = {}
+
+
+def _classes(libname):
+    """(RouterTransport, AsyncRouterTransport) built on `libname` (httpx or httpx2), or None if it is not installed."""
+    if libname in _CLASSES:
+        return _CLASSES[libname]
+    h = _lib(libname)
+    if h is None:
+        _CLASSES[libname] = None
+        return None
+
+    class _SyncChatStream(h.SyncByteStream):
         def __init__(self, upstream, ctx):
             self.up, self.w = upstream, _ChunkWriter(ctx)
 
@@ -476,7 +500,7 @@ if httpx is not None:
         def close(self):
             self.up.close()
 
-    class _AsyncChatStream(httpx.AsyncByteStream):
+    class _AsyncChatStream(h.AsyncByteStream):
         def __init__(self, upstream, ctx):
             self.up, self.w = upstream, _ChunkWriter(ctx)
 
@@ -495,115 +519,160 @@ if httpx is not None:
         async def aclose(self):
             await self.up.aclose()
 
-    class RouterTransport(httpx.BaseTransport):
-        """Sync httpx transport: Router for what it can serve, the wrapped transport (provider) for the rest."""
+    def _reply(up, ctx, body):
+        ctype = up.headers.get("content-type", "application/json")
+        return h.Response(up.status_code, headers={"content-type": ctype, "x-request-id": up.headers.get("x-request-id", ""),
+                                                   "x-router-provider": up.headers.get("x-router-provider", "")},
+                          content=_translate_json(body, up.status_code, ctx))
+
+    class RouterTransport(h.BaseTransport):
+        """Sync transport: Router for what it can serve, the wrapped transport (provider) for the rest."""
 
         def __init__(self, inner=None):
-            self.inner = inner or httpx.HTTPTransport()
+            self.inner = inner or h.HTTPTransport()
 
         def handle_request(self, request):
             route = plan_request(request)
             if route is None:
                 return self.inner.handle_request(request)
-            up = self.inner.handle_request(_router_request(request, route))
+            up = self.inner.handle_request(_router_request(request, route, h))
             kind, nb, ctx = route
             if kind != "chat":
                 return up
             if nb.get("stream") and up.status_code < 400:
-                return httpx.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
-                                      stream=_SyncChatStream(up, ctx), extensions=up.extensions)
+                return h.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
+                                  stream=_SyncChatStream(up, ctx), extensions=up.extensions)
             body = up.read()
             up.close()
-            ctype = up.headers.get("content-type", "application/json")
-            return httpx.Response(up.status_code, headers={"content-type": ctype, "x-request-id": up.headers.get("x-request-id", ""),
-                                                           "x-router-provider": up.headers.get("x-router-provider", "")},
-                                  content=_translate_json(body, up.status_code, ctx))
+            return _reply(up, ctx, body)
 
         def close(self):
             self.inner.close()
 
-    class AsyncRouterTransport(httpx.AsyncBaseTransport):
+    class AsyncRouterTransport(h.AsyncBaseTransport):
         def __init__(self, inner=None):
-            self.inner = inner or httpx.AsyncHTTPTransport()
+            self.inner = inner or h.AsyncHTTPTransport()
 
         async def handle_async_request(self, request):
             route = plan_request(request)
             if route is None:
                 return await self.inner.handle_async_request(request)
-            up = await self.inner.handle_async_request(_router_request(request, route))
+            up = await self.inner.handle_async_request(_router_request(request, route, h))
             kind, nb, ctx = route
             if kind != "chat":
                 return up
             if nb.get("stream") and up.status_code < 400:
-                return httpx.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
-                                      stream=_AsyncChatStream(up, ctx), extensions=up.extensions)
+                return h.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
+                                  stream=_AsyncChatStream(up, ctx), extensions=up.extensions)
             body = await up.aread()
             await up.aclose()
-            ctype = up.headers.get("content-type", "application/json")
-            return httpx.Response(up.status_code, headers={"content-type": ctype, "x-request-id": up.headers.get("x-request-id", ""),
-                                                           "x-router-provider": up.headers.get("x-router-provider", "")},
-                                  content=_translate_json(body, up.status_code, ctx))
+            return _reply(up, ctx, body)
 
         async def aclose(self):
             await self.inner.aclose()
 
+    _CLASSES[libname] = (RouterTransport, AsyncRouterTransport)
+    return _CLASSES[libname]
+
+
+_default = _classes("httpx") or _classes("httpx2")
+RouterTransport, AsyncRouterTransport = _default if _default else (None, None)
+
+
+def _sdk_lib(client_or_module):
+    """'httpx' or 'httpx2': the HTTP library a client (or SDK package name) is built on."""
+    inner = getattr(client_or_module, "_client", None)
+    if inner is not None:
+        root = type(inner).__module__.split(".")[0]
+        if root in ("httpx", "httpx2"):
+            return root
+    pkg = client_or_module if isinstance(client_or_module, str) else type(client_or_module).__module__.split(".")[0]
+    try:
+        base = importlib.import_module(pkg + "._base_client")
+        if getattr(base, "httpx2", None) is not None:
+            return "httpx2"
+    except Exception:
+        pass
+    return "httpx" if _lib("httpx") else "httpx2"
+
 
 # ------------------------------------------------------------------------------------------------ public helpers
+def _client_factory(libname, is_async):
+    """The SDK's default client class for this library (keeps its timeouts/limits), else the plain library client."""
+    h = _lib(libname)
+    names = {("httpx", False): "DefaultHttpxClient", ("httpx", True): "DefaultAsyncHttpxClient",
+             ("httpx2", False): "DefaultHttpx2Client", ("httpx2", True): "DefaultAsyncHttpx2Client"}
+    try:
+        import openai
+        cls = getattr(openai, names[(libname, is_async)])
+        if cls.__module__.split(".")[0] == "openai":
+            return cls, {}
+    except Exception:
+        pass
+    return (h.AsyncClient if is_async else h.Client), {"timeout": h.Timeout(600.0, connect=5.0), "follow_redirects": True}
+
+
+def _make_client(libname, is_async, **kwargs):
+    classes = _classes(libname)
+    if classes is None:
+        return None
+    cls, defaults = _client_factory(libname, is_async)
+    for k, v in defaults.items():
+        kwargs.setdefault(k, v)
+    return cls(transport=(classes[1] if is_async else classes[0])(), **kwargs)
+
+
 def http_client(**kwargs):
-    """httpx.Client that routes through Router when active (pass as http_client= to OpenAI/Anthropic/LangChain...)."""
+    """Client routed through Router when active (pass as http_client= to OpenAI/LangChain/LlamaIndex...); None when inactive."""
     if not active():
         return kwargs.pop("_default", None)
-    try:
-        from openai import DefaultHttpxClient as _C  # keeps the SDK's default timeouts/limits
-    except Exception:  # openai < 1.17 has no DefaultHttpxClient: match its defaults by hand
-        kwargs.setdefault("timeout", httpx.Timeout(600.0, connect=5.0))
-        kwargs.setdefault("follow_redirects", True)
-        _C = httpx.Client
-    return _C(transport=RouterTransport(), **kwargs)
+    kwargs.pop("_default", None)
+    return _make_client(_sdk_lib("openai"), False, **kwargs)
 
 
 def async_http_client(**kwargs):
     if not active():
         return kwargs.pop("_default", None)
-    try:
-        from openai import DefaultAsyncHttpxClient as _C
-    except Exception:
-        kwargs.setdefault("timeout", httpx.Timeout(600.0, connect=5.0))
-        kwargs.setdefault("follow_redirects", True)
-        _C = httpx.AsyncClient
-    return _C(transport=AsyncRouterTransport(), **kwargs)
+    kwargs.pop("_default", None)
+    return _make_client(_sdk_lib("openai"), True, **kwargs)
 
 
 def _with_client(client, is_async):
-    hc = async_http_client() if is_async else http_client()
     try:
-        return client.with_options(http_client=hc)
+        hc = _make_client(_sdk_lib(client), is_async)
+        return client.with_options(http_client=hc) if hc is not None else client
     except Exception:
         return client  # unknown client shape (e.g. a test double): leave it exactly as it was
 
 
+def _is(client, pkg, names):
+    try:
+        mod = importlib.import_module(pkg)
+        return isinstance(client, tuple(getattr(mod, n) for n in names if hasattr(mod, n)))
+    except Exception:
+        return False
+
+
 def wrap_openai(client):
-    """OpenAI / AsyncOpenAI client -> same client routed through Router (unchanged when RAMP_ROUTER_API_KEY is unset)."""
-    if not active() or httpx is None:
+    """OpenAI / AsyncOpenAI client (or subclass) -> same client routed through Router; unchanged when RAMP_ROUTER_API_KEY is unset."""
+    if not active():
         return client
-    name = type(client).__name__
-    if name not in ("OpenAI", "AsyncOpenAI"):
-        return client  # Azure clients and test doubles stay on their configured endpoint
-    return _with_client(client, name.startswith("Async"))
+    if _is(client, "openai", ("AzureOpenAI", "AsyncAzureOpenAI")) or not _is(client, "openai", ("OpenAI", "AsyncOpenAI")):
+        return client  # Azure deployments and test doubles stay on their configured endpoint
+    return _with_client(client, _is(client, "openai", ("AsyncOpenAI",)))
 
 
 def wrap_anthropic(client):
-    if not active() or httpx is None:
+    if not active():
         return client
-    name = type(client).__name__
-    if name not in ("Anthropic", "AsyncAnthropic"):
-        return client  # Bedrock / Vertex clients stay put
-    return _with_client(client, name.startswith("Async"))
+    if not _is(client, "anthropic", ("Anthropic", "AsyncAnthropic")):
+        return client  # Bedrock / Vertex clients and test doubles stay put
+    return _with_client(client, _is(client, "anthropic", ("AsyncAnthropic",)))
 
 
 def install_openai_module():
     """For code that calls the module-level client (openai.chat.completions.create)."""
-    if not active() or httpx is None:
+    if not active():
         return
     try:
         import openai
@@ -626,7 +695,7 @@ def chat_anthropic_kwargs():
 
 def install_litellm():
     """Route LiteLLM's OpenAI-provider calls through the transport (LiteLLM builds OpenAI SDK clients on these sessions)."""
-    if not active() or httpx is None:
+    if not active():
         return
     try:
         import litellm

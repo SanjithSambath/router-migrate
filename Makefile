@@ -22,3 +22,6 @@ eval-quick:       ## eval without dependency installs / test runs (scan+plan+app
 
 clean:
 	rm -rf eval/work/runs .pytest_cache
+
+compat:           ## runtime smoke under every prepared eval env (different openai/anthropic/httpx(2) versions)
+	@for e in eval/work/envs/*/; do [ -x $$e/bin/python ] && echo "$$(basename $$e): $$(PYTHONPATH=$$PWD $$e/bin/python tests/compat_check.py 2>&1 | tail -1)"; done
