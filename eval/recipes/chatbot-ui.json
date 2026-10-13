@@ -1,0 +1,35 @@
+{
+  "name": "chatbot-ui",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && HUSKY=0 npm ci --no-audit --no-fund",
+    ". scripts/env.sh && cd \"$SRC\" && { test -f next-env.d.ts || printf '/// <reference types=\"next\" />\\n/// <reference types=\"next/image-types/global\" />\\n' > next-env.d.ts; }"
+  ],
+  "test_cmd": "npm test",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": 2,
+    "failed": 1,
+    "errors": 2,
+    "skipped": 0,
+    "seconds": 2.2,
+    "exit": 1
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 7
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      2.2,
+      1.1
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7, yarn berry from the repo. Setup writes the standard gitignored next-env.d.ts (`next dev`/`next build` would create it). Without it, tsc reports spurious missing-declaration errors for .png/.css imports. Baseline is NOT green, but it is deterministic across 2 runs: 2 passed, 1 failed, 2 suites error. (a) The failure is the pre-existing bug in __tests__/lib/openapi-conversion.test.ts \"extractOpenapiData for body 2\": the properties are nested under .parameters. It is unrelated to LLM code; reproduced on Node 24 (repo .nvmrc says 20.11.0; not verified on Node 20, but the assertion failure is logic, not runtime). (b) The 2 errors: jest's default testMatch picks up everything under __tests__/, including __tests__/playwright-test/{playwright.config.ts,tests/login.spec.ts}, which fail with \"Cannot find module @playwright/test\" (a separate sub-package that is not installed; it needs a running app + Supabase). Verified alternative that drops the 2 un-runnable suites: `npm test -- --testPathIgnorePatterns=/__tests__/playwright-test/` gives 2 passed, 1 failed, 0 suite errors (still exit 1). The tests do not exercise any LLM route, so they only guard against collateral breakage. The typecheck (the repo's `type-check` script is tsc --noEmit; --incremental false avoids writing tsconfig.tsbuildinfo) is the more useful signal for route edits: baseline 7 errors, all in __tests__/playwright-test (missing @playwright/test + implicit any). App code has 0 errors (257 project files checked, TS 5.3.3). HUSKY=0 at install keeps git hooks out of the working copy. npm 11 allow-scripts skipped the sharp/protobufjs/fsevents install scripts; jest and tsc do not need them. Cold-cache install took 43s."
+}

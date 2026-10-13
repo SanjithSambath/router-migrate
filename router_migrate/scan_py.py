@@ -78,7 +78,7 @@ RAW_HOSTS = ("api.openai.com", "api.anthropic.com")
 def is_prod(rel):
     parts = rel.replace("\\", "/").split("/")
     name = parts[-1]
-    if name.startswith("test_") or name.endswith("_test.py") or name == "conftest.py":
+    if name.startswith(("test_", "eval_", "bench_")) or name.endswith(("_test.py", "_eval.py")) or name == "conftest.py" or "benchmark" in name:
         return False
     return not any(p.lower() in NONPROD_PARTS for p in parts[:-1])
 
@@ -113,12 +113,21 @@ class _Visitor(cst.CSTVisitor):
         self.consts = {}            # module/class level NAME = "literal"
         self.sdk_imported = False
         self.mods = set()
-        self.aliases = {}           # name -> SDK namespace chain, e.g. messages_client -> client.messages           # top-level modules imported (for provider-specific method names)
+        self.aliases = {}           # name -> SDK namespace chain, e.g. messages_client -> client.messages
+        self.locals = [{}]          # per-function: local name -> assigned expression node (to resolve base_url=base_url)
+        self.in_import = 0           # top-level modules imported (for provider-specific method names)
         self.func_stack = []
         self.await_depth = 0
 
     # ---- imports
+    def leave_Import(self, node):
+        self.in_import -= 1
+
+    def leave_ImportFrom(self, node):
+        self.in_import -= 1
+
     def visit_Import(self, node):
+        self.in_import += 1
         for a in node.names:
             name = dotted(a.name)
             local = a.asname.name.value if a.asname else name.split(".")[0]
@@ -128,6 +137,7 @@ class _Visitor(cst.CSTVisitor):
                 self.sdk_imported = True
 
     def visit_ImportFrom(self, node):
+        self.in_import += 1
         if node.module is None or isinstance(node.names, cst.ImportStar):
             return
         mod = dotted(node.module)
@@ -149,9 +159,11 @@ class _Visitor(cst.CSTVisitor):
     # ---- context
     def visit_FunctionDef(self, node):
         self.func_stack.append((node.name.value, node.asynchronous is not None))
+        self.locals.append({})
 
     def leave_FunctionDef(self, node):
         self.func_stack.pop()
+        self.locals.pop()
 
     def visit_Await(self, node):
         self.await_depth += 1
@@ -160,7 +172,7 @@ class _Visitor(cst.CSTVisitor):
         self.await_depth -= 1
 
     def visit_Attribute(self, node):
-        if not self.sdk_imported:
+        if not self.sdk_imported or self.in_import:
             return
         parent = self.get_metadata(ParentNodeProvider, node, None)
         if isinstance(parent, cst.Attribute) or (isinstance(parent, cst.Call) and parent.func is node):
@@ -170,6 +182,8 @@ class _Visitor(cst.CSTVisitor):
             self._match_surface(node, chain, False, called=False)
 
     def visit_Assign(self, node):
+        if len(node.targets) == 1 and isinstance(node.targets[0].target, cst.Name):
+            self.locals[-1][node.targets[0].target.value] = node.value
         if isinstance(node.value, cst.Attribute) and len(node.targets) == 1 and isinstance(node.targets[0].target, cst.Name):
             chain = dotted(node.value)
             if chain.endswith((".messages", ".beta.messages", ".chat.completions", ".chat", ".responses", ".embeddings", ".completions")):
@@ -206,7 +220,12 @@ class _Visitor(cst.CSTVisitor):
                 return {"value": None, "static": False}
         if isinstance(node, cst.Name) and node.value in self.consts:
             return {"value": self.consts[node.value], "static": True}
-        return {"value": self.module.code_for_node(node)[:120], "static": False}
+        if isinstance(node, cst.Name) and node.value in self.locals[-1] and self.locals[-1][node.value] is not node:
+            inner = self.locals[-1][node.value]
+            if isinstance(inner, cst.SimpleString):
+                return self._strval(inner)
+            return {"value": self.module.code_for_node(inner)[:300], "static": False}
+        return {"value": self.module.code_for_node(node)[:300], "static": False}
 
     def _site(self, node, kind, sdk, surface, **extra):
         line, col = self._pos(node)
@@ -261,6 +280,9 @@ class _Visitor(cst.CSTVisitor):
     def _match_surface(self, node, chain, is_async, called):
         chain = self._expand(chain)
         stripped = _strip_raw(chain)
+        q = self.qualify(stripped)
+        if q != stripped and not q.startswith(("openai", "anthropic")):
+            return  # a module path (e.g. mem0.vector_stores.x), not an SDK client chain
         for ns, surface in (("beta.threads", "assistants"), ("beta.assistants", "assistants"), ("vector_stores", "vector_stores")):
             if (".%s." % ns) in stripped or stripped.startswith(ns + "."):
                 receiver = stripped.split("." + ns)[0] if ("." + ns) in stripped else ""

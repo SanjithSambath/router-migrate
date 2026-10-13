@@ -1,0 +1,35 @@
+{
+  "name": "ai-chatbot",
+  "lang": "ts",
+  "pm": "pnpm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules && HUSKY=0 npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" install --frozen-lockfile",
+    ". scripts/env.sh && cd \"$SRC\" && { test -f next-env.d.ts || printf '/// <reference types=\"next\" />\\n/// <reference types=\"next/image-types/global\" />\\n' > next-env.d.ts; }"
+  ],
+  "test_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "test_kind": "typecheck",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": null,
+    "failed": null,
+    "errors": 0,
+    "skipped": null,
+    "seconds": 3.8,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      3.8,
+      3.5
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7, yarn berry from the repo. Setup writes the standard gitignored next-env.d.ts (`next dev`/`next build` would create it). Without it, tsc reports spurious missing-declaration errors for .png/.css imports. The real tests are Playwright e2e (pnpm test), which need `pnpm dev` + Postgres + Redis + Blob, so they cannot run offline here. test_cmd is a TypeScript typecheck (TS 5.8.2, 154 project files, --incremental false). Baseline: 0 errors. The repo has no typecheck script; `check` = ultracite (biome lint), not used. packageManager pins pnpm@10.32.1 and the local pnpm 10.34.7 is used (lockfile v9, frozen install OK). IMPORTANT: npm_config_manage_package_manager_versions=false (in setup) is REQUIRED; otherwise any pnpm command in this repo tries to download pnpm 10.32.1 into ~/Library/pnpm/.tools (that happened once during this work, failed half-way, and the partial dir was removed). For the same reason test/typecheck call ./node_modules/.bin/tsc directly, not `pnpm exec`. pnpm store/cache/state are redirected under $RM/.tools. HUSKY=0 skips git hook install. pnpm 10 ignored the build scripts of bufferutil/esbuild/sharp; tsc does not need them. Cold-cache install took 32s. 2 runs: identical."
+}

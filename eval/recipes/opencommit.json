@@ -1,0 +1,51 @@
+{
+  "name": "opencommit",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && npm ci --no-audit --no-fund"
+  ],
+  "test_cmd": "export HOME=\"$PWD/node_modules/.cache/rm-home\"; mkdir -p \"$HOME\"; unset OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_BASE_URL; npm run test:unit; u=$?; npm run test:e2e:core; e=$?; exit $(( u || e ))",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 243,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 23.6,
+    "exit": 0
+  },
+  "test_components": [
+    {
+      "cmd": "npm run test:unit",
+      "kind": "unit",
+      "passed": 204,
+      "failed": 0,
+      "suites": 22
+    },
+    {
+      "cmd": "npm run test:e2e:core",
+      "kind": "e2e",
+      "passed": 39,
+      "failed": 0,
+      "suites": 6,
+      "offline": "built out/cli.cjs runs against node:http mock OpenAI/Anthropic/Gemini servers on 127.0.0.1 with dummy OCO_API_KEY"
+    }
+  ],
+  "typecheck_cmd": "mkdir -p node_modules/.cache && printf '%s' '{\"extends\":\"../../tsconfig.json\",\"compilerOptions\":{\"module\":\"ESNext\",\"moduleResolution\":\"node\"},\"include\":[\"../../src/**/*.ts\"]}' > node_modules/.cache/tsconfig.rm-typecheck.json && ./node_modules/.bin/tsc --noEmit -p node_modules/.cache/tsconfig.rm-typecheck.json",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 58
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      23.6,
+      22.2
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7, yarn berry from the repo. test_cmd runs jest unit tests (204) and then the e2e core suite (39), and exits non-zero if either fails. The baseline counts are the sum. e2e core runs `npm run build` (rimraf out + esbuild) first, so it rewrites the TRACKED out/cli.cjs, out/github-action.cjs and out/tiktoken_bg.wasm. At baseline the rebuild is byte-identical (git status clean), but after src edits out/ will show a diff. Exclude out/ from diffs or `git checkout out/`. HOME is redirected to node_modules/.cache/rm-home (gitignored) so the CLI never touches ~/.opencommit. LLM env vars are unset. The e2e prompt-module suite was not used: its setup runs `npm ci` in 3 fixture dirs, which needs the network. typecheck_cmd: the repo's own `npm run typecheck` (tsc --noEmit) is vacuous because tsconfig.json includes only test/jest-setup.ts (0 errors, about 1 file checked). typecheck_cmd instead writes a gitignored node_modules/.cache/tsconfig.rm-typecheck.json that extends the repo tsconfig, includes src/**/*.ts and overrides module ESNext + moduleResolution node (the src is esbuild-bundled and uses extensionless imports; NodeNext gives 264 noise errors). Baseline: 58 errors (TS 4.9.5). They are real pre-existing issues, including in src/engine/openAi.ts (OpenAI.ClientOptions missing, globalThis index) and anthropic.ts (https-proxy-agent types not resolvable under node resolution). Compare as a before/after delta, not as an absolute 0. npm 11 skipped the esbuild postinstall (allow-scripts), which is harmless. Cold-cache install took 27s. Two runs gave identical results (23.6s, 22.2s): no flakiness."
+}

@@ -1,0 +1,16 @@
+{
+  "name": "gpt-researcher",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    "rm -rf \"$ENV\"",
+    ".venv/bin/uv venv --python 3.12 \"$ENV\"",
+    ".venv/bin/uv pip install --python \"$ENV/bin/python\" --exclude-newer 2026-10-13T00:00:00Z -e \"$(cd \"$SRC\" && pwd)[test]\" -r \"$SRC/requirements.txt\"",
+    "TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken_cache\" \"$ENV/bin/python\" -c \"import tiktoken; [tiktoken.get_encoding(n) for n in ('o200k_base', 'cl100k_base')]\""
+  ],
+  "test_cmd": "TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken_cache\" $PY -m pytest tests/ --forked --timeout=60 -p no:warnings -p no:cacheprovider --deselect tests/test_researcher_logging.py --deselect tests/test_logging_output.py --deselect tests/test_mcp.py",
+  "test_env": {"GPTR_BLOCK_NETWORK": "1"},
+  "timeout_s": 1200,
+  "baseline": {},
+  "notes": ""
+}

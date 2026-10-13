@@ -1,0 +1,35 @@
+{
+  "name": "langchain-nextjs-template",
+  "lang": "ts",
+  "pm": "yarn",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules && YARN_GLOBAL_FOLDER=\"$RM/.tools/yarn-berry\" YARN_ENABLE_TELEMETRY=0 node .yarn/releases/yarn-3.5.1.cjs install --immutable",
+    ". scripts/env.sh && cd \"$SRC\" && { test -f next-env.d.ts || printf '/// <reference types=\"next\" />\\n/// <reference types=\"next/image-types/global\" />\\n' > next-env.d.ts; }"
+  ],
+  "test_cmd": "node --experimental-strip-types --test utils/integrations.test.mjs",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 300,
+  "baseline": {
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 0.2,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      0.2,
+      0.2
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7, yarn berry from the repo. Setup writes the standard gitignored next-env.d.ts (`next dev`/`next build` would create it). Without it, tsc reports spurious missing-declaration errors for .png/.css imports. Yarn berry 3.5.1 runs from the committed .yarn/releases/yarn-3.5.1.cjs (nodeLinker node-modules; cache in the gitignored .yarn/cache; global folder redirected to $RM/.tools/yarn-berry). The install reports YN0066 \"typescript@patch ... Cannot apply hunk\" because yarn's builtin TS compat patch does not fit TS 7.0.2. This is harmless (node-modules linker). There are peer-dep warnings. test_cmd comes from README:104 (needs Node >=22.6). It runs node:test over utils/integrations.test.mjs: 4 tests on the calculator tool and the Supabase vector store with injected fakes. It makes no LLM calls and does not exercise ChatOpenAI/OpenAIEmbeddings, so it is only a collateral-breakage guard. typecheck_cmd uses TypeScript 7.0.2 (native tsc, strict, 38 project files, about 0.5s): 0 errors with next-env.d.ts present (1 error, TS2882 for the ./globals.css side-effect import, without it). `yarn lint` (eslint) was not used. Cold-cache install took 53s. 2 runs: identical (4/4 pass)."
+}

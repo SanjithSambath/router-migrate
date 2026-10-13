@@ -1,0 +1,36 @@
+{
+  "name": "aicommits",
+  "lang": "ts",
+  "pm": "pnpm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules dist && npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" install --frozen-lockfile"
+  ],
+  "test_cmd": "unset OPENAI_BASE_URL; export OPENAI_API_KEY=; npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" build && npm_config_store_dir=\"$RM/.tools/pnpm-store\" npm_config_cache_dir=\"$RM/.tools/pnpm-cache\" npm_config_state_dir=\"$RM/.tools/pnpm-state\" npm_config_manage_package_manager_versions=false \"$RM/.tools/pm/node_modules/.bin/pnpm\" test",
+  "test_kind": "unit",
+  "test_env": {
+    "OPENAI_API_KEY": ""
+  },
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 79,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 14,
+    "seconds": 6.5,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      6.5,
+      5.7
+    ]
+  },
+  "notes": "Env: commands assume $RM (router-migrate root) and $SRC (working copy) are exported and scripts/env.sh is sourced (setup does this itself); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0, local pnpm 10.34.7, yarn berry from the repo. test_cmd = `pnpm build && pnpm test` (pkgroll bundle to dist/, then `tsx tests`, manten). dist/ is gitignored. Without $RM the equivalent is `./node_modules/.bin/pkgroll --minify --clean-dist && ./node_modules/.bin/tsx tests`. OPENAI_API_KEY is forced to empty (both in test_cmd and test_env) and OPENAI_BASE_URL is unset, so the live specs self-skip and nothing hits the network. Offline LLM coverage comes from MockLanguageModelV4 DI, a local 127.0.0.1 OpenAI-compatible fake server (headless specs) and fetch monkeypatches. Baseline: 79 passed, 0 failed. Skips: manten does not report skipped tests. \"skipped\": 14 is a STATIC count of the test() calls in tests/specs/cli/commits.ts, a suite that returns before registering when OPENAI_API_KEY is empty. In addition, git-hook.ts \"Commits\" returns early and is counted among the 79 passed (vacuous pass). The tests set HOME to fixture dirs, so ~/.aicommits is untouched. CI uses pnpm v9 and the local pnpm 10.34.7 works (lockfile v9; no packageManager pin). The repo also contains a stray package-lock.json, which is ignored (pnpm-lock.yaml is used). typecheck_cmd = repo `type-check` script (tsc, noEmit in tsconfig, 50 project files, TS 5.9.3): 0 errors. .nvmrc says v22.14.0 but Node 24 works. Cold-cache install took 9s. Each of the 2 runs: 79 passed (6.5s, 5.7s), no flakiness."
+}

@@ -52,7 +52,21 @@ def client_target(c):
     if "router.com" in str(bu.get("value")) or "RAMP_ROUTER" in str(bu.get("value")):
         return "router"  # already pointed at Router (native migration, e.g. by hand or by an agent)
     if not bu.get("static"):
-        return "provider-or-config"  # config-driven: Router takes it when it resolves to api.openai.com / api.anthropic.com
+        # config-driven. If the expression itself names another vendor (a fallback URL literal or a vendor env var), that is
+        # where the traffic goes by default, and the runtime will leave it there.
+        text = str(bu.get("value"))
+        hosts = [h for h in re.findall(r"https?://([A-Za-z0-9.\-]+)", text) if h not in ("api.openai.com", "api.anthropic.com")]
+        if hosts:
+            return "other:" + hosts[0]
+        envs = re.findall(r"[\"']([A-Z][A-Z0-9_]*(?:BASE|URL|ENDPOINT|HOST)[A-Z0-9_]*)[\"']", text)
+        vendor_envs = [e for e in envs if not e.startswith(("OPENAI", "ANTHROPIC", "RAMP_ROUTER"))]
+        if vendor_envs:
+            return "other:$" + vendor_envs[0]
+        named = [m for m in re.findall(r"([a-z][a-z0-9]*)_(?:base_url|api_base|api_url|endpoint|host)", text)
+                 if m not in ("openai", "anthropic", "base", "api", "default", "llm", "model", "client", "custom", "router")]
+        if named:
+            return "other:%s (config)" % named[0]
+        return "provider-or-config"  # Router takes it when the config resolves to api.openai.com / api.anthropic.com
     h = _host(bu["value"])
     if h in ("api.openai.com", "api.anthropic.com"):
         return "provider"
@@ -192,7 +206,8 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
             pc = [c for c in s["client_candidates"] if c in patched]
             if pc:
                 cid = pc[0]
-                others = [clients[c]["surface"] for c in s["client_candidates"] if c not in patched]
+                others = ["%s%s" % (clients[c]["surface"], "" if client_target(clients[c]) in ("provider", "provider-or-config") else " -> " + client_target(clients[c]).replace("other:", ""))
+                          for c in s["client_candidates"] if c not in patched and clients[c]["prod"]]
                 if others:
                     ok, why = _model_check(s, catalog)
                     return ("migrated" if ok else "flagged"), "migrated when the configured client is %s; stays put when it is %s. %s" % (
