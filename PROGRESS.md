@@ -71,29 +71,36 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
 - The baseline scorer now resolves absolute Python imports (screenshot-to-code: 0 -> 3 moved, in the baseline's favour).
 - WRITEUP.md, EMAIL_TO_KEDAR.md (draft, not sent) and the README results section are written.
 
-## v2 MVP (2026-10-13)
-- **M0:** live measurements for $0.0004, written up in research/m0_measurements.md and DECISIONS D11.
-  - Flex costs 50% of default on gpt-5.4-mini, and eligibility is per model.
-  - Router's `models` fallback list works through raw HTTP and both SDKs.
-  - Jev is unmeasured; Switchyard works from app code.
-- **Policy:** `router.policy.json` is compiled into `router_policy.py` / `routerPolicy.ts`.
-  - It supports precedence, a capability guard, and v1 behaviour when the policy is invalid or turned off.
-  - The same 21 fixtures pass in both runtimes against router-sim.
-- **Recommend:**
-  - Signals: latency_class, model_owner, resolved_model.
-  - Rules: unlock.vendor_endpoint, unlock.stated_loss, attr.metadata, cache.key, tier.flex_background and fallback.candidates.
-  - Model cards (deprecated, newer_cheaper, right_size) are cards only, for owned models only.
-  - Every rejected lever goes on a "considered, not recommended" list.
-- **Decisions:** decisions.json with etags, plus `decide`, `apply --decisions`, `status` and `up --agent` (exit 2 while cards
-  are undecided). RECOMMENDATIONS.md is rendered one-way.
-- **Dashboard:** a stdlib server on 127.0.0.1 (session token, Host/Origin checks, body cap) serving one page with five tabs in
-  the Ryu cement tokens. REPORT.html is the frozen copy, and eval/screenshots/ holds Playwright shots of every tab, light and
-  dark.
-- **Eval v2:**
-  - 48 sites lossless (equal to v1) and 49 with unlocks.
-  - 0 repos with worse tests after approving every unlock and same-model card.
-  - 30 cards; 20 meet their evidence bar.
-  - Live spend $0.000795. There is a REPORT.html for every repo.
+## v2 MVP (2026-10-13): one entry per goal item
+
+- **v2.0 Spec and the v2 done check committed first** (`ed3a82d`).
+- **v2.1 M0 live measurements** (`7af506c`): $0.0004 spent; research/m0_measurements.md and DECISIONS D11.
+  - Flex costs 50% of default on gpt-5.4-mini, and eligibility is per model (17 models measured).
+  - `models` fallback lists work through raw HTTP, openai-python `extra_body` and openai-node.
+  - Jev vs `service_tier: "default"`: unmeasured, because Jev is off and enabling it is a setting change.
+  - Switchyard from app code returned 200. No rule was cut; the Jev-dependent work is not built.
+- **v2.4 Compiled policy in both runtimes.**
+  - TS runtime (`7af506c`) and Python runtime plus compiler (`478020b`): `router.policy.json` is compiled into
+    `router_policy.py` / `routerPolicy.ts`.
+  - Keys: allow_flex_tier, prompt_cache_key, metadata, fallbacks, provider_timeout. No model key.
+  - Precedence, a capability guard, and v1 bytes when the policy is invalid or off.
+  - 21 shared router-sim fixtures pass in both languages.
+- **v2.2 Unlock rules** (`bd7daea`): unlock.vendor_endpoint (`unlock_hosts`) and unlock.stated_loss (`drop_betas`). Both
+  are checked per request at runtime and come with codemods.
+- **v2.3 Recommend** (`bd7daea`):
+  - Signals: latency_class, model_owner, resolved_model. Output: recommendations.json.
+  - Same-model rules: attr.metadata, cache.key, tier.flex_background, fallback.candidates.
+  - Model cards: deprecated, newer_cheaper_same_family, right_size. L0/L1 only, never applied, owned models only.
+  - A "considered, not recommended" list.
+- **v2.5 Decisions** (`bd7daea`): decisions.json with etags, plus `decide`, `apply --decisions`, `status` and `up --agent`
+  (exit 2 while cards are undecided). RECOMMENDATIONS.md is rendered one-way.
+- **v2.6 Dashboard.**
+  - The page and the hardened stdlib server came in `bd7daea`; top-10 card restraint and the screenshots in `ae42c4d`.
+  - Playwright screenshots of every tab, light and dark, of langchain-nextjs-template are in eval/screenshots/.
+  - Live-server check: 21 of 21 (`0ed4fe8`, eval/dashboard_live_check.md).
+  - Tab rendering on all 15 eval reports (`03c9208`, eval/dashboard_tabs_check.md).
+- **v2.7 Eval v2 and docs.**
+  - Eval (`93e4709`): 48 sites lossless (equal to v1) and 49 with unlocks; 0 repos with worse tests; 30 cards, 20 meeting
+    their evidence bar; live spend $0.000795; a REPORT.html per repo.
+  - Docs: WRITEUP and the EMAIL draft (`662a31f`), wording fixes (`c7014bd`).
 - **Tests:** 269 passing, 1 skipped.
-- Live dashboard check (eval/dashboard_live_check.md): `up --no-browser` on langchain-nextjs-template. 21/21 checks pass: token, Host and Origin rejection, body cap; decide and apply through the API write decisions.json and the compiled policy.
-- Dashboard tabs check (eval/dashboard_tabs_check.md): headless Chromium on all 15 eval REPORT.html files. The Router setup and Unsupported tabs render every bundle item in every repo.
