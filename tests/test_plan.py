@@ -77,3 +77,21 @@ def test_catalog_resolution_rules():
     assert CAT.resolve("openai:gpt-4o")[0] == "gpt-4o"
     assert CAT.resolve("sonnet-4.6")[0] == "claude-sonnet-4-6"
     assert CAT.resolve("global.anthropic.claude-sonnet-5-5")[0] is None  # requires BYOK
+
+
+def test_config_base_url_naming_another_vendor_is_kept():
+    """mem0-style: base_url from config/env with another vendor's fallback must not count as migrated."""
+    cases = {
+        2: ('self.config.deepseek_base_url or os.getenv("DEEPSEEK_API_BASE") or "https://api.deepseek.com"', "kept"),
+        4: ('os.getenv("XAI_API_BASE")', "kept"),
+        6: ("self.config.lmstudio_base_url", "kept"),
+        8: ('os.getenv("OPENAI_BASE_URL")', "migrated"),
+        10: ("settings.base_url", "migrated"),
+    }
+    sites = []
+    for line, (expr, _) in cases.items():
+        c = site(line - 1, "client", "openai", "OpenAI", base_url={"value": expr, "static": False}, target="c%d" % line)
+        sites += [c, site(line, "call", "openai", "chat.completions", client_id=c["id"], client_link="same-file")]
+    o, _ = outcomes(sites)
+    for line, (expr, want) in cases.items():
+        assert o[line][0] == want, (expr, o[line])
