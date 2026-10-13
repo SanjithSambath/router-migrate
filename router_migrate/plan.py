@@ -30,6 +30,8 @@ FRAMEWORK_CLIENT_SURFACE = {"ChatOpenAI": "framework.chat", "ChatAnthropic": "fr
                             "AzureChatOpenAI": "framework.chat", "OpenAIEmbeddings": "framework.embeddings",
                             "openai-default-provider": "framework.chat", "createOpenAI": "framework.chat", "createAnthropic": "framework.chat",
                             "gateway": "framework.chat"}
+VERCEL_PROVIDERS = {"createOpenAI", "createAnthropic", "openai-default-provider", "anthropic-default-provider", "createOpenAICompatible",
+                    "createTogetherAI", "createGroq", "createXai", "createMistral", "createGoogleGenerativeAI", "gateway", "createGateway"}
 OTHER_VENDOR_MODELS = re.compile(r"^(gemini|grok|deepseek|kimi|glm|qwen|minimax|gpt-oss|nemotron)", re.I)
 
 
@@ -99,15 +101,23 @@ def build(scan, catalog, include_nonprod=False):
     for c in clients.values():
         by_sdk.setdefault((c["lang"], _family(c["sdk"])), []).append(c)
 
-    # 2) classify LLM sites: API calls, plus framework model constructions (LangChain/LlamaIndex/Vercel models are the call sites)
+    # 2) classify LLM sites: API calls, plus framework model constructions (LangChain/LlamaIndex models are the call sites).
+    #    Vercel AI SDK: generateText/streamText calls are the sites; provider constructions only count when no call was found.
+    vercel_calls = any(s["kind"] == "call" and s["sdk"] == "vercel-ai" for s in sites)
+    vproviders = [c for c in clients.values() if c["lang"] == "ts" and c["surface"] in VERCEL_PROVIDERS and c["prod"]]
     for s in sites:
         is_framework_client = s["kind"] == "client" and s["surface"] in FRAMEWORK_CLIENT_SURFACE
+        if is_framework_client and vercel_calls and s["surface"] in VERCEL_PROVIDERS:
+            continue
         if s["kind"] not in ("call", "module_client", "raw_http") and not is_framework_client:
             continue
         if s["kind"] == "raw_http" and s["surface"] == "other":
             continue  # a URL mention that is not a generation endpoint (e.g. a docs link or models list)
         surface = FRAMEWORK_CLIENT_SURFACE.get(s["surface"], s["surface"]) if is_framework_client else s["surface"]
-        outcome, reason, client_id = _classify(s, surface, clients, patched, by_sdk, catalog)
+        if s["kind"] == "call" and s["sdk"] == "vercel-ai":
+            outcome, reason, client_id = _classify_vercel(s, vproviders, patched, catalog)
+        else:
+            outcome, reason, client_id = _classify(s, surface, clients, patched, by_sdk, catalog)
         plan_sites.append(dict(s, surface=surface, outcome=outcome, reason=reason, via_client=client_id,
                                router_eligible=surface in ROUTER_SURFACES or surface == "other.chat" and outcome == "handoff"))
 
@@ -116,6 +126,27 @@ def build(scan, catalog, include_nonprod=False):
                        and s["outcome"] == "migrated"})
     return {"catalog_source": catalog.source, "patches": patches, "installs": [{"file": f, "kind": k} for f, k in installs],
             "sites": plan_sites, "summary": summarize(plan_sites)}
+
+
+def _classify_vercel(s, providers, patched, catalog):
+    if s["surface"] == "framework.embeddings":
+        return "kept", "Router has no embeddings endpoint (measured 404)", None
+    if not s["prod"]:
+        return "kept", "non-production code (tests/examples/evals): reported, not edited (use --include-nonprod)", None
+    on = [p for p in providers if p["id"] in patched]
+    off = sorted({p["surface"] for p in providers if p["id"] not in patched})
+    if on:
+        ok, why = _model_check(s, catalog)
+        if not ok:
+            return "flagged", why, on[0]["id"]
+        tail = ("; stays on its provider when the configured provider is %s" % "/".join(off)) if off else ""
+        return "migrated", "Vercel AI SDK call; %s provider patched with routerFetch%s. %s" % (
+            "/".join(sorted({p["surface"] for p in on})), tail, why), on[0]["id"]
+    if any(p["surface"] in ("gateway", "createGateway") for p in providers):
+        return "handoff", "Vercel AI Gateway is a different gateway; switching to createOpenAI({fetch: routerFetch()}) is a product decision", None
+    if providers:
+        return "kept", "Vercel AI SDK call on %s provider(s); Router does not serve those endpoints" % "/".join(off), None
+    return "handoff", "Vercel AI SDK call whose provider is constructed outside this repo; wrap it with routerOptions()", None
 
 
 def _family(sdk):

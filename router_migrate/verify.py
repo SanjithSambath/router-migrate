@@ -18,37 +18,42 @@ SIM_KEY = "rm-sim-key-not-a-real-key"
 
 # ------------------------------------------------------------------------------------------------ tests
 def parse_counts(out):
-    """Pass/fail counts from pytest, jest/vitest, node:test, mocha or tap output (last summary wins)."""
+    """Pass/fail counts from pytest, jest/vitest, node:test/tap, mocha or manten output. Multiple runs in one command are summed."""
     c = {"passed": None, "failed": None, "errors": None, "skipped": None}
-    m = list(re.finditer(r"=+ (.*?) in [\d.]+s", out))  # pytest
-    if m:
-        s = m[-1].group(1)
+
+    def add(k, v):
+        c[k] = (c[k] or 0) + v
+
+    found = False
+    for m in re.finditer(r"^=+ (.*?(?:passed|failed|error|skipped|no tests ran).*?) in [\d.]+s", out, re.M):  # pytest
+        found = True
         for k, pat in (("passed", r"(\d+) passed"), ("failed", r"(\d+) failed"), ("errors", r"(\d+) errors?"), ("skipped", r"(\d+) skipped")):
-            mm = re.search(pat, s)
-            c[k] = int(mm.group(1)) if mm else 0
-        return c
-    m = list(re.finditer(r"Tests:\s+(.*)", out))  # jest / vitest
-    if m:
-        s = m[-1].group(1)
+            mm = re.search(pat, m.group(1))
+            add(k, int(mm.group(1)) if mm else 0)
+    for m in re.finditer(r"^Tests:\s+(.*)$", out, re.M):  # jest / vitest
+        found = True
         for k, pat in (("passed", r"(\d+) passed"), ("failed", r"(\d+) failed"), ("skipped", r"(\d+) skipped")):
-            mm = re.search(pat, s)
-            c[k] = int(mm.group(1)) if mm else 0
-        c["errors"] = 0
+            mm = re.search(pat, m.group(1))
+            add(k, int(mm.group(1)) if mm else 0)
+        add("errors", 0)
+    for m in re.finditer(r"^Test Suites:\s+(\d+) failed", out, re.M):  # suites that failed to load
+        add("errors", int(m.group(1)) if not re.search(r"Tests:", out) else 0)
+    if found:
         return c
     p = re.findall(r"^# pass (\d+)", out, re.M)  # node:test / tap
     if p:
         f = re.findall(r"^# fail (\d+)", out, re.M)
-        c.update(passed=int(p[-1]), failed=int(f[-1]) if f else 0, errors=0, skipped=0)
+        c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
         return c
     p = re.findall(r"(\d+) passing", out)  # mocha
     if p:
         f = re.findall(r"(\d+) failing", out)
-        c.update(passed=int(p[-1]), failed=int(f[-1]) if f else 0, errors=0, skipped=0)
+        c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
         return c
     p = re.findall(r"(\d+) tests? passed", out)  # manten and similar
     if p:
         f = re.findall(r"(\d+) tests? failed", out)
-        c.update(passed=int(p[-1]), failed=int(f[-1]) if f else 0, errors=0, skipped=0)
+        c.update(passed=sum(map(int, p)), failed=sum(map(int, f)), errors=0, skipped=0)
     return c
 
 
@@ -62,7 +67,7 @@ def run_tests(cmd, cwd, env=None, timeout=1800):
         out, code = (r.stdout or "") + "\n" + (r.stderr or ""), r.returncode
     except subprocess.TimeoutExpired as ex:
         out, code = ((ex.stdout or b"").decode("utf-8", "replace") if isinstance(ex.stdout, bytes) else (ex.stdout or "")) + "\nTIMEOUT", 124
-    res = {"cmd": cmd, "exit": code, "seconds": round(time.time() - t, 1), "tail": out[-3000:]}
+    res = {"cmd": cmd, "exit": code, "seconds": round(time.time() - t, 1), "tail": out[-3000:], "ts_errors": out.count("error TS")}
     res.update(parse_counts(out))
     return res
 

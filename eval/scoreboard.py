@@ -17,6 +17,8 @@ def tcount(t):
         return "-"
     if "not_run" in t:
         return "n/a"
+    if t.get("typecheck"):
+        return "tsc: %s errors" % t.get("ts_errors")
     s = "%d passed" % t["passed"]
     bad = (t.get("failed") or 0) + (t.get("errors") or 0)
     if bad:
@@ -32,6 +34,9 @@ def verdict(r):
             return ("same", "typecheck %d -> %d errors" % (tc["before_errors"], tc["after_errors"])) if tc["after_errors"] <= tc["before_errors"] else \
                 ("worse", "typecheck %d -> %d errors" % (tc["before_errors"], tc["after_errors"]))
         return ("na", "no runnable tests")
+    if b.get("typecheck"):
+        same = (a.get("ts_errors") or 0) <= (b.get("ts_errors") or 0)
+        return ("same" if same else "worse", "typecheck: %s -> %s errors" % (b.get("ts_errors"), a.get("ts_errors")))
     bb = (b.get("failed") or 0) + (b.get("errors") or 0)
     ab = (a.get("failed") or 0) + (a.get("errors") or 0)
     if a["passed"] >= b["passed"] and ab <= bb:

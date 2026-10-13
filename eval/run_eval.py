@@ -101,7 +101,9 @@ def sim_tests(rec, src):
         srv.shutdown()
 
 
-def count(t):
+def count(t, kind="unit"):
+    if t and kind == "typecheck":
+        return {"typecheck": True, "exit": t.get("exit"), "ts_errors": t.get("ts_errors")}
     if not t or t.get("passed") is None:
         return None
     return {"passed": t["passed"], "failed": (t.get("failed") or 0), "errors": (t.get("errors") or 0), "skipped": t.get("skipped") or 0, "exit": t.get("exit")}
@@ -143,8 +145,9 @@ def run_repo(repo, args, cat):
     row.update(sites_found=sm["sites_found"], migrated=sm["migrated"], handoff=sm["handoff"], kept=sm["kept"], flagged=sm["flagged"],
                router_eligible=sm["router_eligible"], callsite_coverage=sm["callsite_coverage"], weighted_coverage=sm["weighted_coverage"],
                diff_lines=applied.get("diff_lines"), files_changed=len(applied.get("files_changed", [])), nonprod_sites=sm["nonprod_sites"])
-    row["tests_before"] = count(row.get("_tests_before")) or {"not_run": (rec.get("baseline") or {}).get("reason") or "no runnable tests"}
-    row["tests_after"] = count(row.get("_tests_after")) or {"not_run": row["tests_before"].get("not_run", "-")}
+    kind = rec.get("test_kind", "unit")
+    row["tests_before"] = count(row.get("_tests_before"), kind) or {"not_run": (rec.get("baseline") or {}).get("reason") or "no runnable tests"}
+    row["tests_after"] = count(row.get("_tests_after"), kind) or {"not_run": row["tests_before"].get("not_run", "-")}
     st = row.get("_sim_tests") or {}
     rr = [r for r in rep["results"] if r.get("ok") is not None]
     n_req = st.get("requests", 0) + len(rr)
