@@ -14,23 +14,15 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 SNAPSHOT = os.path.join(_HERE, "data", "catalog.json")
 ROUTER_V1 = "https://api.router.com/v1"
 
-# Dated or versioned suffixes providers append to a base model id.
-_DATE_SUFFIXES = [
-    re.compile(r"-(\d{4}-\d{2}-\d{2})$"),        # gpt-4o-2024-08-06
-    re.compile(r"-(\d{8})$"),                     # claude-3-5-sonnet-20241022, claude-sonnet-4-5-20250929
-    re.compile(r"-(\d{4})$"),                     # gpt-4-0613, gpt-3.5-turbo-0125
-    re.compile(r"-(preview|latest)$"),            # gpt-4-turbo-preview, claude-3-5-sonnet-latest
-    re.compile(r"-v\d+:\d+$"),                    # bedrock-style -v1:0
-]
-_PREFIXES = [re.compile(r"^(openai|anthropic|vertex|bedrock|xai|fireworks|baseten)[:/]")]
+EQUIV_PATH = os.path.join(_HERE, "data", "dated_equivalents.json")
+_PREFIX = re.compile(r"^(openai|anthropic)[:/]")
 
-# Well-known older names that map onto a catalog id with the same model family. Only exact equivalents:
-# these are the same model under another name, never a different model.
-EQUIVALENTS = {
-    "gpt-4o-mini-2024-07-18": "gpt-4o-mini",
-    "chatgpt-4o-latest": None,  # not the same model as gpt-4o; keep on provider
-    "claude-3-5-haiku-latest": None,
-}
+
+def _equivalents():
+    try:
+        return json.load(open(EQUIV_PATH))["dated_to_catalog"]
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
 class Catalog:
@@ -38,6 +30,7 @@ class Catalog:
         self.models = models
         self.source = source
         self.by_id = {m["id"]: m for m in models}
+        self.equiv = _equivalents()
         self.alias = {}
         for m in models:
             for a in m.get("aliases") or []:
@@ -73,18 +66,13 @@ class Catalog:
             return name, "exact catalog id"
         if name in self.alias:
             return self.alias[name], "catalog alias"
-        if name in EQUIVALENTS:
-            tgt = EQUIVALENTS[name]
-            return (tgt, "dated id of the same model") if tgt else (None, "no same-model equivalent in catalog")
-        base = name
-        for p in _PREFIXES:
-            base = p.sub("", base)
-        for s in _DATE_SUFFIXES:
-            stripped = s.sub("", base)
-            if stripped != base and stripped in self.by_id and not self.by_id[stripped].get("requires_byok"):
-                return stripped, "dated/prefixed id -> undated catalog id (same model)"
+        base = _PREFIX.sub("", name)
+        if base in self.equiv and self.equiv[base] in self.by_id:
+            return self.equiv[base], "dated snapshot Router itself serves as this catalog id (measured)"
         if base != name and base in self.by_id:
             return base, "provider prefix removed"
+        if re.search(r"-(\d{4}-\d{2}-\d{2}|\d{8}|\d{4})$", base):
+            return None, "dated snapshot with no measured Router equivalent (the undated id may be a newer snapshot)"
         return None, "not in Router catalog"
 
     def info(self, router_id):

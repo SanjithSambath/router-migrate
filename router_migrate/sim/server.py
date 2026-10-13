@@ -153,6 +153,11 @@ class Sim:
                     if "function" in t or not t.get("name"):
                         raise SimError(400, "missing_required_parameter", "Missing required parameter: 'tools[%d].name'." % i,
                                        "[upstream] Responses tools are flat {type,name,parameters}")
+                    if t.get("strict", True) and not _strict_ok(t.get("parameters") or {}):
+                        raise SimError(400, "invalid_function_parameters",
+                                       "Invalid schema for function '%s': In context=(), 'additionalProperties' is required to be supplied and to be false, "
+                                       "and all properties must be listed in 'required'." % t["name"],
+                                       "[upstream] Responses function tools default to strict=true")
         tc = b.get("tool_choice")
         if isinstance(tc, dict):
             if tc.get("type") == "function" and not tc.get("name"):
@@ -333,6 +338,20 @@ class Sim:
         yield "message_delta", {"type": "message_delta", "delta": {"stop_reason": msg["stop_reason"], "stop_sequence": None},
                                 "usage": {"output_tokens": msg["usage"]["output_tokens"]}}
         yield "message_stop", {"type": "message_stop"}
+
+
+def _strict_ok(schema):
+    """Strict-mode schema rules: every object has additionalProperties:false and lists all properties as required."""
+    if not isinstance(schema, dict):
+        return True
+    if schema.get("type") == "object" or "properties" in schema:
+        props = schema.get("properties") or {}
+        if schema.get("additionalProperties", True) is not False or set(schema.get("required") or []) != set(props):
+            return False
+        return all(_strict_ok(v) for v in props.values())
+    if schema.get("type") == "array":
+        return _strict_ok(schema.get("items") or {})
+    return True
 
 
 def _fill(schema):

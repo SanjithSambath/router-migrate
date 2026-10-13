@@ -19,15 +19,16 @@ type AnyFetch = (input: any, init?: any) => Promise<Response>;
 const CATALOG_JSON = String.raw`__ROUTER_CATALOG__`;
 let CATALOG: Record<string, { o?: string; t?: boolean | null; r?: boolean }> = {};
 let ALIASES: Record<string, string> = {};
+let DATED: Record<string, string> = {}; // dated provider snapshot -> catalog id, only where Router reported the equivalence
 try {
   const d = JSON.parse(CATALOG_JSON);
   CATALOG = d.models || {};
   ALIASES = d.aliases || {};
+  DATED = d.dated || {};
 } catch {}
 
 const OPENAI_HOSTS = ["api.openai.com"];
 const ANTHROPIC_HOSTS = ["api.anthropic.com"];
-const DATE = [/-\d{4}-\d{2}-\d{2}$/, /-\d{8}$/, /-\d{4}$/, /-(preview|latest)$/];
 
 function env(name: string): string | undefined {
   try {
@@ -56,11 +57,7 @@ export function resolveModel(name: unknown): string | null {
   if (name in override) return override[name] || null;
   if (CATALOG[name]) return name;
   if (ALIASES[name]) return ALIASES[name];
-  for (const p of DATE) {
-    const b = name.replace(p, "");
-    if (b !== name && CATALOG[b]) return b;
-  }
-  return null;
+  return DATED[name] || null;
 }
 
 function feature(): string | undefined {
@@ -149,10 +146,10 @@ export function chatToResponses(body: any, routerModel: string, ownedBy: string 
     const fn = t.function || {};
     const nt: any = { type: "function", name: fn.name, parameters: fn.parameters || { type: "object", properties: {} } };
     if (fn.description) nt.description = fn.description;
-    if (fn.strict != null) nt.strict = fn.strict;
+    nt.strict = !!fn.strict; // Responses defaults tools to strict; Chat Completions does not
     tools.push(nt);
   }
-  for (const fn of body.functions || []) tools.push({ type: "function", name: fn.name, description: fn.description || "", parameters: fn.parameters || { type: "object", properties: {} } });
+  for (const fn of body.functions || []) tools.push({ type: "function", name: fn.name, description: fn.description || "", parameters: fn.parameters || { type: "object", properties: {} }, strict: false });
   if (tools.length) out.tools = tools;
   const tc = body.tool_choice ?? body.function_call;
   if (tc && typeof tc === "object") out.tool_choice = { type: "function", name: tc.function?.name || tc.name };

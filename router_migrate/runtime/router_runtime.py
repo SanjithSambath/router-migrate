@@ -32,11 +32,11 @@ VERSION = "0.1.0"
 # id -> [owned_by, temperature_supported, reasoning_supported]
 CATALOG = {}  # filled below by _load_catalog()
 ALIASES = {}
+DATED = {}  # dated provider snapshot -> catalog id, only where Router itself reported the equivalence
 _CATALOG_JSON = r"""__ROUTER_CATALOG__"""
 
 _OPENAI_HOSTS = ("api.openai.com",)
 _ANTHROPIC_HOSTS = ("api.anthropic.com",)
-_DATE = [re.compile(p) for p in (r"-\d{4}-\d{2}-\d{2}$", r"-\d{8}$", r"-\d{4}$", r"-(preview|latest)$")]
 _SKIP_FRAMES = ("site-packages", "dist-packages", os.sep + "lib" + os.sep + "python", "router_runtime", "<frozen")
 
 
@@ -48,6 +48,7 @@ def _load_catalog():
     for mid, row in (d.get("models") or {}).items():
         CATALOG[mid] = row
     ALIASES.update(d.get("aliases") or {})
+    DATED.update(d.get("dated") or {})
 
 
 _load_catalog()
@@ -76,11 +77,7 @@ def resolve_model(name):
         return name
     if name in ALIASES:
         return ALIASES[name]
-    for p in _DATE:
-        base = p.sub("", name)
-        if base != name and base in CATALOG:
-            return base
-    return None
+    return DATED.get(name)
 
 
 def _feature():
@@ -191,14 +188,13 @@ def chat_to_responses(body, router_model, owned_by, feature):
             nt = {"type": "function", "name": fn.get("name"), "parameters": fn.get("parameters") or {"type": "object", "properties": {}}}
             if fn.get("description"):
                 nt["description"] = fn["description"]
-            if fn.get("strict") is not None:
-                nt["strict"] = fn["strict"]
+            nt["strict"] = bool(fn.get("strict"))  # Responses defaults tools to strict; Chat Completions does not
             tools.append(nt)
         else:
             raise Untranslatable("tool type %r" % t.get("type"))
     for fn in body.get("functions") or []:  # legacy functions API
         tools.append({"type": "function", "name": fn.get("name"), "description": fn.get("description", ""),
-                      "parameters": fn.get("parameters") or {"type": "object", "properties": {}}})
+                      "parameters": fn.get("parameters") or {"type": "object", "properties": {}}, "strict": False})
     if tools:
         out["tools"] = tools
     tc = body.get("tool_choice", body.get("function_call"))
@@ -559,7 +555,9 @@ def http_client(**kwargs):
         return kwargs.pop("_default", None)
     try:
         from openai import DefaultHttpxClient as _C  # keeps the SDK's default timeouts/limits
-    except Exception:
+    except Exception:  # openai < 1.17 has no DefaultHttpxClient: match its defaults by hand
+        kwargs.setdefault("timeout", httpx.Timeout(600.0, connect=5.0))
+        kwargs.setdefault("follow_redirects", True)
         _C = httpx.Client
     return _C(transport=RouterTransport(), **kwargs)
 
@@ -570,6 +568,8 @@ def async_http_client(**kwargs):
     try:
         from openai import DefaultAsyncHttpxClient as _C
     except Exception:
+        kwargs.setdefault("timeout", httpx.Timeout(600.0, connect=5.0))
+        kwargs.setdefault("follow_redirects", True)
         _C = httpx.AsyncClient
     return _C(transport=AsyncRouterTransport(), **kwargs)
 
@@ -615,3 +615,24 @@ def install_openai_module():
 
 if active():  # SDK constructors require a provider key even when Router serves the request
     os.environ.setdefault("OPENAI_API_KEY", "unused-router-serves-this")
+
+
+def chat_anthropic_kwargs():
+    """Extra kwargs for LangChain ChatAnthropic (it has no http_client hook; a base_url + key swap works [measured])."""
+    if not active():
+        return {}
+    return {"base_url": _base(), "api_key": os.environ["RAMP_ROUTER_API_KEY"]}
+
+
+def install_litellm():
+    """Route LiteLLM's OpenAI-provider calls through the transport (LiteLLM builds OpenAI SDK clients on these sessions)."""
+    if not active() or httpx is None:
+        return
+    try:
+        import litellm
+        if getattr(litellm, "client_session", None) is None:
+            litellm.client_session = http_client()
+        if getattr(litellm, "aclient_session", None) is None:
+            litellm.aclient_session = async_http_client()
+    except Exception:
+        pass

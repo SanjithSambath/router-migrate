@@ -15,7 +15,11 @@ def compact_catalog(catalog):
         models[m["id"]] = {"o": m.get("owned_by"), "t": m.get("temperature"), "r": bool(m.get("reasoning"))}
         for a in m.get("aliases") or []:
             aliases.setdefault(a, m["id"])
-    return {"models": models, "aliases": aliases}
+    try:
+        dated = {k: v for k, v in json.load(open(os.path.join(os.path.dirname(HERE), "data", "dated_equivalents.json")))["dated_to_catalog"].items() if v in models}
+    except (OSError, ValueError, KeyError):
+        dated = {}
+    return {"models": models, "aliases": aliases, "dated": dated}
 
 
 def render(name, catalog):
