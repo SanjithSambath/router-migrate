@@ -95,3 +95,4 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   - 30 cards; 20 meet their evidence bar.
   - Live spend $0.000795. There is a REPORT.html for every repo.
 - **Tests:** 269 passing, 1 skipped.
+- Live dashboard check (eval/dashboard_live_check.md): `up --no-browser` on langchain-nextjs-template. 21/21 checks pass: token, Host and Origin rejection, body cap; decide and apply through the API write decisions.json and the compiled policy.
