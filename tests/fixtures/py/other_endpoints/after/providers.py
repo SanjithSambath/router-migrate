@@ -1,5 +1,11 @@
 from openai import OpenAI, AzureOpenAI
-from router_runtime import wrap_openai as _router_wrap_openai  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+    from .router_runtime import wrap_openai as _router_wrap_openai
+except ImportError:  # router-migrate: module executed as a script
+    try:
+        from router_runtime import wrap_openai as _router_wrap_openai
+    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
+        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
 
 groq = OpenAI(base_url="https://api.groq.com/openai/v1", api_key="x")
 azure = AzureOpenAI(azure_endpoint="https://x.openai.azure.com", api_version="2024-02-01")

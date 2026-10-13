@@ -123,7 +123,7 @@ def do_apply(root, live=False, dry_run=False, quiet=False):
     by_file = {}
     for pt in p["patches"]:
         if pt["lang"] == "py":
-            by_file.setdefault(pt["file"], {})[(pt["line"], pt["col"])] = pt["patch"]
+            by_file.setdefault(pt["file"], {})[(pt["line"], pt["col"])] = (pt["patch"], pt.get("opts"))
     installs = {}
     for ins in p["installs"]:
         installs.setdefault(ins["file"], set()).add(ins["kind"])
@@ -141,6 +141,7 @@ def do_apply(root, live=False, dry_run=False, quiet=False):
             log["skipped"].append({"lang": "py", "file": f, "line": line, "col": col, "reason": why})
         if changed:
             log["files_changed"].append(f)
+        if rt_rel:
             rtp = os.path.join(work, rt_rel)
             if not os.path.exists(rtp) or open(rtp).read() != py_rt:
                 open(rtp, "w").write(py_rt)

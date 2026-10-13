@@ -24,7 +24,7 @@ import openai  # noqa: E402
 
 out = {"openai": openai.__version__, "lib": rt._sdk_lib("openai")}
 c = rt.wrap_openai(openai.OpenAI())
-out["wrapped"] = c is not None and type(c._client).__module__.split(".")[0]
+out["wrapped"] = type(c._client._transport).__name__  # RouterTransport, installed in place under the SDK's own client
 r = c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
 out["chat"] = r.choices[0].message.content
 s = c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}], stream=True)
@@ -49,7 +49,13 @@ try:
     out["anthropic"] = a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}]).content[0].text
 except ImportError:
     out["anthropic"] = "not installed"
+try:
+    from langchain_openai import ChatOpenAI
+    out["langchain_openai"] = rt.wrap_langchain(ChatOpenAI(model="gpt-4o-mini")).invoke("hi").content
+except ImportError:
+    out["langchain_openai"] = "not installed"
 srv.shutdown()
 print(json.dumps(out))
-ok = out["chat"] == out["stream"] == out["async"] == out["async_stream"] == "pong" and out["tools"] == "f"
+ok = (out["chat"] == out["stream"] == out["async"] == out["async_stream"] == "pong" and out["tools"] == "f" and out["wrapped"] == "RouterTransport"
+      and out["anthropic"] in ("pong", "not installed") and out["langchain_openai"] in ("pong", "not installed"))
 sys.exit(0 if ok else 1)

@@ -9,61 +9,94 @@ import libcst as cst
 from libcst.metadata import MetadataWrapper, PositionProvider
 
 MARK = "router-migrate"
+RUNTIME_HEADER = "# router_runtime.py (vendored by router-migrate"
 HELPERS = {
-    "wrap_openai": ["wrap_openai"], "wrap_anthropic": ["wrap_anthropic"],
-    "kwargs_langchain_openai": ["http_client", "async_http_client"], "kwargs_llamaindex": ["http_client", "async_http_client"],
-    "kwargs_chat_anthropic": ["chat_anthropic_kwargs"], "install_openai_module": ["install_openai_module"],
-    "install_litellm": ["install_litellm"],
+    "wrap_openai": ["wrap_openai"], "wrap_anthropic": ["wrap_anthropic"], "wrap_langchain": ["wrap_langchain"],
+    "kwargs_llamaindex": ["http_client", "async_http_client"],
+    "install_openai_module": ["install_openai_module"], "install_litellm": ["install_litellm"],
 }
+# LangChain chat models are wrapped after construction: their SDK clients get the transport in place, so every request is still
+# planned per request (unknown models, beta headers -> provider). Planner kinds from older plans map onto that.
+KIND_ALIAS = {"kwargs_langchain_openai": "wrap_langchain", "kwargs_chat_anthropic": "wrap_langchain"}
+# what each helper becomes when the runtime cannot be imported from a module: the original behavior, exactly
+STUBS = {"wrap_openai": "lambda c, *a, **k: c", "wrap_anthropic": "lambda c, *a, **k: c", "wrap_langchain": "lambda c, *a, **k: c",
+         "http_client": "lambda **k: k.get('_default')", "async_http_client": "lambda **k: k.get('_default')",
+         "install_openai_module": "lambda: None", "install_litellm": "lambda: None", "chat_anthropic_kwargs": "lambda: {}"}
 
 
 def alias(name):
     return "_router_" + name
 
 
+def _is_router_call(node):
+    return isinstance(node, cst.Call) and isinstance(node.func, cst.Name) and node.func.value.startswith("_router_")
+
+
+class _AlreadyPatched(cst.CSTVisitor):
+    """Positions of constructor calls that an earlier run already wrapped (`_router_wrap_x(Ctor(...))`)."""
+    METADATA_DEPENDENCIES = (PositionProvider,)
+
+    def __init__(self):
+        self.pos = set()
+
+    def visit_Call(self, node):
+        if _is_router_call(node) and node.args and isinstance(node.args[0].value, cst.Call):
+            p = self.get_metadata(PositionProvider, node.args[0].value).start
+            self.pos.add((p.line, p.column))
+        elif any(a.keyword is not None and a.keyword.value == "http_client" and _is_router_call(a.value) for a in node.args):
+            p = self.get_metadata(PositionProvider, node).start
+            self.pos.add((p.line, p.column))
+
+
+def _kw(name, expr):
+    eq = cst.AssignEqual(whitespace_before=cst.SimpleWhitespace(""), whitespace_after=cst.SimpleWhitespace(""))
+    return cst.Arg(keyword=cst.Name(name), value=cst.parse_expression(expr), equal=eq)
+
+
 class _Patcher(cst.CSTTransformer):
     METADATA_DEPENDENCIES = (PositionProvider,)
 
-    def __init__(self, targets):
-        self.targets = targets  # {(line, col): patch kind}
+    def __init__(self, targets, already):
+        self.targets = targets  # {(line, col): (patch kind, opts)}
+        self.already = already
         self.done = {}
         self.skipped = {}
+        self.added = set()  # helper kinds this run actually inserted
 
     def leave_Call(self, original, updated):
         pos = self.get_metadata(PositionProvider, original).start
-        kind = self.targets.get((pos.line, pos.column))
-        if not kind:
-            return updated
         key = (pos.line, pos.column)
-        if kind in ("wrap_openai", "wrap_anthropic"):
+        if key not in self.targets:
+            return updated
+        kind, opts = self.targets[key]
+        kind = KIND_ALIAS.get(kind, kind)
+        if key in self.already:
+            self.done[key] = kind  # patched by an earlier run: counts as patched, nothing to do
+            return updated
+        if kind in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
+            args = [cst.Arg(updated)]
+            if (opts or {}).get("responses") is False and kind != "wrap_anthropic":
+                args = [cst.Arg(updated, comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))), _kw("responses", "False")]
             self.done[key] = kind
-            return cst.Call(func=cst.Name(alias(kind)), args=[cst.Arg(updated)])
-        names = {a.keyword.value for a in updated.args if a.keyword is not None}
-        if kind in ("kwargs_langchain_openai", "kwargs_llamaindex"):
-            async_kw = "http_async_client" if kind == "kwargs_langchain_openai" else "async_http_client"
-            if "http_client" in names or async_kw in names or "openai_proxy" in names:
-                self.skipped[key] = "client already sets http_client/%s/openai_proxy" % async_kw
+            self.added.add(kind)
+            return cst.Call(func=cst.Name(alias(kind)), args=args)
+        if kind == "kwargs_llamaindex":
+            names = {a.keyword.value for a in updated.args if a.keyword is not None}
+            if "http_client" in names or "async_http_client" in names:
+                self.skipped[key] = "client already sets http_client/async_http_client"
+                return updated
+            if any(a.star == "**" for a in updated.args):
+                self.skipped[key] = "constructor takes **kwargs, which may already carry http_client"
                 return updated
             new = list(updated.args)
             if new and new[-1].comma == cst.MaybeSentinel.DEFAULT:
                 new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-            new += [cst.Arg(keyword=cst.Name("http_client"), value=cst.parse_expression(alias("http_client") + "()"),
-                            equal=cst.AssignEqual(whitespace_before=cst.SimpleWhitespace(""), whitespace_after=cst.SimpleWhitespace("")),
-                            comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))),
-                    cst.Arg(keyword=cst.Name(async_kw), value=cst.parse_expression(alias("async_http_client") + "()"),
-                            equal=cst.AssignEqual(whitespace_before=cst.SimpleWhitespace(""), whitespace_after=cst.SimpleWhitespace("")))]
+            new += [_kw("http_client", alias("http_client") + "()").with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))),
+                    _kw("async_http_client", alias("async_http_client") + "()")]
             self.done[key] = kind
+            self.added.add(kind)
             return updated.with_changes(args=new)
-        if kind == "kwargs_chat_anthropic":
-            if names & {"base_url", "anthropic_api_url", "api_key", "anthropic_api_key"}:
-                self.skipped[key] = "ChatAnthropic already sets base_url/api_key explicitly"
-                return updated
-            new = list(updated.args)
-            if new and new[-1].comma == cst.MaybeSentinel.DEFAULT:
-                new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-            new.append(cst.Arg(star="**", value=cst.parse_expression(alias("chat_anthropic_kwargs") + "()")))
-            self.done[key] = kind
-            return updated.with_changes(args=new)
+        self.skipped[key] = "unknown patch kind %s" % kind
         return updated
 
 
@@ -82,16 +115,22 @@ def runtime_location(root, rel_file):
 
 
 def import_block(dots, names):
-    imp = ", ".join("%s as %s" % (n, alias(n)) for n in names)
-    if len(names) > 1:
-        ind = "        " if dots else "    "
-        imp = "(\n" + "".join("%s%s as %s,\n" % (ind, n, alias(n)) for n in names) + ind[:-4] + ")"
-    if dots:
-        return ("try:  # %s: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n"
-                "    from %srouter_runtime import %s\n"
-                "except ImportError:  # %s: module executed as a script\n"
-                "    from router_runtime import %s\n") % (MARK, dots, imp, MARK, imp)
-    return "from router_runtime import %s  # %s: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n" % (imp, MARK)
+    """try package-relative -> plain module -> stubs. The last tier makes the import unable to fail (namespace packages, scripts
+    inside packages): the module then behaves exactly as before the migration, and its calls stay on their provider."""
+    dots = dots or "."
+
+    def imp(ind):
+        if len(names) == 1:
+            return "%s as %s" % (names[0], alias(names[0]))
+        return "(\n" + "".join("%s    %s as %s,\n" % (ind, n, alias(n)) for n in names) + ind + ")"
+    stubs = "".join("        %s = %s  # noqa: E731\n" % (alias(n), STUBS[n]) for n in names)
+    return ("try:  # %s: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n"
+            "    from %srouter_runtime import %s\n"
+            "except ImportError:  # %s: module executed as a script\n"
+            "    try:\n"
+            "        from router_runtime import %s\n"
+            "    except ImportError:  # %s: runtime not importable from here; this module keeps its original behavior\n"
+            "%s") % (MARK, dots, imp("    "), MARK, imp("        "), MARK, stubs)
 
 
 def _insert_after_imports(module, stmts_src):
@@ -116,22 +155,44 @@ def _insert_after_imports(module, stmts_src):
     return module.with_changes(body=body[:idx] + list(new) + body[idx:])
 
 
+def _already_imported(src, name):
+    return ("as %s" % alias(name)) in src or ("%s = " % alias(name)) in src
+
+
+def runtime_conflict(root, runtime_rel):
+    """A router_runtime.py that router-migrate did not write must never be overwritten."""
+    p = os.path.join(root, runtime_rel)
+    if not os.path.exists(p):
+        return False
+    with open(p, encoding="utf-8", errors="replace") as f:
+        return not f.readline().startswith(RUNTIME_HEADER)
+
+
 def patch_file(root, rel, targets, installs):
-    """targets: {(line, col): kind}; installs: set of install kinds. Returns (changed, done, skipped, runtime_rel)."""
+    """targets: {(line, col): kind or (kind, opts)}; installs: set of install kinds.
+    Returns (changed, done, skipped, runtime_rel). Idempotent per constructor: a rerun counts earlier wraps as done and only
+    patches what is new."""
+    targets = {k: (v if isinstance(v, tuple) else (v, None)) for k, v in targets.items()}
     path = os.path.join(root, rel)
     src = open(path, encoding="utf-8").read()
-    if "_router_wrap_" in src or "_router_http_client" in src or "_router_install_" in src or "_router_chat_anthropic" in src:
-        return False, {}, {k: "already patched" for k in targets}, None
-    mod = cst.parse_module(src)
-    p = _Patcher(targets)
-    new_mod = MetadataWrapper(mod).visit(p)
-    used = sorted({h for k in p.done.values() for h in HELPERS[k]} | {h for k in installs for h in HELPERS[k]})
-    if not used:
-        return False, p.done, p.skipped, None
     runtime_rel, dots = runtime_location(root, rel)
-    block = import_block(dots, used)
-    for k in sorted(installs):
+    if runtime_conflict(root, runtime_rel):
+        return False, {}, {k: "%s already exists and is not router-migrate's" % runtime_rel for k in targets}, None
+    mod = cst.parse_module(src)
+    wrapper = MetadataWrapper(mod)
+    seen = _AlreadyPatched()
+    wrapper.visit(seen)
+    p = _Patcher(targets, seen.pos)
+    new_mod = wrapper.visit(p)
+    todo_installs = {k for k in installs if "%s()" % alias(HELPERS[k][0]) not in src}
+    used = sorted({h for k in p.added for h in HELPERS[k]} | {h for k in todo_installs for h in HELPERS[k]})
+    used = [h for h in used if not _already_imported(src, h)]
+    if not used and not p.added and not todo_installs:
+        return False, p.done, p.skipped, (runtime_rel if p.done or installs else None)
+    block = import_block(dots, used) if used else ""
+    for k in sorted(todo_installs):
         block += "%s()  # %s\n" % (alias(HELPERS[k][0]), MARK)
-    new_mod = _insert_after_imports(new_mod, block)
+    if block:
+        new_mod = _insert_after_imports(new_mod, block)
     open(path, "w", encoding="utf-8").write(new_mod.code)
     return True, p.done, p.skipped, runtime_rel

@@ -3,22 +3,31 @@
 # Routes this codebase's OpenAI / Anthropic SDK traffic through Ramp's Router (https://router.com) when
 # RAMP_ROUTER_API_KEY is set. When it is not set, every function here returns its input unchanged.
 #
-# How: an httpx transport placed under the SDK client. It sends requests Router can serve to Router and forwards
-# everything else to the original provider untouched:
+# How: an httpx transport placed under the SDK client (installed in place, so the client's proxies, mounts, headers and
+# hooks all stay). It sends requests Router can serve to Router and forwards everything else to the original provider
+# untouched:
 #   POST .../chat/completions  -> POST {router}/v1/responses   (request + response + SSE stream translated back)
-#   POST .../responses         -> POST {router}/v1/responses   (store / previous_response_id handled, see below)
+#   POST .../responses         -> POST {router}/v1/responses   (store dropped; previous_response_id chains kept in-process)
 #   POST .../v1/messages       -> POST {router}/v1/messages    (Anthropic, model id mapped)
-#   anything else (embeddings, images, audio, files, models, unknown models, n>1, logprobs) -> original provider
-# Each Router request carries metadata.feature = "<file>:<function>" of the calling code.
+#   anything else (embeddings, images, audio, files, models, unknown models, n>1, logprobs, seed, beta headers,
+#   provider-side vector stores/files) -> original provider
+# If Router rejects a request before generating (unknown/unsupported parameter, model not available to this key, 501),
+# the original request is sent to the provider instead, once.
+# Each Router request carries metadata.feature = "<file>:<function>" of the calling code (ROUTER_MIGRATE_FEATURE_TAG=off
+# disables it; it sends a repo-relative path and function name).
 # Env: RAMP_ROUTER_API_KEY (required to activate), RAMP_ROUTER_BASE_URL (default https://api.router.com),
 #      ROUTER_MIGRATE_DISABLE=1 (kill switch), ROUTER_MIGRATE_MODEL_MAP='{"old-model":"router-id"}',
-#      ROUTER_MIGRATE_SERVICE_TIER (default: "default" for streaming calls, account default otherwise).
+#      ROUTER_MIGRATE_SERVICE_TIER (default "default"; "auto" leaves the account default, which may be flex),
+#      ROUTER_MIGRATE_FALLBACK=0 (surface Router errors instead of retrying on the provider).
+# The provider key (OPENAI_API_KEY / ANTHROPIC_API_KEY) must stay configured: SDK constructors require it, and requests
+# Router cannot serve still go to the provider.
 import json
 import os
 import re
 import sys
 import time
 import uuid
+from collections import OrderedDict
 
 import importlib
 
@@ -38,7 +47,7 @@ def _lib(name):
 
 httpx = _lib("httpx") or _lib("httpx2")
 
-__all__ = ["active", "wrap_openai", "wrap_anthropic", "http_client", "async_http_client", "install_openai_module"]
+__all__ = ["active", "wrap_openai", "wrap_anthropic", "wrap_langchain", "http_client", "async_http_client", "install_openai_module"]
 VERSION = "0.1.0"
 
 # --- catalog (generated from GET /v1/models by router-migrate; refresh with `router-migrate apply --live`) -------
@@ -68,7 +77,12 @@ _load_catalog()
 
 
 def active():
-    return bool(os.environ.get("RAMP_ROUTER_API_KEY")) and os.environ.get("ROUTER_MIGRATE_DISABLE") not in ("1", "true", "yes")
+    off = (os.environ.get("ROUTER_MIGRATE_DISABLE") or "").strip().lower() in ("1", "true", "yes", "on")
+    return bool(os.environ.get("RAMP_ROUTER_API_KEY")) and not off
+
+
+def _feature_tags_on():
+    return (os.environ.get("ROUTER_MIGRATE_FEATURE_TAG") or "").strip().lower() not in ("0", "off", "false", "no")
 
 
 def _base():
@@ -94,7 +108,9 @@ def resolve_model(name):
 
 
 def _feature():
-    """'<relative file>:<function>' of the first stack frame that belongs to this codebase."""
+    """'<relative file>:<function>' of the first stack frame that belongs to this codebase (ROUTER_MIGRATE_FEATURE_TAG=off disables)."""
+    if not _feature_tags_on():
+        return None
     f = sys._getframe(1)
     cwd = os.getcwd()
     while f is not None:
@@ -149,6 +165,16 @@ def _user_parts(content):
 def chat_to_responses(body, router_model, owned_by, feature):
     """Chat Completions request -> Router Responses request. Returns (new_body, context for the reply)."""
     unsupported = [k for k in ("audio", "modalities", "prediction", "web_search_options", "logit_bias", "functions_call_mode") if body.get(k)]
+    # not measured as accepted by Router, or no exact Responses equivalent: keep these calls on the provider unchanged
+    unsupported += [k for k in ("seed", "presence_penalty") if body.get(k) is not None]
+    mot = body.get("max_completion_tokens") or body.get("max_tokens")
+    if mot is not None and int(mot) < 16:
+        unsupported.append("max_tokens<16")  # Responses minimum is 16; clamping would change output length
+    if any(isinstance(m, dict) and m.get("name") for m in body.get("messages") or []):
+        unsupported.append("message name")
+    tc0 = body.get("tool_choice")
+    if isinstance(tc0, dict) and tc0.get("type") not in (None, "function"):
+        unsupported.append("tool_choice %s" % tc0.get("type"))
     if (body.get("n") or 1) != 1:
         unsupported.append("n")
     if body.get("logprobs") or body.get("top_logprobs"):
@@ -166,7 +192,12 @@ def chat_to_responses(body, router_model, owned_by, feature):
             items.append({"role": "user", "content": _user_parts(m.get("content"))})
         elif role == "assistant":
             text = _text_of(m.get("content"))
-            if text:
+            refusal = m.get("refusal") or "".join(p.get("refusal", "") for p in (m.get("content") if isinstance(m.get("content"), list) else [])
+                                                  if isinstance(p, dict) and p.get("type") == "refusal")
+            if refusal:
+                parts = ([{"type": "output_text", "text": text}] if text else []) + [{"type": "refusal", "refusal": refusal}]
+                items.append({"role": "assistant", "content": parts})
+            elif text:
                 items.append({"role": "assistant", "content": text})
             for tc in m.get("tool_calls") or []:
                 fn = tc.get("function") or {}
@@ -184,14 +215,13 @@ def chat_to_responses(body, router_model, owned_by, feature):
         else:
             raise Untranslatable("role %r" % role)
     out = {"model": router_model, "input": items}
-    mot = body.get("max_completion_tokens") or body.get("max_tokens")
     if mot is not None:
-        out["max_output_tokens"] = max(16, int(mot))  # Responses minimum is 16
+        out["max_output_tokens"] = int(mot)
     temp_ok = info.get("t") is not False
     for k in ("temperature", "top_p"):
         if body.get(k) is not None and temp_ok:
             out[k] = body[k]
-    for k in ("frequency_penalty", "presence_penalty", "parallel_tool_calls", "user", "service_tier", "prompt_cache_key", "safety_identifier"):
+    for k in ("frequency_penalty", "parallel_tool_calls", "user", "service_tier", "prompt_cache_key", "safety_identifier"):
         if body.get(k) is not None:
             out[k] = body[k]
     tools = []
@@ -238,7 +268,7 @@ def chat_to_responses(body, router_model, owned_by, feature):
     if stops and owned_by != "openai":
         out["stop"] = stops  # honored by non-OpenAI models [measured]; OpenAI models 501, so emulated client-side below
     meta = dict(body.get("metadata") or {})
-    if feature and "feature" not in meta:
+    if feature and "feature" not in meta and len(meta) < 16:  # metadata is capped at 16 keys
         meta["feature"] = feature
     if meta:
         out["metadata"] = {k: str(v)[:512] for k, v in meta.items()}
@@ -246,12 +276,18 @@ def chat_to_responses(body, router_model, owned_by, feature):
         out["prompt_cache_key"] = feature  # Claude via Responses does not cache without it [measured]
     if body.get("stream"):
         out["stream"] = True
-        out.setdefault("service_tier", os.environ.get("ROUTER_MIGRATE_SERVICE_TIER") or "default")
-    elif os.environ.get("ROUTER_MIGRATE_SERVICE_TIER"):
-        out.setdefault("service_tier", os.environ["ROUTER_MIGRATE_SERVICE_TIER"])
+    _service_tier(out)
     ctx = {"stops": stops if owned_by == "openai" else [], "include_usage": bool((body.get("stream_options") or {}).get("include_usage")),
            "model": body.get("model"), "legacy_functions": bool(body.get("functions"))}
     return out, ctx
+
+
+def _service_tier(out):
+    """Default tier unless the caller chose one: the account-level flex default adds latency the original call never had [measured].
+    ROUTER_MIGRATE_SERVICE_TIER overrides; 'auto' leaves it to the account default."""
+    tier = (os.environ.get("ROUTER_MIGRATE_SERVICE_TIER") or "default").strip()
+    if "service_tier" not in out and tier != "auto":
+        out["service_tier"] = tier
 
 
 def _usage(u):
@@ -288,12 +324,13 @@ def responses_to_chat(resp, ctx):
             calls.append({"id": it.get("call_id"), "type": "function", "function": {"name": it.get("name"), "arguments": it.get("arguments") or ""}})
     text, stopped = _cut(text, ctx.get("stops") or [])
     inc = (resp.get("incomplete_details") or {}).get("reason")
-    finish = "tool_calls" if calls else ("length" if inc == "max_output_tokens" and not stopped else "content_filter" if inc == "content_filter" else "stop")
+    finish = ("content_filter" if inc == "content_filter" else "length" if inc == "max_output_tokens" and not stopped
+              else "tool_calls" if calls else "stop")
     msg = {"role": "assistant", "content": text if (text or not calls) else None, "refusal": refusal}
     if calls:
         if ctx.get("legacy_functions"):
             msg["function_call"] = calls[0]["function"]
-            finish = "function_call"
+            finish = "function_call" if finish == "tool_calls" else finish
         else:
             msg["tool_calls"] = calls
     out = {"id": "chatcmpl-" + str(resp.get("id", uuid.uuid4().hex)), "object": "chat.completion",
@@ -308,12 +345,56 @@ def responses_to_chat(resp, ctx):
     return out
 
 
+class _SSE:
+    """Incremental SSE parser: bytes in, decoded JSON events out. Handles \r\n framing and events split across reads."""
+
+    def __init__(self):
+        self.buf = b""
+
+    def feed(self, data, final=False):
+        self.buf = (self.buf + data).replace(b"\r\n", b"\n")
+        if final and self.buf.strip():
+            self.buf += b"\n\n"
+        out = []
+        while b"\n\n" in self.buf:
+            raw, self.buf = self.buf.split(b"\n\n", 1)
+            lines = raw.decode("utf-8", "replace").split("\n")
+            data_ = "\n".join(l[5:].lstrip() if l.startswith("data:") else "" for l in lines if l.startswith("data:"))
+            if not data_ or data_ == "[DONE]":
+                continue
+            try:
+                ev = json.loads(data_)
+            except ValueError:
+                continue
+            if isinstance(ev, dict):
+                ev.setdefault("type", next((l[6:].strip() for l in lines if l.startswith("event:")), ""))
+                out.append(ev)
+        return out
+
+
+class _PassThrough:
+    """Stream writer that forwards bytes unchanged and lets an observer see the events."""
+
+    def __init__(self, observer):
+        self.obs, self.done = observer, False
+
+    def feed(self, data):
+        try:
+            self.obs.feed(data)
+        except Exception:
+            pass
+        return [data]
+
+    def finish(self):
+        return []
+
+
 class _ChunkWriter:
     """Turns Router Responses SSE events into chat.completion.chunk SSE lines."""
 
     def __init__(self, ctx):
-        self.ctx, self.buf, self.done, self.id, self.created, self.model = ctx, b"", False, None, int(time.time()), ctx.get("model")
-        self.tool_index, self.text_tail, self.emitted_role, self.stopped, self.saw_call = {}, "", False, False, False
+        self.ctx, self.sse, self.done, self.id, self.created, self.model = ctx, _SSE(), False, None, int(time.time()), ctx.get("model")
+        self.tool_index, self.args_sent, self.text_tail, self.emitted_role, self.stopped = {}, {}, "", False, False
         self.maxstop = max([len(s) for s in ctx.get("stops") or []] or [0])
 
     def _chunk(self, delta, finish=None, usage=None, choices=True):
@@ -338,25 +419,49 @@ class _ChunkWriter:
         return [self._chunk({"content": emit})] if emit else []
 
     def feed(self, data):
-        self.buf += data
         out = []
-        while b"\n\n" in self.buf:
-            raw, self.buf = self.buf.split(b"\n\n", 1)
-            out.extend(self._event(raw))
+        for ev in self.sse.feed(data):
+            out.extend(self._event(ev))
         return out
 
-    def _event(self, raw):
-        lines = raw.decode("utf-8", "replace").splitlines()
-        data = "".join(l[5:].lstrip() for l in lines if l.startswith("data:"))
-        if not data or data == "[DONE]":
-            return []
-        try:
-            ev = json.loads(data)
-        except ValueError:
+    def finish(self):
+        """End of the upstream body: flush a final event without a trailing blank line, then close the stream properly."""
+        out = [] if self.done else [x for ev in self.sse.feed(b"", final=True) for x in self._event(ev)]
+        if not self.done:
+            out.extend(self._text("", final=True))
+            out.append(b"data: [DONE]\n\n")
+            self.done = True
+        return out
+
+    def _tool(self, item, out):
+        key = item.get("id") or item.get("call_id")
+        if key not in self.tool_index:
+            self.tool_index[key] = len(self.tool_index)
+            self.args_sent[key] = ""
+            out.append(self._call_delta(key, {"name": item.get("name"), "arguments": ""}, item.get("call_id")))
+        return key
+
+    def _call_delta(self, key, fn, call_id=None):
+        if self.ctx.get("legacy_functions"):
+            return self._chunk({"function_call": fn})
+        tc = {"index": self.tool_index[key], "function": fn}
+        if call_id is not None:
+            tc.update(id=call_id, type="function")
+        return self._chunk({"tool_calls": [tc]})
+
+    def _args(self, key, full, out):
+        """Emit whatever part of the final arguments was not streamed as deltas (some providers only send .done)."""
+        sent = self.args_sent.get(key, "")
+        if full and full.startswith(sent) and len(full) > len(sent):
+            out.append(self._call_delta(key, {"arguments": full[len(sent):]}))
+            self.args_sent[key] = full
+
+    def _event(self, ev):
+        if self.done:
             return []
         t = ev.get("type", "")
         out = []
-        if not self.emitted_role and t in ("response.created", "response.in_progress", "response.output_item.added", "response.output_text.delta"):
+        if not self.emitted_role and t.startswith("response."):
             r = ev.get("response") or {}
             self.id = r.get("id") or self.id
             self.model = r.get("model") or self.model
@@ -364,21 +469,35 @@ class _ChunkWriter:
             out.append(self._chunk({"role": "assistant", "content": ""}))
         if t == "response.output_text.delta":
             out.extend(self._text(ev.get("delta", "")))
+        elif t == "response.refusal.delta":
+            out.append(self._chunk({"refusal": ev.get("delta", "")}))
         elif t == "response.output_item.added" and (ev.get("item") or {}).get("type") == "function_call":
-            it = ev["item"]
-            idx = len(self.tool_index)
-            self.tool_index[it.get("id")] = idx
-            self.saw_call = True
-            out.append(self._chunk({"tool_calls": [{"index": idx, "id": it.get("call_id"), "type": "function",
-                                                    "function": {"name": it.get("name"), "arguments": ""}}]}))
+            self._tool(ev["item"], out)
         elif t == "response.function_call_arguments.delta":
-            idx = self.tool_index.get(ev.get("item_id"), 0)
-            out.append(self._chunk({"tool_calls": [{"index": idx, "function": {"arguments": ev.get("delta", "")}}]}))
+            key = ev.get("item_id")
+            if key not in self.tool_index:
+                key = self._tool({"id": key, "call_id": ev.get("call_id"), "name": ev.get("name")}, out)
+            self.args_sent[key] = self.args_sent.get(key, "") + ev.get("delta", "")
+            out.append(self._call_delta(key, {"arguments": ev.get("delta", "")}))
+        elif t == "response.function_call_arguments.done":
+            key = ev.get("item_id")
+            if key in self.tool_index:
+                self._args(key, ev.get("arguments") or "", out)
+        elif t == "response.output_item.done" and (ev.get("item") or {}).get("type") == "function_call":
+            key = self._tool(ev["item"], out)
+            self._args(key, ev["item"].get("arguments") or "", out)
         elif t in ("response.completed", "response.incomplete"):
             out.extend(self._text("", final=True))
             r = ev.get("response") or {}
             inc = (r.get("incomplete_details") or {}).get("reason")
-            finish = "tool_calls" if self.saw_call else ("length" if inc == "max_output_tokens" and not self.stopped else "stop")
+            if inc == "content_filter":
+                finish = "content_filter"
+            elif inc == "max_output_tokens" and not self.stopped:
+                finish = "length"  # also for a tool call cut off mid-arguments, as Chat Completions reports it
+            elif self.tool_index:
+                finish = "function_call" if self.ctx.get("legacy_functions") else "tool_calls"
+            else:
+                finish = "stop"
             out.append(self._chunk({}, finish=finish))
             if self.ctx.get("include_usage"):
                 out.append(self._chunk({}, usage=_usage(r.get("usage")), choices=False))
@@ -392,29 +511,142 @@ class _ChunkWriter:
         return out
 
 
-# ------------------------------------------------------------------------------------------------ transports
-def _router_headers(req, anthropic=False):
-    h = {"Authorization": "Bearer " + os.environ["RAMP_ROUTER_API_KEY"], "Content-Type": "application/json",
-         "User-Agent": req.headers.get("User-Agent") or ("router-migrate-runtime/" + VERSION), "Accept": req.headers.get("Accept", "application/json")}
-    if anthropic:
-        h["anthropic-version"] = req.headers.get("anthropic-version", "2023-06-01")
-        if req.headers.get("anthropic-beta"):
-            h["anthropic-beta"] = req.headers["anthropic-beta"]
-    return h
+# ------------------------------------------------------------------------------------------------ Responses state
+# Router keeps no server-side state (store:true 400, previous_response_id 400 or ignored [measured]). So a chain started on
+# Router is continued in this process: the runtime remembers each Router response's input + output and sends the full
+# history inline on the next turn, which is what Router's own error message asks callers to do [measured].
+_CHAIN_MAX, _IDS_MAX = 256, 20000
+_CHAINS = OrderedDict()  # Router response id -> (input items, output items, full response json)
+_ROUTER_IDS = OrderedDict()  # every Router-issued response id seen (outlives _CHAINS), so it is never sent to the provider
+_DENIED = set()  # (surface, model) Router refused for this key (403/404) in this process; they go straight to the provider
 
 
-def plan_request(req):
+def _lru_put(d, k, v, cap):
+    d[k] = v
+    d.move_to_end(k)
+    while len(d) > cap:
+        d.popitem(last=False)
+
+
+def _as_items(inp):
+    if inp is None:
+        return []
+    if isinstance(inp, str):
+        return [{"role": "user", "content": inp}]
+    return list(inp)
+
+
+def _remember(ctx, resp):
+    rid = resp.get("id") if isinstance(resp, dict) else None
+    if not rid or ctx.get("items") is None:
+        return
+    _lru_put(_ROUTER_IDS, rid, True, _IDS_MAX)
+    out = [o for o in resp.get("output") or [] if isinstance(o, dict)]
+    _lru_put(_CHAINS, rid, (ctx["items"], out, resp), _CHAIN_MAX)
+
+
+def _local_error(status, message, code="router_migrate_state"):
+    return ("local", status, {"error": {"message": message, "type": "invalid_request_error", "param": "previous_response_id", "code": code}})
+
+
+def _provider_only_input(items):
+    """Input items that reference state only the provider holds."""
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        t = it.get("type")
+        if t == "item_reference":
+            return "item_reference"
+        if t == "reasoning" and not it.get("encrypted_content"):
+            return "reasoning item without encrypted_content"
+        for part in it.get("content") if isinstance(it.get("content"), list) else []:
+            if isinstance(part, dict) and part.get("file_id"):
+                return "file_id"
+    return None
+
+
+def _provider_only_tools(tools):
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+        if t.get("type") == "file_search":
+            return "file_search (provider-side vector stores)"
+        if t.get("type") == "code_interpreter" and isinstance(t.get("container"), dict) and t["container"].get("file_ids"):
+            return "code_interpreter file_ids"
+    return None
+
+
+def _plan_responses(body, rid, owned, feature, opts):
+    if opts.get("responses") is False:
+        return None  # this client uses stateful Responses features; router-migrate's planner kept it on the provider
+    if body.get("conversation") or body.get("background"):
+        return None  # needs provider-side state Router does not keep [measured]
+    items = _as_items(body.get("input"))
+    prev = body.get("previous_response_id")
+    if prev:
+        if prev in _CHAINS:
+            p_in, p_out, _ = _CHAINS[prev]
+            items = list(p_in) + list(p_out) + items
+        elif prev in _ROUTER_IDS:
+            return _local_error(400, "previous_response_id %s was served by Router and its history is no longer in this process "
+                                     "(router-migrate keeps the last %d chains in memory). Send the conversation inline, or set "
+                                     "ROUTER_MIGRATE_DISABLE=1." % (prev, _CHAIN_MAX))
+        else:
+            return None  # the provider issued this id; the chain stays where it started
+    why = _provider_only_input(items) or _provider_only_tools(body.get("tools"))
+    if why:
+        return None
+    nb = dict(body, model=rid, input=items)
+    for k in ("store", "previous_response_id"):
+        nb.pop(k, None)
+    if owned == "openai" and (CATALOG.get(rid) or {}).get("r"):
+        inc = list(nb.get("include") or [])
+        if "reasoning.encrypted_content" not in inc:  # store is off on Router, so reasoning must travel with the items [measured]
+            nb["include"] = inc + ["reasoning.encrypted_content"]
+    meta = dict(nb.get("metadata") or {})
+    if feature and "feature" not in meta and len(meta) < 16:
+        meta["feature"] = feature
+        nb["metadata"] = meta
+    if owned == "anthropic" and "prompt_cache_key" not in nb and feature:
+        nb["prompt_cache_key"] = feature
+    _service_tier(nb)
+    return ("responses", nb, {"items": items})
+
+
+def _local_retrieve(req):
+    """GET /responses/{id} for a Router-issued id: answer from memory; the provider never saw it."""
+    m = re.search(r"/responses/([^/?]+)(/input_items)?$", req.url.path)
+    if not m or m.group(1) not in _ROUTER_IDS:
+        return None
+    rid = m.group(1)
+    if rid not in _CHAINS:
+        return _local_error(404, "Response %s was served by Router and is no longer in this process's memory." % rid, "not_found")
+    items, _, full = _CHAINS[rid]
+    if m.group(2):
+        return ("local", 200, {"object": "list", "data": items, "first_id": None, "last_id": None, "has_more": False})
+    return ("local", 200, full)
+
+
+def plan_request(req, opts=None):
     """Decide where a provider-bound request goes. Returns None (send to provider unchanged) or a routing tuple."""
-    if not active() or req.method != "POST":
+    try:
+        return _plan_request(req, opts or {})
+    except Exception:
+        return None  # anything unexpected: the provider gets the request exactly as before
+
+
+def _plan_request(req, opts):
+    if not active():
         return None
     host, path = req.url.host, req.url.path
+    if req.method == "GET" and host in _OPENAI_HOSTS and "/responses/" in path:
+        return _local_retrieve(req)
+    if req.method != "POST":
+        return None
     if host in _OPENAI_HOSTS and (path.endswith("/chat/completions") or path.endswith("/responses")):
-        try:
-            body = json.loads(req.content or b"{}")
-        except ValueError:
-            return None
+        body = json.loads(req.content or b"{}")
         rid = resolve_model(body.get("model"))
-        if not rid:
+        if not rid or ("openai", rid) in _DENIED:
             return None
         owned = (CATALOG.get(rid) or {}).get("o")
         feature = _feature()
@@ -424,30 +656,27 @@ def plan_request(req):
             except Untranslatable:
                 return None
             return ("chat", nb, ctx)
-        if body.get("previous_response_id") or body.get("conversation") or body.get("background"):
-            return None  # needs server-side state Router does not keep [measured]; provider keeps this call
-        nb = dict(body, model=rid)
-        nb.pop("store", None)
-        meta = dict(nb.get("metadata") or {})
-        if feature and "feature" not in meta:
-            meta["feature"] = feature
-            nb["metadata"] = meta
-        if owned == "anthropic" and "prompt_cache_key" not in nb and feature:
-            nb["prompt_cache_key"] = feature
-        return ("responses", nb, {})
-    if host in _ANTHROPIC_HOSTS and path.rstrip("/").endswith("/v1/messages") or (host in _ANTHROPIC_HOSTS and path.endswith("/v1/messages/count_tokens")):
+        return _plan_responses(body, rid, owned, feature, opts)
+    if host in _ANTHROPIC_HOSTS and (path.rstrip("/").endswith("/v1/messages") or path.endswith("/v1/messages/count_tokens")):
         if req.headers.get("anthropic-beta"):
             return None  # beta features are unmeasured on Router; keep on Anthropic
-        try:
-            body = json.loads(req.content or b"{}")
-        except ValueError:
-            return None
+        body = json.loads(req.content or b"{}")
         rid = resolve_model(body.get("model"))
-        if not rid:
+        if not rid or ("anthropic", rid) in _DENIED:
             return None
-        nb = dict(body, model=rid)
-        return ("messages", nb, {"count": path.endswith("count_tokens")})
+        return ("messages", dict(body, model=rid), {"count": path.endswith("count_tokens")})
     return None
+
+
+def _router_headers(req, anthropic=False):
+    h = {"Authorization": "Bearer " + os.environ["RAMP_ROUTER_API_KEY"], "Content-Type": "application/json",
+         "User-Agent": req.headers.get("User-Agent") or ("router-migrate-runtime/" + VERSION), "Accept": req.headers.get("Accept", "application/json")}
+    for k in ("x-stainless-retry-count", "idempotency-key"):
+        if req.headers.get(k):
+            h[k] = req.headers[k]
+    if anthropic:
+        h["anthropic-version"] = req.headers.get("anthropic-version", "2023-06-01")
+    return h
 
 
 def _router_request(req, route, h):
@@ -457,6 +686,41 @@ def _router_request(req, route, h):
                      extensions=req.extensions)
 
 
+def _fallback_ok(req, route, status, body):
+    """True when Router refused before generating anything and the provider can serve the original request."""
+    if (os.environ.get("ROUTER_MIGRATE_FALLBACK") or "").strip().lower() in ("0", "off", "false", "no"):
+        return False
+    if not (req.headers.get("authorization") or req.headers.get("x-api-key")):
+        return False  # no provider credential: surface Router's error rather than a confusing 401
+    try:
+        err = json.loads(body)
+        err = err.get("error") if isinstance(err, dict) else {}
+        err = err if isinstance(err, dict) else {}
+    except ValueError:
+        err = {}
+    code, msg = str(err.get("code") or ""), str(err.get("message") or "")
+    if status == 501:
+        return True
+    if status == 403:
+        return True  # model/geography/permission refusal for this key (e.g. data_residency_mismatch [measured])
+    if status == 404 and (code == "model_not_found" or "does not exist" in msg):
+        _DENIED.add(("anthropic" if route[0] == "messages" else "openai", route[1].get("model")))
+        return True
+    if status == 400 and (code in ("unknown_parameter", "unsupported_parameter") or msg.startswith(("Unknown parameter", "Unsupported parameter"))
+                          or "Extra inputs are not permitted" in msg or "requires a caller-owned provider credential" in msg):
+        return True
+    return False
+
+
+_HOP = ("content-length", "content-encoding", "transfer-encoding", "connection")
+
+
+def _headers(up, **override):
+    d = {k: v for k, v in up.headers.items() if k.lower() not in _HOP}
+    d.update(override)
+    return d
+
+
 def _translate_json(resp_bytes, status, ctx):
     if status >= 400:
         return resp_bytes
@@ -464,6 +728,18 @@ def _translate_json(resp_bytes, status, ctx):
         return json.dumps(responses_to_chat(json.loads(resp_bytes), ctx)).encode()
     except ValueError:
         return resp_bytes
+
+
+class _ResponsesTee:
+    """Watches a passed-through Responses SSE stream for the final response, to remember the chain."""
+
+    def __init__(self, ctx):
+        self.ctx, self.sse = ctx, _SSE()
+
+    def feed(self, data):
+        for ev in self.sse.feed(data):
+            if ev.get("type") in ("response.completed", "response.incomplete") and isinstance(ev.get("response"), dict):
+                _remember(self.ctx, ev["response"])
 
 
 _CLASSES = {}
@@ -478,95 +754,119 @@ def _classes(libname):
         _CLASSES[libname] = None
         return None
 
-    class _SyncChatStream(h.SyncByteStream):
-        def __init__(self, upstream, ctx):
-            self.up, self.w = upstream, _ChunkWriter(ctx)
+    class _SyncStream(h.SyncByteStream):
+        def __init__(self, upstream, writer):
+            self.up, self.w = upstream, writer
 
         def __iter__(self):
             try:
                 for data in self.up.iter_raw():
                     for out in self.w.feed(data):
                         yield out
-                    if self.w.done:
+                    if getattr(self.w, "done", False):
                         break
-                if not self.w.done:
-                    for out in self.w.feed(b"\n\n"):
-                        yield out
-                    if not self.w.done:
-                        yield b"data: [DONE]\n\n"
+                for out in self.w.finish():
+                    yield out
             finally:
                 self.up.close()
 
         def close(self):
             self.up.close()
 
-    class _AsyncChatStream(h.AsyncByteStream):
-        def __init__(self, upstream, ctx):
-            self.up, self.w = upstream, _ChunkWriter(ctx)
+    class _AsyncStream(h.AsyncByteStream):
+        def __init__(self, upstream, writer):
+            self.up, self.w = upstream, writer
 
         async def __aiter__(self):
             try:
                 async for data in self.up.aiter_raw():
                     for out in self.w.feed(data):
                         yield out
-                    if self.w.done:
+                    if getattr(self.w, "done", False):
                         break
-                if not self.w.done:
-                    yield b"data: [DONE]\n\n"
+                for out in self.w.finish():
+                    yield out
             finally:
                 await self.up.aclose()
 
         async def aclose(self):
             await self.up.aclose()
 
-    def _reply(up, ctx, body):
-        ctype = up.headers.get("content-type", "application/json")
-        return h.Response(up.status_code, headers={"content-type": ctype, "x-request-id": up.headers.get("x-request-id", ""),
-                                                   "x-router-provider": up.headers.get("x-router-provider", "")},
-                          content=_translate_json(body, up.status_code, ctx))
+    def _local(route):
+        _, status, payload = route
+        return h.Response(status, headers={"content-type": "application/json"}, content=json.dumps(payload).encode())
+
+    def _done(up, route, body):
+        """Non-streamed Router reply (body already read) -> what the SDK expects."""
+        kind, nb, ctx = route
+        if up.status_code < 400 and kind == "responses":
+            try:
+                _remember(ctx, json.loads(body))
+            except ValueError:
+                pass
+        content = _translate_json(body, up.status_code, ctx) if kind == "chat" else body
+        return h.Response(up.status_code, headers=_headers(up), content=content)
+
+    def _streamed(up, route, stream_cls):
+        kind, nb, ctx = route
+        if kind == "chat":
+            return h.Response(up.status_code, headers=_headers(up, **{"content-type": "text/event-stream"}),
+                              stream=stream_cls(up, _ChunkWriter(ctx)), extensions=up.extensions)
+        if kind == "responses":
+            return h.Response(up.status_code, headers=_headers(up), stream=stream_cls(up, _PassThrough(_ResponsesTee(ctx))),
+                              extensions=up.extensions)
+        return up
 
     class RouterTransport(h.BaseTransport):
         """Sync transport: Router for what it can serve, the wrapped transport (provider) for the rest."""
 
-        def __init__(self, inner=None):
-            self.inner = inner or h.HTTPTransport()
+        def __init__(self, inner=None, opts=None):
+            self.inner, self.opts = inner or h.HTTPTransport(), dict(opts or {})
 
         def handle_request(self, request):
-            route = plan_request(request)
+            route = plan_request(request, self.opts)
             if route is None:
                 return self.inner.handle_request(request)
+            if route[0] == "local":
+                return _local(route)
             up = self.inner.handle_request(_router_request(request, route, h))
-            kind, nb, ctx = route
-            if kind != "chat":
-                return up
-            if nb.get("stream") and up.status_code < 400:
-                return h.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
-                                  stream=_SyncChatStream(up, ctx), extensions=up.extensions)
+            if up.status_code >= 400:
+                body = up.read()
+                up.close()
+                if _fallback_ok(request, route, up.status_code, body):
+                    return self.inner.handle_request(request)  # the original request, unchanged
+                return _done(up, route, body)
+            if route[1].get("stream"):
+                return _streamed(up, route, _SyncStream)
             body = up.read()
             up.close()
-            return _reply(up, ctx, body)
+            return _done(up, route, body)
 
         def close(self):
             self.inner.close()
 
     class AsyncRouterTransport(h.AsyncBaseTransport):
-        def __init__(self, inner=None):
-            self.inner = inner or h.AsyncHTTPTransport()
+        def __init__(self, inner=None, opts=None):
+            self.inner, self.opts = inner or h.AsyncHTTPTransport(), dict(opts or {})
 
         async def handle_async_request(self, request):
-            route = plan_request(request)
+            route = plan_request(request, self.opts)
             if route is None:
                 return await self.inner.handle_async_request(request)
+            if route[0] == "local":
+                return _local(route)
             up = await self.inner.handle_async_request(_router_request(request, route, h))
-            kind, nb, ctx = route
-            if kind != "chat":
-                return up
-            if nb.get("stream") and up.status_code < 400:
-                return h.Response(up.status_code, headers={"content-type": "text/event-stream", "x-router-provider": up.headers.get("x-router-provider", "")},
-                                  stream=_AsyncChatStream(up, ctx), extensions=up.extensions)
+            if up.status_code >= 400:
+                body = await up.aread()
+                await up.aclose()
+                if _fallback_ok(request, route, up.status_code, body):
+                    return await self.inner.handle_async_request(request)
+                return _done(up, route, body)
+            if route[1].get("stream"):
+                return _streamed(up, route, _AsyncStream)
             body = await up.aread()
             await up.aclose()
-            return _reply(up, ctx, body)
+            return _done(up, route, body)
 
         async def aclose(self):
             await self.inner.aclose()
@@ -612,14 +912,44 @@ def _client_factory(libname, is_async):
     return (h.AsyncClient if is_async else h.Client), {"timeout": h.Timeout(600.0, connect=5.0), "follow_redirects": True}
 
 
-def _make_client(libname, is_async, inner=None, **kwargs):
-    classes = _classes(libname)
-    if classes is None:
+def _install(hc, opts=None):
+    """Put the Router transport *under* an existing httpx client, in place: its own transport and every proxy mount
+    (HTTP(S)_PROXY, proxy=) become the inner transports, so headers, auth, hooks, proxies and pools all stay. Idempotent."""
+    lib = next((n for n in ("httpx", "httpx2") if _lib(n) is not None and isinstance(hc, (_lib(n).Client, _lib(n).AsyncClient))), None)
+    h, classes = (_lib(lib), _classes(lib)) if lib else (None, None)
+    if classes is None or not hasattr(hc, "_transport"):
+        return False
+    is_async = isinstance(hc, h.AsyncClient)
+    T = classes[1] if is_async else classes[0]
+    opts = dict(opts or {})
+
+    def wrap(t):
+        if t is None:
+            return None
+        if isinstance(t, T):
+            if opts.get("responses") is False:
+                t.opts["responses"] = False  # the stricter setting wins when clients share one httpx client
+            return t
+        return T(inner=t, opts=opts)
+
+    hc._transport = wrap(hc._transport)
+    mounts = getattr(hc, "_mounts", None)
+    if isinstance(mounts, dict):
+        for k in list(mounts):
+            mounts[k] = wrap(mounts[k])
+    return True
+
+
+def _make_client(libname, is_async, opts=None, **kwargs):
+    h = _lib(libname)
+    if h is None or _classes(libname) is None:
         return None
     cls, defaults = _client_factory(libname, is_async)
     for k, v in defaults.items():
         kwargs.setdefault(k, v)
-    return cls(transport=(classes[1] if is_async else classes[0])(inner=inner), **kwargs)
+    hc = cls(**kwargs)  # no transport= here, so httpx still sets up env proxies (trust_env) as it normally would
+    _install(hc, opts)
+    return hc
 
 
 def http_client(**kwargs):
@@ -637,18 +967,12 @@ def async_http_client(**kwargs):
     return _make_client(_sdk_lib("openai"), True, **kwargs)
 
 
-def _with_client(client, is_async):
+def _with_client(client, opts=None):
     try:
-        # keep the client's own transport (custom certs, proxies, pools) underneath ours
-        existing = getattr(getattr(client, "_client", None), "_transport", None)
-        lib = _sdk_lib(client)
-        h = _lib(lib)
-        base_cls = (h.AsyncBaseTransport if is_async else h.BaseTransport) if h else None
-        inner = existing if base_cls is not None and isinstance(existing, base_cls) else None
-        hc = _make_client(lib, is_async, inner=inner)
-        return client.with_options(http_client=hc) if hc is not None else client
+        _install(client._client, opts)
     except Exception:
-        return client  # unknown client shape (e.g. a test double): leave it exactly as it was
+        pass  # unknown client shape (e.g. a test double): leave it exactly as it was
+    return client
 
 
 def _is(client, pkg, names):
@@ -659,21 +983,44 @@ def _is(client, pkg, names):
         return False
 
 
-def wrap_openai(client):
-    """OpenAI / AsyncOpenAI client (or subclass) -> same client routed through Router; unchanged when RAMP_ROUTER_API_KEY is unset."""
-    if not active():
-        return client
-    if _is(client, "openai", ("AzureOpenAI", "AsyncAzureOpenAI")) or not _is(client, "openai", ("OpenAI", "AsyncOpenAI")):
+def _is_openai(client):
+    return _is(client, "openai", ("OpenAI", "AsyncOpenAI")) and not _is(client, "openai", ("AzureOpenAI", "AsyncAzureOpenAI"))
+
+
+def wrap_openai(client, responses=True):
+    """OpenAI / AsyncOpenAI client (or subclass): its traffic goes through Router, in place; unchanged when RAMP_ROUTER_API_KEY
+    is unset. responses=False keeps this client's Responses API traffic on OpenAI (stateful use: previous_response_id etc.)."""
+    if not active() or not _is_openai(client):
         return client  # Azure deployments and test doubles stay on their configured endpoint
-    return _with_client(client, _is(client, "openai", ("AsyncOpenAI",)))
+    return _with_client(client, {"responses": responses})
 
 
 def wrap_anthropic(client):
-    if not active():
-        return client
-    if not _is(client, "anthropic", ("Anthropic", "AsyncAnthropic")):
+    if not active() or not _is(client, "anthropic", ("Anthropic", "AsyncAnthropic")):
         return client  # Bedrock / Vertex clients and test doubles stay put
-    return _with_client(client, _is(client, "anthropic", ("AsyncAnthropic",)))
+    return _with_client(client)
+
+
+def wrap_langchain(llm, responses=True):
+    """LangChain ChatOpenAI / ChatAnthropic (or LlamaIndex-style objects holding SDK clients): wrap the SDK clients they built.
+    Every request still goes through per-request planning and provider fallback, like a wrapped SDK client."""
+    if not active():
+        return llm
+    seen = []
+    for attr in ("root_client", "root_async_client", "_client", "_async_client", "client", "async_client"):
+        try:
+            c = getattr(llm, attr, None)  # ChatAnthropic builds _client/_async_client lazily (cached_property)
+        except Exception:
+            continue
+        for cand in (c, getattr(c, "_client", None)):  # ChatOpenAI.client is root_client.chat.completions
+            if cand is None or any(cand is x for x in seen):
+                continue
+            seen.append(cand)
+            if _is_openai(cand):
+                wrap_openai(cand, responses=responses)
+            elif _is(cand, "anthropic", ("Anthropic", "AsyncAnthropic")):
+                wrap_anthropic(cand)
+    return llm
 
 
 def install_openai_module():
@@ -688,15 +1035,11 @@ def install_openai_module():
         pass
 
 
-if active():  # SDK constructors require a provider key even when Router serves the request
-    os.environ.setdefault("OPENAI_API_KEY", "unused-router-serves-this")
-
-
 def chat_anthropic_kwargs():
-    """Extra kwargs for LangChain ChatAnthropic (it has no http_client hook; a base_url + key swap works [measured])."""
-    if not active():
-        return {}
-    return {"base_url": _base(), "api_key": os.environ["RAMP_ROUTER_API_KEY"]}
+    """Kept for code patched by router-migrate <= 0.1.0, which swapped ChatAnthropic's base_url and key wholesale. That sent
+    every request (dated models, beta headers) to Router without per-request planning, so it now returns nothing; new
+    patches use wrap_langchain(ChatAnthropic(...))."""
+    return {}
 
 
 def install_litellm():

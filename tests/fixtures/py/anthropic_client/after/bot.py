@@ -1,5 +1,11 @@
 import anthropic
-from router_runtime import wrap_anthropic as _router_wrap_anthropic  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
+    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
+except ImportError:  # router-migrate: module executed as a script
+    try:
+        from router_runtime import wrap_anthropic as _router_wrap_anthropic
+    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
+        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
 
 client = _router_wrap_anthropic(anthropic.Anthropic())
 

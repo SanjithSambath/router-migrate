@@ -29,7 +29,9 @@ def rt(tmp_path, monkeypatch, sim):
     """A freshly rendered router_runtime module (fixed path so coverage can attribute it), activated against router-sim."""
     os.makedirs(RENDERED, exist_ok=True)
     p = os.path.join(RENDERED, "router_runtime.py")
-    open(p, "w").write(render("router_runtime.py", Catalog.load()))
+    tmp = "%s.%d.tmp" % (p, os.getpid())
+    open(tmp, "w").write(render("router_runtime.py", Catalog.load()))
+    os.replace(tmp, p)  # atomic: concurrent test runs never see a half-written file
     monkeypatch.setenv("RAMP_ROUTER_API_KEY", "rm-test-key-not-a-real-key")
     monkeypatch.setenv("RAMP_ROUTER_BASE_URL", sim.base)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-provider-test")
@@ -39,6 +41,12 @@ def rt(tmp_path, monkeypatch, sim):
     spec.loader.exec_module(mod)
     sim.records.clear()
     return mod
+
+
+PROVIDER_RESPONSE = {"id": "resp_provider", "object": "response", "created_at": 0, "model": "provider", "status": "completed",
+                     "output": [{"type": "message", "id": "msg_p", "role": "assistant", "status": "completed",
+                                 "content": [{"type": "output_text", "text": "from-provider", "annotations": []}]}],
+                     "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}
 
 
 class Split(httpx.BaseTransport):
@@ -55,6 +63,8 @@ class Split(httpx.BaseTransport):
         if request.url.path.endswith("/embeddings"):
             return httpx.Response(200, json={"object": "list", "data": [{"object": "embedding", "index": 0, "embedding": [0.1]}],
                                              "model": "text-embedding-3-small", "usage": {"prompt_tokens": 1, "total_tokens": 1}})
+        if "/responses" in request.url.path:
+            return httpx.Response(200, json=PROVIDER_RESPONSE)
         if request.url.path.endswith("/messages"):
             return httpx.Response(200, json={"id": "msg_p", "type": "message", "role": "assistant", "model": "provider", "content": [{"type": "text", "text": "from-provider"}],
                                              "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}})

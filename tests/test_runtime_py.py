@@ -38,16 +38,20 @@ def test_kill_switch(rt, monkeypatch):
 
 
 def test_wrap_routes_chat_to_router(rt, sim):
-    c = rt.wrap_openai(openai.OpenAI())
-    assert c is not None
-    r = c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "be brief"}, {"role": "user", "content": "hi"}], max_tokens=5)
+    split = Split()
+    base = openai.OpenAI(http_client=httpx.Client(transport=split))
+    c = rt.wrap_openai(base)
+    assert c is base  # wrapped in place: same client object
+    r = c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "be brief"}, {"role": "user", "content": "hi"}], max_tokens=50)
     assert r.choices[0].message.content == "pong"
     assert r.choices[0].finish_reason == "stop"
     assert r.usage.prompt_tokens > 0
+    assert split.provider_calls == []
     rec = last(sim)
     assert rec["path"] == "/v1/responses" and rec["valid"], rec
     req = rec["request"]
-    assert req["max_output_tokens"] == 16  # clamped to the Responses minimum
+    assert req["max_output_tokens"] == 50
+    assert req["service_tier"] == "default"  # non-streaming calls too: the account's flex default adds latency [measured]
     assert req["input"][0] == {"role": "system", "content": "be brief"}
     assert req["metadata"]["feature"].endswith(":test_wrap_routes_chat_to_router")
 
@@ -131,6 +135,10 @@ def test_temperature_dropped_where_unsupported(rt, sim):
     {"model": "gpt-4-32k"},                                   # not in the catalog
     {"model": "gpt-4o-mini", "n": 2},                         # several choices
     {"model": "gpt-4o-mini", "logprobs": True},              # logprobs
+    {"model": "gpt-4o-mini", "seed": 7},                      # seed: Router 400 unknown_parameter [measured]
+    {"model": "gpt-4o-mini", "presence_penalty": 0.5},       # not measured as accepted
+    {"model": "gpt-4o-mini", "max_tokens": 5},               # below the Responses minimum of 16; clamping would change output
+    {"model": "gpt-4o-mini", "tools": TOOLS, "tool_choice": {"type": "allowed_tools", "allowed_tools": {"mode": "auto", "tools": []}}},
 ])
 def test_unservable_requests_stay_on_provider(rt, sim, kwargs):
     c, split = client(rt)
@@ -250,3 +258,240 @@ def test_wrap_keeps_existing_transport(rt, sim):
     c = rt.wrap_openai(base)
     assert c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "pong"
     assert Marker.used == 1 and last(sim)["valid"]
+
+
+def test_message_name_stays_on_provider(rt, sim):
+    c, split = client(rt)
+    c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "name": "alice", "content": "hi"}])
+    assert split.provider_calls and sim.records == []
+
+
+def test_metadata_at_16_keys_gets_no_feature_tag(rt, sim):
+    c, _ = client(rt)
+    meta = {"k%d" % i: "v" for i in range(16)}
+    c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}], metadata=meta, store=False)
+    assert last(sim)["request"]["metadata"] == meta
+
+
+def test_feature_tag_opt_out(rt, sim, monkeypatch):
+    monkeypatch.setenv("ROUTER_MIGRATE_FEATURE_TAG", "off")
+    c, _ = client(rt)
+    c.chat.completions.create(model="claude-haiku-4-5", messages=[{"role": "user", "content": "hi"}])
+    req = last(sim)["request"]
+    assert "metadata" not in req and "prompt_cache_key" not in req
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "True", "on", "yes"])
+def test_kill_switch_case_insensitive(rt, monkeypatch, value):
+    monkeypatch.setenv("ROUTER_MIGRATE_DISABLE", value)
+    assert not rt.active()
+
+
+def test_runtime_never_mutates_environment(tmp_path):
+    """Importing the runtime with the Router key set must not invent a provider key (it would shadow load_dotenv())."""
+    import os
+    import subprocess
+    import sys
+    from conftest import RENDERED
+    env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+    env["RAMP_ROUTER_API_KEY"] = "rm-test-key-not-a-real-key"
+    code = "import sys, os; sys.path.insert(0, %r); import router_runtime; print(os.environ.get('OPENAI_API_KEY'))" % RENDERED
+    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60)
+    assert out.stdout.strip() == "None", out.stderr
+
+
+def test_plan_request_never_raises(rt):
+    """Odd but legal-looking bodies must never escape the transport: the provider gets them unchanged."""
+    for body in ({"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}], "metadata": ["x"]},
+                 {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}], "stop": 5},
+                 {"model": "gpt-4o-mini", "messages": "not a list"}):
+        req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions", json=body)
+        rt.plan_request(req)  # returns a route or None; must not raise
+    assert rt.plan_request(httpx.Request("POST", "https://api.openai.com/v1/chat/completions", content=b"{not json")) is None
+
+
+# ---- Responses API state (C1/H2)
+def test_previous_response_id_chain_continues_on_router(rt, sim):
+    c, split = client(rt)
+    r1 = c.responses.create(model="gpt-4o-mini", input="my name is Ada", store=True)
+    r2 = c.responses.create(model="gpt-4o-mini", input="what is my name?", previous_response_id=r1.id)
+    assert r2.output_text == "pong" and split.provider_calls == []
+    req = last(sim)["request"]
+    assert "previous_response_id" not in req and last(sim)["valid"]
+    assert req["input"][0] == {"role": "user", "content": "my name is Ada"}
+    assert req["input"][-1] == {"role": "user", "content": "what is my name?"} and len(req["input"]) >= 3
+    assert c.responses.retrieve(r1.id).id == r1.id and split.provider_calls == []  # Router-issued id answered locally
+
+
+def test_provider_issued_previous_response_id_stays_on_provider(rt, sim):
+    c, split = client(rt)
+    r = c.responses.create(model="gpt-4o-mini", input="again", previous_response_id="resp_from_openai")
+    assert r.output_text == "from-provider" and split.provider_calls and sim.records == []
+
+
+def test_router_id_missing_from_memory_is_a_clear_error_not_a_provider_404(rt, sim):
+    c, split = client(rt)
+    r1 = c.responses.create(model="gpt-4o-mini", input="hi")
+    rt._CHAINS.clear()
+    with pytest.raises(openai.BadRequestError, match="served by Router"):
+        c.responses.create(model="gpt-4o-mini", input="again", previous_response_id=r1.id)
+    assert split.provider_calls == []
+
+
+def test_client_level_responses_opt_out(rt, sim):
+    split = Split()
+    c = openai.OpenAI(http_client=httpx.Client(transport=rt.RouterTransport(inner=split, opts={"responses": False})))
+    assert c.responses.create(model="gpt-4o-mini", input="hi").output_text == "from-provider"
+    assert c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "pong"
+
+
+@pytest.mark.parametrize("extra", [
+    {"input": [{"type": "reasoning", "id": "rs_1", "summary": []}, {"role": "user", "content": "go on"}]},
+    {"input": [{"type": "item_reference", "id": "msg_1"}]},
+    {"input": "find it", "tools": [{"type": "file_search", "vector_store_ids": ["vs_1"]}]},
+    {"input": [{"role": "user", "content": [{"type": "input_file", "file_id": "file-1"}]}]},
+])
+def test_provider_side_state_stays_on_provider(rt, sim, extra):
+    c, split = client(rt)
+    assert c.responses.create(model="gpt-4o-mini", **extra).output_text == "from-provider"
+    assert sim.records == []
+
+
+def test_reasoning_models_get_encrypted_reasoning(rt, sim):
+    c, _ = client(rt)
+    c.responses.create(model="gpt-5-nano", input="hi")
+    assert "reasoning.encrypted_content" in last(sim)["request"]["include"] and last(sim)["valid"]
+
+
+# ---- provider fallback when Router refuses before generating (M4)
+def test_fallback_on_router_unknown_parameter(rt, sim):
+    c, split = client(rt)
+    r = c.responses.create(model="gpt-4o-mini", input="hi", extra_body={"made_up_field": 1})
+    assert r.output_text == "from-provider" and len(split.provider_calls) == 1
+    assert sim.records[-1]["status"] == 400
+
+
+def test_fallback_can_be_disabled(rt, sim, monkeypatch):
+    monkeypatch.setenv("ROUTER_MIGRATE_FALLBACK", "0")
+    c, split = client(rt)
+    with pytest.raises(openai.BadRequestError):
+        c.responses.create(model="gpt-4o-mini", input="hi", extra_body={"made_up_field": 1})
+    assert split.provider_calls == []
+
+
+def test_model_not_found_falls_back_and_is_remembered(rt, sim, monkeypatch):
+    monkeypatch.setenv("ROUTER_MIGRATE_MODEL_MAP", '{"gpt-4o-mini": "not-a-router-model"}')
+    c, split = client(rt)
+    for _ in range(2):
+        assert c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "from-provider"
+    assert len(sim.records) == 1 and len(split.provider_calls) == 2  # second call skips Router
+
+
+def test_generation_errors_are_not_retried_on_provider(rt, sim):
+    c, split = client(rt)
+    with pytest.raises(openai.BadRequestError):
+        c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "tool", "tool_call_id": "nope", "content": "x"}])
+    assert split.provider_calls == []
+
+
+# ---- in-place wrapping keeps the client's own configuration (H3)
+def test_in_place_wrap_keeps_mounts_headers_and_hooks(rt, sim):
+    seen = []
+
+    class Marker(httpx.HTTPTransport):
+        def handle_request(self, request):
+            seen.append((request.url.host, request.headers.get("x-team")))
+            return super().handle_request(request)
+    hooks = []
+    hc = httpx.Client(mounts={"all://": Marker()}, headers={"x-team": "search"}, event_hooks={"request": [lambda r: hooks.append(1)]})
+    c = openai.OpenAI(http_client=hc)
+    assert rt.wrap_openai(c) is c and c._client is hc
+    assert rt.wrap_openai(c) is c  # idempotent
+    assert c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}]).choices[0].message.content == "pong"
+    assert seen == [("127.0.0.1", None)] and hooks == [1] and last(sim)["valid"]  # through the mount; provider headers not sent to Router
+
+
+def test_wrap_langchain_chat_models(rt, sim):
+    pytest.importorskip("langchain_openai")
+    pytest.importorskip("langchain_anthropic")
+    from langchain_anthropic import ChatAnthropic
+    from langchain_openai import ChatOpenAI
+    llm = rt.wrap_langchain(ChatOpenAI(model="gpt-4o-mini"))
+    assert llm.invoke("hi").content == "pong" and last(sim)["path"] == "/v1/responses" and last(sim)["valid"]
+    llm = rt.wrap_langchain(ChatAnthropic(model="claude-haiku-4-5-20251001"))
+    assert llm.invoke("hi").content == "pong"
+    assert last(sim)["path"] == "/v1/messages" and last(sim)["request"]["model"] == "claude-haiku-4-5"
+
+
+def test_chat_anthropic_kwargs_no_longer_swaps_wholesale(rt):
+    assert rt.chat_anthropic_kwargs() == {}
+
+
+# ---- streaming translation edge cases (M3)
+def _sse(*events, sep=b"\n\n"):
+    return b"".join(b"event: " + e["type"].encode() + b"\ndata: " + json.dumps(e).encode() + sep for e in events)
+
+
+def _run(rt, raw, ctx=None, split_at=None):
+    w = rt._ChunkWriter(dict({"model": "gpt-4o-mini", "stops": []}, **(ctx or {})))
+    out = []
+    chunks = [raw[i:i + split_at] for i in range(0, len(raw), split_at)] if split_at else [raw]
+    for ch in chunks:
+        out += w.feed(ch)
+    out += w.finish()
+    evs = [json.loads(l[6:]) for l in b"".join(out).decode().split("\n\n") if l.startswith("data: {")]
+    return evs, b"".join(out)
+
+
+def _deltas(evs, key):
+    return [e["choices"][0]["delta"].get(key) for e in evs if e.get("choices") and e["choices"][0]["delta"].get(key) is not None]
+
+
+def _finish(evs):
+    return [e["choices"][0]["finish_reason"] for e in evs if e.get("choices") and e["choices"][0]["finish_reason"]]
+
+
+CREATED = {"type": "response.created", "response": {"id": "resp_1", "model": "gpt-4o-mini"}}
+DONE = {"type": "response.completed", "response": {"id": "resp_1", "usage": {"input_tokens": 1, "output_tokens": 1}}}
+
+
+def test_stream_crlf_framing(rt):
+    evs, raw = _run(rt, _sse(CREATED, {"type": "response.output_text.delta", "delta": "hello"}, DONE, sep=b"\r\n\r\n"), split_at=7)
+    assert "".join(_deltas(evs, "content")) == "hello" and _finish(evs) == ["stop"] and raw.endswith(b"data: [DONE]\n\n")
+
+
+def test_stream_refusal_delta(rt):
+    evs, _ = _run(rt, _sse(CREATED, {"type": "response.refusal.delta", "delta": "I can't"}, DONE))
+    assert _deltas(evs, "refusal") == ["I can't"]
+
+
+def test_stream_tool_args_only_in_done_events(rt):
+    item = {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "f", "arguments": ""}
+    evs, _ = _run(rt, _sse(CREATED, {"type": "response.output_item.added", "item": item},
+                           {"type": "response.function_call_arguments.done", "item_id": "fc_1", "arguments": '{"x":1}'},
+                           {"type": "response.output_item.done", "item": dict(item, arguments='{"x":1}')}, DONE))
+    args = "".join(tc[0]["function"].get("arguments") or "" for tc in _deltas(evs, "tool_calls"))
+    assert args == '{"x":1}' and _finish(evs) == ["tool_calls"]
+
+
+def test_stream_content_filter_and_truncated_tool_call(rt):
+    cf = {"type": "response.incomplete", "response": {"id": "r", "incomplete_details": {"reason": "content_filter"}}}
+    evs, _ = _run(rt, _sse(CREATED, {"type": "response.output_text.delta", "delta": "x"}, cf))
+    assert _finish(evs) == ["content_filter"]
+    item = {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "f", "arguments": ""}
+    cut = {"type": "response.incomplete", "response": {"id": "r", "incomplete_details": {"reason": "max_output_tokens"}}}
+    evs, _ = _run(rt, _sse(CREATED, {"type": "response.output_item.added", "item": item},
+                           {"type": "response.function_call_arguments.delta", "item_id": "fc_1", "delta": '{"x": "tr'}, cut))
+    assert _finish(evs) == ["length"]
+
+
+def test_stream_last_event_without_blank_line_is_flushed(rt):
+    raw = _sse(CREATED, {"type": "response.output_text.delta", "delta": "hi"}) + b"data: " + json.dumps(DONE).encode() + b"\n"
+    evs, raw_out = _run(rt, raw)
+    assert _finish(evs) == ["stop"] and raw_out.count(b"[DONE]") == 1
+
+
+def test_nonstream_truncated_tool_call_is_length(rt):
+    resp = {"id": "r", "output": [{"type": "function_call", "call_id": "c", "name": "f", "arguments": '{"x": "tr'}],
+            "incomplete_details": {"reason": "max_output_tokens"}}
+    assert rt.responses_to_chat(resp, {"stops": []})["choices"][0]["finish_reason"] == "length"

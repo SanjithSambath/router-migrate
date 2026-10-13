@@ -149,6 +149,9 @@ class Sim:
             for i, t in enumerate(tools):
                 if not isinstance(t, dict) or "type" not in t:
                     raise SimError(400, "missing_required_parameter", "Missing required parameter: 'tools[%d].type'." % i, "[upstream]")
+                if t["type"] == "file_search" and t.get("vector_store_ids"):
+                    raise SimError(404, None, "Vector store with id %s not found." % t["vector_store_ids"],
+                                   "[measured] Router's credential cannot see vector stores created with the caller's provider key")
                 if t["type"] == "function":
                     if "function" in t or not t.get("name"):
                         raise SimError(400, "missing_required_parameter", "Missing required parameter: 'tools[%d].name'." % i,
@@ -204,6 +207,10 @@ class Sim:
                                    "[upstream]")
                 if not isinstance(it.get("output"), (str, list)):
                     raise SimError(400, "invalid_type", "function_call_output.output must be a string", "[upstream]")
+            elif t in ("reasoning", "item_reference") and not it.get("encrypted_content"):
+                raise SimError(400, "invalid_request_error", "Item with id '%s' not found. Items are not persisted when `store` is set to false. "
+                               "Try again with `store` set to true, or remove this item from your input." % it.get("id"),
+                               "[upstream] Router forces store:false, so only self-contained (encrypted) reasoning items can be replayed")
             elif t in ("reasoning", "item_reference", "web_search_call", "file_search_call", "computer_call", "computer_call_output",
                        "code_interpreter_call", "mcp_call", "mcp_list_tools", "image_generation_call", "local_shell_call"):
                 continue

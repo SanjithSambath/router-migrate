@@ -8,6 +8,11 @@ OK = {"model": "gpt-4o-mini", "input": "hi"}
 CASES = [
     # (name, path, body, headers, expected status, expected code/substring)
     ("ok", "/v1/responses", OK, {}, 200, None),
+    ("reasoning item without encrypted_content", "/v1/responses", dict(OK, input=[{"type": "reasoning", "id": "rs_1", "summary": []}, {"role": "user", "content": "go"}]),
+     {}, 400, "invalid_request_error"),
+    ("reasoning item with encrypted_content", "/v1/responses", dict(OK, input=[{"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "gAAA"},
+                                                                          {"role": "user", "content": "go"}]), {}, 200, None),
+    ("file_search vector store", "/v1/responses", dict(OK, tools=[{"type": "file_search", "vector_store_ids": ["vs_x"]}]), {}, 404, None),
     ("chat leftovers: messages", "/v1/responses", dict(OK, messages=[]), {}, 400, "unsupported_parameter"),
     ("chat leftovers: max_tokens", "/v1/responses", dict(OK, max_tokens=5), {}, 400, "unknown_parameter"),
     ("chat leftovers: response_format", "/v1/responses", dict(OK, response_format={}), {}, 400, "unsupported_parameter"),
