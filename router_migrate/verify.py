@@ -114,10 +114,43 @@ def _family(s):
     return "anthropic" if s["sdk"] in ("anthropic", "langchain-anthropic", "vercel-ai-anthropic") or s["surface"].startswith("messages") else "openai"
 
 
-def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
-    """One synthetic request per migrated site through the vendored Python runtime and the real SDKs.
+# kwargs the replay never copies from a site: the request body is synthetic (messages/input), transport-level options are not
+# part of the request shape, and stateful fields are planned "kept" anyway
+_NOT_REPLAYED = {"messages", "input", "model", "stream", "prompt", "timeout", "max_retries", "idempotency_key", "extra_query",
+                 "previous_response_id", "conversation", "background", "betas"}
 
-    Each request mirrors the site's surface, model and stream flag; message content is synthetic. Returns per-site results.
+
+def replay_kwargs(s):
+    """The site's statically known literal kwargs (scanner: static_kwargs), as they would be sent."""
+    return {k: v for k, v in (s.get("static_kwargs") or {}).items() if k not in _NOT_REPLAYED and not k.startswith("__")}
+
+
+def _send(fn, base, kw):
+    """Call an SDK method with `kw`; kwargs the installed SDK version does not know go through extra_body (same JSON body)."""
+    import inspect
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        params = {}
+    args = dict(base)
+    extra = {}
+    for k, v in kw.items():
+        if k in params or k in ("extra_headers", "extra_body"):
+            args[k] = v
+        else:
+            extra[k] = v
+    if extra:
+        args["extra_body"] = dict(args.get("extra_body") or {}, **extra)
+    return fn(**args)
+
+
+def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
+    """One request per unique request shape among migrated sites, through the vendored Python runtime and the real SDKs.
+
+    The shape is the site's surface, stream flag, model (its literal model when it resolves in the catalog, else a default) and every
+    literal kwarg the scanner captured (tools, response_format, thinking, output_config, extra_headers, temperature, max_tokens, stop,
+    reasoning_effort...). Message content is synthetic. Sites with an identical shape share one request (counted once).
+    Returns {"results": per-site, "unique_requests": n, "ok": n_ok, "spent_usd"}.
     """
     import httpx
     import openai
@@ -141,40 +174,47 @@ def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
             if req.url.host in ("api.openai.com", "api.anthropic.com"):
                 return httpx.Response(599, json={"error": {"message": "replay: would stay on provider"}})
             return self.real.handle_request(req)
+    user = "Reply with exactly: pong"
     try:
         for s in plan["sites"]:
             if s["outcome"] != "migrated":
                 continue
             fam = _family(s)
             m = s.get("model") or {}
-            model = m.get("value") if m.get("static") and m.get("value") else DEFAULT_MODEL[fam]
+            lit = m.get("value") if m.get("static") and m.get("value") else None
+            model = lit if lit and catalog.resolve(lit)[0] else DEFAULT_MODEL[fam]
             stream = bool(s.get("stream"))
             surface = s["surface"]
-            sig = (fam, surface, model, stream)
-            if sig in seen:  # identical request shape already checked: reuse the verdict
+            kw = replay_kwargs(s)
+            sig = (fam, surface, model, stream, json.dumps(kw, sort_keys=True, default=str))
+            if sig in seen:  # identical request shape already sent: reuse the verdict, count it once
                 results.append(dict(seen[sig], site_id=s["id"], reused=True))
                 continue
             if budget is not None and spent >= budget:
                 results.append({"site_id": s["id"], "ok": None, "detail": "budget reached", "surface": surface})
                 continue
-            r = {"site_id": s["id"], "surface": surface, "model": model, "stream": stream, "family": fam}
+            r = {"site_id": s["id"], "surface": surface, "model": model, "stream": stream, "family": fam, "kwargs": sorted(kw)}
             try:
                 if fam == "anthropic":
                     c = anthropic.Anthropic(http_client=httpx.Client(transport=rt.RouterTransport(inner=NoProvider())))
+                    msgs = [{"role": "user", "content": user}]
                     if surface == "messages.count_tokens":
-                        out = c.messages.count_tokens(model=model, messages=[{"role": "user", "content": "Reply with exactly: pong"}])
+                        kw.pop("max_tokens", None)
+                        out = _send(c.messages.count_tokens, dict(model=model, messages=msgs), kw)
                         r.update(ok=out.input_tokens > 0, detail="count_tokens")
                     elif stream:
-                        with c.messages.stream(model=model, max_tokens=16, messages=[{"role": "user", "content": "Reply with exactly: pong"}]) as st:
+                        base = dict(model=model, max_tokens=kw.pop("max_tokens", 16), messages=msgs)
+                        with _send(c.messages.stream, base, kw) as st:
                             text = "".join(st.text_stream)
                         r.update(ok=True, detail=text[:40])
                     else:
-                        out = c.messages.create(model=model, max_tokens=16, messages=[{"role": "user", "content": "Reply with exactly: pong"}])
+                        out = _send(c.messages.create, dict(model=model, max_tokens=kw.pop("max_tokens", 16), messages=msgs), kw)
                         r.update(ok=out.stop_reason is not None, detail=(out.content[0].text if out.content and hasattr(out.content[0], "text") else "")[:40])
                 else:
                     c = openai.OpenAI(http_client=httpx.Client(transport=rt.RouterTransport(inner=NoProvider())))
                     if surface == "responses":
-                        out = c.responses.create(model=model, input="Reply with exactly: pong", max_output_tokens=16, stream=stream)
+                        base = dict(model=model, input=user, max_output_tokens=kw.pop("max_output_tokens", 16), stream=stream)
+                        out = _send(c.responses.create, base, kw)
                         if stream:
                             evs = [e.type for e in out]
                             r.update(ok="response.completed" in evs or "response.incomplete" in evs, detail="%d events" % len(evs))
@@ -182,17 +222,21 @@ def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
                             spent += float((out.usage.model_extra or {}).get("cost") or 0) if out.usage else 0
                             r.update(ok=True, detail=out.output_text[:40])
                     else:
-                        kw = dict(model=model, messages=[{"role": "user", "content": "Reply with exactly: pong"}], max_tokens=16)
+                        base = dict(model=model, messages=[{"role": "user", "content": user}])
+                        if "max_tokens" not in kw and "max_completion_tokens" not in kw:
+                            base["max_tokens"] = 16
                         if stream:
-                            chunks = list(c.chat.completions.create(stream=True, stream_options={"include_usage": True}, **kw))
+                            base.update(stream=True, stream_options=kw.pop("stream_options", None) or {"include_usage": True})
+                            chunks = list(_send(c.chat.completions.create, base, kw))
                             text = "".join((ch.choices[0].delta.content or "") for ch in chunks if ch.choices)
                             usage = [ch.usage for ch in chunks if ch.usage]
                             spent += float((usage[-1].model_extra or {}).get("cost") or 0) if usage else 0
                             r.update(ok=any(ch.choices and ch.choices[0].finish_reason for ch in chunks), detail=text[:40])
                         else:
-                            out = c.chat.completions.create(**kw)
+                            out = _send(c.chat.completions.create, base, kw)
                             spent += float((out.usage.model_extra or {}).get("cost") or 0) if out.usage else 0
-                            r.update(ok=out.choices[0].finish_reason in ("stop", "length"), detail=(out.choices[0].message.content or "")[:40])
+                            r.update(ok=out.choices[0].finish_reason in ("stop", "length", "tool_calls", "function_call"),
+                                     detail=(out.choices[0].message.content or "")[:40])
             except Exception as e:
                 status = getattr(e, "status_code", None)
                 r.update(ok=False, detail="%s %s: %s" % (type(e).__name__, status or "", str(e)[:200]))
@@ -209,7 +253,8 @@ def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
             else:
                 os.environ[k] = v
         shutil.rmtree(tmp, ignore_errors=True)
-    return {"results": results, "spent_usd": round(spent, 6)}
+    uniq = [r for r in results if not r.get("reused") and r.get("ok") is not None]
+    return {"results": results, "unique_requests": len(uniq), "ok": sum(1 for r in uniq if r["ok"]), "spent_usd": round(spent, 6)}
 
 
 # ------------------------------------------------------------------------------------------------ verify
@@ -294,11 +339,13 @@ def verify(root, args):
         else:
             out["live_replay"] = replay(plan, "https://api.router.com", key, Catalog.load(live=True, api_key=key), budget=getattr(args, "budget", 0.25), tag="live")
     save(root, "verify.json", out)
-    sr = [r for r in out["sim_replay"]["results"] if r.get("ok") is not None]
-    print("verify: syntax %d/%d ok | tests before %s after %s | sim: %s/%s replayed sites valid%s" % (
+    sr = out["sim_replay"]
+    st = out.get("sim_tests")
+    print("verify: syntax %d/%d ok | tests before %s after %s | sim: %s/%s unique request shapes valid (static kwargs replayed)%s" % (
         out["syntax"]["checked"] - len(out["syntax"]["failed"]), out["syntax"]["checked"], _tc(out.get("tests_before")), _tc(out.get("tests_after")),
-        sum(1 for r in sr if r["ok"]), len(sr),
-        ("; repo tests sent %d requests to router-sim, %d valid" % (out["sim_tests"]["requests"], out["sim_tests"]["valid"])) if out.get("sim_tests") else ""))
+        sr["ok"], sr["unique_requests"],
+        ("" if not st else "; repo tests with Router on: N/A (0 requests reached router-sim: the suite mocks the SDK/HTTP)" if not st["requests"]
+         else "; repo tests sent %d requests to router-sim, %d valid" % (st["requests"], st["valid"]))))
     return out
 
 

@@ -6,6 +6,7 @@ Outcomes (per call site):
   flagged   could go to Router but the tool will not move it automatically (unmapped model, beta API, server-side state...)
   handoff   needs a code change an agent can make (other-vendor SDK whose model Router serves, raw HTTP, other gateways)
 """
+import os
 import re
 from urllib.parse import urlparse
 
@@ -18,6 +19,9 @@ NO_ENDPOINT = {  # measured: these return 404/405 on Router
     "completions.legacy": "Router has no legacy /v1/completions (measured 404)",
     "assistants": "Assistants/threads need provider-side state Router does not keep", "vector_stores": "Router has no vector stores",
     "responses.retrieve": "Router keeps no stored responses (GET /v1/responses/{id} measured 404)",
+    "responses.input_items": "Router keeps no stored responses (GET /v1/responses/{id}/input_items: no server state)",
+    "responses.cancel": "Router keeps no stored/background responses to cancel",
+    "responses.delete": "Router keeps no stored responses to delete",
     "framework.embeddings": "Router has no embeddings endpoint (measured 404)", "other.embeddings": "Router has no embeddings endpoint",
 }
 PATCHABLE = {
@@ -32,8 +36,17 @@ FRAMEWORK_CLIENT_SURFACE = {"ChatOpenAI": "framework.chat", "ChatAnthropic": "fr
                             "gateway": "framework.chat"}
 VERCEL_PROVIDERS = {"createOpenAI", "createAnthropic", "openai-default-provider", "anthropic-default-provider", "createOpenAICompatible",
                     "createTogetherAI", "createGroq", "createXai", "createMistral", "createGoogleGenerativeAI", "gateway", "createGateway"}
-VENDOR_IN_PATH = re.compile(r"(?:^|/|_|-)(deepseek|groq|mistral|ollama|together|xai|grok|minimax|openrouter|perplexity|gemini|azure|lmstudio|"
-                            r"vllm|zhipu|dashscope|aimlapi|flowise|mlx|llamacpp|bedrock|vertex|cohere|fireworks|qwen|moonshot)(?:[._/-]|$)")
+# A file/dir named after another vendor (deepseek.ts, zhipuai.py, providers/groq/...). The vendor name may carry a suffix
+# (zhipuai, togetherai, vertexai, azureopenai, grok3) but must start at a path/word boundary.
+VENDOR_IN_PATH = re.compile(r"(?:^|[/_.-])(deepseek|groq|mistral|ollama|together|xai|grok|minimax|openrouter|perplexity|gemini|azure|"
+                            r"lm_?studio|vllm|zhipu|dashscope|aimlapi|flowise|mlx|llama_?cpp|bedrock|vertex|cohere|fireworks|qwen|"
+                            r"moonshot|kimi|siliconflow|baichuan|hunyuan|volcengine|doubao|ernie|qianfan|anyscale|cerebras|"
+                            r"sambanova|nvidia_?nim|huggingface|hf_?inference)[a-z0-9]*(?:[._/-]|$)")
+BETA_REASON = "Anthropic beta header: the runtime keeps these calls on Anthropic"
+TENANT_REASON = "per-tenant provider credentials: all tenants would share one Router key (billing/isolation change)"
+STATEFUL_REASON = "stateful Responses API use (previous_response_id/retrieve/conversation/store): Router keeps no server state"
+FILES_REASON = "uses provider-side vector stores/files Router cannot see"
+STATEFUL_SURFACES = {"responses.retrieve", "responses.input_items", "responses.cancel", "responses.delete"}
 OTHER_VENDOR_MODELS = re.compile(r"^(gemini|grok|deepseek|kimi|glm|qwen|minimax|gpt-oss|nemotron)", re.I)
 
 
@@ -105,6 +118,9 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
     sites = link_same_file([dict(x) for x in scan["sites"]])
     clients = {s["id"]: s for s in sites if s["kind"] == "client"}
     patches, plan_sites = [], []
+    tenant = {cid for cid, c in clients.items() if (c.get("api_key") or {}).get("per_tenant")}
+    stateful = _stateful_clients(sites)
+    lits = _model_literals(scan, catalog)
 
     # 1) which client constructions to patch
     patched = {}
@@ -121,9 +137,14 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
             continue
         if not c["prod"] and not include_nonprod:
             continue  # tests/examples/evals are reported but not edited unless asked (--include-nonprod)
+        if c["id"] in tenant:
+            continue  # per-tenant keys: moving them onto one Router key is a billing/isolation decision, not a codemod (M6)
         if kind and tgt in ("provider", "provider-or-config"):
-            patches.append({"site_id": c["id"], "lang": c["lang"], "file": c["file"], "line": c["line"], "col": c["col"], "patch": kind,
-                            "sdk": c["sdk"], "label": c["surface"]})
+            pt = {"site_id": c["id"], "lang": c["lang"], "file": c["file"], "line": c["line"], "col": c["col"], "patch": kind,
+                  "sdk": c["sdk"], "label": c["surface"]}
+            if c["id"] in stateful and _family(c["sdk"]) == "openai":
+                pt["opts"] = {"responses": False}  # C1: keep this client's whole /responses chain on the provider
+            patches.append(pt)
             patched[c["id"]] = tgt
     by_sdk = {}
     for c in clients.values():
@@ -145,9 +166,10 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
             continue  # a URL mention that is not a generation endpoint (e.g. a docs link or models list)
         surface = FRAMEWORK_CLIENT_SURFACE.get(s["surface"], s["surface"]) if is_framework_client else s["surface"]
         if s["kind"] == "call" and s["sdk"] == "vercel-ai":
-            outcome, reason, client_id = _classify_vercel(s, vproviders, patched, catalog)
+            outcome, reason, client_id = _classify_vercel(s, vproviders, patched, catalog, lits)
         else:
-            outcome, reason, client_id = _classify(s, surface, clients, patched, by_sdk, catalog)
+            outcome, reason, client_id = _classify(s, surface, clients, patched, by_sdk, catalog, lits)
+        outcome, reason, client_id = _post_checks(s, surface, outcome, reason, client_id, clients, tenant, stateful)
         plan_sites.append(dict(s, surface=surface, outcome=outcome, reason=reason, via_client=client_id,
                                router_eligible=surface in ROUTER_SURFACES or surface == "other.chat" and outcome == "handoff"))
 
@@ -158,7 +180,72 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
             "sites": plan_sites, "summary": summarize(plan_sites)}
 
 
-def _classify_vercel(s, providers, patched, catalog):
+def _post_checks(s, surface, outcome, reason, cid, clients, tenant, stateful):
+    """Facts that override a 'migrated' (or 'flagged') verdict regardless of how the client was linked (H1, H2, C1, M6)."""
+    if outcome not in ("migrated", "flagged") or not s["prod"] or s["kind"] not in ("call", "client", "module_client"):
+        return outcome, reason, cid
+    link = cid or s.get("client_id")
+    if link and link in clients and client_target(clients[link]) == "router":
+        return outcome, reason, cid  # already pointed at Router by hand
+    vendor = VENDOR_IN_PATH.search(s["file"].lower())
+    if vendor:
+        return "kept", "call lives in a %s-specific module: that vendor's endpoint is not routed by the runtime" % vendor.group(1), cid
+    if surface == "responses" and (link in stateful or _site_stateful(s)):
+        return "kept", STATEFUL_REASON, cid
+    if surface == "responses" and s.get("uses_provider_files"):
+        return "kept", FILES_REASON, cid
+    if outcome != "migrated":
+        return outcome, reason, cid
+    if surface.startswith("messages") and (s.get("has_beta") or surface == "messages.beta"):
+        return "flagged", BETA_REASON, cid
+    if surface.startswith("messages") and s.get("beta_split"):
+        return "flagged", BETA_REASON + " (a sibling branch sends the same request through client.beta.messages when betas are set; " \
+                                       "for a first-party Anthropic client that is the path taken, so this branch is not a routed path)", cid
+    if link in tenant or (s["kind"] == "client" and s["id"] in tenant):
+        return "flagged", _tenant_reason(clients.get(link) or s), cid
+    return outcome, reason, cid
+
+
+def _tenant_key(c):
+    return bool((c.get("api_key") or {}).get("per_tenant"))
+
+
+def _tenant_reason(c):
+    why = (c.get("api_key") or {}).get("why")
+    return TENANT_REASON + (" [api_key from %s]" % why if why else "")
+
+
+def _site_stateful(s):
+    return bool(s.get("has_prev_response") or s.get("has_conversation") or s.get("store_true") or s.get("has_background")
+                or s["surface"] in STATEFUL_SURFACES)
+
+
+def _stateful_clients(sites):
+    """Clients with any stateful Responses use: their whole /responses traffic must stay on one backend (C1)."""
+    out = set()
+    for s in sites:
+        if s["kind"] == "call" and _site_stateful(s):
+            if s.get("client_id"):
+                out.add(s["client_id"])
+            elif len(s.get("client_candidates") or []) == 1:
+                out.add(s["client_candidates"][0])
+    return out
+
+
+def _model_literals(scan, catalog):
+    """{family: (names, resolvable names)} for model-name literals in the repo's production files (scan['model_literals'] when the
+    scan carries them, else read from scan['root'] on disk). None when unavailable (synthetic scans)."""
+    lits = scan.get("model_literals")
+    if lits is None:
+        root = scan.get("root")
+        if not root or not os.path.isdir(root):
+            return None
+        from .scan_py import collect_model_literals
+        lits = collect_model_literals(root)
+    return {fam: (sorted(names), [n for n in sorted(names) if catalog.resolve(n)[0]]) for fam, names in lits.items()}
+
+
+def _classify_vercel(s, providers, patched, catalog, lits=None):
     if s["surface"] == "framework.embeddings":
         return "kept", "Router has no embeddings endpoint (measured 404)", None
     if not s["prod"]:
@@ -166,7 +253,8 @@ def _classify_vercel(s, providers, patched, catalog):
     on = [p for p in providers if p["id"] in patched]
     off = sorted({p["surface"] for p in providers if p["id"] not in patched})
     if on:
-        ok, why = _model_check(s, catalog)
+        fams = {"anthropic" if "Anthropic" in p["surface"] else "openai" for p in on}
+        ok, why = _model_check(s, catalog, lits, fams.pop() if len(fams) == 1 else None)
         if not ok:
             return "flagged", why, on[0]["id"]
         tail = ("; stays on its provider when the configured provider is %s" % "/".join(off)) if off else ""
@@ -184,7 +272,17 @@ def _family(sdk):
             "vercel-ai-anthropic": "anthropic"}.get(sdk, sdk)
 
 
-def _model_check(s, catalog):
+def _site_family(s):
+    sdk = s.get("sdk")
+    if sdk in ("anthropic", "langchain-anthropic", "vercel-ai-anthropic") or str(s.get("surface") or "").startswith("messages") \
+            or s.get("surface") == "ChatAnthropic":
+        return "anthropic"
+    if sdk in ("openai", "langchain-openai", "llamaindex-openai", "vercel-ai-openai", "azure-openai"):
+        return "openai"
+    return None
+
+
+def _model_check(s, catalog, lits=None, family=None):
     m = s.get("model")
     if m and m.get("static") and m.get("value"):
         rid, why = catalog.resolve(m["value"])
@@ -192,10 +290,19 @@ def _model_check(s, catalog):
             return False, "model '%s' is not in the Router catalog (%s); the runtime leaves it on the provider. Map it explicitly with " \
                           "ROUTER_MIGRATE_MODEL_MAP if a catalog model is an acceptable substitute" % (m["value"], why)
         return True, "model '%s' -> '%s' (%s)" % (m["value"], rid, why)
+    fam = family or _site_family(s)
+    if lits and fam in lits:
+        names, ok_names = lits[fam]
+        if names and not ok_names:
+            return False, "model chosen at runtime and none of the repo's %s model names are in Router's catalog: %s" % (
+                fam, ", ".join(names[:3]))
+        if ok_names:
+            return True, "model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it " \
+                         "(repo names %d %s model(s), %d in the catalog, e.g. %s)" % (len(names), fam, len(ok_names), ok_names[0])
     return True, "model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it"
 
 
-def _classify(s, surface, clients, patched, by_sdk, catalog):
+def _classify(s, surface, clients, patched, by_sdk, catalog, lits=None):
     sdk = s["sdk"]
     if not s["prod"]:
         via = s.get("client_id") if s.get("client_id") in patched else (s["id"] if s["id"] in patched else None)
@@ -217,7 +324,7 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
     if sdk in ("bedrock",):
         return "kept", "AWS Bedrock client; not moved", None
     if surface == "messages.beta":
-        return "flagged", "anthropic beta API (anthropic-beta header) is unmeasured on Router; the runtime keeps it on Anthropic", None
+        return "flagged", BETA_REASON, s.get("client_id")
     if surface == "other.chat" or sdk in ("google-genai", "mistral", "cohere", "ollama", "groq", "other"):
         m = (s.get("model") or {}).get("value") if (s.get("model") or {}).get("static") else None
         rid, why = catalog.resolve(m) if m else (None, "")
@@ -232,8 +339,10 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
     if s["kind"] == "client":
         cid = s["id"] if s["id"] in patched else None
         if cid is None and client_target(s) == "router":
-            ok, why = _model_check(s, catalog)
+            ok, why = _model_check(s, catalog, lits)
             return ("migrated" if ok else "flagged"), "framework client points at Router natively; " + why, s["id"]
+        if cid is None and _tenant_key(s) and client_target(s) in ("provider", "provider-or-config"):
+            return "flagged", _tenant_reason(s), None
         if cid is None:
             tgt = client_target(s)
             if tgt.startswith("other:"):
@@ -245,7 +354,7 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
             return "flagged", "framework client could not be patched safely (see patch log)", None
     elif s["kind"] == "module_client":
         if sdk in ("openai", "litellm"):
-            ok, why = _model_check(s, catalog)
+            ok, why = _model_check(s, catalog, lits)
             return ("migrated", "module-level %s client routed by install hook; %s" % (sdk, why), None) if ok else ("flagged", why, None)
         return "flagged", "module-level %s usage" % sdk, None
     else:
@@ -253,12 +362,14 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
         if s.get("client_id"):
             c = clients.get(s["client_id"])
             if c and client_target(c) == "router":
-                ok, why = _model_check(s, catalog)
+                ok, why = _model_check(s, catalog, lits)
                 if surface in ("chat.completions", "chat.completions.parse", "chat.completions.stream", "completions.legacy"):
                     return "flagged", "client points at Router but uses %s, which Router does not serve (measured 404)" % surface, c["id"]
                 return ("migrated" if ok else "flagged"), "client points at Router natively; " + why, c["id"]
             if c and c["id"] in patched:
                 cid = c["id"]
+            elif c and _tenant_key(c) and client_target(c) in ("provider", "provider-or-config"):
+                return "flagged", _tenant_reason(c), c["id"]
             elif c:
                 tgt = client_target(c)
                 if tgt.startswith("other:"):
@@ -267,12 +378,15 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
                     return "kept", "client is Azure/cloud-hosted (%s)" % c["surface"], c["id"]
         elif s.get("client_candidates"):
             pc = [c for c in s["client_candidates"] if c in patched]
+            tc = [c for c in s["client_candidates"] if c in clients and _tenant_key(clients[c])]
+            if tc and not pc:
+                return "flagged", _tenant_reason(clients[tc[0]]), tc[0]
             if pc:
                 cid = pc[0]
                 others = ["%s%s" % (clients[c]["surface"], "" if client_target(clients[c]) in ("provider", "provider-or-config") else " -> " + client_target(clients[c]).replace("other:", ""))
                           for c in s["client_candidates"] if c not in patched and clients[c]["prod"]]
                 if others:
-                    ok, why = _model_check(s, catalog)
+                    ok, why = _model_check(s, catalog, lits)
                     return ("migrated" if ok else "flagged"), "migrated when the configured client is %s; stays put when it is %s. %s" % (
                         clients[cid]["surface"], "/".join(sorted(set(others))), why), cid
         if cid is None:
@@ -288,10 +402,13 @@ def _classify(s, surface, clients, patched, by_sdk, catalog):
                 link = "repo-wide"
             elif fam_patch:
                 return "flagged", "client not resolved statically; %d of %d %s clients in the repo are patched" % (len(fam_patch), len(fam), sdk), None
+            elif any(_tenant_key(c) for c in fam):
+                # every client of this family in the repo is built from per-request keys: the call uses one of those
+                return "flagged", _tenant_reason(next(c for c in fam if _tenant_key(c))), None
             else:
                 return "handoff", "client is constructed outside this repo or not resolvable (%s); pass it through router_runtime.wrap_%s()" % (
                     link or "unresolved", "anthropic" if _family(sdk) == "anthropic" else "openai"), None
-    ok, why = _model_check(s, catalog)
+    ok, why = _model_check(s, catalog, lits)
     if not ok:
         return "flagged", why, cid
     tgt = patched.get(cid, "provider")

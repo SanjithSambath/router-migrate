@@ -4,7 +4,7 @@
 Per repo (fresh clone at the pinned commit in eval/work/runs/<name>):
   1. tests before (Router off)               4. tests after (Router off: the default state after migrating)
   2. router-migrate scan/plan/apply (timed)  5. the repo's tests again with Router ON against router-sim (real code paths, validated)
-  3. typecheck before/after (TS repos)       6. synthetic replay of every migrated site against router-sim (+ optional --live)
+  3. typecheck before/after (TS repos)       6. replay of every unique migrated request shape (site's literal kwargs) at router-sim (+ --live)
 Writes eval/scoreboard.json, eval/SCOREBOARD.md, eval/scoreboard.html and per-repo logs in eval/logs/.
 Recipes (env setup + test commands, with measured baselines) live in eval/recipes/<name>.json.
 """
@@ -153,12 +153,17 @@ def run_repo(repo, args, cat):
     row["tests_after"] = count(row.get("_tests_after"), kind) or {"not_run": row["tests_before"].get("not_run", "-")}
     st = row.get("_sim_tests") or {}
     row["tests_router_on"] = count(st, kind) if st else {"not_run": row["tests_before"].get("not_run", "-")}
-    rr = [r for r in rep["results"] if r.get("ok") is not None]
-    n_req = st.get("requests", 0) + len(rr)
-    n_ok = st.get("valid", 0) + sum(1 for r in rr if r["ok"])
-    row["sim_valid_pct"] = round(100.0 * n_ok / n_req, 1) if n_req else None
-    row["sim_detail"] = {"repo_test_requests": st.get("requests", 0), "repo_test_valid": st.get("valid", 0), "replayed_sites": len(rr),
-                         "replay_valid": sum(1 for r in rr if r["ok"]), "invalid": st.get("invalid", []) + [r for r in rr if not r["ok"]][:10]}
+    # sim_valid_pct: unique request shapes (surface, stream, model, the site's literal kwargs) valid at router-sim / unique shapes
+    # replayed. The Router-on test run is reported separately: most suites mock the SDK or HTTP, so it sends 0 requests (H5).
+    uniq = [r for r in rep["results"] if not r.get("reused") and r.get("ok") is not None]
+    row["replay_unique_requests"] = rep.get("unique_requests", len(uniq))
+    row["replay_ok"] = rep.get("ok", sum(1 for r in uniq if r["ok"]))
+    row["sim_valid_pct"] = round(100.0 * row["replay_ok"] / row["replay_unique_requests"], 1) if row["replay_unique_requests"] else None
+    row["sim_requests_from_tests"] = st.get("requests", 0) if st else None
+    row["sim_detail"] = {"repo_test_requests": st.get("requests", 0), "repo_test_valid": st.get("valid", 0),
+                         "replayed_sites": sum(1 for r in rep["results"] if r.get("ok") is not None),
+                         "replay_unique_requests": row["replay_unique_requests"], "replay_ok": row["replay_ok"],
+                         "invalid": st.get("invalid", []) + [r for r in uniq if not r["ok"]][:10]}
     lv = row.get("_live")
     if lv and lv.get("results") is not None:
         lr = [r for r in lv["results"] if r.get("ok") is not None]
@@ -208,9 +213,14 @@ def main():
         except Exception as e:
             row = {"repo": repo["repo"], "commit": repo["commit"][:10], "error": "%s: %s" % (type(e).__name__, e)}
         row["eval_seconds"] = round(time.time() - t, 1)
+        if os.path.exists(sp):  # other eval processes (parallel --only lanes) may have written rows meanwhile
+            for r in json.load(open(sp)).get("repos", []):
+                if r["repo"] != repo["repo"]:
+                    prev[r["repo"]] = r
         prev[repo["repo"]] = {k: v for k, v in row.items() if not k.startswith("_")}
         print("   %s" % json.dumps({k: prev[repo["repo"]].get(k) for k in ("sites_found", "migrated", "callsite_coverage", "weighted_coverage",
-                                                                         "tests_before", "tests_after", "sim_valid_pct", "error")}), flush=True)
+                                                                         "tests_before", "tests_after", "sim_valid_pct", "replay_unique_requests",
+                                                                         "sim_requests_from_tests", "error")}), flush=True)
         write_scoreboard([prev[r["repo"]] for r in json.load(open(os.path.join(EVAL, "repos.json"))) if r["repo"] in prev])
 
 
