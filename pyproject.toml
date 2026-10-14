@@ -1,0 +1,46 @@
+[build-system]
+# hatchling: honours .gitignore and only walks the package dir, so builds don't crawl eval/work, node_modules or .venv
+# (setuptools' egg_info walks the whole tree, following symlinks: ~5 minutes per editable install here).
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "router-migrate"
+version = "0.5.0"
+description = "Move a codebase's production LLM calls onto Ramp's Router"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "libcst>=1.1",   # Python scanner and codemods
+    "httpx>=0.27",   # vendored runtime, router-sim client, live checks
+]
+
+[project.optional-dependencies]
+# SDKs the runtime adapts and the tests exercise; the tool itself does not import them.
+sdks = [
+    "openai>=1.40",
+    "anthropic>=0.40",
+]
+dev = [
+    "openai>=1.40",
+    "anthropic>=0.40",
+    "pytest>=7",
+    "pytest-cov>=4",
+    "uv>=0.4",
+    "langchain-openai>=0.3",     # codemod e2e tests for LangChain wraps
+    "langchain-anthropic>=0.3",
+]
+
+[project.scripts]
+router-migrate = "router_migrate.cli:main"
+
+# Wheel = the router_migrate package with every non-ignored file in it, which includes the package data the tool reads
+# at runtime: runtime/* (vendored router_runtime.py, routerRuntime.ts), dashboard/*.html, data/*, prompts/*.md, ts/*
+# (tool.mjs), sim/*, schemas/*, SCHEMA.md.
+[tool.hatch.build.targets.wheel]
+packages = ["router_migrate"]
+exclude = ["__pycache__", "*.pyc"]
+
+[tool.hatch.build.targets.sdist]
+include = ["router_migrate", "bin", "tests", "README.md", "pyproject.toml", "requirements-dev.txt", "package.json", "package-lock.json"]
+exclude = ["__pycache__", "*.pyc", "tests/_rendered"]
