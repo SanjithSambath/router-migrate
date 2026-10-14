@@ -188,6 +188,45 @@ def test_page_script_parses():
     assert r.returncode == 0, r.stderr[-500:]
 
 
+DOM_STUB = """
+var els = {};
+function el(id) { return els[id] || (els[id] = {id: id, innerHTML: "", firstChild: null, classList: {add: function () {}, remove: function () {}}, setAttribute: function () {}}); }
+global.window = global;
+global.document = {getElementById: el, addEventListener: function () {}, querySelector: function () { return null; }, activeElement: null, visibilityState: "visible", title: "",
+  documentElement: {setAttribute: function () {}, removeAttribute: function () {}}};
+global.location = {search: "", hash: "", pathname: "/"};
+global.history = {replaceState: function () {}};
+global.localStorage = {getItem: function () { return null; }, setItem: function () {}, removeItem: function () {}};
+global.requestAnimationFrame = function () {};
+global.scrollTo = function () {}; global.scrollY = 0; global.addEventListener = function () {};
+"""
+
+
+def test_overview_draws_how_your_traffic_moved(repo):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    html = I.render_report(str(repo))
+    js = DOM_STUB + "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html)) + "\nprocess.stdout.write(els.main.innerHTML);"
+    r = subprocess.run([node, "-"], input=js, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr[-800:]
+    out = r.stdout
+    assert "How your traffic moved" in out and 'id="flow"' in out and 'id="wires"' in out
+    assert out.index('class="doors"') < out.index('id="flow"') < out.index("What the agent did")
+    left = out[out.index('class="fcol"'):out.index('id="router-node"')]
+    stay = out[out.index('class="flow-stay"'):out.index('class="legend"')]
+    calls = I.bundle(str(repo))["calls"]
+    for c in calls:
+        part = left if c["route"] in ("verified", "unverified", "unchecked", "not_routing") else stay
+        assert 'data-route="%s" data-go-call="%s"' % (c["route"], c["site"]) in part  # click goes to the call
+    assert left.count('class="fnode') == 4 and stay.count('class="fnode') == 2
+    assert 'class="fgroup-h"><span class="p" title="src/ai/complete.ts">' in left  # grouped by file
+    assert "api.router.com · 4 calls" in out and "Not on Router · 2" in stay
+    assert 'data-go-item="i3"' in out[out.index('id="router-node"'):out.index('class="legend"')]  # the applied improvement
+    legend = out[out.index('class="legend"'):]
+    assert "Verified by the outside check <b>3</b>" in legend and "Stays on its provider <b>2</b>" in legend
+
+
 # ------------------------------------------------------------------------------------------------ server
 @pytest.fixture()
 def srv(repo):

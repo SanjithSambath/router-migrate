@@ -208,6 +208,49 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .facts-line span { display: inline-flex; align-items: center; gap: 7px; }
 .facts-line b { color: var(--text-2); font-weight: 500; }
 
+/* traffic flow: each call, from its file to Router */
+.flow { position: relative; padding: 28px; overflow: hidden; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; }
+.flow-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(64px, .7fr) minmax(0, 1fr); align-items: center; }
+.flow svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.wire { fill: none; stroke: var(--c, var(--green)); stroke-width: 1.5; stroke-dasharray: 4 6; stroke-linecap: round; opacity: .9; animation: flowdash 2.2s linear infinite; }
+.wires.fresh .wire { animation: flowdash 2.2s linear infinite, wirein 600ms var(--ease) both; }
+.wire.o { stroke-dasharray: 1 6; }
+.wire.broken, .wires.fresh .wire.broken { stroke-dasharray: 3 5; animation: wirein 600ms var(--ease) both; }
+.wire-x { fill: none; stroke: var(--c); stroke-width: 1.6; stroke-linecap: round; }
+@keyframes flowdash { to { stroke-dashoffset: -20; } }
+@keyframes wirein { from { opacity: 0; } to { opacity: .9; } }
+.fcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.fgroup { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fgroup-h { display: flex; align-items: baseline; gap: 8px; min-width: 0; font: 400 11.5px/16px var(--mono); color: var(--text-3); }
+.fgroup-h .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgroup-h .n { flex: none; }
+.fnode { appearance: none; position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 9px 12px; text-align: left; color: inherit; background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px; cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.fnode:hover { border-color: var(--l); background: var(--hover); }
+.fnode .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fnode .fn { font: 500 12.5px/18px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode .sub { color: var(--text-3); font-size: 12px; line-height: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode svg.go { width: 13px; height: 13px; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.fnode:hover svg.go, .fnode:focus-visible svg.go { opacity: 1; transform: none; }
+.router-node { position: relative; min-width: 0; background: var(--bg); border: 1px solid var(--green-line); border-radius: 10px; padding: 20px; box-shadow: 0 0 0 5px var(--green-tint), 0 14px 32px -14px var(--shadow); }
+.router-node .nm { display: flex; align-items: center; gap: 10px; font-size: 18px; line-height: 24px; }
+.router-node .host { color: var(--text-3); margin-top: 10px; overflow-wrap: anywhere; }
+.rchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.rchip { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; color: var(--c); background: var(--t); border: 1px solid var(--l); cursor: pointer; }
+.rchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rchip svg.i { width: 13px; height: 13px; }
+.flow-stay { position: relative; z-index: 1; margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--line-2); }
+.stay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 10px; }
+.stay-grid .fnode { padding: 8px 10px; background: transparent; border-style: dashed; }
+.flow .legend { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; line-height: 18px; }
+.legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.legend svg { width: 22px; height: 8px; flex: none; }
+.legend svg line { stroke: var(--c); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linecap: round; }
+.legend svg.o line { stroke-dasharray: 1 3.5; }
+.legend .box { width: 16px; height: 11px; border: 1px dashed var(--line-3); border-radius: 3px; flex: none; }
+.flow-empty { color: var(--text-2); padding: 12px 0; }
+
 /* ================= badges ================= */
 .kb { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font: 500 10.5px/14px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
 .kb svg.i { width: 12px; height: 12px; }
@@ -523,6 +566,13 @@ a.btn { text-decoration: none; }
   .row > .lbl { min-width: 0; flex: 1 1 100%; }
   .filters > .lbl { flex: 1 1 100%; }
 }
+@media (max-width: 640px) {
+  .flow { padding: 18px 16px; }
+  .flow-grid { grid-template-columns: minmax(0, 1fr); }
+  .flow svg.wires { display: none; }
+  .flow-mid { justify-self: center; width: 0; height: 28px; border-left: 1.5px dashed var(--green-line); }
+  .stay-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 420px) {
   .status .lbl2 { display: none; }
   .status { padding: 0 9px; }
@@ -531,6 +581,7 @@ a.btn { text-decoration: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .wire { animation: none !important; }
 }
 </style>
 </head>
@@ -631,7 +682,8 @@ a.btn { text-decoration: none; }
     ext: '<path d="M6.5 3.5H3v9.5h9.5V9.5M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/>',
     play: '<path d="M4.5 3v10l8-5z"/>',
     undo: '<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>',
-    flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.7 3 1.7 3h-8"/>'};
+    flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.7 3 1.7 3h-8"/>',
+    router: '<path d="M2 8h4M10 8h4M6 4.5 10 8l-4 3.5"/>'};
   function icon(n, cls) { return '<svg class="i' + (cls ? " " + cls : "") + '" viewBox="0 0 16 16" aria-hidden="true">' + (P[n] || "") + "</svg>"; }
 
   // ---------------- data ----------------
@@ -1038,6 +1090,7 @@ a.btn { text-decoration: none; }
       '<div class="mini">' + (bits.length ? bits.join("") : "<span>Every item has been decided.</span>") + "</div>" +
       '<div class="door-foot"><span>Nothing changes until you Apply</span><span class="sp"></span><span class="go">Your queue' + icon("arrow") + "</span></div></button>";
     h.push('<div class="doors">' + door1 + door2 + door3 + "</div>");
+    h.push(flowHtml());
     // the agent's account
     h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>What the agent did</h2></div></div>' +
       (B.summary ? '<div class="quote">' + icon("spark") + '<div class="qt"><span class="by">The agent’s summary</span>' + esc(B.summary) + "</div></div>" : '<div class="panel empty">The agent hasn’t written its summary yet.</div>') +
@@ -1062,6 +1115,67 @@ a.btn { text-decoration: none; }
     if (B.migration_ref) facts.push("<span>Branch <b>" + esc(B.migration_ref) + "</b></span>");
     h.push('<div class="facts-line">' + facts.join("") + "</div>");
     return h.join("");
+  }
+  // how your traffic moved: each call from its file to Router; the wire's colour is the call's route truth
+  var ON_ROUTER = {verified: 1, unverified: 1, unchecked: 1};
+  var FLOW_KEY = [["verified", "Verified by the outside check"], ["unverified", "On Router, not verifiable statically"], ["unchecked", "On Router, the agent’s claim"],
+    ["not_routing", "Reported moved, doesn’t route"], ["stays", "Stays on its provider"], ["unknown", "Not known"]];
+  function wired(c) { return !!ON_ROUTER[c.route] || c.route === "not_routing"; }
+  function siteParts(s) { s = String(s || ""); var m = /^(.*):(\d+)$/.exec(s); return m ? {file: m[1], line: m[2]} : {file: s, line: ""}; }
+  function flowNode(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown, p = siteParts(c.site), name = p.file.split("/").pop() + (p.line ? ":" + p.line : "");
+    var tip = [c.site, r[0] + (r[1] ? ": " + r[1] : ""), c.reason, c.feature ? "feature: " + c.feature : ""].filter(Boolean).join(" · ");
+    return '<button class="fnode ' + tone(r[2]) + '" type="button" data-route="' + esc(c.route) + '" data-go-call="' + esc(c.site) + '" title="' + esc(tip) + '">' +
+      '<span class="sdot' + (r[3] ? " o" : "") + '"></span><span class="tx"><span class="fn">' + esc(name) + '</span><span class="sub">' + esc(c.model || c.feature || "model set at run time") + "</span></span>" + icon("arrow", "go") + "</button>";
+  }
+  function flowHtml() {
+    var all = calls();
+    if (!all.length) return "";
+    var on = all.filter(wired), off = all.filter(function (c) { return !wired(c); }), nOn = all.filter(function (c) { return ON_ROUTER[c.route]; }).length;
+    var groups = {}, order = [];
+    on.forEach(function (c) { var f = siteParts(c.site).file; if (!groups[f]) { groups[f] = []; order.push(f); } groups[f].push(c); });
+    var left = on.length ? order.map(function (f) {
+      return '<div class="fgroup"><div class="fgroup-h"><span class="p" title="' + esc(f) + '">' + esc(f) + '</span><span class="n">' + groups[f].length + "</span></div>" + groups[f].map(flowNode).join("") + "</div>";
+    }).join("") : '<div class="flow-empty">Nothing goes through Router yet.</div>';
+    var chips = items().filter(function (i) { return i.kind === "improvement" && i.status === "applied"; }).map(function (i) {
+      return '<button class="rchip tone-lilac" type="button" data-go-item="' + esc(i.id) + '" title="Applied: ' + esc(i.title || i.id) + '">' + icon("spark") + "<span>" + esc(i.title || i.id) + "</span></button>";
+    }).join("");
+    var MAX = 9, stay = "";
+    if (off.length) stay = '<div class="flow-stay"><div class="eyebrow">Not on Router · ' + off.length + '</div><div class="stay-grid">' + off.slice(0, MAX).map(flowNode).join("") + "</div>" +
+      (off.length > MAX ? '<button class="link" type="button" data-tab="calls" style="margin-top:10px">' + (off.length - MAX) + " more on Calls" + icon("arrow") + "</button>" : "") + "</div>";
+    var cnt = {};
+    all.forEach(function (c) { var k = c.route === "provider" ? "stays" : ROUTE[c.route] ? c.route : "unknown"; cnt[k] = (cnt[k] || 0) + 1; });
+    var legend = FLOW_KEY.filter(function (k) { return cnt[k[0]]; }).map(function (k) {
+      var r = ROUTE[k[0]], sw = ON_ROUTER[k[0]] || k[0] === "not_routing" ? '<svg class="' + (r[3] ? "o" : "") + '" viewBox="0 0 22 8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4"/></svg>' : '<span class="box"></span>';
+      return '<span class="' + tone(r[2]) + '">' + sw + esc(k[1]) + " <b>" + cnt[k[0]] + "</b></span>";
+    }).join("");
+    return '<section class="sec"><div class="sec-h"><div class="t"><h2>How your traffic moved</h2><p>Each production LLM call, from its file to Router. The line’s colour is what the outside check saw.</p></div></div>' +
+      '<div class="panel flow" id="flow"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="flow-grid"><div class="fcol">' + left + '</div><div class="flow-mid" aria-hidden="true"></div>' +
+      '<div class="router-node" id="router-node"><div class="nm"><span class="ic t tone-green">' + icon("router") + "</span>Router</div>" +
+      '<div class="host mono">api.router.com · ' + fmtInt(nOn) + " " + plural(nOn, "call") + "</div>" + (chips ? '<div class="rchips">' + chips + "</div>" : "") + "</div></div>" + stay +
+      '<div class="legend">' + legend + "</div></div></section>";
+  }
+  var flowSig = "";
+  function drawFlow() {
+    var flow = document.getElementById("flow"), svg = document.getElementById("wires"), rn = document.getElementById("router-node");
+    if (!flow || !svg || !rn) return;
+    if (getComputedStyle(svg).display === "none") { svg.innerHTML = ""; flowSig = ""; return; }
+    var fb = flow.getBoundingClientRect(), ox = fb.left + flow.clientLeft, oy = fb.top + flow.clientTop, rb = rn.getBoundingClientRect();
+    var nodes = Array.prototype.slice.call(flow.querySelectorAll(".fcol .fnode")), n = nodes.length, out = [];
+    function f(v) { return v.toFixed(1); }
+    nodes.forEach(function (el, k) {
+      var b = el.getBoundingClientRect(), rt = el.getAttribute("data-route"), r = ROUTE[rt] || ROUTE.unknown, broken = rt === "not_routing";
+      var x1 = b.right - ox, y1 = b.top + b.height / 2 - oy;
+      var x2 = rb.left - ox - (broken ? 26 : 0), y2 = rb.top - oy + rb.height * (n === 1 ? .5 : .25 + .5 * k / (n - 1));
+      var dx = Math.max(24, (x2 - x1) * .55);
+      out.push('<path class="wire ' + tone(r[2]) + (r[3] ? " o" : "") + (broken ? " broken" : "") + '" d="M' + f(x1) + "," + f(y1) + " C" + f(x1 + dx) + "," + f(y1) + " " + f(x2 - dx) + "," + f(y2) + " " + f(x2) + "," + f(y2) + '"/>');
+      if (broken) out.push('<path class="wire-x ' + tone(r[2]) + '" d="M' + f(x2 + 6) + "," + f(y2 - 4) + 'l8,8m0,-8l-8,8"/>');
+    });
+    var sig = flow.clientWidth + "x" + flow.clientHeight + out.join("");
+    if (sig === flowSig && svg.innerHTML) return;  // same geometry: leave the running animation alone
+    flowSig = sig;
+    svg.setAttribute("viewBox", "0 0 " + flow.clientWidth + " " + flow.clientHeight);
+    svg.innerHTML = out.join("");
   }
   function banners(withBlocked) {
     var out = "";
@@ -1243,6 +1357,8 @@ a.btn { text-decoration: none; }
     main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + fn() + "</div>";
     if (!enter) window.scrollTo(0, y);
     renderSticky();
+    var wires = document.getElementById("wires");
+    if (wires) { if (enter) wires.classList.add("fresh"); flowSig = ""; requestAnimationFrame(drawFlow); }
   }
   function setTab(t, push) {
     if (!PAGES.concat(MORE).some(function (x) { return x[0] === t; })) t = "overview";
@@ -1305,6 +1421,7 @@ a.btn { text-decoration: none; }
     if (e.key === "Escape") { delete S.form[t.getAttribute("data-form")]; renderAll(false); }
   });
   document.addEventListener("focusout", function () { setTimeout(function () { if (S.pending) { var ae = document.activeElement; if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) renderAll(false); } }, 0); });
+  var rz; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(drawFlow, 100); });
   window.addEventListener("hashchange", function () { var h = location.hash.replace(/^#/, ""); if (h && h !== S.tab) setTab(h, false); });
 
   // ---------------- boot ----------------
