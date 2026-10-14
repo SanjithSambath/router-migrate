@@ -1,0 +1,54 @@
+{
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 0.7256915999999998,
+  "turns": 19,
+  "final": "Report written to `.router-migrate/MIGRATION_REPORT.json`, no code changes needed.\n\nSummary of judgment on top of the floor's work:\n- **Kept as migrated**: the module-level `openai` client in `server.py` (default base URL is `https://api.openai.com/v1`) \u2014 correctly wrapped by the floor already.\n- **Reclassified from migrated \u2192 kept (`R_OTHER_HOST`)**: the `groq`, `litellm`, and `ollama_openai` clients in `server.py`. Their base URLs (`GROQ_BASE_URL`, `LITELLM_BASE_URL`, `OLLAMA_HOST`) default to Groq's API, a self-hosted LiteLLM proxy this app launches itself, and a local Ollama server, respectively \u2014 never `api.openai.com`. The floor's mechanical wrap is harmless (the runtime only routes requests whose host is `api.openai.com`), but these are not truly migrated traffic.\n- **Reclassified from handoff \u2192 kept (`R_OTHER_HOST`)**: both `frontend/src/api/openai.ts` call sites. The floor flagged the client's base URL as unresolved, but it actually always resolves to `${window.location}/v1` \u2014 this app's own backend origin, not OpenAI. It's an internal proxy call to the app's own `/v1/chat/completions` route (which handles auth/quota and dispatches to the real providers server-side, already judged above), so wrapping it with Router options would have misrouted an internal call.\n- Confirmed the four `models.list()` sites stay `kept R_NO_ENDPOINT` as the floor found.\n\nNo additional missed LLM call sites were found, and no files needed edits since the floor's existing wraps are either correct or inert for the hosts that should stay off Router.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 34,
+   "cache_creation_input_tokens": 60297,
+   "cache_read_input_tokens": 1329128,
+   "output_tokens": 21861,
+   "output_tokens_details": {
+    "thinking_tokens": 16139
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 60297,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 601,
+     "cache_read_input_tokens": 98714,
+     "cache_creation_input_tokens": 436,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 436
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed",
+  "final_gate_ok": true,
+  "final_gate_failures": [],
+  "gate_note": "",
+  "gate_attempts": 0,
+  "reverted": false,
+  "report_sites": 10,
+  "report_error": null
+ },
+ "minutes": 4.9
+}

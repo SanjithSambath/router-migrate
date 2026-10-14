@@ -1,0 +1,80 @@
+diff --git a/backend/app/chat/engine.py b/backend/app/chat/engine.py
+index ba15f2e..179d5b2 100644
+--- a/backend/app/chat/engine.py
++++ b/backend/app/chat/engine.py
+@@ -46,6 +46,20 @@ from app.chat.tools import get_api_query_engine_tool
+ from app.chat.utils import build_title_for_document
+ from app.chat.pg_vector import get_vector_store_singleton
+ from app.chat.qa_response_synth import get_custom_response_synth
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import (
++        async_http_client as _router_async_http_client,
++        http_client as _router_http_client,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            async_http_client as _router_async_http_client,
++            http_client as _router_http_client,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731
++        _router_http_client = lambda **k: k.get('_default')  # noqa: E731
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -275,7 +289,7 @@ Any questions about company-related financials or other metrics should be asked
+         model=settings.OPENAI_CHAT_LLM_NAME,
+         streaming=True,
+         api_key=settings.OPENAI_API_KEY,
+-    )
++    http_client=_router_http_client(), async_http_client=_router_async_http_client())
+     chat_messages: List[MessageSchema] = conversation.messages
+     chat_history = get_chat_history(chat_messages)
+     logger.debug("Chat history: %s", chat_history)
+diff --git a/backend/app/chat/tools.py b/backend/app/chat/tools.py
+index e02d307..deb57f6 100644
+--- a/backend/app/chat/tools.py
++++ b/backend/app/chat/tools.py
+@@ -151,7 +151,7 @@ def get_api_query_engine_tool(
+     doc_title = build_title_for_document(document)
+     llm = Settings.llm.model_copy(
+         update={"callback_manager": callback_manager},
+-        deep=True
++        deep=False
+     )
+     agent = OpenAIAgent.from_tools(
+         [polygon_io_tool],
+diff --git a/backend/app/llama_index_settings.py b/backend/app/llama_index_settings.py
+index f206da9..4edf265 100644
+--- a/backend/app/llama_index_settings.py
++++ b/backend/app/llama_index_settings.py
+@@ -9,12 +9,26 @@ from app.chat.constants import (
+     NODE_PARSER_CHUNK_OVERLAP,
+     NODE_PARSER_CHUNK_SIZE,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import (
++        async_http_client as _router_async_http_client,
++        http_client as _router_http_client,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            async_http_client as _router_async_http_client,
++            http_client as _router_http_client,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731
++        _router_http_client = lambda **k: k.get('_default')  # noqa: E731
+ 
+ def _setup_llama_index_settings() -> _Settings:
+     Settings.llm = OpenAI(
+         model=settings.OPENAI_CHAT_LLM_NAME,
+-        api_key=settings.OPENAI_API_KEY
+-    )
++        api_key=settings.OPENAI_API_KEY, 
++    http_client=_router_http_client(), async_http_client=_router_async_http_client())
+     Settings.embed_model = OpenAIEmbedding(
+         mode=OpenAIEmbeddingMode.SIMILARITY_MODE,
+         model_type=OpenAIEmbeddingModelType.TEXT_EMBED_3_SMALL,
