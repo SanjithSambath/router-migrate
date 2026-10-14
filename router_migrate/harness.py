@@ -580,7 +580,7 @@ def setup(root, a):
             "(spend-capped; the key is injected into that command only; never print it). The catalog is live (`router-migrate levers`)."
             if key else "No migration key: verify with the simulator (`check --run`) and record live checks as not-run in your evidence."),
            "LLM calls the scanner sees (%d; it misses dynamically built and imported clients), as the code stands:" % len(rows), _fmt(rows)]
-    budget = getattr(a, "budget", None) or "Aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
+    budget = "Budget: aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
     prompt = _prompt("migrate_v6.md", CONTEXT="\n".join(x for x in ctx if x), BUDGET=budget)
     AG._event(root, "setup", "done", msg="%d calls seen; live=%s" % (len(rows), bool(key)))
     return led, prompt
