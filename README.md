@@ -14,34 +14,11 @@ Nothing changes at runtime until `RAMP_ROUTER_API_KEY` is set. Requests Router c
 provider, unchanged.
 
 > **Status:** working MVP, under active development. Python and TS/JS; OpenAI, Anthropic, LangChain, Vercel AI SDK,
-> LlamaIndex and LiteLLM.
+> LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be published here
+> once it is.
 
 ![Dashboard overview: all 4 LLM calls go through Router, 6 improvements live, 3 decisions waiting](eval/v3/screenshots/e2e-showcase-overview.png)
 <sub>The dashboard after a full run on a small synthetic app where every lever applies ([eval/v3/e2e/showcase](eval/v3/e2e/showcase)).</sub>
-
-## Results
-
-**On 10 fresh open-source repos** (never used to build or tune the tool; ground truth frozen before any run;
-[eval/v3/RESULTS.md](eval/v3/RESULTS.md)):
-
-| approach | sites moved | correct | wrong | repos broken | cost |
-|---|---|---|---|---|---|
-| **router-migrate (agent + toolkit)** | 10 | **10** | **0** | **0 / 10** | $23.13 total |
-| Rules only, no agent | 20 | 6 | 14 | 0 / 10 | $0 |
-| Agent + Router's docs migration prompt | 14–26 | 6–10 | 7–16 | 0–1 / 10 | $25–35 |
-
-- Every site it reported as migrated is one the code actually routes and the adjudicated ground truth says should move.
-- It moved 10 of the 16 sites that should move. 3 of the 6 misses were sites no approach could move.
-- "Wrong" means a call the report claims is on Router that should stay put, usually config-driven lists of other vendors.
-
-**Improve** ([eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md)): on the same 10 repos the agent judged all 9 migrated
-features (latency class, task, prompt cacheability, each with cited lines) for $2.32 in total, producing 15 cards. Every
-lever with no card has a recorded reason. The whole loop (run, approve in the browser, Apply, `finish` again) is recorded end
-to end in [eval/v3/e2e/](eval/v3/e2e/), along with the exact request body each feature now sends to Router.
-
-**The deterministic pass alone, on 15 pinned repos** ([eval/SCOREBOARD.md](eval/SCOREBOARD.md), [WRITEUP.md](WRITEUP.md)):
-48 of 170 production LLM sites moved losslessly, tests and typecheck unchanged in all 15, and every migrated request shape
-replayed cleanly against live Router. An agent given Router's docs prompt left failing tests or new type errors in 8 of 15.
 
 ## How a migration runs
 
@@ -193,8 +170,8 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
   revert discipline, and the audit trail.
 - **MVP:** the dashboard is local and single-user. Improve policy applies to Responses-surface calls; `/v1/messages` gets no
   policy yet. TS unlock codemods aren't built.
-- **Not yet proven:** translated requests on code paths the repo's tests don't exercise, the agent's run-to-run variance (the
-  eval is one trial per repo), and very large monorepos.
+- **Not yet proven:** translated requests on code paths the repo's tests don't exercise, the agent's run-to-run variance, and very
+  large monorepos.
 - Models outside Router's catalog stay on their provider; substituting a model is a product decision, so it's only ever a card.
 - `previous_response_id` chains that start on Router live in process memory (last 256), so a turn that lands on another worker
   gets a clear error. Clients that use stateful Responses features are kept off Router for this reason.
@@ -206,15 +183,13 @@ your code ── client.chat.completions.create(...) ──► OpenAI SDK ──
 - [METHODOLOGY.md](METHODOLOGY.md): how a migration actually happens, stage by stage. Start here.
 - [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md): the system top to bottom, with one real call traced through every stage.
 - [SPEC_V3.md](SPEC_V3.md): the design of the agent-native loop. [DECISIONS.md](DECISIONS.md): why things are the way they are.
-- [WRITEUP.md](WRITEUP.md): the one-pager. [ARCHITECTURE.md](ARCHITECTURE.md), [AGENTS.md](AGENTS.md).
-- Results: [eval/v3/RESULTS.md](eval/v3/RESULTS.md), [eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md),
-  [eval/SCOREBOARD.md](eval/SCOREBOARD.md), [eval/SCOREBOARD_V2.md](eval/SCOREBOARD_V2.md).
+- [ARCHITECTURE.md](ARCHITECTURE.md), [AGENTS.md](AGENTS.md).
 
 ## Development
 
 ```bash
 make test        # runtime vs router-sim through real SDKs, codemod golden fixtures, planner, dashboard
 make compat      # runtime smoke under every eval env (openai 2.x/httpx and 3.x/httpx2, anthropic)
-make eval        # the 15-repo deterministic eval -> eval/SCOREBOARD.md
+make eval        # run the eval harness on the pinned repo set
 make sim         # router-sim on :8787
 ```
