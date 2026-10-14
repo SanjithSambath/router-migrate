@@ -10,36 +10,58 @@ Every cost is written down, and every trade-off has an Undo.
 
 ## Quickstart
 
-**In Claude Code** (any model), from your repo:
+### Install
+
+**As a Claude Code plugin** (works in any repo, any model). In Claude Code:
 
 ```
-/router-migrate
+/plugin marketplace add <path-to-this-checkout or owner/repo>
+/plugin install router-migrate@router-migrate
 ```
 
-or just say "migrate this repo to Router". The skill runs setup, your session migrates, and `router-migrate finish .`
-checks the result and opens the dashboard. Then:
+The plugin puts `router-migrate` on the session's PATH; its first run installs its two Python dependencies (libcst, httpx)
+into a cached venv, and the TS codemod's node modules when npm is available.
+
+**From a checkout** (CLI on your PATH, skill available as `/router-migrate`):
 
 ```bash
-export RAMP_ROUTER_API_KEY=...        # traffic Router can serve goes to Router; everything else is unchanged
-router-migrate check --final          # before you ship
+git clone <this repo> router-migrate && cd router-migrate
+make setup                                                  # local .venv and node_modules (or: pip install -e .)
+export PATH="$PWD/bin:$PATH"
+ln -s "$PWD/skills/router-migrate" ~/.claude/skills/router-migrate
 ```
 
-**Headless** (CI, evals):
+**Requirements:** a git repo to migrate; Python 3.9+; Node 18+ for TS/JS repos.
+
+### Migrate
+
+**In Claude Code**, from the repo you want to migrate: `/router-migrate` (plugin: `/router-migrate:router-migrate`), or
+just say "migrate this repo to Router". The session you are in is the agent, on whatever model it runs:
+
+1. `router-migrate start .` records the "before" state, starts the baseline tests in the background, and prints the
+   instructions, Router's facts and a map of every LLM call;
+2. the session migrates with its own tools plus `check`, `levers`, `wrap`, `adapt`, and writes `MIGRATION.json`;
+3. `router-migrate finish .` runs the outside check, builds the improvement cards and prints the dashboard URL.
+
+**Headless** (CI, evals), the same prompt and the same `start`/`finish` code around a `claude -p` session:
 
 ```bash
-router-migrate run . --agent claude [--model claude-sonnet-5]
+router-migrate run . --agent claude [--model <model>]
 ```
 
 **Other agents** (Codex and others): follow [AGENTS.md](AGENTS.md).
 
-**Requirements:** a git repo; Python 3.9+; Node 18+ for TS/JS repos; Claude Code for `/router-migrate` and `--agent claude`.
+### Review, apply, ship
+
+Approve, dismiss, postpone or undo on the dashboard and press Apply (or `router-migrate decide` + `router-migrate apply .
+--decisions`). Then:
 
 ```bash
-git clone <this repo> router-migrate && cd router-migrate
-make setup                                       # local .venv and node_modules
-export PATH="$PWD/bin:$PATH"                     # router-migrate on PATH
-cp -r .claude/skills/router-migrate ~/.claude/skills/   # /router-migrate in every Claude Code session
+router-migrate check --final --tests  # the outside check and the test suite, Router on, before you ship
+export RAMP_ROUTER_API_KEY=...        # traffic Router can serve goes to Router; everything else is unchanged
 ```
+
+`ROUTER_MIGRATE_DISABLE=1` turns it all off again without a deploy.
 
 ## What you get
 
@@ -63,8 +85,8 @@ cp -r .claude/skills/router-migrate ~/.claude/skills/   # /router-migrate in eve
         │
  2 agent session         migrate by any method; judge latency and task; propose improvements; write MIGRATION.json
         │                tools: check · levers · wrap · unwrap · adapt
- 3 outside check (code)  parse · scope (no test/lockfile/CI/runtime edits, no deletions, keys kept) · affected tests,
-        │                then the full suite once with Router on · no invalid Router requests · route truth ·
+ 3 outside check (code)  parse · scope (no test/lockfile/CI/runtime edits, no deletions, keys kept) · typecheck ·
+        │                the full suite once with Router on (background if slow) · no invalid Router requests · route truth ·
         │                proposals validated and priced · guardrails compiled
         │                fail → one fact-only fix pass → revert only the offending files
  4 Improve (code)        cards = agent proposals ∪ rule defaults; every lever considered, with reasons
@@ -127,18 +149,23 @@ moderation, model lists) and provider-side state the code actually uses.
 Dev set: 10 open-source repos, 64 movable production LLM calls, one run per arm. Moved = reported migrated **and** sends a
 valid Router request. Details and method: [docs/EVAL.md](docs/EVAL.md).
 
-<!-- numbers: WS4 -->
-| Approach | Moved / 64 | Wrong moves | Broken repos | Agent $ | Minutes |
-|---|---|---|---|---|---|
-| Router's public docs prompt | 13 | 0 | 1 / 10 | 35.27 | 122 |
-| Docs prompt, from our deterministic floor | 18 | 1 | 0 / 10 | 25.05 | 96 |
-| v3 (agent + toolkit, keeps anything lossy) | 7 | 0 | 0 / 10 | 23.13 | 108 |
-| v4 (migrate by default, per-item proof) | 21 | 0 | 0 / 9 (+1 timeout) | 17.79 | 180 |
-| D3 (facts + optional tools + one outside check) | 17 | 0 | 0 / 10 | 9.87 | 71 |
-| **v5** | _pending_ | _pending_ | _pending_ | _pending_ | _pending_ |
+Dev set: 10 open-source repos, 64 movable production LLM calls, one run per approach (scorer v5, `eval/RESULTS.md`).
+"Moved" = the call sends a valid Router request; "one approval away" adds the calls the agent surfaced for a human.
 
-The D3 count is low: the scorer misses some moves it can only see through sandboxed runs. A rescored table, v5's row and
-held-out results replace this one.
+| Approach | Moved / movable | One approval away | Wrong moves | Destructive edits | Broken repos | Agent $ | Minutes |
+|---|---|---|---|---|---|---|---|
+| Router's public docs prompt | 13 / 64 | 13 | 0 | 54 (6 runs) | 1 / 10 | 35.27 | 122 |
+| Docs prompt, from our deterministic floor | 18 / 64 | 18 | 1 | 9 (3 runs) | 0 / 10 | 25.05 | 96 |
+| v3 (agent + toolkit, keeps anything lossy) | 7 / 64 | 14 | 0 | 0 | 0 / 10 | 23.13 | 108 |
+| v4 (migrate by default, per-item proof) | 21 / 51 | 21 | 0 | 0 | 0 / 9 (+1 timeout) | 24.69 | 229 |
+| **D3 = v5's migrate step** | **18 / 64** | **28** | **0** | **0** | **0 / 10** | **9.87** | **71** |
+
+Held-out repos (partial: the runs that finished): D3 moved 23 / 45 with 0 wrong, 0 destructive, 0 broken; the docs prompt
+moved 4 / 8 on its one finished repo and deleted the Azure provider and the key config while tests still passed.
+
+v5 runs D3's migration unchanged and adds judging + improvement proposals to the same session, then Improve, the dashboard
+and Apply; it was exercised end to end (toy repo and langchain-nextjs-template: 8 of 8 chat calls verified on Router, the 3
+embeddings calls left on OpenAI), not re-run over the eval sets. Method, per-repo audits and limits: [docs/EVAL.md](docs/EVAL.md).
 
 ## Limits
 
@@ -160,13 +187,13 @@ router_migrate/          the CLI
   prompts/               the agent's instructions
   ts/                    TypeScript scanner and codemods
   data/                  catalog and measured Router facts
-.claude/skills/router-migrate/   the Claude Code skill
-bin/router-migrate       entry point
-eval/                    eval harness, repo sets, results
-tests/                   runtime vs router-sim, codemod fixtures, planner
-research/                live Router measurements
-docs/                    current docs
-archive/                 earlier specs, decisions and progress logs (v1–v4)
+skills/router-migrate/   the Claude Code skill (also linked from .claude/skills/)
+.claude-plugin/          Claude Code plugin + marketplace manifest
+bin/router-migrate       entry point (bootstraps its own venv when installed as a plugin)
+eval/                    eval harness, repo sets, results (RESULTS.md)
+tests/                   runtime vs router-sim, codemods, harness end to end, dashboard
+docs/                    architecture, methodology, eval, levers
+archive/                 earlier specs, decisions, research and eval material (v1–v4), indexed in archive/README.md
 ```
 
 ## Docs

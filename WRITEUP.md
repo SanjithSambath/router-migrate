@@ -16,13 +16,15 @@ So the job is to move as much traffic as possible **and** keep every existing be
 On 10 open-source repos with 64 movable production LLM calls (one run per approach). "Moved" means the call sends a valid
 Router request, not just that it was wrapped.
 
-<!-- numbers: WS4 -->
 | | Share of traffic moved | Behavior kept |
 |---|---|---|
-| Router's public docs prompt | 13 / 64 | 1 repo broken; on a held-out repo it deleted the Azure provider and key config while tests passed |
-| v4 (migrate by default, per-item proof) | 21 / 64 | 0 broken, 0 wrong moves; 180 min, $17.79 |
-| D3 (the core of v5) | 17 / 64 verified (scorer under-counts; being fixed) | 0 broken, 0 wrong moves; 71 min, $9.87 |
-| **v5** | _pending_ | _pending_ |
+| Router's public docs prompt | 13 / 64 | 1 repo broken, 54 destructive edits across 6 repos; on held-out gpt-cli it deleted the Azure provider and the key config while tests passed |
+| v4 (migrate by default, per-item proof) | 21 / 51 (9 repos) | 0 broken, 0 wrong moves; 229 min, $24.69 |
+| **D3 (v5's migrate step)** | **18 / 64 verified, 28 one approval away; held-out 23 / 45** | **0 broken, 0 wrong moves, 0 destructive edits; 71 min, $9.87** |
+
+v5 = D3's migration plus judging and improvement proposals in the same session, Improve, the dashboard and Apply. It ran end
+to end on a toy repo and on langchain-nextjs-template (8 of 8 chat calls verified on Router, 3 embeddings calls stay); it was
+not re-run over the eval sets.
 
 ## The design, in five bullets
 
@@ -46,8 +48,9 @@ Router request, not just that it was wrapped.
 - **Tools remove wrong moves; prompts don't.** Every arm with fact-computing tools made 0 wrong moves. A detailed prompt
   with all our rules still made wrong moves.
 - **Process was the cost.** v4 required a claim, a proof and a gate pass per item. Dropping those (D3) kept the same
-  judgment at about 2.5× the speed and 55% of the cost. Large test suites were the one real cost; v5 runs affected tests
-  first and the full suite once, in the background.
+  judgment and safety at about 3× the speed and 40% of the cost. Large test suites were the one real cost; in v5 the agent
+  picks its own tests while it works (it is told the suite's duration), and the outside check runs the full suite once with
+  Router on, in the background when it is slow; Apply waits for it.
 - **Tests don't catch destructive edits.** gpt-cli's tests passed after its Azure provider was deleted. A scope check does.
 - **It found a real bug.** sec-insights deep-copies its LlamaIndex LLM, which crashed with Router on. Every version since
   v1 had shipped it. Fixed in the runtime.

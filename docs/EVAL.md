@@ -90,17 +90,16 @@ movable sites across 10 repos. k=1.
 | B2 detailed prompt | 12 | 1 | 0 / 10 | 4 | 0 | 13.82 | 60 |
 | C v3 | 7 | 0 | 0 / 10 | 3 | 0 | 23.13 | 108 |
 | Cnf v3, no floor | 7 | 0 | 0 / 10 | 3 | 0 | 15.63 | 82 |
-| D v4 | **21** | 0 | 0 / 9 (+1 timeout) | 1 | 14 | 17.79 | 180 |
-| D3min | 17 verified | 0 | 0 / 10 | 2 | 6 | **9.87** | **71** |
+| D v4 | **21** / 51 | 0 | 0 / 9 (+1 timeout) | 1 | 14 | 24.69 | 229 |
+| D3min | 18 verified (28 one approval away) | 0 | 0 / 10 | 2 | 6 | **9.87** | **71** |
 
 Minutes are wall clock per run, summed over repos. D3's agent time alone was 58 minutes.
 
-<!-- numbers: WS4 -->
-> **Pending.** The D3 row is under-counted: the scorer misses some D3 moves it can only see through the agent's own
-> sandboxed runs. WS4 is fixing this and rescoring every arm. The rescored table replaces the one above.
-
-<!-- numbers: WS4 -->
-> **Pending.** v5 row (same 10 repos, same scorer).
+Rescored with scorer v5 (line mapping through the trial diff, the product's own `check_sites` on every call, credit through
+the scanner's call-to-client link, one bucket per movable site, destructive edits from each diff). Full tables, buckets and
+the pre-v5 → v5 comparison: [eval/RESULTS.md](../eval/RESULTS.md); per-site rows: `eval/v3/SITES_MOVED.md`. v4's cost and
+minutes rose on rescoring because one row (obsidian-copilot) had recorded $0 and no minutes. v5 runs D3's migration unchanged
+(plus judging and proposals in the same session) and was not re-run over the eval sets.
 
 ### What the dev set shows
 
@@ -108,14 +107,19 @@ Minutes are wall clock per run, summed over repos. D3's agent time alone was 58 
   wrong move and left 7 calls wrapped with no Router traffic.
 - **Tools remove wrong moves.** Every arm with fact-computing tools (C, Cnf, D, D3) made 0 wrong moves.
 - **Migrate by default moves more.** v3 kept anything that needed a trade-off (7 moved). v4 took trade-offs and moved 21.
-- **Process is the cost.** D3 drops v4's per-item claims, mandatory proof and gate loop. It keeps 0 wrong and 0 broken,
-  at 55% of v4's dollars and 39% of its minutes (about 2.5× faster).
+- **Process is the cost.** D3 drops v4's per-item claims, mandatory proof and gate loop. It keeps 0 wrong, 0 destructive and
+  0 broken, at 40% of v4's dollars and 31% of its minutes (about 3× faster), and leaves more one approval away (28 vs 21).
 
 ### Held-out set (partial)
 
-<!-- numbers: WS4 -->
-> **Pending.** 10 of 30 planned runs are done. Early runs: D3min moved 2/8 (gpt-cli), 4/14 (kotaemon), 4/7
-> (ai-hedge-fund), 0/7 (claude-engineer), 3/9 (mini-swe-agent), with 0 wrong and 0 broken. The full table goes here.
+| arm | runs scored | moved / movable | one approval away | wrong | destructive edits | broken | $ | minutes |
+|---|---|---|---|---|---|---|---|---|
+| D3min | 5 (2 not run) | **23** / 45 | 23 | 0 | 0 | 0 / 5 | 10.61 | 76 |
+| D3free (no outside check) | 4 (3 not run) | 17 / 36 | 17 | 0 | 0 | 0 / 4 | 6.47 | 39 |
+| B (docs prompt) | 1 (6 not run) | 4 / 8 | 4 | 0 | 10 | 0 / 1 | 2.05 | 7 |
+
+The runner was stopped mid-queue: B is missing ai-hedge-fund, claude-engineer and kotaemon; D3min bilingual_book_maker and
+private-gpt; D3free mini-swe-agent. Compare per repo (`eval/heldout/SITES_MOVED_HELDOUT.md`). k = 1 throughout.
 
 ### Findings
 
@@ -126,8 +130,9 @@ Minutes are wall clock per run, summed over repos. D3's agent time alone was 58 
   Tests were 14/14 before and after. Scope checks catch this; tests don't.
 - **A production crash, found and fixed.** The v4 pilot found that sec-insights deep-copies its LlamaIndex LLM, which
   crashed with Router on. Every arm since v1 had shipped it.
-- **Large suites.** One suite took 325 s per run. Re-running it in a gate loop dominated v4's time. v5 runs affected tests
-  first and the full suite once, in the background.
+- **Large suites.** One suite took 325 s per run. Re-running it in a gate loop dominated v4's time. In v5 the agent picks
+  its own tests while it works, and the outside check runs the full suite once with Router on (in the background when it is
+  slower than 90 s; Apply waits for it).
 
 ## Limitations
 

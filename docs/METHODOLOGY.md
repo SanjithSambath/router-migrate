@@ -87,9 +87,9 @@ Each version answered the previous one's failure. Full specs are in [archive/doc
 | **v1** ([SPEC](../archive/docs/SPEC.md), [DECISIONS](../archive/docs/DECISIONS.md), [SYSTEM_DESIGN](../archive/docs/SYSTEM_DESIGN.md)) | Deterministic: scan, plan, one-line wrap per client, a vendored runtime that translates at the HTTP boundary. | The runtime design is right: inert by default, per-request fallback, 0 of 15 repos broken. The planner is not: rules on judgments overfit (89% → 53% → 30% precision). |
 | **v2** ([SPEC_V2](../archive/docs/SPEC_V2.md)) | Cards: unlocks, Flex, fallbacks, caching, spend tags, model recommendations; a compiled per-feature policy; a dashboard. | The policy mechanism is right. The inputs were heuristics (latency from filenames) and often wrong. Flex and fallbacks on one feature are either/or. |
 | **v3** ([SPEC_V3](../archive/docs/SPEC_V3.md)) | An agent works the residue after a deterministic floor, with tools for facts and a gate. | Tools that compute facts remove wrong moves: 10 correct / 0 wrong, against 10 / 16 for the docs prompt. Encoding our rules as prompt text did not help (10 / 7). Pre-applying the floor added nothing (same result at 68% of the cost). A static oracle capped recall. |
-| **v4** ([METHODOLOGY v4](../archive/docs/METHODOLOGY.md)) | Migrate by default; trade-offs taken with `adapt` and shown with Undo; the agent produces its own evidence; per-item claims; a Stop-hook gate. | Moved the most traffic (21 of 64, 0 wrong, 0 broken) but slowly: 180 minutes, $17.79, one timeout. The pilot found a production `deepcopy` crash every earlier version had shipped. |
-| **D3** (bridge) | Facts plus optional tools plus one outside check. No per-item claims, no mandatory proof, no gate loop. | 17 verified, 0 wrong, 0 broken, $9.87, 71 minutes: about 2.5× faster at the same judgment. Process obligations, not tests, were v4's slowdown. |
-| **v5** (this) | D3 inside the user's own Claude Code session; the agent proposes improvements; automatic lossless levers; affected tests first, then one background full run. | See [EVAL.md](EVAL.md). |
+| **v4** ([METHODOLOGY v4](../archive/docs/METHODOLOGY.md)) | Migrate by default; trade-offs taken with `adapt` and shown with Undo; the agent produces its own evidence; per-item claims; a Stop-hook gate. | Moved the most traffic (21 of 51 on the 9 repos it finished, 0 wrong, 0 broken) but slowly: 229 minutes, $24.69, one timeout. The pilot found a production `deepcopy` crash every earlier version had shipped. |
+| **D3** (bridge) | Facts plus optional tools plus one outside check. No per-item claims, no mandatory proof, no gate loop. | 18 of 64 verified and 28 one approval away, 0 wrong, 0 broken, 0 destructive; $9.87, 71 minutes: about 3× faster at the same judgment. Process obligations, not tests, were v4's slowdown. |
+| **v5** (this) | D3 inside the user's own Claude Code session; the agent proposes improvements; automatic lossless levers; the agent picks its own tests; the outside check runs the full suite once, Router on, in the background when slow. | See [EVAL.md](EVAL.md). |
 
 ### The findings that shaped v5
 
@@ -101,8 +101,8 @@ Each version answered the previous one's failure. Full specs are in [archive/doc
   provider-key config and the Azure provider. Its 14 tests passed before and after. Only a scope check that knows what
   must survive catches this.
 - **Process was the cost, not verification.** v4 required a claim per item, proof per claim and a gate loop. D3 dropped
-  all three and kept the same judgment at 2.5× the speed. The exception was large suites (325 s per run), which v5 handles
-  by running affected tests first and the full suite once, in the background.
+  all three and kept the same judgment at about 3× the speed. The exception was large suites (325 s per run), which v5
+  handles by leaving in-loop testing to the agent and running the full suite once, Router on, in the background.
 - **Real bugs hide behind "tests pass".** The v4 pilot found that sec-insights deep-copies its LlamaIndex LLM. With Router
   on, our HTTP client could not be deep-copied, and the call crashed. Every version since v1 had shipped it. The runtime's
   clients are now `deepcopy`-safe, and a crash in the Router-on run is a failure, never a baseline.

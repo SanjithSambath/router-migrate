@@ -20,7 +20,7 @@ For why it is built this way, see [METHODOLOGY.md](METHODOLOGY.md). For the leve
  2 agent session ───────── migrates (any method, its own tools + check/levers/wrap/unwrap/adapt),
    │                       judges latency and task, proposes improvements, writes MIGRATION.json
    ▼
- 3 outside check (code) ── parse · scope · affected tests, then full suite once with Router on · no invalid Router
+ 3 outside check (code) ── parse · scope · typecheck · full suite once with Router on (background if slow) · no invalid Router
    │                       requests · route truth · proposals validated and priced · guardrails compiled
    │                       └─ on failure: one fact-only fix pass, then revert only the offending files
    ▼
@@ -146,8 +146,10 @@ The agent cannot influence it. It reads only the tree, the baseline and router-s
 1. **Parse.** Every changed file parses.
 2. **Scope.** No edited tests, lockfiles, CI or vendored runtime files. No deleted files. No removed provider-key
    references (fallback traffic still needs them).
-3. **Tests.** Tests affected by the changed files first. Then the full suite, once, with Router on against router-sim,
-   in the background. Compared with the Router-off baseline taken at setup. Typecheck where the repo has one.
+3. **Tests.** The full suite, once, with Router on against router-sim (the runtime is inert without a key, so this also
+   covers Router off), compared with the baseline taken at setup in parallel with the agent. A Router-off run follows only
+   when the result is worse, to name the cause. A suite slower than 90 s runs in the background after `finish`; Apply waits
+   for it. `check --final` skips tests unless `--tests`. Typecheck where the repo has one.
 4. **Router validity.** No invalid request reached router-sim.
 5. **Route truth.** The route check plus sandboxed runs classify every claimed move: verified, unverified, stays.
 6. **Proposals.** Each improvement the agent proposed is validated (catalog id, capability match) and priced.
