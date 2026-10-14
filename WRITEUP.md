@@ -72,4 +72,4 @@ not re-run over the eval sets.
    adapter), server-side Responses state, Flex eligibility in `/v1/models`, and aliases for dated model ids.
 
 Docs: [README](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Methodology](docs/METHODOLOGY.md) ·
-[Eval](docs/EVAL.md) · [Levers](docs/LEVERS.md)
+[Eval](docs/EVAL.md) · [Router facts](router_migrate/data/ROUTER.md)

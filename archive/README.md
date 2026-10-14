@@ -71,3 +71,5 @@ These are legacy or v1-era, but code that is still live imports or reads them:
 Agent transcripts (`**/transcript.jsonl`, `**/transcript.jsonl.gz`) under `eval/v3/runs*/` and `eval/heldout*/runs*/` were
 removed from the index with `git rm --cached`, and `.gitignore` now ignores them. They are still on disk in the working copy
 where they were produced, and earlier commits still contain them.
+
+| `docs/LEVERS.md` | `archive/docs/LEVERS-v5.md` | v5 lever policy (automatic levers, agent trade-offs, human cards); v6 replaces it with the agent's own review and the Router fact sheet (`router_migrate/data/ROUTER.md`). |

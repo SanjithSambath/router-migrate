@@ -78,7 +78,7 @@ is: **which parts can we verify, and who should own the rest?**
 | METR, [Recent frontier models are reward hacking](https://metr.org/blog/2025-06-05-recent-reward-hacking/) | Capable models tamper with tests and scoring when they can. | The check runs outside the agent's reach. Test, CI and lockfile edits fail scope. |
 | [ImpossibleBench](https://arxiv.org/abs/2510.20270) | Coding agents exploit test cases when the task cannot be done honestly, including by editing tests. | No-destructive-edits invariant. We saw it ourselves: the docs-prompt agent deleted gpt-cli's Azure provider and key config while tests still passed. |
 
-## How we got here: v1 to v5
+## How we got here: v1 to v6
 
 Each version answered the previous one's failure. Full specs are in [archive/docs/](../archive/docs/).
 
@@ -89,9 +89,10 @@ Each version answered the previous one's failure. Full specs are in [archive/doc
 | **v3** ([SPEC_V3](../archive/docs/SPEC_V3.md)) | An agent works the residue after a deterministic floor, with tools for facts and a gate. | Tools that compute facts remove wrong moves: 10 correct / 0 wrong, against 10 / 16 for the docs prompt. Encoding our rules as prompt text did not help (10 / 7). Pre-applying the floor added nothing (same result at 68% of the cost). A static oracle capped recall. |
 | **v4** ([METHODOLOGY v4](../archive/docs/METHODOLOGY.md)) | Migrate by default; trade-offs taken with `adapt` and shown with Undo; the agent produces its own evidence; per-item claims; a Stop-hook gate. | Moved the most traffic (21 of 51 on the 9 repos it finished, 0 wrong, 0 broken) but slowly: 229 minutes, $24.69, one timeout. The pilot found a production `deepcopy` crash every earlier version had shipped. |
 | **D3** (bridge) | Facts plus optional tools plus one outside check. No per-item claims, no mandatory proof, no gate loop. | 18 of 64 verified and 28 one approval away, 0 wrong, 0 broken, 0 destructive; $9.87, 71 minutes: about 3× faster at the same judgment. Process obligations, not tests, were v4's slowdown. |
-| **v5** (this) | D3 inside the user's own Claude Code session; the agent proposes improvements; automatic lossless levers; the agent picks its own tests; the outside check runs the full suite once, Router on, in the background when slow. | See [EVAL.md](EVAL.md). |
+| **v5** | D3 inside the user's own Claude Code session; the agent proposes improvements; automatic lossless levers; the agent picks its own tests; the outside check runs the full suite once, Router on, in the background when slow. | Migration worked on a real repo (agent.email), but Improve produced nothing: the rules engine needed the model at the call site, the app kept it in config behind a wrapper, and the agent had no way to hand over what it understood. Code was still deciding things that take understanding. |
+| **v6** (this; [plan](plans/v6-agent-first.md)) | Agent-forward: the agent migrates, reviews the system and builds improvements as git branches, and later applies and undoes what the human asks; code keeps only facts, a sandbox, live Router checks with a spend-capped key, the outside check and the runtime. Edit-category bans become outcome checks and flags; every decision is a commit; one item format for the whole dashboard. | See [EVAL.md](EVAL.md) and `eval/v6/`. |
 
-### The findings that shaped v5
+### The findings that shaped v5 and v6
 
 - **Wrapped is not moved.** Earlier scorers counted a wrapped client as migrated. It isn't, if its requests never reach
   Router. AI-Scientist's `seed=0` kept its OpenAI calls on OpenAI under every earlier scorer. Config-driven base URLs and
@@ -103,6 +104,12 @@ Each version answered the previous one's failure. Full specs are in [archive/doc
 - **Process was the cost, not verification.** v4 required a claim per item, proof per claim and a gate loop. D3 dropped
   all three and kept the same judgment at about 3× the speed. The exception was large suites (325 s per run), which v5
   handles by leaving in-loop testing to the agent and running the full suite once, Router on, in the background.
+- **Rules can't hand over understanding (v6).** On agent.email the model names lived in a config file and reached the call
+  through a wrapper. The rules engine saw "model unknown" and stayed silent, and the report had no field for what the
+  agent knew. v6 makes improvement the agent's work, with code checking facts, not finding opportunities.
+- **Edit bans block good migrations (v6).** "Don't edit lockfiles" and "don't delete files" would have reverted a port from
+  Anthropic server tools to Responses-style web search. v6 judges outcomes (tests, typecheck, valid requests, nothing
+  lost without saying so) and flags the rest for the human.
 - **Real bugs hide behind "tests pass".** The v4 pilot found that sec-insights deep-copies its LlamaIndex LLM. With Router
   on, our HTTP client could not be deep-copied, and the call crashed. Every version since v1 had shipped it. The runtime's
   clients are now `deepcopy`-safe, and a crash in the Router-on run is a failure, never a baseline.
