@@ -119,6 +119,9 @@ def typecheck_cmd(rec, src):
 
 
 # ------------------------------------------------------------------------------------------------ scoring
+CLIENTS = {}  # trial dir -> scanner client constructions of the code as it stands (pristine-mapped lines), set by measure()
+
+
 def measure(dst, name):
     """Prod sites that route to Router in the code as it is now, with lines mapped back to the pristine source."""
     scan = scan_py.scan(dst)
@@ -131,6 +134,9 @@ def measure(dst, name):
             pass
     p = planmod.build({"sites": sites, "root": dst}, Catalog.load(), measure_only=True)
     pm = PristineMap(dst, name)
+    # the client constructions too (scorer: a decision or probe anchored at a client covers the calls that use it)
+    CLIENTS[dst] = [dict(c, line=pm(c["file"], int(c["line"])), line_now=int(c["line"])) for c in sites
+                    if c.get("kind") == "client" and c.get("prod", True)]
     out = []
     for s in p["sites"]:
         if not s.get("prod"):
@@ -168,7 +174,9 @@ def pristine_maps(diff_text):
             if cur is not None:
                 cur["hunks"].append((old, al, new, nl))
             continue
-        if cur is None or not l or l[0] not in " +-\\":
+        if cur is not None and not l:
+            l = " "  # a blank context line whose trailing space was stripped (git apply reads it the same way)
+        if cur is None or l[0] not in " +-\\":
             continue
         if l[0] == " ":
             cur["exact"][new] = old
@@ -725,7 +733,9 @@ def score_trial(arm, name):
         import score_moved
         mv = score_moved.score_one(arm, name, dst=dst, measured=measured, reported=reported, broken=is_broken)
         row["moved_v4"] = {k: mv.get(k) for k in ("sites_moved", "movable_total", "sites_moved_movable", "sites_moved_wrong",
-                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated")}
+                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated", "buckets",
+                                                  "one_approval_away", "minutes")}
+        row["moved_v4"]["destructive"] = (mv.get("destructive") or {}).get("count")
         row["invalid"] = row["invalid"] or mv.get("invalid")
     except Exception as e:
         row["moved_v4"] = {"error": str(e)[:300]}

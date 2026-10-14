@@ -2,12 +2,14 @@
  "arm": "B2_r1",
  "repo": "computer_use_ootb",
  "set": "v3",
- "scored_at": "2026-10-14T13:19:32",
+ "scored_at": "2026-10-14T15:31:29",
+ "scorer": "v5",
  "fallback": null,
  "broken": false,
  "usd": 1.0797,
  "cost_source": "result",
  "minutes": 4.0,
+ "minutes_source": "agent.json",
  "agent_minutes": 3.8,
  "tests_before": {
   "passed": 7,
@@ -23,6 +25,13 @@
   "skipped": 0,
   "exit": 0
  },
+ "destructive": {
+  "count": 0,
+  "keys_removed": [],
+  "files_deleted": [],
+  "defs_deleted": [],
+  "examples": []
+ },
  "tradeoffs": 0,
  "tradeoff_detail": [],
  "decisions": 6,
@@ -32,35 +41,170 @@
  "dynamic_source": null,
  "dynamic_sites": 0,
  "routed_static": 0,
+ "through_runtime": 1,
+ "route_checked": 3,
+ "decisions_resolved": [
+  {
+   "at": "computer_use_demo/gui_agent/llm_utils/oai.py:71",
+   "pristine_line": 71,
+   "reading": "pristine",
+   "outcome": "handoff",
+   "source": "MIGRATION_REPORT.json"
+  },
+  {
+   "at": "computer_use_demo/gui_agent/actor/uitars_agent.py:55",
+   "pristine_line": 55,
+   "reading": "pristine",
+   "outcome": "kept",
+   "source": "MIGRATION_REPORT.json"
+  },
+  {
+   "at": "computer_use_demo/gui_agent/planner/anthropic_agent.py:118",
+   "pristine_line": 118,
+   "reading": "pristine",
+   "outcome": "flagged",
+   "source": "MIGRATION_REPORT.json"
+  },
+  {
+   "at": "install_tools/test_ui-tars_server.py:64",
+   "pristine_line": 64,
+   "reading": "same",
+   "outcome": "not_a_site",
+   "source": "MIGRATION_REPORT.json"
+  },
+  {
+   "at": "computer_use_demo/gui_agent/llm_utils/oai.py:174",
+   "pristine_line": 174,
+   "reading": "same",
+   "outcome": "kept",
+   "source": "MIGRATION_REPORT.json"
+  },
+  {
+   "at": "computer_use_demo/gui_agent/llm_utils/qwen.py:52",
+   "pristine_line": 52,
+   "reading": "same",
+   "outcome": "kept",
+   "source": "MIGRATION_REPORT.json"
+  }
+ ],
  "claimed_migrated": 0,
- "claimed_and_routed_static": 0,
- "sites_moved": 0,
- "moved": [],
- "wrapped_but_no_router_traffic": [],
  "movable_total": 3,
+ "buckets": {
+  "moved_verified": 0,
+  "moved_unverified": 0,
+  "surfaced_for_decision": 2,
+  "correctly_kept": 1,
+  "claimed_not_routing": 0,
+  "missed": 0
+ },
+ "one_approval_away": 2,
  "sites_moved_movable": 0,
  "sites_moved_wrong": 0,
+ "sites_moved": 0,
  "sites_moved_unmatched": 0,
  "file_level_matches": 0,
  "old_gt_total": 0,
  "sites_moved_old_gt": 0,
- "wrong_detail": [],
- "unmatched_detail": [],
- "movable_missed": [
+ "site_buckets": [
   {
    "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
    "line": 70,
-   "hint": "per-user key; raw-http call"
+   "surface": "chat",
+   "prod": true,
+   "movable": true,
+   "why_not_movable": "",
+   "hint": "per-user key; raw-http call",
+   "expected_old": "flagged",
+   "scanner": "computer_use_demo/gui_agent/llm_utils/oai.py:71",
+   "decision": {
+    "outcome": "handoff",
+    "how": "direct",
+    "at": "computer_use_demo/gui_agent/llm_utils/oai.py:71",
+    "why": "run_oai_interleaved builds the chat.completions payload by hand and POSTs it with `requests` directly to https://api.openai.com/v1/chat/completions (oai.py:70-72); there is no SDK client here for the "
+   },
+   "bucket": "surfaced_for_decision",
+   "evidence": "handoff"
+  },
+  {
+   "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
+   "line": 174,
+   "surface": "chat",
+   "prod": true,
+   "movable": false,
+   "why_not_movable": "local/self-hosted model: self-hosted",
+   "hint": "",
+   "expected_old": "kept",
+   "scanner": null,
+   "decision": {
+    "outcome": "kept",
+    "how": "direct",
+    "at": "computer_use_demo/gui_agent/llm_utils/oai.py:174",
+    "why": "run_ssh_llm_interleaved builds a chat-completions-shaped payload and POSTs it with `requests` to `http://{ssh_host}:{ssh_port}/v1/chat/completions` (oai.py:117,174-179), where ssh_host/ssh_port are pa"
+   },
+   "bucket": "not_movable",
+   "evidence": "local/self-hosted model: self-hosted"
   },
   {
    "file": "computer_use_demo/gui_agent/llm_utils/qwen.py",
    "line": 52,
-   "hint": "other vendor (dashscope): unlock host / model swap; per-user key; other:dashscope call"
+   "surface": "chat",
+   "prod": true,
+   "movable": true,
+   "why_not_movable": "",
+   "hint": "other vendor (dashscope): unlock host / model swap; per-user key; other:dashscope call",
+   "expected_old": "kept",
+   "scanner": null,
+   "decision": {
+    "outcome": "kept",
+    "how": "direct",
+    "at": "computer_use_demo/gui_agent/llm_utils/qwen.py:52",
+    "why": "run_qwen calls Alibaba's `dashscope.MultiModalConversation.call(model='qwen-vl-max-latest', ...)`, Alibaba's DashScope endpoint/SDK, not OpenAI or Anthropic. Used in production from APIVLMPlanner when"
+   },
+   "bucket": "correctly_kept",
+   "evidence": "other vendor (dashscope): unlock host / model swap; per-user key; other:dashscope call"
   },
   {
    "file": "computer_use_demo/gui_agent/planner/anthropic_agent.py",
    "line": 118,
-   "hint": "per-user key; beta flags"
+   "surface": "messages",
+   "prod": true,
+   "movable": true,
+   "why_not_movable": "",
+   "hint": "per-user key; beta flags",
+   "expected_old": "flagged",
+   "scanner": "computer_use_demo/gui_agent/planner/anthropic_agent.py:125",
+   "decision": {
+    "outcome": "flagged",
+    "how": "direct",
+    "at": "computer_use_demo/gui_agent/planner/anthropic_agent.py:118",
+    "why": "AnthropicActor.__call__ always calls `self.client.beta.messages.with_raw_response.create(..., betas=[\"computer-use-2024-10-22\"])` (anthropic_agent.py:125-132). The Anthropic beta header keeps this on "
+   },
+   "bucket": "surfaced_for_decision",
+   "evidence": "flagged"
+  },
+  {
+   "file": "computer_use_demo/gui_agent/actor/uitars_agent.py",
+   "line": 55,
+   "surface": "chat",
+   "prod": true,
+   "movable": false,
+   "why_not_movable": "local/self-hosted model: self-hosted",
+   "hint": "",
+   "expected_old": "kept",
+   "scanner": "computer_use_demo/gui_agent/actor/uitars_agent.py:62",
+   "decision": {
+    "outcome": "kept",
+    "how": "direct",
+    "at": "computer_use_demo/gui_agent/actor/uitars_agent.py:55",
+    "why": "The OpenAI client is constructed with `base_url=self.ui_tars_url` (uitars_agent.py:44), and ui_tars_url is a runtime value entered through the Gradio UI/state (app.py:64-65) and threaded through loop."
+   },
+   "bucket": "not_movable",
+   "evidence": "local/self-hosted model: self-hosted"
   }
- ]
+ ],
+ "moved": [],
+ "wrong_detail": [],
+ "unmatched_detail": [],
+ "wrapped_but_no_router_traffic": [],
+ "movable_missed": []
 }

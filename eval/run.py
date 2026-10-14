@@ -112,8 +112,11 @@ def verdict(arm, repo):
 
 def summary(arm, repo):
     sm = read_json(os.path.join(out_dir(arm, repo), "sites_moved.json")) or {}
-    return "moved=%s/%s wrong=%s broken=%s $%.2f" % (sm.get("sites_moved_movable", sm.get("sites_moved")), sm.get("movable_total"),
-                                                    sm.get("sites_moved_wrong"), sm.get("broken"), sm.get("usd") or 0)
+    b = sm.get("buckets") or {}
+    return "moved=%s/%s one-approval-away=%s surfaced=%s kept=%s not-routing=%s missed=%s wrong=%s destructive=%s broken=%s $%.2f %smin" % (
+        sm.get("sites_moved_movable", sm.get("sites_moved")), sm.get("movable_total"), sm.get("one_approval_away"),
+        b.get("surfaced_for_decision"), b.get("correctly_kept"), b.get("claimed_not_routing"), b.get("missed"), sm.get("sites_moved_wrong"),
+        (sm.get("destructive") or {}).get("count"), sm.get("broken"), sm.get("usd") or 0, sm.get("minutes"))
 
 
 # ------------------------------------------------------------------------------------------------ dispatch
@@ -259,7 +262,8 @@ def main(argv=None):
             counts[s.split(":")[0]] = counts.get(s.split(":")[0], 0) + 1
     log("finished: %s" % ", ".join("%s %d" % kv for kv in sorted(counts.items())))
     if not a.dry_run and not a.no_report:
-        for name, fn in (("sites moved", SM.report), ("ablation", B.report)):
+        # the set's sites-moved tables, the ablation tables, then eval/RESULTS.md from every set's latest report
+        for name, fn in (("sites moved", SM.report), ("ablation", B.report), ("results", SM.results_md)):
             try:
                 fn()
             except Exception as e:
