@@ -1,0 +1,35 @@
+{
+  "name": "obsidian-textgenerator-plugin",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV/home\" \"$ENV/tmp\"",
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules main.js main.css && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm install --no-audit --no-fund --ignore-scripts --no-package-lock --legacy-peer-deps --before=2026-10-13T00:00:00Z"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" && node esbuild.config.mjs production && ./node_modules/.bin/vitest run",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 900,
+  "baseline": {
+    "passed": 24,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 16.5,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p .",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 85
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      16.5,
+      9.8
+    ]
+  },
+  "notes": "Env: commands assume $RM, $SRC and $ENV are set; setup sources scripts/env.sh so the npm cache stays in $RM/.tools/npm-cache. Run every step under `env -u RAMP_ROUTER_API_KEY`. Versions: Node v24.19.0 (system), npm 11.17.0. The repo's release workflow uses Node 21 + pnpm 8. INSTALL: the repo has no lockfile (pnpm-lock.yaml is gitignored), so setup uses npm with --before=2026-10-13T00:00:00Z to pin resolution to the baseline date. --legacy-peer-deps is required: handlebars-async-helpers@1.0.6 peer-depends on handlebars@4.7.6, which conflicts with the root's handlebars ^4.7.8, and plain npm fails with ERESOLVE. --ignore-scripts plus ELECTRON_SKIP_BINARY_DOWNLOAD=1 skip the electron binary download and the native builds for hyperswarm's deps; neither is needed, and esbuild/rollup use their optional platform packages. --no-package-lock keeps package-lock.json out of the working copy, so git status stays clean (node_modules, main.js and main.css are gitignored). One git dependency, sse (github:mpetazzoni/sse.js, unpinned, resolved 2.8.0), needs network at setup time. Cold-cache install took about 5 min, 1018 packages. Resolved: @langchain/openai 1.6.2, @langchain/anthropic 1.5.12, @langchain/core 1.2.17, @langchain/google-genai 2.3.2, @langchain/mistralai 1.2.0, openai 7.32.0, vitest 4.1.11, esbuild 0.21.4, typescript 5.2.2. TEST_CMD: (1) `node esbuild.config.mjs production`, the JS half of the repo's `npm run build` (build:css/postcss skipped as unrelated). It bundles src/main.ts with every LLM provider; the dynamic `await import(\"@langchain/...\")` calls are bundled too. So an unresolved import or syntax error in any provider file fails the command with exit 1 (checked: a non-awaited esbuild.build failure exits 1). (2) The repo's `npm test` = `vitest run`: 3 files, 24 tests (src/scope/content-manager/md.test.ts, src/extractors/audio-transcription-parse.test.ts, src/LLMProviders/langchain/minimaxConfig.test.ts). minimaxConfig.test.ts builds a real ChatOpenAI and ChatAnthropic with a capture fetch that throws before any network I/O. The unit tests do not import the OpenAI/Anthropic provider classes, so the bundle step and typecheck_cmd are the main guards for migration edits there. The baseline was taken under macOS sandbox-exec with network-outbound denied (loopback allowed), so offline behaviour is confirmed. Nothing deselected, no API keys needed. HOME/TMPDIR are sandboxed into $ENV. Writes main.js/main.css (gitignored) to the repo root. CI (.github/workflows/ci.yml) only runs prettier, so the tests are the package.json `test` script. Both runs: 24 passed, 0 failed (16.5s cold, 9.8s warm wall time including the bundle). TYPECHECK: `tsc --noEmit -p .` with the repo's TS 5.2.2 and strict tsconfig (no skipLibCheck) has 85 pre-existing `error TS`, exit 2, identical across 2 runs. 51 are in node_modules .d.ts files (newer @langchain/*, zod v4, vitest and obsidian-dataview typings need a newer TS). 34 are in src, e.g. chatanthropic.tsx(46) TS2416 getConfig, openaiAgent.tsx(272) TS2345, and palm.tsx(3) TS2307 for the missing @langchain/community/chat_models/googlepalm."
+}

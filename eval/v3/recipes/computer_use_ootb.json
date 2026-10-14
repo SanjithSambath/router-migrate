@@ -1,0 +1,38 @@
+{
+  "name": "computer_use_ootb",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\""
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" PYTHONPATH=. OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy QWEN_API_KEY=dummy GRADIO_ANALYTICS_ENABLED=False HF_HUB_OFFLINE=1 $PY -c 'import sys, time, importlib, compileall\nt = time.time()\nres = []\nok = [bool(compileall.compile_dir(d, quiet=1, force=True)) for d in (\"computer_use_demo\", \"install_tools\")] + [bool(compileall.compile_file(\"app.py\", quiet=1, force=True))]\nres.append((\"compileall computer_use_demo install_tools app.py\", all(ok)))\nfor m in (\"computer_use_demo.gui_agent.llm_utils.oai\", \"computer_use_demo.gui_agent.llm_utils.qwen\", \"computer_use_demo.gui_agent.planner.anthropic_agent\", \"computer_use_demo.gui_agent.actor.uitars_agent\", \"computer_use_demo.gui_agent.planner.api_vlm_planner\", \"computer_use_demo.loop\"):\n    try:\n        importlib.import_module(m)\n        res.append((\"import \" + m, True))\n    except BaseException as e:\n        print(\"ERROR importing\", m, \"->\", type(e).__name__, e)\n        res.append((\"import \" + m, False))\nfor name, good in res:\n    print((\"PASSED \" if good else \"FAILED \") + name)\np = sum(1 for _, g in res if g); f = len(res) - p\nprint((\"%d failed, \" % f if f else \"\") + \"%d passed in %.2fs\" % (p, time.time() - t))\nsys.exit(1 if f else 0)'",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "ANTHROPIC_API_KEY": "sk-ant-dummy",
+    "QWEN_API_KEY": "dummy",
+    "GRADIO_ANALYTICS_ENABLED": "False",
+    "HF_HUB_OFFLINE": "1"
+  },
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 7,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 4.5,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 3,
+    "identical": true,
+    "seconds": [
+      5.6,
+      4.5,
+      11.0
+    ]
+  },
+  "notes": "No test suite in the repo (no tests/, no CI config; requirements.txt lists pytest but nothing uses it), so test_cmd is the v3 SMOKE check. It is one $PY -c script that counts 7 checks and prints a pytest-style summary ('7 passed in Xs', or 'N failed, M passed in Xs' with exit 1) that parse_counts reads. Check 1: compileall (force=True) over computer_use_demo/, install_tools/ and app.py, so any syntax error anywhere in the repo fails it. Checks 2-7: importlib.import_module of each production module with an LLM call plus their callers: computer_use_demo.gui_agent.llm_utils.oai (raw requests.post to api.openai.com and to the self-hosted ssh Qwen server), computer_use_demo.gui_agent.llm_utils.qwen (dashscope), computer_use_demo.gui_agent.planner.anthropic_agent (anthropic client.beta.messages), computer_use_demo.gui_agent.actor.uitars_agent (openai chat.completions to a UI-TARS server), computer_use_demo.gui_agent.planner.api_vlm_planner (calls oai/qwen) and computer_use_demo.loop (wiring). app.py is compiled but not imported: importing it builds the Gradio UI, queries monitors and calls demo.launch(). local_vlm_planner / showui_agent / remote_inference run local transformers models and have no API calls, so they are compiled but not imported. Dummy keys (OPENAI_API_KEY/ANTHROPIC_API_KEY/QWEN_API_KEY) are set in test_cmd and test_env; no client is built at import time and nothing is called. Not a pip package (no setup.py/pyproject), so there is no editable install: reinstall is empty and test_cmd uses PYTHONPATH=. with cwd = the repo copy. PYTHONPYCACHEPREFIX=$ENV/tmp/pycache keeps .pyc files out of the working copy; HOME/TMPDIR are sandboxed into $ENV. Python 3.12.15 (README requires >= 3.12; the code uses enum.StrEnum). Setup installs requirements.txt unchanged with --exclude-newer 2026-10-13T00:00:00Z, which resolves anthropic 1.13.0, openai 3.29.0, dashscope 1.27.7, gradio 6.30.0, torch 2.14.1 (via accelerate), transformers 5.19.0, pyautogui 0.9.54 + pyobjc-framework-quartz 12.2.2 (the repo imports Quartz at module level on macOS). 137 packages. Rebuilding from scratch into a second env gave an identical uv pip freeze. Baseline runs used macOS sandbox-exec with outbound network denied (loopback allowed): 7 passed, exit 0, every time (wall 5.6s cold, 4.5s warm, 11.0s in the fresh check env). Negative check: in a scratch copy with a broken `from openai import ...` in uitars_agent.py plus a syntax error in install_tools/, it reported '2 failed, 5 passed' with exit 1. Nothing deselected."
+}

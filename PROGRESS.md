@@ -136,3 +136,7 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   `check`, `wrap`, `claim` (evidence must resolve; a migrated claim the tool contradicts is rejected), `finish` (parse, scope,
   typecheck and tests vs baseline, Router-on run vs the floor's Router-on run, claims re-checked, worklist resolved; reverts
   to the floor after 3 failed runs; `--hook` speaks the Stop-hook protocol). Done when: tests/test_agent_v3.py (8) pass; 278 total.
+- **T3 frozen fresh-repo inventories** (this commit, before any arm C run): 10 blind rubric inventories (eval/v3/inventory/,
+  same rubric as held-out: 97 production sites; expected 21 migrated, 7 handoff, 4 flagged, 65 kept) and 10 offline test
+  recipes (eval/v3/recipes/; repos without tests get an import/compile smoke command that a broken import fails).
+  Done when: 10 inventories + 10 recipes committed; every baseline ran twice with identical counts, network blocked.

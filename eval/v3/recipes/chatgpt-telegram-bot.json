@@ -1,0 +1,34 @@
+{
+  "name": "chatgpt-telegram-bot",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\""
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/pycache\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/pycache\" PYTHONPATH=bot OPENAI_API_KEY=sk-dummy TELEGRAM_BOT_TOKEN=000000:dummy $PY -c 'import compileall, importlib, sys, time, traceback\nt = time.time(); p = f = 0\nif compileall.compile_dir(\"bot\", quiet=1): p += 1\nelse: f += 1; print(\"FAILED compileall bot\")\nfor m in (\"openai_helper\", \"plugin_manager\", \"telegram_bot\", \"main\"):\n    try: importlib.import_module(m); p += 1\n    except BaseException: f += 1; print(\"FAILED import \" + m); traceback.print_exc()\nprint((f\"{f} failed, \" if f else \"\") + f\"{p} passed in {time.time() - t:.2f}s\")\nsys.exit(1 if f else 0)\n'",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "TELEGRAM_BOT_TOKEN": "000000:dummy"
+  },
+  "timeout_s": 300,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 5,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.1,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      2.2,
+      1.0
+    ]
+  },
+  "notes": "The repo has no test suite (no tests/, no pytest config). CI (.github/workflows/publish.yaml) only builds and pushes the Docker image. So test_cmd is the v3 smoke check. The repo is not a package (requirements.txt only; the Dockerfile runs `python bot/main.py`, and modules import each other by top-level name, e.g. `from openai_helper import ...`). So setup installs requirements.txt into $ENV and test_cmd runs from the repo copy with PYTHONPATH=bot. No editable install, and `reinstall` is empty because PYTHONPATH points at the working copy. WHAT THE SMOKE COMMAND CHECKS (one inline $PY -c script, 5 checks, each counted as one pass/fail): (1) compileall.compile_dir('bot') over bot/ and bot/plugins/ compiles every file (fails on any SyntaxError). (2) `import openai_helper`: the only production module with LLM calls (AsyncOpenAI client, 4 chat.completions.create, images.generate, audio.speech, audio.transcriptions); importing it also loads ../translations.json and imports utils, plugin_manager and all plugins. (3) `import plugin_manager` (all 15 plugins, including auto_tts, which calls helper.generate_speech). (4) `import telegram_bot` (the OpenAIHelper consumer; python-telegram-bot, pydub, PIL). (5) `import main` (entry point that builds openai_config and constructs OpenAIHelper inside main(); it is not called). It prints the pytest-style line `N passed in Xs` (`F failed, N passed in Xs` on failure) and exits 1 if any check fails. Import errors print a traceback. The OpenAIHelper/AsyncOpenAI client is NOT constructed and no request is made, so a migrated constructor that needs RAMP_ROUTER_API_KEY cannot fail the smoke while the key is unset. Dummy env vars OPENAI_API_KEY=sk-dummy and TELEGRAM_BOT_TOKEN=000000:dummy are set inline (and in test_env), though import has no env-dependent side effects. HOME/TMPDIR are sandboxed into $ENV/home and $ENV/tmp. PYTHONPYCACHEPREFIX=$ENV/pycache sends all .pyc output (compileall and imports) out of the repo copy, so the working tree stays clean (git status --ignored is empty after a run). Expected stderr noise: a pydub RuntimeWarning that ffmpeg is not found (harmless at import). Python 3.11.17 via uv (the Dockerfile uses python:3.9-alpine; 3.11 is the oldest version the hard rules allow, and all pins resolve to wheels). Resolved: openai==1.58.1, httpx==0.28.1, python-telegram-bot==21.9, tiktoken==0.7.0, pillow==11.0.0, duckduckgo-search==7.1.1 (primp 2.0.1), pydub 0.25.1. Baseline was taken with outbound network denied (macOS sandbox-exec, loopback allowed), so the smoke is confirmed offline, and with RAMP_ROUTER_API_KEY unset. Nothing is deselected. Two runs gave identical counts: 5 passed in 2.08s (wall 2.2s) and 5 passed in 0.82s (wall 1.0s, warm pycache). Rebuilt from scratch into a second env: identical uv pip freeze, again 5 passed. Negative check: replacing `import openai` in a scratch copy of openai_helper.py with a missing module gave `3 failed, 2 passed` and exit 1. parse_counts reads all of these lines correctly."
+}

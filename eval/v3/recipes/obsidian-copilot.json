@@ -1,0 +1,34 @@
+{
+  "name": "obsidian-copilot",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV\" && cd \"$SRC\" && rm -rf node_modules && HUSKY=0 npm ci --no-audit --no-fund"
+  ],
+  "test_cmd": "unset OPENAI_API_KEY ANTHROPIC_API_KEY OPENAI_BASE_URL ANTHROPIC_BASE_URL; mkdir -p \"$ENV/home\" \"$ENV/tmp\" && printf '{\"type\":\"commonjs\"}\\n' > \"$ENV/package.json\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" HUSKY=0 ./node_modules/.bin/jest --ci --maxWorkers=50% --testTimeout=30000",
+  "test_kind": "unit",
+  "test_env": {},
+  "timeout_s": 1200,
+  "baseline": {
+    "passed": 7867,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 2,
+    "seconds": 29.4,
+    "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc -noEmit -skipLibCheck",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      29.4,
+      26.5
+    ]
+  },
+  "notes": "Env: commands assume $RM, $SRC and $ENV are substituted and scripts/env.sh is sourced (setup does this itself, so the npm cache stays in $RM/.tools/npm-cache); run every step under `env -u RAMP_ROUTER_API_KEY`. Node v24.19.0, npm 11.17.0 (CI uses Node 22.x with `npm ci` + `npm test -- --shard=N/4`; Node 24 works). Lockfile v3, 1229 packages, install ~5s warm. HUSKY=0 stops the `prepare: husky` script from writing git hooks into the repo copy. npm 11 skips the 4 install scripts not in allowScripts (esbuild, fsevents, msgpackr-extract, unrs-resolver); jest and tsc do not need them. test_cmd = the repo's `npm test` (= `jest`, ts-jest preset, jsdom env, roots src/dev/scripts) run directly from node_modules/.bin with --ci. 569 suites, 7869 tests: 7867 passed, 2 skipped (Windows-only tests: platform-conditional it.skip in codexBinaryResolver/cliSignIn/ReportIssueModal tests). Nothing deselected. Two deviations from plain `jest`, both for robustness under the eval harness, neither changes which tests run: (1) HOME and TMPDIR are sandboxed into $ENV/home and $ENV/tmp, and test_cmd writes $ENV/package.json = {\"type\":\"commonjs\"}. Without it, OpencodeBinaryManager.test.ts fails 2 tests: it writes an extensionless `#!/usr/bin/env node` script using require() into os.tmpdir(), and Node resolves the nearest package.json upward, which is $RM/package.json (\"type\": \"module\"), so the script runs as ESM and throws. (2) --maxWorkers=50% --testTimeout=30000: on a machine shared with other concurrent agents, a default-worker run took 300s and ByokPanel.test.tsx hit jest's 5s default timeout once; with these flags runs take ~30s and are stable. LLM coverage is offline by construction: jest maps @anthropic-ai/claude-agent-sdk and @agentclientprotocol/sdk to __mocks__, ChatOpenRouter/ChatModelManager tests use jest.fn fetch/mocks, obsidian requestUrl is mocked. The offline baseline was confirmed under macOS sandbox-exec with outbound network denied (loopback allowed): same 7867 passed / 2 skipped. No API keys are read by the tests; OPENAI_/ANTHROPIC_ key and base-URL vars are unset defensively. Baseline: setup rebuilt from scratch (rm -rf node_modules + npm ci), then test_cmd run twice: identical counts (7867 passed, 0 failed, 2 skipped, exit 0; jest Time 29.4s and 26.5s). parse_counts reads {'passed': 7867, 'failed': 0, 'errors': 0, 'skipped': 2}. typecheck_cmd = the tsc step of the repo's `build:esbuild` script (`tsc -noEmit -skipLibCheck`, TypeScript 5.7.2, tsconfig includes src, dev/gallery, typings and root *.ts): exit 0, 0 `error TS`, ~7s, identical over 2 runs. Note for the migration under test: the LLM construction for every chat provider is the single polymorphic `new AIConstructor(constructorConfig)` in src/LLMProviders/chatModelManager.ts; chatModelManager.requestBody.test.ts and chatModelManager.bridge.test.ts assert on the constructor config those branches produce, so changes to the OpenAI/Anthropic branches are exercised by the suite."
+}

@@ -1,0 +1,41 @@
+{
+  "name": "AI-Scientist",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/pycache\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/pycache\" PYTHONPATH=. OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy DEEPSEEK_API_KEY=dummy OPENROUTER_API_KEY=dummy GEMINI_API_KEY=dummy LITELLM_LOCAL_MODEL_COST_MAP=True WANDB_MODE=disabled HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MPLBACKEND=Agg $PY -c 'import sys,time,compileall,importlib,traceback\nt=time.time(); ok=0; bad=0\nfor d in [\"ai_scientist\",\"launch_scientist.py\",\"experimental\",\"review_iclr_bench\"]:\n    r = compileall.compile_file(d,quiet=1) if d.endswith(\".py\") else compileall.compile_dir(d,quiet=1)\n    if r: ok+=1; print(\"PASSED compileall\", d)\n    else: bad+=1; print(\"FAILED compileall\", d)\nfor m in [\"ai_scientist.llm\",\"ai_scientist.generate_ideas\",\"ai_scientist.perform_experiments\",\"ai_scientist.perform_review\",\"ai_scientist.perform_writeup\",\"launch_scientist\"]:\n    try:\n        importlib.import_module(m); ok+=1; print(\"PASSED import\", m)\n    except BaseException:\n        bad+=1; print(\"FAILED import\", m); traceback.print_exc()\ndt=time.time()-t\nprint((str(bad)+\" failed, \" if bad else \"\")+str(ok)+\" passed in \"+format(dt,\".2f\")+\"s\")\nsys.exit(1 if bad else 0)'",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "ANTHROPIC_API_KEY": "sk-ant-dummy",
+    "DEEPSEEK_API_KEY": "dummy",
+    "OPENROUTER_API_KEY": "dummy",
+    "GEMINI_API_KEY": "dummy",
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+    "WANDB_MODE": "disabled",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "MPLBACKEND": "Agg"
+  },
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 10,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 12.6,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      12.6,
+      5.8
+    ]
+  },
+  "notes": "No test suite and no CI in the repo (REPOS.json tests: none; no tests/, no .github/), so test_cmd is the v3 smoke check. Python 3.11.17 (uv-managed; aider-chat needs <3.13). No pyproject/setup.py, so nothing is installed editable: setup installs requirements.txt (--exclude-newer 2026-10-13T00:00:00Z; resolved aider-chat 0.86.2, openai 2.20.0, anthropic 1.13.0, litellm 1.81.10, google-generativeai 0.8.6, torch 2.14.1, numpy 1.26.4) and the code is imported from the working copy via cwd + PYTHONPATH=. (no reinstall step needed). The smoke command counts 10 checks and prints a pytest-style 'N passed in Xs' (or 'M failed, N passed in Xs', exit 1) line that parse_counts reads: (1-4) compileall of ai_scientist/, launch_scientist.py, experimental/ and review_iclr_bench/; (5-10) importlib.import_module of ai_scientist.llm (all direct OpenAI/Anthropic call sites + create_client), ai_scientist.generate_ideas, ai_scientist.perform_experiments, ai_scientist.perform_review, ai_scientist.perform_writeup, and launch_scientist (aider Model() sites; imports torch, aider, openai and every ai_scientist module). It does not construct clients or call any LLM (create_client is never invoked), so it needs no keys; dummy OPENAI/ANTHROPIC/DEEPSEEK/OPENROUTER/GEMINI keys are set only to neutralise import-time side effects, LITELLM_LOCAL_MODEL_COST_MAP=True stops LiteLLM fetching its price map, WANDB/HF are forced offline. HOME, TMPDIR and PYTHONPYCACHEPREFIX are sandboxed into $ENV so the working copy stays clean (git status empty after a run). Templates (torch experiment code, no LLM calls) and notebooks are not checked. Baseline taken in base/AI-Scientist with RAMP_ROUTER_API_KEY unset and outbound network denied (macOS sandbox-exec, loopback allowed; curl to api.openai.com confirmed blocked): two runs, identical 10 passed (12.07s cold / 5.20s warm in-script; 12.6s / 5.8s wall). Negative control: replacing 'import openai' in a scratch copy of ai_scientist/llm.py gave '5 failed, 5 passed', exit 1. Expected noise: a FutureWarning from google.generativeai (deprecated) on import of ai_scientist.llm. test_kind is left as 'unit' because the smoke command produces pass/fail counts like a test run, but it is an import/compile smoke check, not unit tests."
+}

@@ -1,0 +1,44 @@
+{
+  "name": "sec-insights",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    "rm -rf \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv venv -q --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && POETRY_CACHE_DIR=\"$PWD/.tools/poetry-cache\" POETRY_VIRTUALENVS_CREATE=false .venv/bin/uv tool run --exclude-newer 2026-10-13T00:00:00Z --python 3.11 --from poetry==2.5.1 --with poetry-plugin-export==1.10.1 poetry -C \"$SRC/backend\" export --with dev --without-hashes -f requirements.txt -o \"$(cd \"$ENV\" && pwd)/poetry-export.txt\"",
+    ". scripts/env.sh && grep -v \"^psycopg2\\[binary\\]==\" \"$ENV/poetry-export.txt\" > \"$ENV/requirements-nosrc.txt\" && .venv/bin/uv pip install --python \"$ENV/bin/python\" --exclude-newer 2026-10-13T00:00:00Z -r \"$ENV/requirements-nosrc.txt\""
+  ],
+  "reinstall": null,
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" \"$ENV/pycache\" && cd backend && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/pycache\" OPENAI_API_KEY=sk-dummy AWS_KEY=dummy AWS_SECRET=dummy POLYGON_IO_API_KEY=dummy DATABASE_URL=postgresql://user:password@127.0.0.1:5432/llama_app_db S3_BUCKET_NAME=dummy-bucket S3_ASSET_BUCKET_NAME=dummy-assets CDN_BASE_URL=http://localhost:4566 RENDER=False LOG_LEVEL=INFO && unset OPENAI_BASE_URL OPENAI_API_BASE IS_PULL_REQUEST IS_PREVIEW_ENV && $PY -c \"import time,compileall,asyncio;t=time.time();n=0;assert all(compileall.compile_dir(x,quiet=1) for x in ('app','scripts','alembic','tests'));n+=1;import app.llama_index_settings as s;n+=1;import app.chat.engine as e;n+=1;import app.chat.tools as tl;n+=1;import app.main;n+=1;st=s._setup_llama_index_settings();assert st.llm.metadata.model_name and st.embed_model;n+=1;from uuid import uuid4;from llama_index.core.callbacks import CallbackManager,LlamaDebugHandler;from app.schema import Document,Conversation;d=Document(id=uuid4(),url='http://localhost/x.pdf',metadata_map={'sec_document':{'company_name':'Acme','company_ticker':'ACME','doc_type':'10-K','year':2023}});tl.get_api_query_engine_tool(d,CallbackManager([]));n+=1;e.get_s3_fs=lambda: None;e.build_doc_id_to_index_map=lambda *a,**k: asyncio.sleep(0,{});ce=asyncio.run(e.get_chat_engine(LlamaDebugHandler(),Conversation(id=uuid4(),messages=[],documents=[d])));assert ce is not None;n+=1;print('%d passed in %.2fs'%(n,time.time()-t))\" && $PY -c \"import sys,llama_index.llms as m;from llama_index.core.llms import ChatMessage;m.ChatMessage=ChatMessage;import pytest;sys.exit(pytest.main(['-q','-p','no:cacheprovider','tests/']))\"",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "AWS_KEY": "dummy",
+    "AWS_SECRET": "dummy",
+    "POLYGON_IO_API_KEY": "dummy",
+    "DATABASE_URL": "postgresql://user:password@127.0.0.1:5432/llama_app_db",
+    "S3_BUCKET_NAME": "dummy-bucket",
+    "S3_ASSET_BUCKET_NAME": "dummy-assets",
+    "CDN_BASE_URL": "http://localhost:4566",
+    "RENDER": "False",
+    "LOG_LEVEL": "INFO"
+  },
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 15,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 10.9,
+    "exit": 0
+  },
+  "notes": "Python 3.11.17 (pyproject: python = ^3.11,<3.12; backend/.python-version 3.11.3). No CI config in the repo (no .github/). The app lives in backend/ (poetry project, packages=[app]); the repo's own test command is backend/Makefile `test: poetry run python -m pytest tests/`. Setup: `poetry export --with dev` from the committed backend/poetry.lock (poetry 2.5.1 + poetry-plugin-export 1.10.1 via uv tool run, same pattern as the screenshot-to-code recipe), then uv pip install of the exact pins with --exclude-newer 2026-10-13. The `psycopg2[binary]==2.9.7` line is dropped because it is sdist-only and needs pg_config; psycopg2-binary==2.9.10 from the same lock provides the psycopg2 module. Key pins: llama-index-core 0.12.23, llama-index-llms-openai 0.3.25, llama-index-agent-openai 0.4.6, llama-index-embeddings-openai 0.3.1, openai 1.66.2, pytest 7.4.0. The package is not installed into $ENV: test_cmd does `cd backend` and `python -c` puts cwd first on sys.path, so `app` is imported from the working copy (reinstall not needed). WHY NOT THE PLAIN SUITE: at the pinned commit the only test file, backend/tests/app/chat/test_engine.py, does `from llama_index.llms import ChatMessage` (pre-0.10 llama_index path), so plain `pytest tests/` gives `1 error in 0.03s` (collection ImportError) and exercises nothing. test_cmd therefore has two parts, both run from backend/: (1) a SMOKE step that prints `8 passed in Xs` and checks, in order: compileall of app/, scripts/, alembic/, tests/; import app.llama_index_settings; import app.chat.engine; import app.chat.tools; import app.main (FastAPI app + routers); call _setup_llama_index_settings() and assert Settings.llm.metadata.model_name and Settings.embed_model; call app.chat.tools.get_api_query_engine_tool() on a dummy SEC Document (Settings.llm.model_copy + OpenAIAgent.from_tools); and run app.chat.engine.get_chat_engine() end to end with get_s3_fs and build_doc_id_to_index_map monkeypatched to no-ops (builds both SubQuestionQueryEngines, the response synth, the engine.py OpenAI(...) chat LLM and the top-level OpenAIAgent). Any failing check aborts with a traceback, exit 1 and no count line. (2) the repo's own 7 get_chat_history tests via pytest.main, after aliasing llama_index.llms.ChatMessage = llama_index.core.llms.ChatMessage in-process (no repo file is changed): `7 passed`. parse_counts sums both summary lines: 15 passed. Verified the smoke catches a non-OpenAI LLM swap: replacing Settings.llm with MockLLM makes get_api_query_engine_tool raise `ValueError: llm must be a OpenAI instance` (OpenAIAgent isinstance check), exit 1. Env: Settings() needs OPENAI_API_KEY, AWS_KEY, AWS_SECRET, POLYGON_IO_API_KEY, DATABASE_URL (must start with postgres; asyncpg engine is created lazily, never connects), S3_BUCKET_NAME, S3_ASSET_BUCKET_NAME, CDN_BASE_URL; dummy values are exported in test_cmd and duplicated in test_env. OPENAI_BASE_URL/OPENAI_API_BASE/IS_PULL_REQUEST/IS_PREVIEW_ENV are unset. HOME/TMPDIR are sandboxed into $ENV and PYTHONPYCACHEPREFIX=$ENV/pycache keeps __pycache__ out of the working tree (git status --ignored stays clean); pytest runs with -p no:cacheprovider. No LLM or other network call is made: baseline taken under macOS sandbox-exec with outbound network denied (loopback allowed) and RAMP_ROUTER_API_KEY unset. Nothing deselected. Setup was re-run verbatim from this recipe (rm -rf $ENV first) before the baseline. Counts identical over 5 runs (15 passed). Timing varies with machine load: first run on a fresh env is slower (~70s, cold bytecode compile into the pycache prefix); warm runs 7-25s.",
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      10.9,
+      7.6
+    ]
+  }
+}

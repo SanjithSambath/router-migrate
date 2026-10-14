@@ -1,0 +1,36 @@
+{
+  "name": "openui",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --frozen --no-hashes --extra test --no-emit-project --project \"$SRC/backend\" -o \"$ENV/requirements.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$ENV/requirements.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/backend/pyproject.toml\" --extra test"
+  ],
+  "reinstall": [],
+  "test_cmd": "cd backend && mkdir -p \"$ENV/home\" \"$ENV/tmp\" && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPATH=. PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" OPENAI_API_KEY=sk-dummy && { $PY -m pytest -q -p no:cacheprovider tests/; rc=$?; $PY -c 'import compileall, importlib, sys, time\nt = time.time(); ok = 0; bad = []\nif compileall.compile_dir(\"openui\", quiet=1, force=True): ok += 1\nelse: bad.append(\"compileall openui\")\nfor m in (\"openui.server\", \"openui.litellm\", \"openui.__main__\"):\n    try: importlib.import_module(m); ok += 1\n    except Exception as e: bad.append(m + \": \" + repr(e))\nfor b in bad: print(\"SMOKE FAILED \" + b)\nprint(\"%d passed%s in %.2fs\" % (ok, \", %d failed\" % len(bad) if bad else \"\", time.time() - t))\nsys.exit(1 if bad else 0)'; s=$?; exit $(( rc > s ? rc : s )); }",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy"
+  },
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 4,
+    "failed": 2,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 10.4,
+    "exit": 1
+  },
+  "stability": {
+    "runs": 3,
+    "identical": true,
+    "seconds": [
+      10.5,
+      10.2,
+      11.9
+    ]
+  },
+  "notes": "Python package lives in backend/ (hatchling, requires-python >=3.9; backend/.python-version = 3.12, so Python 3.12.15 from uv). The package is NOT installed: setup installs only its dependencies, from backend/uv.lock via `uv export --frozen --extra test --no-emit-project` (openai 1.74.0, weave 0.51.42, fastapi 0.115.12, ollama 0.4.7, tiktoken 0.9.0, pytest 8.3.5; 88 packages), then tops up from backend/pyproject.toml (a no-op at baseline; it picks up any dependency a migration adds to pyproject without touching uv.lock). test_cmd cds into backend/ and uses PYTHONPATH=. so the working copy's openui package is imported; reinstall is therefore empty. test_cmd has two parts whose counts parse_counts sums: (1) the repo's own CI command (backend/.github/workflows/test.yml runs `pytest`) as `pytest -q -p no:cacheprovider tests/`. tests/test_openui.py holds 2 placeholder tests that fail at baseline regardless of code (GET / returns the SPA index.html, not {'message': 'Hello World'} -> JSONDecodeError; POST /items/ -> 405). Their only real signal is that collection imports openui.server (the module holding both migrated sites), so an import break becomes '1 error' with exit 2. Nothing deselected. (2) An inline smoke step (v3 smoke rule, added because the suite has no passing tests): compileall.compile_dir('openui', force=True) over all backend .py files (incl. eval/ and tui/), then importlib.import_module of openui.server, openui.litellm and openui.__main__ (the production modules with LLM calls, plus the entrypoint, whose body is guarded by __name__ == '__main__'); it prints a pytest-style '4 passed in Xs' (or 'N passed, M failed in Xs') line and exits 1 on any failure. Final exit = max(pytest rc, smoke rc). Verified that injecting a bad import into server.py yields 2 passed, 2 failed, 1 error, exit 2. OPENAI_API_KEY=sk-dummy is set (inline and in test_env); RAMP_ROUTER_API_KEY is unset. Note: server.py builds its AsyncOpenAI clients at import time (config.OPENAI_API_KEY defaults to 'xxx'), so a migrated version that requires RAMP_ROUTER_API_KEY at import would fail collection when it is unset. HOME/TMPDIR are sandboxed into $ENV (config.py creates ~/.openui/db.sqlite and ~/.openui/.env on import; server.py reads ~/.netrc for wandb), and PYTHONPYCACHEPREFIX=$ENV/tmp/pycache keeps bytecode out of the working copy (git status stays clean). Baseline taken 3x with outbound network denied (macOS sandbox-exec, loopback allowed), once from a from-scratch env rebuild with an identical uv pip freeze: always 2 failed (pytest) + 4 passed (smoke), exit 1, 10-12s wall. Not covered: the frontend (frontend/, React/Vite/pnpm with vitest + playwright), whose src/api/openai.ts calls the app's own /v1 proxy; those sites are expected 'kept', so it was left out of this py recipe. Optional extras litellm/eval/tui are not installed (eval/ is a non-production harness; the LiteLLM proxy is only spawned as a subprocess at runtime)."
+}

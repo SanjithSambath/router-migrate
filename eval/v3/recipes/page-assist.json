@@ -1,0 +1,31 @@
+{
+  "name": "page-assist",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && cd \"$SRC\" && rm -rf node_modules .wxt && npm install --before=2026-10-13T00:00:00Z --legacy-peer-deps --no-audit --no-fund --loglevel=error"
+  ],
+  "test_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "test_kind": "typecheck",
+  "test_env": {},
+  "timeout_s": 600,
+  "baseline": {
+    "passed": null,
+    "failed": null,
+    "errors": 16,
+    "skipped": null,
+    "seconds": 4.7,
+    "exit": 2
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_baseline": {
+    "exit": 2,
+    "errors": 16
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [4.7, 4.5]
+  },
+  "notes": "No test suite: there are no test files, no test script and no CI workflows (.github has only FUNDING.yml). REPOS.json also says tests=none. Following the v3 rule for TS repos without tests, test_cmd is the typecheck (test_kind=typecheck): the repo's own `compile` script (`tsc --noEmit`) plus `-p . --incremental false`. The program has 422 project files (everything except node_modules and extensions/), including all 9 inventoried LLM-site files (src/models/{CustomChatOpenAI,CustomChatAnthropic,OAIEmbedding,OllamaEmbedding,ChatChromeAi,index,embedding,utils/ollama}.ts, src/services/{openai,mistral}-tts.ts). So a migration that breaks an import or a type in any of them adds `error TS` lines. The root tsconfig sets strict:false, overriding .wxt's strict:true, so implicit-any problems are not caught. Toolchain: Node v24.19.0, npm 11.17.0, TypeScript 5.3.3 (pinned by the repo), wxt 0.19.29. Install: upstream uses bun (bun.lockb, `bun build:*` scripts), but bun is not available or allowed and there is no npm/pnpm/yarn lockfile. So setup runs `npm install --before=2026-10-13T00:00:00Z` (repo HEAD is 2026-10-11) to pin resolution to the baseline date. `--legacy-peer-deps` is required because @langchain/community@1.1.29 declares peerOptional d3-dsv@^3 while the root pins d3-dsv@2. bun does not enforce peers, and npm's hoisted layout matches bun's. The generated package-lock.json is gitignored by the repo, so it does not dirty git. If one is present in $SRC, npm reuses it. The root postinstall `wxt prepare` generates .wxt/tsconfig.json (which the root tsconfig extends) and .wxt/types; it is required and works offline. npm 11 allow-scripts skipped dependency install scripts (esbuild, @swc/core, pa-tesseract.js, spawn-sync); tsc does not need them. Key resolved versions: openai 4.104.0, @langchain/openai 1.6.2, @langchain/core 1.2.17, @langchain/community 1.1.29, langchain 1.5.16, @types/chrome 0.0.280. Baseline: 16 pre-existing errors, exit 2, all from `unknown`-typed values in chrome/browser messaging and wxt manifest typings: src/libs/get-tab-contents.ts (6), src/components/Option/Settings/mcp.tsx (4), src/libs/get-html.ts (2), wxt.config.ts (2), src/entries/youtube-summarize.content.ts (1), src/entries-firefox/youtube-summarize.content.ts (1). None are in LLM files. Reproducibility: I deleted node_modules, .wxt and package-lock.json and re-ran the setup command from scratch. The new lockfile was identical to the first install's (1402 package entries, same versions). Two typecheck runs gave byte-identical output (16 errors, exit 2; 4.7s and 4.5s). The second ran under sandbox-exec with outbound network denied (loopback allowed), so it is confirmed offline. RAMP_ROUTER_API_KEY was unset for all steps. parse_counts reads nothing from tsc output (all None), so comparisons should use typecheck_baseline (exit + count of `error TS`). Cold install took about 40s; a contended re-install took up to about 4 min."
+}

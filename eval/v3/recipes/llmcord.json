@@ -1,0 +1,34 @@
+{
+  "name": "llmcord",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" OPENAI_API_KEY=sk-dummy DISCORD_BOT_TOKEN=dummy-token DISCORD_CLIENT_ID=0 $PY -c 'import asyncio, compileall, importlib, re, sys, time\nt = time.time(); p = f = 0\nif compileall.compile_dir(\".\", quiet=1, force=True, rx=re.compile(r\"/[.]|node_modules\")):\n    p += 1\nelse:\n    f += 1; print(\"FAILED compileall .\")\nasyncio.run = lambda coro, **kw: coro.close()\ntry:\n    m = importlib.import_module(\"llmcord\")\n    assert callable(m.on_message) and callable(m.main) and m.config[\"models\"]\n    p += 1\nexcept BaseException as e:\n    f += 1; print(\"FAILED import llmcord:\", repr(e))\ndt = time.time() - t\nprint(f\"{p} passed, {f} failed in {dt:.2f}s\" if f else f\"{p} passed in {dt:.2f}s\")\nsys.exit(1 if f else 0)'",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "DISCORD_BOT_TOKEN": "dummy-token",
+    "DISCORD_CLIENT_ID": "0"
+  },
+  "timeout_s": 300,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 2,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 1.6,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      1.6,
+      1.0
+    ]
+  },
+  "notes": "No test suite and no CI config (no tests/, no .github/; REPOS.json says tests: none), so test_cmd is a v3 smoke check. The repo is a single module, llmcord.py, at the root (not a package; nothing to install editable). Setup installs requirements.txt (discord.py>=2.6.0, httpx, openai, python-dotenv, pyyaml) into a uv venv; resolved discord-py 2.7.1, openai 3.29.0, httpx 0.28.1, python-dotenv 1.2.4, pyyaml 6.0.3. Python 3.12.15 (the Dockerfile uses python:3.13-slim; 3.12 is the newest allowed by the eval rules and the code needs >=3.9 for removesuffix and dict |). No reinstall step: test_cmd runs `$PY -c` with cwd = the repo copy, so sys.path[0] is the copy and `import llmcord` loads the working copy's file. The smoke command runs two checks and prints a pytest-style `N passed[, M failed] in Xs` line (verified with verify.parse_counts) and exits 1 on any failure: (1) compileall.compile_dir('.') over every .py file in the copy (excluding dot-dirs and node_modules), so a syntax error in llmcord.py or in any new module a migration adds fails; (2) importlib.import_module('llmcord') -- the only production module with an LLM call (llmcord.py:280 chat.completions.create) -- which executes all module-level code: the openai/discord/httpx/yaml/dotenv imports, load_dotenv(), get_config() reading ./config.yaml, discord Bot construction, slash-command and event registration, httpx.AsyncClient(). It then asserts on_message and main are callable and config['models'] is non-empty. The module ends with asyncio.run(main()), which would log in to Discord, so the check replaces asyncio.run with a stub that closes the coroutine before importing; nothing contacts Discord or an LLM. The AsyncOpenAI client is built per message inside on_message, so the LLM call path itself is not executed (no fake Discord message); the smoke only proves the code compiles and imports. Dummy env vars: OPENAI_API_KEY=sk-dummy, DISCORD_BOT_TOKEN=dummy-token, DISCORD_CLIENT_ID=0 (set in test_cmd and test_env); RAMP_ROUTER_API_KEY stays unset. HOME/TMPDIR are sandboxed into $ENV/home and $ENV/tmp, and PYTHONPYCACHEPREFIX=$ENV/tmp/pycache keeps compileall/import .pyc files out of the repo copy (no __pycache__ left in base). Negative checks on a scratch copy: renaming the openai import gives `1 passed, 1 failed`; a syntax error gives `0 passed, 2 failed`. discord.py logs two harmless WARNING lines (PyNaCl/davey not installed, voice unsupported). Baseline taken with outbound network denied (macOS sandbox-exec, loopback allowed) and RAMP_ROUTER_API_KEY unset: run 1 `2 passed in 1.36s` (1.6s wall), run 2 `2 passed in 0.77s` (1.0s wall); identical counts. Nothing deselected."
+}

@@ -1,0 +1,29 @@
+{
+  "name": "OpenManus",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\"",
+    ". scripts/env.sh && mkdir -p \"$ENV/tiktoken\" && TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" \"$PY\" -W ignore -c \"import tiktoken; tiktoken.get_encoding('cl100k_base')\""
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" PYTHONPATH=. $PY -m compileall -q app protocol main.py run_flow.py run_mcp.py run_mcp_server.py sandbox_main.py && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" TIKTOKEN_CACHE_DIR=\"$ENV/tiktoken\" PYTHONPATH=. $PY -m pytest -q -p no:cacheprovider -c /dev/null --rootdir . tests/ --ignore=tests/sandbox",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "baseline": {
+    "passed": 4,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.2,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [2.2, 1.9]
+  },
+  "notes": "Python 3.12.15 (setup.py python_requires >=3.12, Dockerfile python:3.12-slim; app/config.py needs tomllib). Deps come from requirements.txt (the Dockerfile and CI install path); the package itself is NOT pip-installed, so `reinstall` is empty and tests import the working copy via `$PY -m pytest` from the repo root plus PYTHONPATH=. Resolved openai==1.66.5, mcp==1.5.0, pydantic==2.10.6, pytest==8.3.5, pytest-asyncio==0.25.3, tiktoken==0.9.0, boto3==1.37.38. CI (.github/workflows) never runs tests (only pip install / pre-commit / packaging), so the command is plain pytest over tests/. test_cmd: (1) `compileall -q` over app/, protocol/ and the root entry scripts (syntax check of every shipped module, fails fast before pytest); (2) pytest on tests/ with tests/sandbox ignored. `-c /dev/null --rootdir .` is required: the repo has no pytest config, so pytest would otherwise climb to router-migrate/pytest.ini and use R as rootdir. DESELECTED: tests/sandbox/ (test_client, test_docker_terminal, test_sandbox, test_sandbox_manager) - they start real Docker containers from python:3.12-slim (Docker daemon + image pull over the network; no Docker here) and also fail at collection because app.config loads config/config.example.toml, which has no [daytona] section, so DaytonaSettings() raises a ValidationError on import. The remaining suite is tests/tools/test_browser_use_mcp.py (4 tests, MCP fakes, connect_mcp_server monkeypatched). It writes a temporary config/config.toml (base_url http://localhost, dummy key, daytona key) before importing app.agent.manus and deletes it again; that import chain loads app/llm.py and app/bedrock.py (both LLM call-site modules), and ToolCallAgent() constructs LLM() -> AsyncOpenAI(api_key, base_url) and tiktoken encodings, so client-construction breakage is caught. No test sends a chat request. tiktoken.get_encoding('cl100k_base') downloads its BPE file on first use, so setup step 3 pre-fetches it into $ENV/tiktoken and test_cmd sets TIKTOKEN_CACHE_DIR there (without it the first test run hits openaipublic.blob.core.windows.net). HOME/TMPDIR sandboxed into $ENV. Not covered: app/tool/chart_visualization/src/chartVisualize.ts (TS VMind site; its npm deps incl. puppeteer were not installed) and app/tool/chart_visualization/data_visualization.py import (needs a config with [daytona]). Baseline taken under macOS sandbox-exec with outbound network denied (loopback allowed): 4 passed in 1.45s (2.2s wall) and 4 passed in 1.31s (1.9s wall); parse_counts reads {passed 4, failed 0, errors 0, skipped 0}. Rebuilt from scratch with these exact setup steps into a second env: identical uv pip freeze, same 4 passed. Run everything with RAMP_ROUTER_API_KEY unset."
+}

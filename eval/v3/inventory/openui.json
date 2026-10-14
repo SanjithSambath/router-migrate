@@ -1,0 +1,346 @@
+{
+ "repo": "wandb/openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "sites": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 139,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8: module-level AsyncOpenAI (line 72) with base_url=config.OPENAI_BASE_URL (env, defaults to https://api.openai.com/v1) and api_key=config.OPENAI_API_KEY (env). Model comes from the request body (gpt* prefix); repo's OpenAI literals gpt-3.5-turbo/gpt-4o-mini/gpt-4o/gpt-4-turbo are catalog ids. user_id from session is only used for usage accounting, not the key. Streaming chat.completions with **data passthrough."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 155,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:api.groq.com",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: groq AsyncOpenAI client (line 80) with base_url=config.GROQ_BASE_URL defaulting to https://api.groq.com/openai/v1; model is request model with 'groq/' prefix stripped."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 169,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:litellm-proxy (LITELLM_BASE_URL, default http://0.0.0.0:4000)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: litellm AsyncOpenAI client (line 74) points at a local LiteLLM proxy (config.LITELLM_BASE_URL default http://0.0.0.0:4000) that fans out to Gemini/Anthropic/Cohere/Mistral/OpenAI-compatible backends."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 189,
+   "prod": true,
+   "sdk": "other:ollama",
+   "surface": "chat",
+   "endpoint": "other:ollama (OLLAMA_HOST, default http://127.0.0.1:11434)",
+   "key_source": "none",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: ollama.AsyncClient().chat(**data) for vision models (llava/moondream) against a local Ollama server."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 196,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:ollama (OLLAMA_HOST + /v1)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: ollama_openai AsyncOpenAI client (line 85) with base_url=config.OLLAMA_HOST + '/v1' (local Ollama OpenAI-compat), api_key='xxx'."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 396,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "models",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8 (by extension): openai.models.list() on the same env-config default-OpenAI client as line 139; Router serves GET /v1/models so rule 1 does not apply. Result is discarded (used as a connectivity probe, then a hard-coded list of catalog ids is returned)."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 415,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "models",
+   "endpoint": "other:api.groq.com",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: groq.models.list() on the Groq-base_url client."
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 424,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "models",
+   "endpoint": "other:litellm-proxy (LITELLM_BASE_URL, default http://0.0.0.0:4000)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: litellm.models.list() on the local LiteLLM proxy client."
+  },
+  {
+   "file": "backend/openui/litellm.py",
+   "line": 106,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "models",
+   "endpoint": "other:openai-compatible (OPENAI_COMPATIBLE_ENDPOINT env, no default)",
+   "key_source": "env",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: openai.OpenAI(base_url=os.getenv('OPENAI_COMPATIBLE_ENDPOINT'), api_key=OPENAI_COMPATIBLE_API_KEY) (line 101) lists models of a user-supplied OpenAI-compatible server to build the LiteLLM proxy config; only runs when that env var is set."
+  },
+  {
+   "file": "frontend/src/api/openai.ts",
+   "line": 184,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:openui-backend (same-origin ${host()}/v1 proxy)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: browser OpenAI client (line 15) with baseURL=`${host()}/v1` i.e. the app's own FastAPI proxy (server.py /v1/chat/completions), apiKey 'sk-fake' and auth headers stripped. Moving it would bypass the backend's session/quota/provider routing. Model from user settings (gpt-4o-mini literal override for image input)."
+  },
+  {
+   "file": "frontend/src/api/openai.ts",
+   "line": 245,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:openui-backend (same-origin ${host()}/v1 proxy)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: convert() uses the same browser client pointed at the app's own /v1 proxy; model from user settings."
+  },
+  {
+   "file": "backend/openui/eval/prompt_to_img.py",
+   "line": 63,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-3.5-turbo",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval/dataset-generation script (__main__): global AsyncOpenAI() or AsyncOpenAI(base_url=http://localhost:11434/v1) for ollama/ models; model from argv, default gpt-3.5-turbo."
+  },
+  {
+   "file": "backend/openui/eval/model.py",
+   "line": 37,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4-vision-preview",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval scoring model (weave): OpenAI() default client; model_name default gpt-4-vision-preview."
+  },
+  {
+   "file": "backend/openui/eval/evaluate.py",
+   "line": 58,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4-vision-preview",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval harness (weave Evaluation): OpenAI() default client; model_name default gpt-4-vision-preview."
+  },
+  {
+   "file": "backend/openui/eval/synthesize.py",
+   "line": 40,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-3.5-turbo-1106",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval dataset synthesis script: module-level AsyncOpenAI(); model literal gpt-3.5-turbo-1106 with response_format json_object."
+  },
+  {
+   "file": "backend/openui/eval/evaluate_weave.py",
+   "line": 148,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-3.5-turbo",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval harness: client property picks AsyncOpenAI() by default, or localhost:11434 (ollama/), LITELLM_BASE_URL (litellm/), api.fireworks.ai (fireworks/) by model_name prefix; model_name default gpt-3.5-turbo."
+  },
+  {
+   "file": "backend/openui/eval/evaluate_weave.py",
+   "line": 294,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4-turbo",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval scoring model: AsyncOpenAI() default client; model_name default gpt-4-turbo."
+  },
+  {
+   "file": "backend/openui/eval/promptsearch.py",
+   "line": 69,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "default",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4o",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Eval prompt-search harness: module-level openai.chat.completions.create with literal gpt-4o."
+  },
+  {
+   "file": "backend/openui/dist/assets/index-B7PjGjI7.js",
+   "line": 248,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:openui-backend (same-origin /v1 proxy)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Generated/minified Vite build output (compiled copy of frontend/src/api/openai.ts:184 createOrRefine); not source. SDK-internal completions.create helpers on lines 173/174/178 of this bundle are vendored openai-node code and not listed."
+  },
+  {
+   "file": "backend/openui/dist/assets/index-B7PjGjI7.js",
+   "line": 255,
+   "prod": false,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "other:openui-backend (same-origin /v1 proxy)",
+   "key_source": "literal",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "nonprod",
+   "why": "Generated/minified Vite build output (compiled copy of frontend/src/api/openai.ts:245 convert); not source."
+  }
+ ]
+}
