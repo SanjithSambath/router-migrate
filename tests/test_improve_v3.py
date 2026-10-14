@@ -268,7 +268,11 @@ def test_tradeoffs_become_applied_cards_and_reach_the_page(repo):
     assert not [c for c in improve.undecided(str(repo)) if c["rule"].startswith("tradeoff.")]  # already applied: nothing to decide
     b = improve.bundle(str(repo))
     assert [t["id"] for t in b["tradeoffs"]] == ["T1", "T2", "T3"]
-    assert b["moved"] == {"moved": 1, "with_tradeoffs": 1, "stay": 0}  # one site, two live trade-offs (T3 is undone)
+    m = b["moved"]  # one call on Router with two live trade-offs (T3 is undone): counted once, from the calls the page lists
+    assert (m["moved"], m["with_tradeoffs"], m["stay"], m["total"]) == (1, 1, 0, 1)
+    (call,) = [c for c in b["view"]["calls"] if c["routes"]]
+    assert call["status"] == "tradeoff" and [t["card"] for t in call["tradeoffs"]] == ["tradeoff:T1", "tradeoff:T2", "tradeoff:T3"]
+    assert [t["undone"] for t in call["tradeoffs"]] == [False, False, True] and call["tradeoffs"][0]["levers"] == "drops seed"
     imps = {i["id"]: i for i in b["view"]["improvements"]}
     v1 = imps["tradeoff:T1"]
     assert v1["kind"] == "tradeoff" and v1["lever"] == "tradeoff" and v1["tradeoffs"] == t1["loses"]
