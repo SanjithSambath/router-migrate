@@ -1,0 +1,35 @@
+{
+  "name": "znote",
+  "lang": "ts",
+  "pm": "npm",
+  "setup": [
+    ". scripts/env.sh && mkdir -p \"$ENV\" && cd \"$SRC\" && rm -rf node_modules && npm install --before=2026-10-13T00:00:00Z --no-audit --no-fund --loglevel=error --no-package-lock",
+    ". scripts/env.sh && mkdir -p \"$ENV/tools\" && echo '{\"private\":true}' > \"$ENV/tools/package.json\" && npm install --before=2026-10-13T00:00:00Z --no-audit --no-fund --loglevel=error --prefix \"$ENV/tools\" typescript@5.9.3"
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && printf '{\"extends\":\"%s/tsconfig.json\",\"compilerOptions\":{\"noEmit\":true,\"skipLibCheck\":true,\"typeRoots\":[\"%s/node_modules/@types\"]},\"include\":[\"%s/backend/**/*.ts\"]}' \"$PWD\" \"$PWD\" \"$PWD\" > \"$ENV/tsconfig.backend.json\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" \"$ENV/tools/node_modules/.bin/tsc\" -p \"$ENV/tsconfig.backend.json\"",
+  "test_env": {},
+  "timeout_s": 600,
+  "test_kind": "typecheck",
+  "typecheck_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && printf '{\"extends\":\"%s/tsconfig.json\",\"compilerOptions\":{\"noEmit\":true,\"skipLibCheck\":true,\"typeRoots\":[\"%s/node_modules/@types\"]},\"include\":[\"%s/backend/**/*.ts\"]}' \"$PWD\" \"$PWD\" \"$PWD\" > \"$ENV/tsconfig.backend.json\" && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" \"$ENV/tools/node_modules/.bin/tsc\" -p \"$ENV/tsconfig.backend.json\"",
+  "notes": "Node v24.19.0, npm 11. Bun server app (Hono + Mastra agents over the AI SDK, backend/); the repo ships bun.lock only and bun is not installed here, so setup runs npm install --before=2026-10-13 from package.json (no lockfile written), plus typescript 5.9.3 into $ENV/tools (the repo has no typescript dependency). No test suite and no CI, so test_kind=typecheck: test_cmd writes $ENV/tsconfig.backend.json extending the copy's tsconfig.json (strict, bundler resolution, @/* -> backend/*) with include backend/**/*.ts, skipLibCheck, typeRoots pointing at the copy's node_modules/@types (@types/bun), and runs tsc on it. It covers all 33 backend .ts files, including the LLM ones (backend/api/ai.ts, backend/db/mastra.ts, backend/db/vector.ts). The frontend (Vue, separate package) has no LLM calls and is not checked. Baseline: exit 0, 0 'error TS', identical over 2 runs.",
+  "typecheck_baseline": {
+    "exit": 0,
+    "errors": 0
+  },
+  "baseline": {
+    "passed": null,
+    "failed": null,
+    "errors": null,
+    "skipped": null,
+    "seconds": 1.4,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      1.4,
+      1.4
+    ]
+  }
+}

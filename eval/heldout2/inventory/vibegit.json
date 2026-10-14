@@ -1,0 +1,44 @@
+{
+  "repo": "kklemon/vibegit",
+  "commit": "29d501d1c144a6aa8a02ed37870ae498f8a1d8f2",
+  "sites": [
+    {
+      "file": "vibegit/ai.py",
+      "line": 34,
+      "prod": true,
+      "sdk": "other:pydantic-ai",
+      "surface": "chat",
+      "endpoint": "env-config",
+      "key_source": "env",
+      "model": {"value": "google:gemini-3.8-flash", "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "handoff",
+      "why": "Agent(**kwargs) in CommitProposalAI.__init__ is the pydantic-ai agent that performs the actual generation call. Its `model` kwarg is `self.config.model.get_model()` (cli.py:287-291 -> ModelConfig.get_model -> llm.resolve_model), which, when no base_url is configured, returns a bare 'provider:model' string (llm.py:67-70) resolved internally by pydantic-ai to each provider's own default endpoint/SDK. The documented default is Google Gemini (config.py:179, README.md:119, wizard.py:25/85), reached through pydantic-ai's Google integration (google-genai), not OpenAI/Anthropic -- another vendor's SDK -- with model id 'gemini-3.8-flash', which is a Router catalog id, so rule 7 applies (handoff). The wizard also offers openai:gpt-5.6-terra/sol/luna presets (also catalog ids, which would instead be rule 8 'migrated' on this same source line) and an open 'custom pydantic-ai provider:model string' option; rule 6 does not flag because the repo's literal presets for the google and openai families are all in-catalog. Treated as one site since there is a single construction expression; the custom-base_url branch is split out as its own site below.",
+      "production": {
+        "host": "generativelanguage.googleapis.com",
+        "model": "gemini-3.8-flash",
+        "source": "vibegit/config.py:179 (ModelConfig.name default 'google:gemini-3.8-flash'); README.md:119 ('Google Gemini is the default provider ...'); README.md:143 and wizard.py:25,85 (Gemini 3.7 Flash / google:gemini-3.8-flash is the first and default wizard preset). Host is not set by vibegit itself for this branch (no base_url); 'generativelanguage.googleapis.com' is pydantic-ai's/google-genai's own default endpoint for the Google provider when unconfigured."
+      }
+    },
+    {
+      "file": "vibegit/llm.py",
+      "line": 46,
+      "prod": true,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "runtime-user-defined",
+      "key_source": "config",
+      "model": {"value": null, "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "_build_openai_model constructs OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=base_url, api_key=api_key)). It is only called from resolve_model when ModelConfig.base_url is set (llm.py:61-65), which only happens via the wizard's 'Custom model (OpenAI API compatible)' option (wizard.py:98-105) or 'vibegit config set model.base_url ...' (README.md:159-165) -- a base URL chosen from a user-defined config object at runtime. Rule 2 applies: kept (would change vendor/model if moved).",
+      "production": {
+        "host": null,
+        "model": null,
+        "source": "No default documented: README.md:121-123 and wizard.py:124-187 require the user to type their own base_url, model_name and api_key for this path; nothing is prefilled or recommended."
+      }
+    }
+  ]
+}

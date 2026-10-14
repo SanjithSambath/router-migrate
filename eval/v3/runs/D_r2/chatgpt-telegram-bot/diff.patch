@@ -1,0 +1,41 @@
+diff --git a/bot/openai_helper.py b/bot/openai_helper.py
+index 9fbe508..f7db324 100644
+--- a/bot/openai_helper.py
++++ b/bot/openai_helper.py
+@@ -16,6 +16,13 @@ from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_t
+ 
+ from utils import is_direct_result, encode_image, decode_image
+ from plugin_manager import PluginManager
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ # Models can be found here: https://platform.openai.com/docs/models/overview
+ # Models gpt-3.5-turbo-0613 and  gpt-3.5-turbo-16k-0613 will be deprecated on June 13, 2024
+@@ -104,7 +111,7 @@ class OpenAIHelper:
+         :param plugin_manager: The plugin manager
+         """
+         http_client = httpx.AsyncClient(proxy=config['proxy']) if 'proxy' in config else None
+-        self.client = openai.AsyncOpenAI(api_key=config['api_key'], http_client=http_client)
++        self.client = _router_wrap_openai(openai.AsyncOpenAI(api_key=config['api_key'], http_client=http_client))
+         self.config = config
+         self.plugin_manager = plugin_manager
+         self.conversations: dict[int: list] = {}  # {chat_id: history}
+@@ -306,6 +313,13 @@ class OpenAIHelper:
+         if function_name not in plugins_used:
+             plugins_used += (function_name,)
+ 
++        # router-migrate: record the assistant's function_call so the matching function-result
++        # message below can be correlated back to it (needed by the Responses-API translation)
++        self.conversations[chat_id].append({
++            "role": "assistant", "content": None,
++            "function_call": {"name": function_name, "arguments": arguments}
++        })
++
+         if is_direct_result(function_response):
+             self.__add_function_call_to_history(chat_id=chat_id, function_name=function_name,
+                                                 content=json.dumps({'result': 'Done, the content has been sent'

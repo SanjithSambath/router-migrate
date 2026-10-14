@@ -6,14 +6,16 @@ Ground truth (mechanical, no LLM adjudication; `movable()` in score_moved.py): *
 
 | arm | repos | moved / movable | moved (old GT) / 16 | wrong moves | unmatched moves | moved in unbroken repos | broken repos | wrapped+claimed but no Router traffic | trade-offs | $ | minutes |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| A | 10 | 4 / 64 | 3 | 1 | 0 | 4 | 0/10 | 15 | 0 | 0.00 | 8 |
-| B | 10 | 8 / 64 | 6 | 0 | 1 | 8 | 1/10 | 5 | 0 | 35.27 | 122 |
-| B_prime | 10 | 13 / 64 | 10 | 1 | 0 | 13 | 0/10 | 12 | 0 | 25.05 | 96 |
+| A | 10 | 9 / 64 | 3 | 1 | 0 | 9 | 0/10 | 10 | 0 | 0.00 | 8 |
+| B | 10 | 13 / 64 | 6 | 0 | 1 | 13 | 1/10 | 0 | 0 | 35.27 | 122 |
+| B_prime | 10 | 18 / 64 | 10 | 1 | 0 | 18 | 0/10 | 7 | 0 | 25.05 | 96 |
 | C | 10 | 7 / 64 | 7 | 0 | 0 | 7 | 0/10 | 3 | 0 | 23.13 | 108 |
-| B2_r1 | 10 | 7 / 64 | 7 | 1 | 0 | 7 | 0/10 | 9 | 0 | 13.76 | 60 |
+| B2_r1 | 10 | 12 / 64 | 7 | 1 | 0 | 12 | 0/10 | 4 | 0 | 13.82 | 60 |
 | Cnf_r1 | 10 | 7 / 64 | 7 | 0 | 0 | 7 | 0/10 | 3 | 0 | 15.63 | 82 |
 | D_r1 | 3 | 0 / 64 | 0 | 0 | 0 | 0 | 0/3 | 0 | 0 | 5.11 | 32 |
-| D_r2 | 2 | 4 / 64 | 4 | 0 | 3 | 4 | 0/2 | 0 | 1 | 1.98 | 22 |
+| D_r2 | 9 (+1 invalid) | 21 / 64 | 11 | 0 | 1 | 21 | 0/9 | 1 | 14 | 17.79 | 180 |
+
+Invalid runs (not in any count above; "+N invalid" beside repos): D_r2 obsidian-textgenerator-plugin: the agent made no per-site decisions (agent exit timeout) ($7.60). An infrastructure failure (API error, no agent output) or an agent that made no per-site decisions is not a measurement of the arm; `eval/run.py` retries such runs.
 
 ## Per repo
 
@@ -21,68 +23,49 @@ Cell: moved movable / wrong (b = broken repo). Header: movable sites (old GT sho
 
 | repo | movable (old) | A | B | B_prime | C | B2_r1 | Cnf_r1 | D_r1 | D_r2 |
 |---|---|---|---|---|---|---|---|---|---|
-| AI-Scientist | 17 (3) | 0/0 | 3/0 | 4/0 | 0/0 | 0/0 | 0/0 | 0/0 | - |
+| AI-Scientist | 17 (3) | 0/0 | 3/0 | 4/0 | 0/0 | 0/0 | 0/0 | 0/0 | 6/0 |
 | chatgpt-telegram-bot | 4 (4) | 0/0 | 3/0 | 4/0 | 4/0 | 4/0 | 4/0 | - | 4/0 |
-| computer_use_ootb | 3 (0) | 0/0 | 0/0 | 1/0 | 0/0 | 0/0 | 0/0 | 0/0 | - |
-| llmcord | 1 (0) | 1/0 | 1/0 | 1/0 | 0/0 | 0/0 | 0/0 | - | - |
-| obsidian-copilot | 14 (2) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | - | - |
-| obsidian-textgenerator-plugin | 13 (3) | 0/0 | 0/0 b | 0/0 | 0/0 | 0/0 | 0/0 | - | - |
-| OpenManus | 8 (0) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | - | - |
-| openui | 2 (2) | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | - | - |
+| computer_use_ootb | 3 (0) | 0/0 | 0/0 | 1/0 | 0/0 | 0/0 | 0/0 | 0/0 | 1/0 |
+| llmcord | 1 (0) | 1/0 | 1/0 | 1/0 | 0/0 | 0/0 | 0/0 | - | 1/0 |
+| obsidian-copilot | 14 (2) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | - | 1/0 |
+| obsidian-textgenerator-plugin | 13 (3) | 0/0 | 0/0 b | 0/0 | 0/0 | 0/0 | 0/0 | - | invalid |
+| OpenManus | 8 (0) | 5/0 | 5/0 | 5/0 | 0/0 | 5/0 | 0/0 | - | 5/0 |
+| openui | 2 (2) | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | - | 1/0 |
 | page-assist | 0 (0) | 0/1 | 0/0 | 0/1 | 0/0 | 0/1 | 0/0 | 0/0 | 0/0 |
-| sec-insights | 2 (2) | 2/0 | 0/0 | 2/0 | 2/0 | 2/0 | 2/0 | - | - |
+| sec-insights | 2 (2) | 2/0 | 0/0 | 2/0 | 2/0 | 2/0 | 2/0 | - | 2/0 |
 
 ## Wrapped and claimed migrated, but no valid Router traffic
 
 | arm | repo | site | why |
 |---|---|---|---|
-| A | AI-Scientist | `ai_scientist/llm.py:82` | stays on provider: untranslatable: seed |
-| A | AI-Scientist | `ai_scientist/llm.py:188` | stays on provider: untranslatable: seed |
-| A | AI-Scientist | `ai_scientist/llm.py:204` | stays on provider: untranslatable: seed |
-| A | AI-Scientist | `ai_scientist/llm.py:234` | stays on provider: its requests go to api.deepseek.com, which the runtime does not route |
-| A | AI-Scientist | `ai_scientist/llm.py:249` | stays on provider: its requests go to api.deepseek.com, which the runtime does not route |
-| A | AI-Scientist | `ai_scientist/llm.py:262` | stays on provider: its requests go to generativelanguage.googleapis.com, which the runtime does not route |
-| A | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | stays on provider: its requests go to openrouter.ai, which the runtime does not route |
-| A | OpenManus | `app/llm.py:421` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| A | OpenManus | `app/llm.py:438` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| A | OpenManus | `app/llm.py:593` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| A | OpenManus | `app/llm.py:603` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| A | OpenManus | `app/llm.py:732` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| A | openui | `backend/openui/server.py:155` | stays on provider: its requests go to api.groq.com, which the runtime does not route |
-| A | openui | `backend/openui/server.py:169` | stays on provider: its requests go to 0.0.0.0:4000, which the runtime does not route |
-| A | openui | `backend/openui/server.py:196` | stays on provider: its requests go to other-ollama-ollama-host-v1.invalid, which the runtime does not route |
-| B | OpenManus | `app/llm.py:421` | Router rejects: The model `claude-3-7-sonnet-20250219` does not exist or you do not have access to it. |
-| B | OpenManus | `app/llm.py:438` | Router rejects: The model `claude-3-7-sonnet-20250219` does not exist or you do not have access to it. |
-| B | OpenManus | `app/llm.py:593` | Router rejects: The model `claude-3-7-sonnet-20250219` does not exist or you do not have access to it. |
-| B | OpenManus | `app/llm.py:603` | Router rejects: The model `claude-3-7-sonnet-20250219` does not exist or you do not have access to it. |
-| B | OpenManus | `app/llm.py:732` | Router rejects: The model `claude-3-7-sonnet-20250219` does not exist or you do not have access to it. |
-| B_prime | AI-Scientist | `ai_scientist/llm.py:234` | stays on provider: its requests go to api.deepseek.com, which the runtime does not route |
-| B_prime | AI-Scientist | `ai_scientist/llm.py:249` | stays on provider: its requests go to api.deepseek.com, which the runtime does not route |
-| B_prime | AI-Scientist | `ai_scientist/llm.py:262` | stays on provider: its requests go to generativelanguage.googleapis.com, which the runtime does not route |
-| B_prime | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | stays on provider: its requests go to openrouter.ai, which the runtime does not route |
-| B_prime | OpenManus | `app/llm.py:421` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B_prime | OpenManus | `app/llm.py:438` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B_prime | OpenManus | `app/llm.py:593` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B_prime | OpenManus | `app/llm.py:603` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B_prime | OpenManus | `app/llm.py:732` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B_prime | openui | `backend/openui/server.py:155` | stays on provider: its requests go to api.groq.com, which the runtime does not route |
-| B_prime | openui | `backend/openui/server.py:169` | stays on provider: its requests go to 0.0.0.0:4000, which the runtime does not route |
-| B_prime | openui | `backend/openui/server.py:196` | stays on provider: its requests go to other-ollama-ollama-host-v1.invalid, which the runtime does not route |
-| C | AI-Scientist | `ai_scientist/llm.py:82` | stays on provider: untranslatable: seed |
-| C | AI-Scientist | `ai_scientist/llm.py:188` | stays on provider: untranslatable: seed |
-| C | AI-Scientist | `ai_scientist/llm.py:204` | stays on provider: untranslatable: seed |
-| B2_r1 | AI-Scientist | `ai_scientist/llm.py:82` | stays on provider: untranslatable: seed |
-| B2_r1 | AI-Scientist | `ai_scientist/llm.py:188` | stays on provider: untranslatable: seed |
-| B2_r1 | AI-Scientist | `ai_scientist/llm.py:204` | stays on provider: untranslatable: seed |
-| B2_r1 | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | stays on provider: its requests go to openrouter.ai, which the runtime does not route |
-| B2_r1 | OpenManus | `app/llm.py:421` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B2_r1 | OpenManus | `app/llm.py:438` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B2_r1 | OpenManus | `app/llm.py:593` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B2_r1 | OpenManus | `app/llm.py:603` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| B2_r1 | OpenManus | `app/llm.py:732` | stays on provider: its requests go to api.anthropic.com, which the runtime does not route |
-| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:82` | stays on provider: untranslatable: seed |
-| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:188` | stays on provider: untranslatable: seed |
-| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:204` | stays on provider: untranslatable: seed |
+| A | AI-Scientist | `ai_scientist/llm.py:82` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:96 --drop seed --loses "..."` would route it |
+| A | AI-Scientist | `ai_scientist/llm.py:188` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:202 --drop seed --loses "..."` would route it |
+| A | AI-Scientist | `ai_scientist/llm.py:204` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:218 --drop seed --loses "..."` would route it |
+| A | AI-Scientist | `ai_scientist/llm.py:234` | host api.deepseek.com not unlocked — `router-migrate adapt ai_scientist/llm.py:248 --unlock-host api.deepseek.com --loses "..."` (only if that endpoint serves m |
+| A | AI-Scientist | `ai_scientist/llm.py:249` | host api.deepseek.com not unlocked — `router-migrate adapt ai_scientist/llm.py:263 --unlock-host api.deepseek.com --loses "..."` (only if that endpoint serves m |
+| A | AI-Scientist | `ai_scientist/llm.py:262` | host generativelanguage.googleapis.com not unlocked — `router-migrate adapt ai_scientist/llm.py:276 --unlock-host generativelanguage.googleapis.com --loses "... |
+| A | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | host openrouter.ai not unlocked — `router-migrate adapt src/LLMProviders/ChatOpenRouter.ts:111 --unlock-host openrouter.ai --loses "..."` (only if that endpoint |
+| A | openui | `backend/openui/server.py:155` | host api.groq.com not unlocked — `router-migrate adapt backend/openui/server.py:170 --unlock-host api.groq.com --loses "..."` (only if that endpoint serves mode |
+| A | openui | `backend/openui/server.py:169` | host 0.0.0.0:4000 not unlocked — `router-migrate adapt backend/openui/server.py:184 --unlock-host 0.0.0.0:4000 --loses "..."` (only if that endpoint serves mode |
+| A | openui | `backend/openui/server.py:196` | host other-ollama-ollama-host-v1.invalid not unlocked — `router-migrate adapt backend/openui/server.py:211 --unlock-host other-ollama-ollama-host-v1.invalid --l |
+| B_prime | AI-Scientist | `ai_scientist/llm.py:234` | host api.deepseek.com not unlocked — `router-migrate adapt ai_scientist/llm.py:255 --unlock-host api.deepseek.com --loses "..."` (only if that endpoint serves m |
+| B_prime | AI-Scientist | `ai_scientist/llm.py:249` | host api.deepseek.com not unlocked — `router-migrate adapt ai_scientist/llm.py:270 --unlock-host api.deepseek.com --loses "..."` (only if that endpoint serves m |
+| B_prime | AI-Scientist | `ai_scientist/llm.py:262` | host generativelanguage.googleapis.com not unlocked — `router-migrate adapt ai_scientist/llm.py:283 --unlock-host generativelanguage.googleapis.com --loses "... |
+| B_prime | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | host openrouter.ai not unlocked — `router-migrate adapt src/LLMProviders/ChatOpenRouter.ts:111 --unlock-host openrouter.ai --loses "..."` (only if that endpoint |
+| B_prime | openui | `backend/openui/server.py:155` | host api.groq.com not unlocked — `router-migrate adapt backend/openui/server.py:170 --unlock-host api.groq.com --loses "..."` (only if that endpoint serves mode |
+| B_prime | openui | `backend/openui/server.py:169` | host 0.0.0.0:4000 not unlocked — `router-migrate adapt backend/openui/server.py:184 --unlock-host 0.0.0.0:4000 --loses "..."` (only if that endpoint serves mode |
+| B_prime | openui | `backend/openui/server.py:196` | host other-ollama-ollama-host-v1.invalid not unlocked — `router-migrate adapt backend/openui/server.py:211 --unlock-host other-ollama-ollama-host-v1.invalid --l |
+| C | AI-Scientist | `ai_scientist/llm.py:82` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:96 --drop seed --loses "..."` would route it |
+| C | AI-Scientist | `ai_scientist/llm.py:188` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:202 --drop seed --loses "..."` would route it |
+| C | AI-Scientist | `ai_scientist/llm.py:204` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:218 --drop seed --loses "..."` would route it |
+| B2_r1 | AI-Scientist | `ai_scientist/llm.py:82` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:96 --drop seed --loses "..."` would route it |
+| B2_r1 | AI-Scientist | `ai_scientist/llm.py:188` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:202 --drop seed --loses "..."` would route it |
+| B2_r1 | AI-Scientist | `ai_scientist/llm.py:204` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:218 --drop seed --loses "..."` would route it |
+| B2_r1 | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | host openrouter.ai not unlocked — `router-migrate adapt src/LLMProviders/ChatOpenRouter.ts:111 --unlock-host openrouter.ai --loses "..."` (only if that endpoint |
+| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:82` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:96 --drop seed --loses "..."` would route it |
+| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:188` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:202 --drop seed --loses "..."` would route it |
+| Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:204` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:218 --drop seed --loses "..."` would route it |
+| D_r2 | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | stays on provider: its requests go to openrouter.ai, which the runtime does not route |
 
 ## Wrong moves
 

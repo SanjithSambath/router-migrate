@@ -1,0 +1,34 @@
+{
+  "name": "CrewAI-Studio",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\" pytest==8.4.2"
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && unset OPENAI_BASE_URL OPENAI_API_BASE ANTHROPIC_BASE_URL && export HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy DB_URL=\"sqlite:///$ENV/tmp/smoke.db\" CREWAI_TELEMETRY_OPT_OUT=true OTEL_SDK_DISABLED=true && $PY -m pytest -q -p no:cacheprovider tests; r1=$?; $PY -c 'import compileall, importlib, logging, re, sys, time\nlogging.disable(logging.WARNING)\nt = time.time(); p = f = 0\nsys.path.insert(0, \"app\")\nif compileall.compile_dir(\"app\", quiet=1, force=True):\n    p += 1\nelse:\n    f += 1; print(\"FAILED compileall app\")\nfor m in [\"llms\", \"my_agent\", \"my_task\", \"my_crew\", \"pg_crew_run\", \"utils\"]:\n    try:\n        importlib.import_module(m); p += 1; print(\"PASSED import\", m)\n    except BaseException as e:\n        f += 1; print(\"FAILED import\", m, repr(e))\ntry:\n    import llms\n    llms.load_secrets_fron_env()\n    for pm in [\"OpenAI: gpt-4o-mini\", \"Anthropic: claude-3-7-sonnet-20250219\"]:\n        o = llms.create_llm(pm)\n        assert o is not None\n        p += 1; print(\"PASSED create_llm\", pm, type(o).__name__)\nexcept BaseException as e:\n    f += 1; print(\"FAILED create_llm\", repr(e))\ndt = time.time() - t\nprint((\"%d failed, %d passed in %.2fs\" % (f, p, dt)) if f else (\"%d passed in %.2fs\" % (p, dt)))\nsys.exit(1 if f else 0)'; r2=$?; [ $r1 -eq 0 ] && [ $r2 -eq 0 ]",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "ANTHROPIC_API_KEY": "sk-ant-dummy"
+  },
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "notes": "Python 3.12.15 (Dockerfile python:3.12.10-slim). No CI; setup installs the fully pinned requirements.txt (crewai 1.5.0, langchain-openai 1.1.14, langchain-anthropic 1.2.0, litellm 1.84.0, openai 2.26.0, anthropic 0.75.0, torch/docling...) plus pytest 8.4.2; the app is a Streamlit app in app/ (not a package; no reinstall: tests and smoke put app/ on sys.path from the copy). test_cmd = (1) the repo's own tests/ (tests/test_tool_ids.py, 21 tests; it sets DB_URL to a temp sqlite itself) and (2) a smoke: compileall app/, import llms, my_agent, my_task, my_crew, pg_crew_run, utils, then llms.load_secrets_fron_env() + llms.create_llm('OpenAI: gpt-4o-mini') and create_llm('Anthropic: claude-3-7-sonnet-20250219') with dummy keys (constructs crewai LLM / ChatAnthropic offline; Streamlit session_state works in bare mode). Counts are summed by parse_counts (21 + 9 = 30). Both runs identical; also 30 passed under sandbox-exec with outbound network denied. CrewAI telemetry disabled via CREWAI_TELEMETRY_OPT_OUT/OTEL_SDK_DISABLED.",
+  "baseline": {
+    "passed": 30,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 20.5,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      20.5,
+      19.8
+    ]
+  }
+}

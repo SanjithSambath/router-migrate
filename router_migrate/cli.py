@@ -288,6 +288,7 @@ def main(argv=None):
             sp.add_argument("--force", action="store_true", help="v3: re-apply the floor and reset the ledger's floor snapshot")
             sp.add_argument("--no-floor", action="store_true", help="v4 default (kept for older scripts): nothing is applied")
             sp.add_argument("--agent", choices=["claude"], help="v3: after the floor, run the coding agent headless on the residue, then finish")
+            sp.add_argument("--arm", choices=["min", "free"], help="D3 harness: facts + optional tools + (min) one final outside check")
             sp.add_argument("--model", help="v3: agent model (default: the agent CLI's default)")
             sp.add_argument("--agent-timeout", type=int, default=2700, help="v3: seconds before the agent run is stopped")
             sp.add_argument("--skip-improve", action="store_true", help="v3: stop after the migration gate (no Improve phase)")

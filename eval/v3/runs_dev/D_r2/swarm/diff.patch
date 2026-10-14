@@ -1,0 +1,63 @@
+diff --git a/swarm/core.py b/swarm/core.py
+index 65dedf1..951904a 100644
+--- a/swarm/core.py
++++ b/swarm/core.py
+@@ -19,6 +19,13 @@ from .types import (
+     Response,
+     Result,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ __CTX_VARS_NAME__ = "context_variables"
+ 
+@@ -26,7 +33,7 @@ __CTX_VARS_NAME__ = "context_variables"
+ class Swarm:
+     def __init__(self, client=None):
+         if not client:
+-            client = OpenAI()
++            client = _router_wrap_openai(OpenAI())
+         self.client = client
+ 
+     def get_chat_completion(
+@@ -69,22 +76,19 @@ class Swarm:
+         return self.client.chat.completions.create(**create_params)
+ 
+     def handle_function_result(self, result, debug) -> Result:
+-        match result:
+-            case Result() as result:
+-                return result
+-
+-            case Agent() as agent:
+-                return Result(
+-                    value=json.dumps({"assistant": agent.name}),
+-                    agent=agent,
+-                )
+-            case _:
+-                try:
+-                    return Result(value=str(result))
+-                except Exception as e:
+-                    error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
+-                    debug_print(debug, error_message)
+-                    raise TypeError(error_message)
++        if isinstance(result, Result):
++            return result
++        if isinstance(result, Agent):
++            return Result(
++                value=json.dumps({"assistant": result.name}),
++                agent=result,
++            )
++        try:
++            return Result(value=str(result))
++        except Exception as e:
++            error_message = f"Failed to cast response to string: {result}. Make sure agent functions return a string or Result object. Error: {str(e)}"
++            debug_print(debug, error_message)
++            raise TypeError(error_message)
+ 
+     def handle_tool_calls(
+         self,

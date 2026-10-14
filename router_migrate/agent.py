@@ -577,6 +577,9 @@ def cmd_run(a):
     """v4: record the baseline and hand the agent a proposal for every site. Nothing is applied to the code."""
     from . import cli
     root = os.path.abspath(a.path)
+    if getattr(a, "arm", None):
+        from . import harness
+        return harness.run_d3(root, a)
     if _git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return err(a.json, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first (the baseline is snapshotted with git)")
     prev = load_ledger(root)
@@ -1700,7 +1703,9 @@ def _wrap_with(root, c, opts):
     from . import apply_py
     from .runtime import render
     kind = planmod.PATCHABLE.get(c["sdk"])
-    if c["lang"] != "py" or kind not in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
+    if c["lang"] != "py":
+        return _wrap_ts_with(root, c, opts)
+    if kind not in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
         return None, "client options need a Python OpenAI/Anthropic/LangChain constructor; edit by hand and record it with `adapt --loses`"
     if kind == "wrap_openai" and c["sdk"] == "anthropic":
         kind = "wrap_anthropic"
@@ -1709,6 +1714,28 @@ def _wrap_with(root, c, opts):
         return None, "; ".join(skipped.values())
     if rt_rel and not os.path.exists(os.path.join(root, rt_rel)):
         open(os.path.join(root, rt_rel), "w").write(render("router_runtime.py", Catalog.load()))
+    return c["file"], None
+
+
+def _wrap_ts_with(root, c, opts):
+    """(Re-)wrap a TS/JS client with runtime options (routerOptions/routerFetch's second argument): unwrap, then re-apply."""
+    from . import cli
+    from .runtime import render
+    ts = {"unlockHosts": opts.get("unlock_hosts"), "dropBetas": opts.get("drop_betas"), "operatorKeyOnly": opts.get("operator_key_only")}
+    ts = {k: v for k, v in ts.items() if v}
+    ts_unwrap(root, c["file"], int(c["line"]))
+    cur = min((x for x in _scan(root)["sites"] if x["kind"] == "client" and x["file"] == c["file"]),
+              key=lambda x: abs(int(x["line"]) - int(c["line"])), default=None)
+    if cur is None:
+        return None, "the scanner no longer sees the client at %s:%s" % (c["file"], c["line"])
+    with tempfile.NamedTemporaryFile("w", suffix=".ts", delete=False) as rf:
+        rf.write(render("routerRuntime.ts", Catalog.load()))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as sf:
+        json.dump([{"id": cur["id"], "opts": ts} if ts else cur["id"]], sf)
+    r = cli.run_ts(["apply", root, "--runtime", rf.name, "--sites", sf.name])
+    bad = [e for e in r.get("edits", []) if not e.get("ok")]
+    if bad:
+        return None, bad[0].get("reason") or "TS wrap failed"
     return c["file"], None
 
 
@@ -1805,6 +1832,15 @@ def undo_tradeoff(root, tid):
                     if k in x["levers"]:
                         keep[k] = sorted(set(keep.get(k, [])) | set(x["levers"][k])) if isinstance(x["levers"][k], list) else x["levers"][k]
         before = open(os.path.join(root, cf), encoding="utf-8").read()
+        if not cf.endswith(".py"):  # TS/JS: unwrap and re-apply with only the options other trade-offs still need
+            cc = next((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == cf), None)
+            _wrap_ts_with(root, cc or {"file": cf, "line": int(cl), "lang": "ts"}, keep)
+            if open(os.path.join(root, cf), encoding="utf-8").read() != before:
+                files.append(cf)
+            files += compile_tradeoffs(root, led)
+            led["edits"].append({"by": "tradeoff-undo", "id": tid, "files": sorted(set(files)), "at": t["undone"]})
+            save_ledger(root, led)
+            return files
         near = lambda: min((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == cf),
                            key=lambda x: abs(int(x["line"]) - int(cl)), default=None)  # import blocks move constructors
         cc = near()
@@ -1822,8 +1858,13 @@ def undo_tradeoff(root, tid):
 
 
 def add_parsers(sub):
-    s = sub.add_parser("check", help="v4: facts for one site as the code stands: routes or not, hard limits, the proposal, evidence so far, native eligibility")
-    s.add_argument("loc", help="FILE:LINE (relative to the repo root)")
+    s = sub.add_parser("check", help="does each LLM call route to Router now, and why not (--all: every call the scanner sees; "
+                                     "--run CMD: run code against the local Router simulator; --final: dry run of the final check)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE[,FILE:LINE...] (relative to the repo root)")
+    s.add_argument("--all", action="store_true", help="every LLM call the scanner sees")
+    s.add_argument("--run", help="shell command to run with the runtime pointed at router-sim (provider keys dummied, offline)")
+    s.add_argument("--final", action="store_true", help="dry run of the final check that runs after the agent")
+    s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT)
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("wrap", help="v4: the deterministic wrap at a client construction (--native: point it straight at Router when provably safe)")
@@ -1901,7 +1942,26 @@ def add_parsers(sub):
     s.add_argument("--no-browser", action="store_true")
 
 
+def _each(fn, a):
+    """Run a per-location command over comma-separated locations."""
+    import copy
+    rc = 0
+    for loc in [x.strip() for x in a.loc.split(",") if x.strip()]:
+        b = copy.copy(a)
+        b.loc = loc
+        rc = max(rc, fn(b) or 0)
+    return rc
+
+
 def dispatch(a):
+    from . import harness
+    if a.cmd == "check" and (getattr(a, "final", False)):
+        return harness.cmd_verify(a)
+    if a.cmd == "check" and (getattr(a, "all", False) or getattr(a, "run", None) or not a.loc or "," in a.loc
+                             or (load_ledger(ledger_root(a.path)) or {}).get("version") == 5):
+        return harness.cmd_check(a)
+    if a.cmd in ("wrap", "unwrap", "adapt") and "," in (a.loc or ""):
+        return _each({"wrap": cmd_wrap, "unwrap": cmd_unwrap, "adapt": cmd_adapt}[a.cmd], a)
     return {"check": cmd_check, "wrap": cmd_wrap, "adapt": cmd_adapt, "unwrap": cmd_unwrap, "probe": cmd_probe, "claim": cmd_claim, "card": cmd_card,
             "finish": cmd_finish, "run": cmd_run, "judge": cmd_judge, "improve": cmd_improve}[a.cmd](a)
 

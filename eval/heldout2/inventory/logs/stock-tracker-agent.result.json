@@ -1,0 +1,10 @@
+{
+ "exit": 0,
+ "usd": 0.5173976000000001,
+ "turns": 23,
+ "minutes": 2.0,
+ "model": [
+  "claude-sonnet-5"
+ ],
+ "final": "Validated: 3 sites, all fields present.\n\n**Totals:** 3 production sites, all `expected: \"migrated\"` (OpenAI `gpt-4o-mini`/`gpt-4.1` via the `openai-agents` SDK, default Responses backend, env-sourced key, literal catalog-id models). No nonprod sites \u2014 the repo has no tests/examples/demos; main.py's `-test` CLI mode reuses the same production code paths rather than constructing separate LLM calls.\n\n**Rubric judgment calls I wasn't fully certain about:**\n1. **Counting unit for `openai-agents` SDK** \u2014 this framework isn't explicitly named in the rubric's counting-unit list (it lists LangChain/LlamaIndex/Vercel AI SDK/LiteLLM/raw SDK calls, but not OpenAI's own Agents SDK). I treated each `Agent(...)` construction as one site, analogous to the LangChain rule (\"one site per chat-model construction,\" not per `.invoke()`/`Runner.run()` call) \u2014 so 3 sites for the 3 `Agent(...)` definitions in `lib/agent.py`, not one per `Runner.run()` call site (there are 3 `Runner.run()` call sites across `handle_incoming_message`/`run_research_pipeline`, which I did not double-count).\n2. **SDK label** \u2014 used `\"other:openai-agents\"` since the enum list doesn't have a dedicated value for it.\n3. **Surface** \u2014 inferred `\"responses\"` (not `\"chat\"`) because `stock_research_agent` uses `WebSearchTool()`, a hosted tool that OpenAI only supports via the Responses API, and the `agents` SDK's default model backend is Responses API-based.\n4. **`production.host`** \u2014 nothing in the README/docs explicitly names `api.openai.com`; I inferred it from the absence of any `base_url`/`OPENAI_BASE_URL` override anywhere in the repo (checked `.env.example`, both docker-compose files, Dockerfile), relying on the SDK's documented default behavior."
+}

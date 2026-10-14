@@ -60,3 +60,53 @@ def test_vendored_js_runtime_loads_in_its_module_format(tmp_path, case):
         r = subprocess.run(["node", "-e", code], env=env, capture_output=True, text=True, timeout=60)
         assert r.returncode == 0, r.stderr
         assert json.loads(r.stdout.strip()) == []  # inert: no options when the key is unset
+
+
+SITE_OPTS_SRC = """import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
+import { createOpenAI } from "@ai-sdk/openai";
+import { ChatOpenAI } from "@langchain/openai";
+
+declare const myFetch: typeof fetch;
+export const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1" });
+export const claude = new Anthropic();
+export const wrapped = new OpenAI({ fetch: myFetch, baseURL: "https://api.x.ai/v1" });
+export const plain = new OpenAI();
+export const vercel = createOpenAI({ baseURL: "https://api.x.ai/v1" });
+export const lc = new ChatOpenAI({ configuration: { baseURL: "https://api.x.ai/v1" } });
+export const bad = new OpenAI();
+"""
+
+
+def test_ts_apply_site_opts(tmp_path):
+    """A sites-file entry may be { id, opts }: approved levers (unlockHosts, dropBetas, operatorKeyOnly) become the second
+    argument of routerOptions()/routerFetch() at that site, so the vendored runtime is never hand-edited."""
+    from router_migrate import cli
+    from router_migrate.catalog import Catalog
+    from router_migrate.runtime import render
+    (tmp_path / "package.json").write_text('{"name": "x", "private": true}')
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "clients.ts").write_text(SITE_OPTS_SRC)
+    rt = tmp_path / "rt.ts"
+    rt.write_text(render("routerRuntime.ts", Catalog.load()))
+    ids = {s["line"]: s["id"] for s in cli.run_ts(["scan", str(tmp_path)])["sites"]}
+    x = {"unlockHosts": ["api.x.ai"]}
+    sites = [{"id": ids[7], "opts": x}, {"id": ids[8], "opts": {"dropBetas": ["prompt-caching-2024-07-31"], "operatorKeyOnly": True}},
+             {"id": ids[9], "opts": x}, ids[10], {"id": ids[11], "opts": x}, {"id": ids[12], "opts": x},
+             {"id": ids[13], "opts": {"unlockHosts": "api.x.ai"}}]
+    (tmp_path / "sites.json").write_text(json.dumps(sites))
+    r = cli.run_ts(["apply", str(tmp_path), "--runtime", str(rt), "--sites", str(tmp_path / "sites.json")])
+    assert [(e["site_id"], e["ok"]) for e in r["edits"]] == [(ids[n], n != 13) for n in range(7, 14)]
+    assert r["edits"][-1]["reason"] == "opts.unlockHosts must be an array of strings"
+    out = (tmp_path / "src" / "clients.ts").read_text().splitlines()
+    assert out[4] == 'import { routerOptions, routerFetch } from "./lib/routerRuntime";'
+    U = '{ unlockHosts: ["api.x.ai"] }'
+    assert out[7:14] == [
+        'export const xai = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: "https://api.x.ai/v1", ...routerOptions(undefined, %s) });' % U,
+        'export const claude = new Anthropic({ ...routerOptions(undefined, { dropBetas: ["prompt-caching-2024-07-31"], operatorKeyOnly: true }) });',
+        'export const wrapped = new OpenAI({ fetch: routerFetch(myFetch, %s), baseURL: "https://api.x.ai/v1" });' % U,
+        'export const plain = new OpenAI({ ...routerOptions() });',
+        'export const vercel = createOpenAI({ baseURL: "https://api.x.ai/v1", ...routerOptions(undefined, %s) });' % U,
+        'export const lc = new ChatOpenAI({ configuration: { baseURL: "https://api.x.ai/v1", ...routerOptions(undefined, %s) } });' % U,
+        'export const bad = new OpenAI();',
+    ]

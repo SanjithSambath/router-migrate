@@ -1,0 +1,32 @@
+{
+  "name": "vibegit",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --project \"$SRC\" --frozen --group dev --no-hashes --no-emit-project --no-header -o \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -e \"$SRC\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && unset OPENAI_BASE_URL ANTHROPIC_BASE_URL && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com OPENAI_API_KEY=sk-dummy GOOGLE_API_KEY=dummy GEMINI_API_KEY=dummy $PY -m pytest -q -p no:cacheprovider -m 'not live'",
+  "test_env": {},
+  "timeout_s": 600,
+  "test_kind": "unit",
+  "notes": "Python 3.11 (requires-python >=3.11; CI: uv python install 3.11 + uv sync --locked + uv run pytest -q). Setup exports the committed uv.lock (default deps + dev group) and installs it, then the package editable with --no-deps (re-pointed at the run copy by prepare()). test_cmd = the CI command (pytest -q) with -m 'not live': tests/test_pipeline.py is marked live (clones external repos and calls paid model APIs), so its 18 tests are deselected. Git identity env vars set because test_git commits into temp repos; HOME/TMPDIR sandboxed; dummy OpenAI/Gemini keys.",
+  "baseline": {
+    "passed": 17,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.3,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      2.3,
+      2.4
+    ]
+  }
+}
