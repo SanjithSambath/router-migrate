@@ -2,11 +2,12 @@
 
 Move a codebase's production LLM traffic onto [Ramp's Router](https://router.com), and keep everything it did before.
 
-router-migrate is a Claude Code skill plus a small CLI. Your coding agent does the migration: it reads the code, wraps
-clients, and takes the small trade-offs that let more calls move. The CLI gives it facts it can't guess (does Router serve
-this request?), exact edits, and one check at the end it can't influence. A vendored runtime then decides per request:
-Router when Router can serve it exactly, the original provider otherwise. Without `RAMP_ROUTER_API_KEY` it does nothing.
-Every cost is written down, and every trade-off has an Undo.
+router-migrate is a Claude Code skill plus a small CLI. Your coding agent does the work: it migrates the code, reviews the
+system for what Router makes possible, builds the improvements worth building, and later applies what you approve and
+undoes what you reject. The CLI keeps it honest: facts it can't guess (does Router serve this request?), a sandbox, live
+Router checks with a spend-capped key, and an outside check it can't influence. A vendored runtime then decides per
+request in production: Router when Router can serve it, the original provider otherwise. Without `RAMP_ROUTER_API_KEY`
+it does nothing.
 
 > **Status:** working MVP, under active development. Python and TS/JS; OpenAI, Anthropic, LangChain, Vercel AI SDK,
 > LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be published here
@@ -37,17 +38,33 @@ ln -s "$PWD/skills/router-migrate" ~/.claude/skills/router-migrate
 
 **Requirements:** a git repo to migrate; Python 3.9+; Node 18+ for TS/JS repos.
 
-### Migrate
+### Optional: a migration key
 
-**In Claude Code**, from the repo you want to migrate: `/router-migrate` (plugin: `/router-migrate:router-migrate`), or
-just say "migrate this repo to Router". The session you are in is the agent, on whatever model it runs:
+Live checks work best with a Router key. Use a dedicated key with a spend cap, separate from production:
 
-1. `router-migrate start .` records the "before" state, starts the baseline tests in the background, and prints the
-   instructions, Router's facts and a map of every LLM call;
-2. the session migrates with its own tools plus `check`, `levers`, `wrap`, `adapt`, and writes `MIGRATION.json`;
-3. `router-migrate finish .` runs the outside check, builds the improvement cards and prints the dashboard URL.
+```bash
+mkdir -p ~/.config/router-migrate && (umask 077; printf '%s' "$KEY" > ~/.config/router-migrate/key)
+```
 
-**Headless** (CI, evals), the same prompt and the same `start`/`finish` code around a `claude -p` session:
+With it, the agent sends real requests to confirm what Router accepts, reads the live catalog and prices, and compares
+models side by side. Without it everything still works against the offline simulator, and every card says which kind of
+evidence it has. The key is only injected into commands the tool runs for the agent; it is never printed or stored.
+
+### Migrate and improve
+
+**In Claude Code**, from the repo you want to migrate (clean working tree): `/router-migrate` (plugin:
+`/router-migrate:router-migrate`), or just say "migrate this repo to Router". The session you are in is the agent, on
+whatever model it runs:
+
+1. `router-migrate start .` creates the branch `router-migrate/migration`, starts the baseline tests in the background,
+   and prints the instructions, this repo's context and a map of every LLM call it sees.
+2. The session serves each call through Router however is best (wrapping, porting to another API, SDK or model,
+   restructuring), commits one commit per decision, reviews the system for improvements, builds the worthwhile ones as
+   branches `router-migrate/improve/<name>`, and writes `.router-migrate/MIGRATION.json`.
+3. `router-migrate finish .` runs the outside check on the migration and on every improvement branch, and opens the
+   dashboard.
+
+**Headless** (CI, evals): the same prompt and the same `start`/`finish` code around a `claude -p` session:
 
 ```bash
 router-migrate run . --agent claude [--model <model>]
@@ -55,108 +72,97 @@ router-migrate run . --agent claude [--model <model>]
 
 **Other agents** (Codex and others): follow [AGENTS.md](AGENTS.md).
 
-### Review, apply, ship
+### Review, apply, undo, ship
 
-Approve, dismiss, postpone or undo on the dashboard and press Apply (or `router-migrate decide` + `router-migrate apply .
---decisions`). Then:
+On the dashboard, approve, dismiss or postpone improvements and mark any change for undo; then press Apply. Apply hands
+your whole list to an agent session, which decides how to carry it out (merge order, conflicts, partial reverts) and
+explains anything it declined. In Claude Code that's `/router-migrate apply`; with the CLI logged in, the dashboard
+starts it for you. The outside check runs again afterwards. Then:
 
 ```bash
-router-migrate check --final --tests  # the outside check and the test suite, Router on, before you ship
-export RAMP_ROUTER_API_KEY=...        # traffic Router can serve goes to Router; everything else is unchanged
+git checkout main && git merge router-migrate/migration   # when you're happy with the branch
+export RAMP_ROUTER_API_KEY=...                            # traffic Router can serve goes to Router; the rest is unchanged
 ```
 
-`ROUTER_MIGRATE_DISABLE=1` turns it all off again without a deploy.
+`ROUTER_MIGRATE_DISABLE=1` turns it off again without a deploy.
 
 ## What you get
 
 ![Dashboard](docs/img/dashboard.png)
 
-- **A small diff.** One line per client construction, plus the vendored runtime (`router_runtime.py` / `routerRuntime.ts`)
-  and a compiled policy. Call sites are untouched: code keeps calling `chat.completions.create` and reading
-  `.choices[0].message`.
-- **A dashboard** (`REPORT.html` and a live local page):
-  - every LLM call and where its traffic goes now: **verified** on Router, **unverified**, or **stays** (with the reason);
-  - every trade-off taken, what it loses, with Undo;
-  - improvement cards, each marked as the agent's proposal or a rule default, with its price impact;
-  - the calls that need your judgment;
-  - test status (the full suite runs once, in the background, with Router on).
-- **An audit trail** in `.router-migrate/`: who changed what, why, and what it costs.
+- **A branch you review**, `router-migrate/migration`: one commit per decision, plus the vendored runtime
+  (`router_runtime.py` / `routerRuntime.ts`). Nothing is merged into your branches by the tool.
+- **Improvements as branches**, each built and checked: model choices per tier, Flex for work nobody waits on, fallbacks,
+  cache-friendly prompts, consolidated clients, ports to the API surface where Router's levers apply, and anything else
+  the agent judges worth it. Each says what it gains, what it loses, the price change and exactly what was checked.
+- **A dashboard** (`REPORT.html` and a live local page) where everything is the same kind of card: Overview (traffic on
+  Router, behaviour check, what waits on you, the agent's summary), Calls, Changes, Your queue (one Apply), History (each
+  apply session's log) and Router setup.
+- **An audit trail**: git history plus `.router-migrate/` (excluded from git).
 
 ## How it works
 
 ```
- 1 setup (code)          map every LLM call and whether it routes now; start baseline tests in the background
-        │
- 2 agent session         migrate by any method; judge latency and task; propose improvements; write MIGRATION.json
-        │                tools: check · levers · wrap · unwrap · adapt
- 3 outside check (code)  parse · scope (no test/lockfile/CI/runtime edits, no deletions, keys kept) · typecheck ·
-        │                the full suite once with Router on (background if slow) · no invalid Router requests · route truth ·
-        │                proposals validated and priced · guardrails compiled
-        │                fail → one fact-only fix pass → revert only the offending files
- 4 Improve (code)        cards = agent proposals ∪ rule defaults; every lever considered, with reasons
-        │
- 5 dashboard             moves, trade-offs with Undo, cards with provenance, calls for your judgment, tests
-        │
- 6 Apply (you)           approve → policy compile / codemod option / undo  →  router-migrate check --final
+ start (code)       clean tree · branch router-migrate/migration · baseline tests in the background · live catalog
+     │              with a key · the scanner's map of LLM calls (a hint)
+ agent              migrate however is best · label features · live-check with the key · one commit per decision
+     │              review the system · build worthwhile improvements as branches · notes for the rest · MIGRATION.json
+ finish (code)      the outside check on the migration and every improvement branch: parse · typecheck and tests with
+     │              Router on vs the baseline · existing tests unchanged · Router accepts the requests · route truth;
+     │              deletions, dependency changes, provider-key removals, runtime edits flagged for you · never reverts
+ you                approve · dismiss · postpone · undo, on the dashboard
+     │
+ agent (apply)      gets the whole list, decides how to carry it out, commits each result, explains what it declined
+     │
+ check (code)       the outside check again; the dashboard shows the result and the session's log
 ```
 
 In production, per request:
 
 ```
-your code ─▶ OpenAI / Anthropic SDK ─▶ router runtime ─┬─ Router can serve it exactly ─▶ Router (/v1/responses, /v1/messages)
-                                                       └─ otherwise ───────────────────▶ original provider, unchanged
+your code ─▶ OpenAI / Anthropic SDK ─▶ router runtime ─┬─ Router can serve it ─▶ Router (/v1/responses, /v1/messages)
+                                                       └─ otherwise ─────────▶ original provider, unchanged
 ```
 
-Chat Completions calls are translated to Router's Responses API and back, streams included. If Router refuses a request
-before generating, the runtime sends it to the provider once. Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Chat Completions calls are translated to Router's Responses API and back, streams included. Router's levers and what
+was measured about each live in [router_migrate/data/ROUTER.md](router_migrate/data/ROUTER.md). Details:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Levers
+## Who decides what
 
-The less a lever loses, the less approval it needs. Full policy: [docs/LEVERS.md](docs/LEVERS.md).
-
-| Lever | Who decides | What is lost |
-|---|---|---|
-| Spend tags (`metadata.feature`, `metadata.product`) | automatic | nothing |
-| Prompt cache keys | automatic | nothing |
-| Timeout guardrail on buffered user-waiting calls | automatic | nothing; a slow call fails over to the provider |
-| Standard tier on user-facing calls (Flex stays Router's default for background calls) | automatic | the Flex discount on those calls |
-| Drop parameters Router rejects (`seed`, penalties) | agent, with Undo | determinism hint, penalty effect |
-| Dated snapshot → current id of the same model | agent, with Undo | snapshot pinning |
-| Route only the operator's key (users' keys stay) | agent, with Undo | nothing for users |
-| Drop a performance-only beta | agent, with Undo | the beta's effect |
-| Another vendor's endpoint for the same model | agent, with Undo | that vendor's own serving and limits |
-| Flex on user-facing calls | you | latency (up to about a minute) |
-| Fallbacks | you | on failure a different model answers; cancels Flex |
-| A different model | you (shadow first; never automatic) | the current model's behavior |
-| Vendor and code ports (Azure, other SDKs) | you | depends on the port |
-
-Router keeps provider selection. Hard limits stay on the provider: no Router endpoint (embeddings, images, audio, files,
-moderation, model lists) and provider-side state the code actually uses.
+| | Decides |
+|---|---|
+| **The agent** | Everything that takes understanding: which provider, API, SDK and model serve each call; which trade-offs to take and what they lose; which improvements are worth building; how to apply and undo what you ask |
+| **Code** | Facts (does Router accept this, catalog and prices), the outside check, the runtime's per-request routing |
+| **You** | Every improvement, every undo, anything flagged (deleted files, dependency changes, capability removals); merging the branch; going live |
 
 ## Safety model
 
-- **Inert by default.** Without `RAMP_ROUTER_API_KEY`, every wrapped client behaves exactly as before. Tests, mocks and
-  cassettes see the same requests.
+- **Inert by default.** Without `RAMP_ROUTER_API_KEY` in the app's environment, every wrapped client behaves exactly as
+  before.
 - **Kill switch.** `ROUTER_MIGRATE_DISABLE=1` sends everything to the provider.
-- **Per-request fallback.** Anything Router can't serve exactly goes to the provider unchanged. A Router refusal before
-  generation is retried on the provider once. A planning error falls back too.
-- **No destructive edits.** Tests, lockfiles, CI and the runtime are not edited. No files are deleted. Provider keys stay,
-  because fallback traffic still needs them.
-- **One outside check.** It re-derives everything from the tree and router-sim, and trusts nothing the agent wrote.
-- **Truthful reporting.** A call is "verified" only when a valid Router request from it was seen.
-- **Everything reversible.** Trade-offs have Undo. Model changes are never applied without you.
-- **Offline during migration.** The agent never holds a Router key. Self-tests run against router-sim, with provider keys
-  replaced by dummies.
+- **Your work is untouched.** `start` refuses a dirty working tree; the migration and every improvement live on their
+  own branches.
+- **Outcomes, not edit bans.** The agent may change dependencies, delete files or port code; the outside check judges
+  the result (tests and typecheck vs the baseline, existing tests unchanged, valid Router requests), and anything that
+  could remove a capability is flagged for you.
+- **One outside check.** It re-derives everything from the tree and the simulator, and trusts nothing the agent wrote.
+- **Truthful reporting.** A call is "verified" only when a valid Router request from it was seen; every card says what
+  was checked and against what.
+- **Everything reversible.** Every decision is a commit; Undo is a request the agent carries out and the check verifies.
+- **The migration key stays secret.** It is injected only into commands the tool runs for the agent, scrubbed from
+  output, and never stored in the repo.
 
 ## Limits
 
-- Python and TS/JS. Clients built dynamically (factories, provider tables) depend on the agent finding them. The outside
-  check verifies what a static check or a sandboxed run reaches, and reports the rest as unverified.
-- Router serves `/v1/responses`, `/v1/messages` and `/v1/models`. Embeddings, images, audio and files stay on the provider.
+- Python and TS/JS. Calls the scanner can't see depend on the agent finding them; the outside check reports what it
+  can't verify as unverified.
+- Router serves `/v1/responses`, `/v1/messages` and `/v1/models`. Embeddings, images, audio and files stay on the
+  provider (or the agent ports them, if it judges that worth it).
 - Router keeps no server-side state. Code that relies on stored responses or conversations stays on the provider.
 - One Router key per deployment. Per-user keys stay on the provider unless the app also has an operator key.
-- Only catalog model ids are served. A model outside the catalog stays on the provider unless a lever or a card maps it.
-- Evaluated with one run per arm on small sets. See [docs/EVAL.md](docs/EVAL.md#limitations).
+- Answer quality after a model change can't be measured offline; with a key the agent attaches side-by-side samples.
+- Evaluated with one run per repository. See [docs/EVAL.md](docs/EVAL.md#limitations).
 
 ## Repo layout
 
@@ -167,13 +173,14 @@ router_migrate/          the CLI
   dashboard/             REPORT.html and the live page
   prompts/               the agent's instructions
   ts/                    TypeScript scanner and codemods
-  data/                  catalog and measured Router facts
+  data/                  catalog and the Router fact sheet (ROUTER.md)
+  schemas/               state-file contracts (V6_CONTRACTS.md)
 skills/router-migrate/   the Claude Code skill (also linked from .claude/skills/)
 .claude-plugin/          Claude Code plugin + marketplace manifest
 bin/router-migrate       entry point (bootstraps its own venv when installed as a plugin)
 eval/                    eval harness, repo sets, results (RESULTS.md)
 tests/                   runtime vs router-sim, codemods, harness end to end, dashboard
-docs/                    architecture, methodology, eval, levers
+docs/                    architecture, methodology, eval, plans
 archive/                 earlier specs, decisions, research and eval material (v1–v4), indexed in archive/README.md
 ```
 
@@ -181,9 +188,10 @@ archive/                 earlier specs, decisions, research and eval material (v
 
 - [WRITEUP.md](WRITEUP.md): one page on the result.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components, state files, contracts, the per-request flow, the CLI.
-- [docs/METHODOLOGY.md](docs/METHODOLOGY.md): first principles, who decides what, prior art, v1 to v5.
+- [docs/METHODOLOGY.md](docs/METHODOLOGY.md): first principles, who decides what, prior art, v1 to v6.
 - [docs/EVAL.md](docs/EVAL.md): method, results, limitations, how to reproduce.
-- [docs/LEVERS.md](docs/LEVERS.md): every lever and its policy.
+- [router_migrate/data/ROUTER.md](router_migrate/data/ROUTER.md): Router's levers and measured facts.
+- [docs/plans/v6-agent-first.md](docs/plans/v6-agent-first.md): the v6 design.
 - [AGENTS.md](AGENTS.md): instructions for coding agents.
 - [archive/docs/](archive/docs/): v1–v4 specs, decisions and system design.
 
