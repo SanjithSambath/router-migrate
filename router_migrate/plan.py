@@ -141,6 +141,8 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
             kind = None
         tgt = client_target(c)
         if measure_only:
+            if c.get("wrapped") and tgt in ("provider", "provider-or-config"):
+                patched[c["id"]] = tgt  # already goes through the vendored runtime in the code as it stands
             continue
         if not c["prod"] and not include_nonprod:
             continue  # tests/examples/evals are reported but not edited unless asked (--include-nonprod)
@@ -177,6 +179,8 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
         else:
             outcome, reason, client_id = _classify(s, surface, clients, patched, by_sdk, catalog, lits)
         outcome, reason, client_id = _post_checks(s, surface, outcome, reason, client_id, clients, tenant, stateful)
+        if measure_only and outcome == "migrated" and s["kind"] == "module_client" and not s.get("installed"):
+            outcome, reason = "flagged", "module-level %s usage with no router-migrate install hook in this file" % s["sdk"]
         plan_sites.append(dict(s, surface=surface, outcome=outcome, reason=reason, via_client=client_id,
                                router_eligible=surface in ROUTER_SURFACES or surface == "other.chat" and outcome == "handoff"))
 

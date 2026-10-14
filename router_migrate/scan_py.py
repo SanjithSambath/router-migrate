@@ -273,7 +273,29 @@ class _Visitor(cst.CSTVisitor):
                 "prod": is_prod(self.rel), "snippet": snippet, "function": self.func_stack[-1][0] if self.func_stack else "<module>",
                 "scope": self._scope(), "class": self.class_stack[-1] if self.class_stack else None}
         site.update(extra)
+        if kind == "module_client":  # module-level usage routes only through the runtime's install hook in this file
+            src = "\n".join(self.lines)
+            site["installed"] = "install_litellm()" in src or "install_openai_module()" in src
         self.sites.append(site)
+
+    def _router_wrapped(self, node):
+        """True when this constructor already goes through the vendored runtime: `_router_wrap_x(Ctor(...))`,
+        `router_runtime.wrap_x(Ctor(...))`, or `Ctor(http_client=_router_http_client())`."""
+        par = self.get_metadata(ParentNodeProvider, node, None)
+        if isinstance(par, cst.Arg):
+            gp = self.get_metadata(ParentNodeProvider, par, None)
+            if isinstance(gp, cst.Call):
+                f = gp.func
+                name = f.value if isinstance(f, cst.Name) else f.attr.value if isinstance(f, cst.Attribute) else ""
+                if name.startswith("_router_wrap_") or name in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
+                    return True
+        for a in node.args:
+            if a.keyword is not None and a.keyword.value in ("http_client", "async_http_client") and isinstance(a.value, cst.Call):
+                f = a.value.func
+                name = f.value if isinstance(f, cst.Name) else f.attr.value if isinstance(f, cst.Attribute) else ""
+                if name.startswith("_router_") or name in ("http_client", "async_http_client"):
+                    return True
+        return False
 
     # ---- calls
     def visit_Call(self, node):
@@ -293,7 +315,8 @@ class _Visitor(cst.CSTVisitor):
                     break
             self._site(node, "client", sdk, label, base_url=bu, target=self.assign_targets.get(id(node)), async_=label.startswith("Async"),
                        model=self._strval(self._kw(node, "model") or self._kw(node, "model_name")),
-                       api_key=self._api_key_info(self._kw(node, "api_key") or self._kw(node, "openai_api_key") or self._kw(node, "anthropic_api_key")))
+                       api_key=self._api_key_info(self._kw(node, "api_key") or self._kw(node, "openai_api_key") or self._kw(node, "anthropic_api_key")),
+                       wrapped=self._router_wrapped(node))
             return
         if q in LEGACY_V0:
             self._site(node, "module_client", "openai-v0", LEGACY_V0[q], model=self._strval(self._kw(node, "model") or self._kw(node, "engine")),

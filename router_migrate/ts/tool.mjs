@@ -459,6 +459,7 @@ function analyze(sf, rel) {
     const f = clientFields(info, args);
     const site = mkSite(anchor || node, "client", { sdk: info.sdk, surface: info.surface, model: f.model, base_url: f.base_url });
     if (f.api_key) site.api_key = f.api_key;
+    site.wrapped = /\brouter(Options|Fetch)\(/.test(node.getText(sf));  // already goes through the vendored runtime
     found.push({ site, node, info });
     clientNodes.add(node);
     const r = assignTarget(node);
