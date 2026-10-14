@@ -126,6 +126,23 @@ fixed after the eval).
 7. **Bare 504s:** timeouts return a plain-text 504 with no request id. Messages replies have no `usage.cost`.
 8. **Switchyard:** changes model family mid-conversation.
 
+## What Router should build (from what every migration here had to work around)
+1. **A Chat Completions surface, or an official adapter.** Most production OpenAI code uses it; every migration today needs
+   a translation layer like our runtime.
+2. **Responses state** (`store`, `previous_response_id`), or the same documented error on every model: today it 400s on
+   OpenAI models and is silently forgotten on others.
+3. **Flex eligibility and price in `GET /v1/models`**, and Flex honoured (or rejected) with a `models` fallback list
+   instead of silently ignored. We had to measure all three per model (M0).
+4. **Dated model-id aliases** (`gpt-4o-2024-11-20` 404s; computer_use_ootb ships one) and access-aware catalog entries
+   (the catalog lists models the key gets 403 on).
+5. **First-class per-feature attribution** on `metadata.feature`, which our runtime already sends from every call site:
+   it is how a customer confirms after rollout which features really route (the production truth no static tool has).
+6. **A usage / shadow-results API**, so tools can show real dollars and validate model swaps without dashboard clicks.
+7. **Drop-in base URLs for OpenAI-compatible vendors** (xAI, DeepSeek) and simpler BYOK for Gemini: 7 of the held-out
+   misses and several fresh-repo sites are other vendors on catalog models, which today need a code port.
+8. **Non-zero usage on incomplete replies, request ids on 504s, and `usage.cost` on Messages replies**, so cost and
+   failures can be measured at all.
+
 ## Next steps (Track 2, in priority order)
 1. **k=3 trials and pass^3 on a larger fresh set (20-30 repos)**, with exact intervals and paired tests; C's cost is now
    known ($2.31 mean, $1.27 median per repo), so a 30-repo, 3-trial run is roughly $210 of agent time.
@@ -135,9 +152,10 @@ fixed after the eval).
    arm moved; promote C's recurring fixes into rules so the floor rises.
 4. **Fresh-context reviewer subagent** for low-confidence judgments, if judgment errors dominate at k=3 (the dry run's
    llmcord call was one).
-5. **One line-number space.** v1's REPORT.md and plan.json use pre-floor line numbers while `check`/`claim` use current
-   ones; agents that read the report sometimes claimed a site twice (once at the stale line, recorded "unconfirmed").
-   Harmless to scoring, noisy in the ledger (eval/v3/screenshots/chatgpt-telegram-bot-migration-ledger.png).
+5. **(Fixed after the eval) stale lines after `wrap`.** `wrap` inserts an import block, which moved the calls below it while
+   the worklist kept the old line numbers, so agents claimed some calls twice (once at the stale line, recorded
+   "unconfirmed"); `wrap` now remaps the ledger's lines in the file it edits. Harmless to scoring, noisy in the ledger
+   (eval/v3/screenshots/chatgpt-telegram-bot-migration-ledger.png).
 6. **Per-patch drop** instead of whole revert, if runs show agents mixing good and bad edits in one session (Track 1 did not).
 7. **Earlier v1/v2 items still open**: fix the held-out findings (aliased imports, wrappers, config defaults, the TS
    import-suffix rule, templates); the v2 evidence ladder (L2 replay with a judge, shadow configs, observe mode) and P4

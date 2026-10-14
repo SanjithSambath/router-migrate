@@ -523,9 +523,34 @@ def cmd_wrap(a):
     d = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), "a/" + rel, "b/" + rel))
     led = load_ledger(root)
     led["edits"].append({"by": "agent-wrap", "file": rel, "line": line, "changed": before != after, "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    if before != after:
+        _remap_lines(led, rel, before, after)  # the wrap inserts an import block: keep worklist/claim lines on the same code
     save_ledger(root, led)
     msg = (d or "already wrapped: nothing to change\n") + "next: `router-migrate check FILE:LINE` on the calls this client serves, then claim them"
     return out({"ok": True, "file": rel, "changed": before != after, "diff": d}, a.json, msg)
+
+
+def _remap_lines(led, rel, before, after):
+    """Move every ledger line in `rel` (worklist items, claims, facts) through the edit, so ids keep pointing at the same code."""
+    import difflib
+    old, new = before.splitlines(), after.splitlines()
+    m = {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            for k in range(i2 - i1):
+                m[i1 + k + 1] = j1 + k + 1
+    f = lambda n: m.get(int(n), int(n))
+    for it in led.get("worklist") or []:
+        if it["file"] == rel:
+            it["line"] = f(it["line"])
+    for key in list((led.get("claims") or {}).keys()):
+        c = led["claims"][key]
+        if c["file"] == rel:
+            c["line"] = f(c["line"])
+            led["claims"]["%s:%d" % (rel, c["line"])] = led["claims"].pop(key)
+    for key in list((led.get("facts") or {}).keys()):
+        if key.startswith(rel + ":"):
+            led["facts"]["%s:%d" % (rel, f(key.rsplit(":", 1)[1]))] = led["facts"].pop(key)
 
 
 def cmd_claim(a):

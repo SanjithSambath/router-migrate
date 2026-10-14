@@ -162,3 +162,15 @@ def test_measure_sees_through_wrap_and_tenancy_is_a_judgment(tmp_path):
     p = plan.build(scan_py.scan(str(tmp_path)), Catalog.load(), measure_only=True)
     site = [s for s in p["sites"] if s["kind"] == "call"][0]
     assert site["outcome"] == "migrated", site["reason"]
+
+
+def test_wrap_keeps_worklist_lines_on_the_same_code(repo):
+    """`wrap` inserts an import block; worklist lines in that file must move with the code (else agents claim stale lines)."""
+    led = ledger(repo)
+    item = next(it for it in led["worklist"] if it["file"] == "svc/hidden.py")
+    text_before = (repo / "svc/hidden.py").read_text().splitlines()[int(item["line"]) - 1]
+    (repo / "svc/hidden.py").write_text((repo / "svc/hidden.py").read_text() + "\n\nfrom openai import OpenAI\n\n\ndef extra():\n    return OpenAI()\n")
+    r = rm("wrap", at(repo, "svc/hidden.py", "return OpenAI()"), "--json", cwd=repo)
+    assert json.loads(r.stdout)["changed"], r.stdout
+    item2 = next(it for it in ledger(repo)["worklist"] if it["id"] == item["id"])
+    assert (repo / "svc/hidden.py").read_text().splitlines()[int(item2["line"]) - 1] == text_before

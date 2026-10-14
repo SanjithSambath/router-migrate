@@ -69,6 +69,11 @@ so C's numbers above are from the frozen toolkit, not the fix.
   Two scorer fixes were made after runs and applied to every arm: recognizing hand-written Router clients whose base URL
   is assigned elsewhere (B and B' were under-credited before), and pairing rewritten calls with inventory sites by file
   when line matching fails.
+- **Router key and spend.** No v3 process had a Router key: the harness, the launcher and `finish` strip
+  `RAMP_ROUTER_API_KEY` from every child process, and the Router-on runs used router-sim. No Router key pattern appears in
+  any eval artifact or in the 30 agent transcripts, and no agent sent a request to api.router.com. Live Router spend for v3
+  is $0 (eval/live_spend_v2.jsonl last changed in the v2 eval). Agent spend ($83.45 across arms B, B', C) was on the Claude
+  subscription via a long-lived OAuth token kept outside the repo.
 
 ## Per repo
 

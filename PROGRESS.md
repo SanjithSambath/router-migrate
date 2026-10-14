@@ -177,3 +177,8 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   build changed and why); WRITEUP.md v3 section with results and Track 2 next steps; EMAIL_TO_KEDAR.md (draft, not sent);
   README and AGENTS.md v3 loop; DECISIONS D13; REPORT.html renders the agent ledger (eval/v3/reports/ for 3 repos,
   eval/v3/screenshots/). Done when: `bash scripts/done_check_v3.sh` prints DONE_CHECK_V3: PASS.
+- **Spec revision 3 and the remaining T6 deliverables**: SPEC_V3.md rewritten as one document (thesis from first
+  principles, seven design rules, the oracle, the ledger, Track 1 as built in section 5 with milestone results, evaluation
+  and results, revision history), Stop-hook fields checked against the Claude Code hooks reference; DEMO_V3.md (2-minute demo
+  on a fresh repo from the recorded run); WRITEUP "What Router should build"; Router-key evidence in RESULTS (no key in any
+  v3 process, artifact or transcript; $0 live Router spend). Post-eval fix: `wrap` remaps ledger lines (+1 test, 281 total).

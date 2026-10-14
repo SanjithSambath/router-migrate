@@ -288,3 +288,7 @@ frozen toolkit (commit 5eec746).
 - k=3 and pass^3, the reviewer subagent, per-patch drop, MCP, P4 agent judgments: Track 2 (WRITEUP.md next steps).
 - Eval agents were not network-sandboxed (they had the model API and anything else); transcripts were checked for reads of
   inventory or results paths instead.
+- Also after the eval: `wrap` now remaps the ledger's worklist, claim and fact lines in the file it edits. In the runs, the
+  inserted import block left worklist items pointing 7 lines above their calls, so agents claimed the call at its new line
+  (tool-confirmed) and again at the stale line to clear the worklist check (recorded unconfirmed, never credited).
+
