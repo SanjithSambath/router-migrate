@@ -704,7 +704,7 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     ts = tests_state(led)
     b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
          "tradeoffs": tradeoffs, "moved": None, "tests": ts, "tests_status": ts["status"], "apply_blocked": apply_blocked(ts), "undo_allowed": ts.get("status") == "failed",
-            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate %s" % __import__("router_migrate").__version__,
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),
                        "needs_review": sm.get("flagged", 0) + sm.get("handoff", 0), "kept": sm.get("kept", 0)},

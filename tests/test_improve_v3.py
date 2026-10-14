@@ -108,7 +108,7 @@ def test_setup_and_bundle_carry_the_run(repo):
     assert setup["setup.flex_default"]["applies_to"] == ["app/jobs.py:digest"]
     assert setup["setup.switchyard"].get("na") is True
     assert b["run"]["judgments"]["app/jobs.py:digest"]["latency"]["value"] == "background"
-    assert b["run"]["routes_now"] >= 1 and b["tool_version"] == "router-migrate v3"
+    assert b["run"]["routes_now"] >= 1 and b["tool_version"].startswith("router-migrate 0.")
 
 
 def test_budget_item_is_repo_specific(repo):

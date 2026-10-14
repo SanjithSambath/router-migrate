@@ -460,7 +460,10 @@ def native_eligibility(root, p, client_id):
 def glob_for(feature):
     """Policy glob for a feature, robust to the process's working directory: '**<last two path parts>:<function>'."""
     path, _, fn = feature.rpartition(":")
-    return "**%s:%s" % ("/".join(path.split("/")[-2:]), fn)
+    tail = "/".join(path.split("/")[-2:])
+    if not tail.endswith(".py"):  # TS/JS runs as bundled .js (.next/server/.../route.js): match any extension
+        tail = re.sub(r"\.(m|c)?(t|j)sx?$", ".*", tail)
+    return "**%s:%s" % (tail, fn)
 
 
 def compile_guardrails(root, led):
@@ -813,7 +816,7 @@ def serve_dashboard(root, open_browser=False):
         lines += ["  skipped %s: %s" % (x["card"], x["reason"]) for x in out["skipped"]]
         lines += ["  warning %s" % w for w in out.get("warnings") or []]
         lines.append("quick gate (parse, scope): %s" % ("ok" if ok else "; ".join(f["detail"] for f in fails)))
-        lines.append("next: router-migrate finish %s  (full gate: tests vs baseline, Router-on run)" % root)
+        lines.append("next: router-migrate check --final --tests  (in %s: the outside check and the test suite, Router on, before you ship)" % root)
         return {"command": "router-migrate apply --decisions %s" % root, "output": "\n".join(lines)}
 
     return dash_server.serve(lambda: imp.bundle(root, repo=os.path.basename(root)), on_decide, on_apply, open_browser=open_browser)

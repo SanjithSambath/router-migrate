@@ -154,3 +154,23 @@ def test_adapt_undo_reverses_a_policy_tradeoff(repo):
     assert "seed" not in (pol.read_text() if pol.exists() else "")
     assert AG.load_ledger(str(repo))["tradeoffs"][0]["undone"]
     assert rm("adapt", "--undo", "T1", cwd=repo).returncode != 0
+
+
+def test_policy_hook_in_the_vendored_ts_runtime_is_not_a_hand_edit(tmp_path):
+    from router_migrate import harness as H
+    from router_migrate.catalog import Catalog
+    from router_migrate.runtime import render
+    (tmp_path / "lib").mkdir()
+    rt = tmp_path / "lib" / "routerRuntime.ts"
+    rt.write_text(render("routerRuntime.ts", Catalog.load()) + '\nimport "./routerPolicy"; // router-migrate: compiled policy (router.policy.json)\n')
+    assert not H._runtime_edited(str(tmp_path), "lib/routerRuntime.ts")
+    rt.write_text(rt.read_text().replace("export function", "export  function", 1))
+    assert H._runtime_edited(str(tmp_path), "lib/routerRuntime.ts")
+
+
+def test_guardrail_globs_match_the_bundled_js_a_ts_route_runs_as():
+    from router_migrate.agent import glob_for
+    from router_migrate.runtime.router_runtime import _glob_re
+    g = glob_for("app/api/chat/route.ts:POST")
+    assert _glob_re(g).match(".next/server/app/api/chat/route.js:POST") and _glob_re(g).match("app/api/chat/route.ts:POST")
+    assert glob_for("svc/direct.py:ask") == "**svc/direct.py:ask"

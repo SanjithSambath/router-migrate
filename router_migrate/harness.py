@@ -106,8 +106,9 @@ def _runtime_edited(root, path):
     name = os.path.basename(path)
     if name not in ("router_runtime.py", "routerRuntime.ts"):
         return False
-    try:
-        return open(os.path.join(root, path), encoding="utf-8").read() != render(name, Catalog.load())
+    tool_lines = lambda t: "\n".join(x for x in t.splitlines() if "router-migrate: compiled policy" not in x).rstrip()
+    try:  # the policy compile hooks the compiled policy into the runtime with one line: that is the tool's, not a hand edit
+        return tool_lines(open(os.path.join(root, path), encoding="utf-8").read()) != tool_lines(render(name, Catalog.load()))
     except Exception:
         return False
 
@@ -186,11 +187,29 @@ def final_check(root, led, require_report=True, tests=True):
     return not fails, fails, info
 
 
+def _merge_baseline(root, led, b=None):
+    """The background baseline's results into the ledger (True when merged). Without them a dry run would compare against
+    nothing and call every pre-existing type error a regression."""
+    if b is None:
+        p = baseline_path(root)
+        b = json.load(open(p)) if os.path.exists(p) else None
+    if not b or b.get("status") != "done":
+        return False
+    led["baseline"].update({k: b.get(k) for k in ("before", "typecheck_before") if b.get(k) is not None})
+    return True
+
+
 def cmd_verify(a):
     root = AG.ledger_root(a.path)
     led = AG.load_ledger(root)
     if led is None:
-        return AG.err(a.json, "no ledger", "this runs inside `router-migrate run --arm min`")
+        return AG.err(a.json, "no ledger", "start with `router-migrate start .`")
+    if led.get("version") == 5 and not _merge_baseline(root, led):
+        p = baseline_path(root)
+        if os.path.exists(p) and json.load(open(p)).get("status") == "running":
+            print("(the baseline is still running in the background; typecheck/tests are compared once it is done)")
+            led["baseline"].pop("typecheck_cmd", None)
+            a.tests = False
     ok, fails, info = final_check(root, led, require_report=led.get("arm") != "free", tests=bool(getattr(a, "tests", False)))
     lines = ["check --final: %s; %d call(s) route now; tests: %s" % ("OK" if ok else "would FAIL", len(info.get("moved") or []),
                                                                      (info.get("tests") or {}).get("status"))]
@@ -326,8 +345,10 @@ def setup(root, a, arm="min"):
         rows, led["check_error"] = [], str(e)[:300]
     secs = (json.load(open(baseline_path(root))).get("before") or {}).get("seconds") if cached else None
     ctx = ["## This repository",
-           "Test command: %s%s. The final check runs the full suite after you; how you test along the way is up to you." % (
-               test_cmd or "none found", " (about %ds per full run)" % secs if secs else ""),
+           ("Test command: %s%s. The final check runs the full suite after you; how you test along the way is up to you." % (
+               test_cmd, " (about %ds per full run)" % secs if secs else "")) if test_cmd else
+           "No test command found (pass `--test-cmd` to `start` if there is one); the final check still parses, typechecks and route-checks.",
+           "Typecheck command: %s (the final check compares its errors with the baseline)." % tc_cmd if tc_cmd else "",
            "Python with the repo's dependencies: %s" % base["python"] if base["python"] else "",
            "LLM calls the scanner sees (%d; it misses dynamically built clients), as the code stands:" % len(rows), _fmt(rows)]
     here = os.path.dirname(os.path.abspath(__file__))
@@ -423,9 +444,7 @@ def finish(root, a, arm="min", resume=None, runs=None):
     led = AG.load_ledger(root)
     if led is None or led.get("version") != 5:
         return AG.err(False, "no v5 ledger here", "start with `router-migrate start .` (Claude Code) or `router-migrate run <repo> --agent claude`")
-    b = _wait_baseline(root)
-    if b:
-        led["baseline"].update({k: b.get(k) for k in ("before", "typecheck_before") if b.get(k) is not None})
+    if _merge_baseline(root, led, _wait_baseline(root)):
         AG.save_ledger(root, led)
     slow = ((led["baseline"].get("before") or {}).get("seconds") or 0) > BACKGROUND_TESTS_SECS
     mode = "background" if slow and not getattr(a, "foreground_tests", False) else True
