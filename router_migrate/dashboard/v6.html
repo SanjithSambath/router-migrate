@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>router-migrate</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #1B1A1A; --side: #201F1E; --panel: #242322; --panel-2: #2A2928; --hover: #2E2C2B; --code: #191818; --raise: #262524;
+  --line: #33312F; --line-2: #44413E; --line-3: #57534F;
+  --text: #EAE6E2; --text-2: #ADA7A2; --text-3: #7E7874;
+  --solar: #E4F222; --solar-hover: #D5E31B; --solar-ink: #1B1A1A; --solar-tint: rgba(228,242,34,.07); --solar-line: rgba(228,242,34,.40); --solar-text: #E8EF8F;
+  --olive: #36311A; --olive-ink: #E8D46B;
+  --green: #4BC876; --green-tint: rgba(75,200,118,.10); --green-line: rgba(75,200,118,.45);
+  --lilac: #BAA6EE; --lilac-tint: rgba(186,166,238,.10); --lilac-line: rgba(186,166,238,.42);
+  --amber: #E6B95D; --amber-tint: rgba(230,185,93,.10); --amber-line: rgba(230,185,93,.42);
+  --red: #E9876F; --red-tint: rgba(233,135,111,.10); --red-line: rgba(233,135,111,.45);
+  --blue: #8DB4E8; --blue-tint: rgba(141,180,232,.10); --blue-line: rgba(141,180,232,.42);
+  --add: rgba(75,200,118,.08); --del: rgba(233,135,111,.07); --hunk: #232221;
+  --syn-k: #C9B3F5; --syn-s: #A6DDB4; --syn-n: #EBC57A; --syn-c: #7E7874;
+  --bar: rgba(27,26,26,.84); --sticky: rgba(27,26,26,.92); --shadow: rgba(0,0,0,.45); --focus: #E4F222;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "IBM Plex Mono", Menlo, Consolas, monospace;
+  --r: 8px; --ease: cubic-bezier(.2, .7, .2, 1); --fast: 140ms; --med: 220ms;
+  --side-w: 236px; --content: 1080px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+    --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+    --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+    --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+    --olive: #EEF0C8; --olive-ink: #5B5712;
+    --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+    --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+    --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+    --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+    --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+    --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+    --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+    --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+  --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+  --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+  --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+  --olive: #EEF0C8; --olive-ink: #5B5712;
+  --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+  --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+  --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+  --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+  --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+  --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+  --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+  --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/22px var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden; }
+h1, h2, h3, h4 { margin: 0; font-weight: 400; letter-spacing: -0.015em; }
+p { margin: 0; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+button, input, select, textarea { font: inherit; color: inherit; }
+code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; color: var(--text); overflow-wrap: anywhere; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+::selection { background: rgba(228,242,34,.25); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* tones: one vocabulary for kinds, statuses, results and routes */
+.tone-green { --c: var(--green); --t: var(--green-tint); --l: var(--green-line); }
+.tone-solar { --c: var(--solar-text); --t: var(--solar-tint); --l: var(--solar-line); }
+.tone-blue { --c: var(--blue); --t: var(--blue-tint); --l: var(--blue-line); }
+.tone-amber { --c: var(--amber); --t: var(--amber-tint); --l: var(--amber-line); }
+.tone-red { --c: var(--red); --t: var(--red-tint); --l: var(--red-line); }
+.tone-lilac { --c: var(--lilac); --t: var(--lilac-tint); --l: var(--lilac-line); }
+.tone-neutral { --c: var(--text-2); --t: var(--panel-2); --l: var(--line-2); }
+.tone-muted { --c: var(--text-3); --t: transparent; --l: var(--line-2); }
+
+/* ================= shell ================= */
+.app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 0 12px 16px; }
+.brand { display: flex; align-items: center; gap: 7px; height: 64px; margin: 0 -12px; padding: 0 22px; border-bottom: 1px solid var(--line); flex: none; }
+.brand b { font: 600 16px/22px var(--sans); letter-spacing: -0.02em; }
+.brand span { font: 400 11px/14px var(--mono); color: var(--text-3); padding-top: 3px; }
+.side .nav:first-of-type { margin-top: 16px; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-label { font: 500 10.5px/14px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); padding: 0 10px; margin: 0 0 6px; }
+.nav-item { position: relative; appearance: none; border: 0; background: none; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 6px; color: var(--text-2); cursor: pointer; text-align: left; width: 100%; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item[aria-current="page"] { background: var(--panel-2); color: var(--text); }
+.nav-item .nl { flex: 1; white-space: nowrap; }
+.nav-item .cnt { font: 500 11px/18px var(--mono); color: var(--text-3); min-width: 18px; text-align: right; }
+.nav-item .cnt.hot { color: var(--solar-ink); background: var(--solar); padding: 0 6px; border-radius: 9px; text-align: center; }
+.side-spacer { flex: 1; min-height: 24px; }
+.side-foot { padding: 14px 10px 0; margin-top: 12px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12px; line-height: 18px; }
+.main { min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 20; height: 64px; background: var(--bar); backdrop-filter: saturate(140%) blur(14px); -webkit-backdrop-filter: saturate(140%) blur(14px); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: calc(var(--content) + 112px); margin: 0 auto; height: 100%; padding: 0 56px; display: flex; align-items: center; gap: 12px; }
+.repo-chip { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
+.repo-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.repo-ic svg.i { width: 15px; height: 15px; }
+.repo-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.repo-id .nm { font: 500 14.5px/19px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.repo-id .path { font: 400 11.5px/15px var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
+.crumb { display: inline-flex; align-items: center; gap: 12px; color: var(--text-2); white-space: nowrap; }
+.crumb::before { content: ""; width: 1px; height: 22px; background: var(--line-2); transform: skewX(-18deg); }
+.topbar .sp { flex: 1; }
+.status { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--line-2); font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.status svg.i { width: 14px; height: 14px; }
+.status.live { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
+.status.err { color: var(--red); border-color: var(--red-line); background: var(--red-tint); }
+.status.frozen { color: var(--blue); border-color: var(--blue-line); background: var(--blue-tint); }
+.dot { width: 6px; height: 6px; border-radius: 3px; background: currentColor; flex: none; }
+.dot.ping { animation: ping 2.4s var(--ease) infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(75,200,118,.45); } 70%, 100% { box-shadow: 0 0 0 6px rgba(75,200,118,0); } }
+.iconbtn { appearance: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line-2); background: none; color: var(--text-2); display: grid; place-items: center; cursor: pointer; flex: none; }
+.iconbtn:hover { color: var(--text); background: var(--hover); }
+.page { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 44px 56px 160px; }
+.enter { animation: enter var(--med) var(--ease) both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ================= page header + sections ================= */
+.ph { display: flex; align-items: flex-end; gap: 24px; margin-bottom: 32px; }
+.ph-t { flex: 1; min-width: 0; }
+.eyebrow { font: 500 11px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.ph .eyebrow { margin-bottom: 10px; }
+.ph h1 { font-size: 32px; line-height: 40px; letter-spacing: -0.02em; }
+.ph h1 .muted { color: var(--text-3); }
+.ph .sub { color: var(--text-2); font-size: 15px; line-height: 24px; margin-top: 10px; max-width: 760px; }
+.ph-side { display: flex; gap: 8px; align-items: center; flex: none; }
+.sec { margin-top: 48px; }
+.sec-h { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+.sec-h .t { flex: 1; min-width: 0; }
+.sec-h h2 { font-size: 19px; line-height: 26px; }
+.sec-h p { color: var(--text-2); margin-top: 4px; }
+.sec-h .n { font: 500 12px/18px var(--mono); color: var(--text-3); margin-left: 8px; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); }
+.empty { color: var(--text-2); padding: 24px; }
+.empty b { color: var(--text); font-weight: 500; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.banner { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-radius: 7px; border: 1px solid var(--line-2); color: var(--text); margin-bottom: 20px; font-size: 13px; line-height: 20px; }
+.banner svg.i { margin-top: 2px; color: var(--c, var(--text-3)); }
+.banner .tx { flex: 1; min-width: 0; }
+.banner .tx b { font-weight: 500; }
+.banner.tone-amber, .banner.tone-red, .banner.tone-blue, .banner.tone-green { border-color: var(--l); background: var(--t); }
+.banner ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); }
+.link { appearance: none; background: none; border: 0; padding: 0; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; transition: color var(--fast) var(--ease); }
+.link svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.link:hover { color: var(--text); }
+.link:hover svg.i { transform: translateX(2px); }
+
+/* ================= overview ================= */
+.doors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.door { appearance: none; text-align: left; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 18px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); min-width: 0; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.door:hover { border-color: var(--line-3); background: var(--raise); }
+.door:active { transform: translateY(1px); }
+.door-top { display: flex; align-items: center; gap: 12px; }
+.door-top h3 { font-size: 15px; line-height: 22px; font-weight: 500; flex: 1; min-width: 0; }
+.ic { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.ic.t { background: var(--t); color: var(--c); }
+.door-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.door-big .v { font-size: 40px; line-height: 44px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.door-big .v.word { font-size: 30px; line-height: 44px; letter-spacing: -0.02em; color: var(--c); }
+.door-big .v small { font-size: 18px; color: var(--text-3); margin-left: 2px; letter-spacing: 0; }
+.door-big .u { color: var(--text-2); font-size: 14px; }
+.door.hot { border-color: var(--solar-line); background: linear-gradient(180deg, var(--solar-tint), transparent 60%), var(--panel); }
+.door.hot .door-big .v { color: var(--solar-text); }
+.door-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.door-foot .sp { flex: 1; }
+.door-foot .go { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.door-foot .go svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.door:hover .door-foot .go { color: var(--text); }
+.door:hover .door-foot .go svg.i { transform: translateX(3px); }
+.mini { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 13px; line-height: 18px; }
+.mini span { display: flex; align-items: baseline; gap: 7px; }
+.mini b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; min-width: 14px; }
+.mini .sdot { align-self: center; }
+.sdot { width: 8px; height: 8px; border-radius: 4px; background: var(--c); flex: none; display: inline-block; }
+.sdot.o { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.segbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.segbar i { display: block; height: 100%; background: var(--c); min-width: 4px; border-radius: 2px; }
+.segbar i.o { background: repeating-linear-gradient(135deg, var(--c) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--l); }
+.segbar i.muted { background: repeating-linear-gradient(135deg, var(--line-2) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--line-2); }
+.quote { display: flex; gap: 12px; padding: 16px 18px; border-radius: var(--r); background: var(--lilac-tint); border: 1px solid var(--lilac-line); }
+.quote svg.i { color: var(--lilac); margin-top: 3px; }
+.quote .qt { color: var(--text); font-size: 14.5px; line-height: 23px; max-width: 860px; }
+.quote .by { display: block; font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--lilac); margin-bottom: 6px; }
+.reviewed { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; padding: 12px 16px; border-radius: var(--r); border: 1px solid var(--line); color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.reviewed svg.i { margin-top: 3px; color: var(--text-3); }
+.reviewed b { color: var(--text); font-weight: 500; }
+.reviewed .tx { flex: 1; min-width: 0; }
+.reviewed.big { padding: 22px 24px; border-color: var(--solar-line); background: var(--solar-tint); }
+.reviewed.big .tx { font-size: 15px; line-height: 24px; color: var(--text); }
+.reviewed.big b { display: block; font-size: 17px; line-height: 24px; margin-bottom: 6px; }
+.reviewed.big svg.i { color: var(--solar-text); width: 18px; height: 18px; }
+.kchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.facts-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 18px; color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.facts-line span { display: inline-flex; align-items: center; gap: 7px; }
+.facts-line b { color: var(--text-2); font-weight: 500; }
+
+/* ================= badges ================= */
+.kb { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font: 500 10.5px/14px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.kb svg.i { width: 12px; height: 12px; }
+.sc { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; line-height: 16px; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.sc .dot { width: 6px; height: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; line-height: 16px; white-space: nowrap; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-2)); background: var(--t, transparent); }
+.pill svg.i { width: 12px; height: 12px; }
+
+/* ================= the one card ================= */
+.card { position: relative; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 20px 24px; scroll-margin-top: 96px; transition: border-color var(--med) var(--ease), box-shadow var(--med) var(--ease); }
+.card.flash { animation: flash 1.6s var(--ease); }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } 15% { box-shadow: 0 0 0 3px var(--solar-line); border-color: var(--solar-line); } 100% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } }
+.item.waiting { border-color: var(--solar-line); }
+.ih { display: flex; align-items: flex-start; gap: 8px 12px; flex-wrap: wrap; }
+.ih .kb { margin-top: 1px; }
+.ih .it { flex: 1 1 240px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.isum { color: var(--text-2); margin-top: 8px; max-width: 860px; }
+.row { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; margin-top: 12px; }
+.lbl { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.row > .lbl { min-width: 72px; }
+.cref { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 22px; padding: 0 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font: 400 11.5px/16px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+button.cref:hover { color: var(--text); border-color: var(--line-3); }
+span.cref { cursor: default; color: var(--text-3); border-style: dashed; }
+.cref em { font-style: normal; color: var(--text-3); }
+.glp { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.glp > div { padding: 10px 14px; border-left: 1px solid var(--line); min-width: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.glp > div:first-child { border-left: 0; }
+.glp .lbl { margin-bottom: 4px; display: block; }
+.glp .g { color: var(--text); }
+.glp .l { color: var(--text-2); }
+.glp .l.none { color: var(--text-3); }
+.glp .pr { color: var(--text); font-variant-numeric: tabular-nums; }
+.chk { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 10px; margin-top: 16px; }
+.chk > .lbl { padding-top: 4px; }
+.evl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ev { display: grid; grid-template-columns: 74px auto minmax(0, 1fr) auto; grid-template-areas: "r k d s"; gap: 0 10px; align-items: baseline; font-size: 13px; line-height: 20px; }
+.ev .r { grid-area: r; display: inline-flex; align-items: center; gap: 5px; font: 500 11px/20px var(--mono); color: var(--c); white-space: nowrap; }
+.ev .r svg.i { width: 13px; height: 13px; align-self: center; }
+.ev .k { grid-area: k; color: var(--text); font-weight: 500; white-space: nowrap; }
+.ev .d { grid-area: d; color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.ev .s { grid-area: s; font: 500 9.5px/16px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+.ev .s.agent { color: var(--lilac); border-color: var(--lilac-line); }
+.mc { margin-top: 16px; padding: 14px 16px; border-radius: 7px; border: 1px solid var(--lilac-line); background: var(--lilac-tint); }
+.mc-h { display: flex; gap: 10px; align-items: flex-start; }
+.mc-h svg.i { color: var(--lilac); margin-top: 3px; }
+.mc-h .tx { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.mc-h .tx b { display: block; color: var(--text); font-weight: 500; font-size: 14px; }
+.mc .evl { margin-top: 10px; }
+.samples { margin-top: 12px; display: grid; gap: 8px; }
+.sample { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); font-size: 12.5px; line-height: 19px; }
+.sample > div { padding: 8px 10px; border-left: 1px solid var(--line); min-width: 0; overflow-wrap: anywhere; }
+.sample > div:first-child { border-left: 0; color: var(--text-2); }
+.sample .lbl { display: block; margin-bottom: 2px; }
+.sample.diff > div:last-child { background: var(--amber-tint); }
+.flags { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--amber-line); background: var(--amber-tint); font-size: 13px; line-height: 20px; }
+.flags svg.i { color: var(--amber); margin-top: 2px; }
+.flags .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.flags .fk { color: var(--amber); font-weight: 500; margin-right: 6px; }
+.flags .fd { color: var(--text); overflow-wrap: anywhere; }
+.flags .ff { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.rel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 12px; font-size: 13px; }
+.ilink { appearance: none; background: none; border: 0; padding: 0; display: inline-flex; align-items: baseline; gap: 7px; color: var(--text); cursor: pointer; text-align: left; font-size: 13px; line-height: 20px; max-width: 100%; }
+.ilink .sdot { align-self: center; width: 7px; height: 7px; }
+.ilink .tt { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.ilink:hover .tt { text-decoration-color: var(--text-2); }
+.note { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--l, var(--line)); background: var(--t, transparent); font-size: 13px; line-height: 20px; color: var(--text-2); }
+.note svg.i { color: var(--c, var(--text-3)); margin-top: 2px; width: 15px; height: 15px; }
+.note .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.note b { color: var(--text); font-weight: 500; }
+.note .meta { color: var(--text-3); }
+.disc { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+details.more > summary { cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; display: inline-flex; align-items: center; gap: 7px; user-select: none; padding: 3px 0; transition: color var(--fast) var(--ease); }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary svg.i { width: 12px; height: 12px; transition: transform var(--med) var(--ease); }
+details.more[open] > summary svg.i:first-child { transform: rotate(90deg); }
+details.more > summary:hover { color: var(--text); }
+details.more > summary .meta { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
+details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.more-b { margin: 8px 0 10px; color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.whyt { padding: 12px 14px; border-left: 2px solid var(--lilac-line); background: var(--lilac-tint); border-radius: 0 6px 6px 0; color: var(--text); max-width: 860px; }
+.nodiff { color: var(--text-3); font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; padding: 3px 0; }
+.nodiff svg.i { width: 12px; height: 12px; }
+.ifoot { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ifoot .sp { flex: 1; }
+.ref { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font: 400 12px/18px var(--mono); min-width: 0; max-width: 100%; }
+.ref svg.i { width: 13px; height: 13px; }
+.ref span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* buttons + forms */
+.btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; white-space: nowrap; font-size: 13px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease), opacity var(--fast) var(--ease); }
+.btn svg.i { width: 14px; height: 14px; }
+.btn:hover:not(:disabled) { border-color: var(--line-3); background: var(--hover); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--solar); border-color: var(--solar); color: var(--solar-ink); font-weight: 500; }
+.btn.primary:hover:not(:disabled) { background: var(--solar-hover); border-color: var(--solar-hover); }
+.btn.ghost { border-color: transparent; color: var(--text-2); padding: 0 10px; }
+.btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
+.btn.warn { color: var(--amber); border-color: var(--amber-line); }
+.btn.lg { height: 40px; padding: 0 18px; font-size: 14px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; width: 100%; animation: enter var(--med) var(--ease) both; }
+.form input { height: 32px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 10px; flex: 1 1 240px; min-width: 0; max-width: 460px; }
+.form input[type=date] { flex: 0 1 180px; }
+.form input:focus { outline: none; border-color: var(--solar-line); }
+.form .hint { color: var(--text-3); font-size: 12.5px; flex: 1 1 100%; }
+
+/* filters */
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.filters > .lbl { min-width: 52px; }
+.fchip { appearance: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--line-2); background: none; color: var(--text-2); cursor: pointer; font-size: 13px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.fchip:hover { color: var(--text); border-color: var(--line-3); }
+.fchip[aria-pressed="true"] { background: var(--panel-2); color: var(--text); border-color: var(--line-3); }
+.fchip .n { font: 500 11px/16px var(--mono); color: var(--text-3); }
+.fchip .sdot { width: 7px; height: 7px; }
+.group { margin-top: 36px; }
+.group:first-child { margin-top: 28px; }
+.group-h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.group-h p { color: var(--text-3); font-size: 13px; line-height: 20px; flex: 1 1 300px; min-width: 0; }
+
+/* calls table */
+.tblw { overflow: hidden; }
+.ctbl { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.ctbl th { text-align: left; font-weight: 400; color: var(--text-3); font-size: 12px; padding: 11px 16px; border-bottom: 1px solid var(--line); background: var(--raise); white-space: nowrap; }
+.ctbl td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ctbl tr:last-child td { border-bottom: 0; }
+.ctbl tr { scroll-margin-top: 96px; }
+.ctbl tr.flash td { animation: rowflash 1.6s var(--ease); }
+@keyframes rowflash { 15% { background: var(--solar-tint); } }
+.ctbl .site { font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+.ctbl .sub { color: var(--text-3); font-size: 12px; line-height: 18px; margin-top: 2px; overflow-wrap: anywhere; }
+.ctbl .mdl { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.route { display: inline-flex; align-items: center; gap: 7px; color: var(--c); white-space: nowrap; font-weight: 500; }
+.lat { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
+
+/* queue */
+.prow { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.prow:first-child { border-top: 0; }
+.prow .tx { flex: 1 1 260px; min-width: 0; }
+.prow .ss { color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 3px; overflow-wrap: anywhere; }
+.atag { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; height: 24px; padding: 0 8px; border-radius: 5px; font: 500 11px/14px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); flex: none; }
+.applybar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 16px 18px; border-top: 1px solid var(--line); background: var(--raise); border-radius: 0 0 var(--r) var(--r); }
+.applybar .tx { flex: 1 1 300px; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.applybar .tx b { color: var(--text); font-weight: 500; }
+.applybar .why { flex: 1 1 100%; color: var(--amber); font-size: 12.5px; line-height: 18px; display: flex; gap: 8px; align-items: flex-start; }
+.applybar .why svg.i { width: 14px; height: 14px; margin-top: 2px; }
+.term { margin: 0; padding: 14px 16px; font: 400 12px/19px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); max-height: 260px; overflow: auto; background: var(--code); border-top: 1px solid var(--line); border-radius: 0 0 var(--r) var(--r); }
+.result-h { display: flex; align-items: center; gap: 12px; padding: 14px 18px; font-size: 13.5px; flex-wrap: wrap; }
+.result-h .tx { flex: 1 1 260px; min-width: 0; }
+.result-h .tx b { font-weight: 500; }
+.copyv { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 32px; padding: 0 4px 0 12px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); font: 400 12.5px/18px var(--mono); color: var(--text); }
+.copyv .cv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copyv .btn { height: 24px; padding: 0 8px; font-size: 11.5px; flex: none; }
+
+/* history */
+.sess { overflow: hidden; }
+.sess-h { display: flex; align-items: center; gap: 12px 14px; padding: 16px 20px; flex-wrap: wrap; }
+.sid { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line-2); font: 500 13px/16px var(--mono); color: var(--text); flex: none; }
+.sess-h .tx { flex: 1 1 220px; min-width: 0; }
+.sess-h .tx b { font-weight: 500; font-size: 15px; }
+.sess-h .tx .mt { display: block; color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 2px; }
+.sess-sum { padding: 0 20px 16px; color: var(--text); max-width: 900px; }
+.rrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; padding: 13px 20px; border-top: 1px solid var(--line); align-items: start; }
+.rrow .tx { min-width: 0; }
+.rrow .nt { color: var(--text-2); font-size: 13px; line-height: 20px; margin-top: 4px; overflow-wrap: anywhere; }
+.rrow .cm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rrow .rt { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.sess-ck { padding: 14px 20px 18px; border-top: 1px solid var(--line); background: var(--raise); }
+.sess-ck .lbl { display: block; margin-bottom: 8px; }
+
+/* setup */
+.prog { display: flex; align-items: center; gap: 12px; }
+.prog-bar { display: flex; gap: 4px; }
+.prog-bar i { width: 22px; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.prog-bar i.on { background: var(--solar); box-shadow: none; }
+.prog .tx { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.prog .tx b { color: var(--text); font-weight: 500; }
+.scard { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px; padding: 22px 24px; }
+.scard.done .s-body { opacity: .6; }
+.s-rail { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.s-num { font: 500 11px/14px var(--mono); color: var(--text-3); letter-spacing: .06em; }
+.check { appearance: none; width: 26px; height: 26px; border-radius: 13px; border: 1.5px solid var(--line-3); background: none; flex: none; cursor: pointer; display: grid; place-items: center; color: var(--solar-ink); transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.check:hover { border-color: var(--solar-line); }
+.check.on { background: var(--solar); border-color: var(--solar); }
+.check svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.s-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.s-head h3 { font-size: 16px; line-height: 24px; font-weight: 500; }
+.prio { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-3)); background: var(--t, transparent); white-space: nowrap; }
+.s-lead { color: var(--text-2); margin-top: 8px; max-width: 760px; }
+.s-block { margin-top: 16px; }
+.s-block > .lbl { display: block; margin-bottom: 8px; }
+.taglist { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.where { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.where .r { font-weight: 500; color: var(--text); }
+.where svg.i { width: 12px; height: 12px; color: var(--text-3); }
+.s-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.s-foot .nt { color: var(--text-3); font-size: 12.5px; }
+a.btn { text-decoration: none; }
+
+/* diff */
+.dv { margin-top: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--code); overflow: hidden; }
+.dv-h { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.dv-h .msg { color: var(--text); font-weight: 500; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.dv-h .mono { color: var(--text-3); font-size: 11.5px; }
+.dv-trunc { padding: 8px 14px; color: var(--amber); font-size: 12px; border-top: 1px solid var(--line); background: var(--amber-tint); }
+.df + .df { border-top: 1px solid var(--line); }
+.df-h { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font: 400 12px/18px var(--mono); }
+.df-h .f { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.df-h .m { color: var(--amber); font-size: 11px; }
+.plus { color: var(--green); }
+.minus { color: var(--red); }
+.df-b { overflow-x: auto; scrollbar-width: thin; }
+.df-b table { border-collapse: collapse; min-width: 100%; font: 400 12px/19px var(--mono); }
+.df-b td { padding: 0; vertical-align: top; }
+.df-b td.n { width: 1%; min-width: 38px; padding: 0 8px; color: var(--text-3); text-align: right; user-select: none; opacity: .8; }
+.df-b td.g { width: 14px; padding: 0 4px; color: var(--text-3); user-select: none; text-align: center; }
+.df-b td.c { white-space: pre; padding-right: 14px; color: var(--text-2); }
+.df-b tr.add { background: var(--add); }
+.df-b tr.add td.g { color: var(--green); }
+.df-b tr.add td.c { color: var(--text); }
+.df-b tr.del { background: var(--del); }
+.df-b tr.del td.g { color: var(--red); }
+.df-b tr.hunk td { background: var(--hunk); color: var(--text-3); padding-top: 2px; padding-bottom: 2px; }
+.df-b tr.hunk td.c { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sy-k { color: var(--syn-k); }
+.sy-s { color: var(--syn-s); }
+.sy-n { color: var(--syn-n); }
+.sy-c { color: var(--syn-c); font-style: italic; }
+.stat { padding: 8px 14px; font: 400 11.5px/18px var(--mono); color: var(--text-3); border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* sticky + toast */
+#sticky:empty { display: none; }
+.sticky { position: fixed; left: var(--side-w); right: 0; bottom: 0; z-index: 30; background: var(--sticky); backdrop-filter: saturate(140%) blur(10px); -webkit-backdrop-filter: saturate(140%) blur(10px); border-top: 1px solid var(--line); }
+.sticky.in { animation: up 320ms var(--ease) both; }
+@keyframes up { from { transform: translateY(100%); } to { transform: none; } }
+.sticky-in { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 12px 56px; display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+.sticky-in .tx { flex: 1 1 200px; color: var(--text-2); min-width: 0; }
+.sticky-in .tx b { color: var(--text); font-weight: 500; }
+#toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 40; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { display: flex; align-items: center; gap: 10px; background: var(--text); color: var(--bg); border-radius: 8px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px var(--shadow); animation: toastin 260ms var(--ease) both; }
+.toast.out { animation: toastout 200ms var(--ease) both; }
+.toast svg.i { width: 15px; height: 15px; }
+.toast.err { background: var(--red); color: #fff; }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toastout { to { opacity: 0; transform: translateY(6px); } }
+
+/* ================= responsive ================= */
+@media (max-width: 1100px) {
+  .doors { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .doors .door:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: sticky; top: 0; z-index: 25; height: auto; flex-direction: row; align-items: center; padding: 8px 10px; gap: 6px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .side::-webkit-scrollbar { display: none; }
+  .brand, .side-spacer, .side-foot, .nav-label { display: none; }
+  .side .nav:first-of-type { margin-top: 0; }
+  .nav { flex-direction: row; }
+  .nav-item { width: auto; padding: 0 10px; }
+  .topbar { top: 53px; height: 56px; }
+  .topbar-in { padding: 0 16px; gap: 8px; }
+  .repo-id .path, .crumb, .status.key { display: none; }
+  .repo-ic { width: 28px; height: 28px; }
+  .page { padding: 26px 16px 160px; }
+  .ph { flex-direction: column; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
+  .ph h1 { font-size: 25px; line-height: 33px; }
+  .doors { grid-template-columns: minmax(0, 1fr); }
+  .glp { grid-template-columns: minmax(0, 1fr); }
+  .glp > div { border-left: 0; border-top: 1px solid var(--line); }
+  .glp > div:first-child { border-top: 0; }
+  .card { padding: 18px 16px; }
+  .chk { grid-template-columns: minmax(0, 1fr); }
+  .ev { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "r k s" "d d d"; gap: 0 8px; padding-bottom: 4px; }
+  .ev .r { min-width: 0; }
+  .sample { grid-template-columns: minmax(0, 1fr); }
+  .sample > div { border-left: 0; border-top: 1px solid var(--line); }
+  .sample > div:first-child { border-top: 0; }
+  .ctbl thead { display: none; }
+  .ctbl, .ctbl tbody, .ctbl tr, .ctbl td { display: block; width: 100%; }
+  .ctbl tr { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .ctbl tr:last-child { border-bottom: 0; }
+  .ctbl td { padding: 0; border: 0; }
+  .ctbl .site { white-space: normal; overflow-wrap: anywhere; }
+  .ctbl td + td { margin-top: 8px; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+  .ctbl td + td::before { content: attr(data-l); font: 500 10px/18px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+  .df-b td.n.o { display: none; }
+  .df-b td.n { min-width: 30px; padding: 0 6px; }
+  .sticky { left: 0; }
+  .sticky-in { padding: 10px 16px; flex-wrap: nowrap; }
+  .sticky-in .tx { font-size: 13px; line-height: 18px; }
+  .sticky-in .btn { padding: 0 12px; }
+  .scard { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px 16px; }
+  .s-rail { flex-direction: row; }
+  .sess-h, .rrow, .sess-ck { padding-left: 16px; padding-right: 16px; }
+  .sess-sum { padding: 0 16px 14px; }
+  .rrow { grid-template-columns: minmax(0, 1fr); }
+  .rrow .rt { justify-content: flex-start; }
+  .prow { padding: 14px 16px; }
+  .applybar { padding: 14px 16px; }
+  .applybar .btn { width: 100%; }
+  .row > .lbl { min-width: 0; flex: 1 1 100%; }
+  .filters > .lbl { flex: 1 1 100%; }
+}
+@media (max-width: 420px) {
+  .status .lbl2 { display: none; }
+  .status { padding: 0 9px; }
+  .door-big .v { font-size: 34px; }
+  .door-big .v.word { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side" aria-label="Pages"></aside>
+  <div class="main"><header class="topbar" id="topbar"></header><main class="page" id="main"></main></div>
+</div>
+<div id="sticky"></div>
+<div id="toast" aria-live="polite"></div>
+<script id="rm-boot">window.__RM__ = window.__RM__ || null; window.__RM_MODE__ = window.__RM_MODE__ || "static";/*__RM_BOOT__*/</script>
+<script>
+(function () {
+  "use strict";
+  var MODE = window.__RM_MODE__ || "static", LIVE = MODE === "live", FROZEN = MODE === "frozen";
+  var B = window.__RM__ || null, TOKEN = "";
+  try { TOKEN = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
+  var FROZEN_NOTE = "Frozen report: open the live dashboard to approve, undo or apply.";
+
+  var PAGES = [["overview", "Overview", "grid"], ["calls", "Calls", "route"], ["changes", "Changes", "layers"], ["queue", "Your queue", "inbox"], ["history", "History", "clock"]];
+  var MORE = [["setup", "Router setup", "sliders"]];
+  // one vocabulary: [label, tone, icon]
+  var KIND = {move: ["Move", "green", "route"], "trade-off": ["Trade-off", "solar", "scale"], port: ["Port", "blue", "swap"], stays: ["Stays", "muted", "pin"],
+    "needs-decision": ["Needs decision", "amber", "help"], improvement: ["Improvement", "lilac", "spark"], note: ["Note", "neutral", "note"]};
+  var KIND_ORDER = ["move", "trade-off", "port", "stays", "needs-decision", "improvement", "note"];
+  var STATUS = {"in code": ["In code", "green"], proposed: ["Proposed", "solar"], approved: ["Approved · ready to apply", "blue"], applied: ["Applied", "green"],
+    "undo requested": ["Undo requested", "amber"], undone: ["Undone", "muted"], dismissed: ["Dismissed", "muted"], postponed: ["Postponed", "muted"],
+    declined: ["Declined", "red"], "check failed": ["Check failed", "red"], info: ["Info", "neutral"]};
+  var STATUS_ORDER = ["proposed", "check failed", "declined", "approved", "undo requested", "in code", "applied", "postponed", "dismissed", "undone", "info"];
+  var CHECK = {tests: "Tests", typecheck: "Typecheck", "router-live": "Router live", simulator: "Simulator", "side-by-side": "Side-by-side", price: "Price", other: "Other"};
+  var RESULT = {pass: ["pass", "check", "green"], fail: ["fail", "x", "red"], info: ["info", "info", "blue"], "not-run": ["not run", "dash", "muted"]};
+  var ROUTE = {verified: ["Router", "verified by the outside check", "green", ""], unverified: ["Router", "wired, not verifiable statically", "green", "o"],
+    unchecked: ["Router", "the agent’s claim; not checked yet", "green", "o"], not_routing: ["Provider", "reported moved, doesn’t route", "red", ""],
+    stays: ["Provider", "stays", "muted", "o"], provider: ["Provider", "stays", "muted", "o"], unknown: ["Unknown", "", "muted", "o"]};
+  var LAT = {background: "Background", interactive: "Interactive", user_waiting: "User waiting"};
+  var FLAG = {"deleted-file": "Deleted files", dependencies: "Dependencies changed", "provider-key": "Provider key", "runtime-edit": "Runtime edited"};
+  var GROUPS = [["Migration decisions", ["move", "trade-off", "port"], "What the agent changed to move traffic. Each is one commit you can undo."],
+    ["Stays, or needs you", ["stays", "needs-decision"], "Calls that stay where they are, and choices that are yours to make."],
+    ["Improvements", ["improvement"], "Branches the agent built and tested. Nothing reaches your code until you approve and apply."],
+    ["Notes", ["note"], "Things the agent noticed that aren’t a change."]];
+
+  var S = {tab: "overview", fk: "all", fs: "all", busy: null, sig: "", pending: false, conn: "ok", form: {}, open: {}, applyResult: null, stickyN: 0, theme: "auto"};
+
+  // ---------------- helpers ----------------
+  function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]; }); }
+  function md(v) { return esc(v).replace(/`([^`]+)`/g, "<code>$1</code>"); }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+  function fmtInt(v) { var n = num(v); return n == null ? "–" : n.toLocaleString("en-US"); }
+  function usd(v) { var n = num(v); return n == null ? "–" : "$" + n.toFixed(2); }
+  function plural(n, a, b) { return n === 1 ? a : (b || a + "s"); }
+  function lower1(s) { s = String(s || ""); return s.charAt(0).toLowerCase() + s.slice(1); }
+  function cap(s) { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function pad(x) { return (x < 10 ? "0" : "") + x; }
+  function fmtTime(s) {
+    if (!s) return ""; var d = new Date(s); if (isNaN(d.getTime())) return String(s);
+    return d.toLocaleDateString("en-US", {month: "short", day: "numeric"}) + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function fmtClock(s) { var d = new Date(s); return isNaN(d.getTime()) ? "" : pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function fmtDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); if (!m) return String(s || "");
+    var d = new Date(+m[1], +m[2] - 1, +m[3]); return d.toLocaleDateString("en-US", {month: "short", day: "numeric", year: "numeric"});
+  }
+  function minutes(a, b) { var x = new Date(a), y = new Date(b); if (isNaN(x) || isNaN(y)) return null; return Math.max(0, Math.round((y - x) / 60000)); }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function plusDays(n) { var d = new Date(Date.now() + n * 864e5); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+  function cssId(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^\w-]/g, "\\$&"); }
+  function safeLink(u) { u = String(u || ""); return /^https:\/\/(app|docs)\.router\.com(\/|$)/.test(u) ? u : null; }
+  var P = {
+    grid: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+    route: '<circle cx="3.5" cy="12.5" r="1.5"/><circle cx="12.5" cy="3.5" r="1.5"/><path d="M5 12.5h4.5a2.5 2.5 0 0 0 0-5h-3a2.5 2.5 0 0 1 0-5H11"/>',
+    layers: '<path d="M8 2 14 5.2 8 8.4 2 5.2z"/><path d="M2 8.2l6 3.2 6-3.2M2 11l6 3.2 6-3.2"/>',
+    inbox: '<path d="M2 9.5h3.2l1 2h3.6l1-2H14"/><path d="M3.7 3h8.6L14 9.5V13H2V9.5z"/>',
+    clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.4 1.6"/>',
+    sliders: '<path d="M2.5 4h6M11.5 4h2M2.5 8h2M7.5 8h6M2.5 12h8"/><circle cx="10" cy="4" r="1.5"/><circle cx="6" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/>',
+    spark: '<path d="M8 1.8 9.3 6.7 14.2 8 9.3 9.3 8 14.2 6.7 9.3 1.8 8 6.7 6.7z"/>',
+    scale: '<path d="M8 2v12M4.5 14h7M3 4.5h10M3 4.5 1.5 9h3zM13 4.5 11.5 9h3z"/>',
+    swap: '<path d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13"/>',
+    pin: '<path d="M8 14s4.5-4.1 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.9 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/>',
+    help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.4M8 11.6v.01"/>',
+    note: '<path d="M3.5 2.5h9v11h-9z"/><path d="M5.7 5.5h4.6M5.7 8h4.6M5.7 10.5h2.6"/>',
+    check: '<path d="M3 8.3 6.4 11.6 13 4.6"/>',
+    x: '<path d="M4 4l8 8M12 4l-8 8"/>',
+    info: '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v4M8 4.9v.01"/>',
+    dash: '<path d="M4 8h8"/>',
+    warn: '<path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3M8 11.5v.01"/>',
+    arrow: '<path d="M2.5 8h10.5M9.5 4.5 13 8l-3.5 3.5"/>',
+    chev: '<path d="M6 3.5 10.5 8 6 12.5"/>',
+    branch: '<circle cx="4" cy="3.2" r="1.4"/><circle cx="4" cy="12.8" r="1.4"/><circle cx="12" cy="6.5" r="1.4"/><path d="M4 4.6v6.8M4 9c0-2 1.6-2.5 3.5-2.5h3.1"/>',
+    commit: '<circle cx="8" cy="8" r="2.4"/><path d="M1.5 8h4.1M10.4 8h4.1"/>',
+    repo: '<path d="M3.5 13V3.3c0-.7.6-1.3 1.3-1.3h7.7v9.2H4.8c-.7 0-1.3.6-1.3 1.3s.6 1.3 1.3 1.3h7.7"/><path d="M6.5 2v4.8l1.3-1 1.3 1V2"/>',
+    key: '<circle cx="5" cy="10.5" r="2.7"/><path d="M7 8.6 13.5 2.2M11 4.6l1.8 1.8M9.6 6l1.4 1.4"/>',
+    sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
+    moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
+    auto: '<circle cx="8" cy="8" r="6"/><path d="M8 2v12" /><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none"/>',
+    ext: '<path d="M6.5 3.5H3v9.5h9.5V9.5M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/>',
+    play: '<path d="M4.5 3v10l8-5z"/>',
+    undo: '<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>',
+    flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.7 3 1.7 3h-8"/>'};
+  function icon(n, cls) { return '<svg class="i' + (cls ? " " + cls : "") + '" viewBox="0 0 16 16" aria-hidden="true">' + (P[n] || "") + "</svg>"; }
+
+  // ---------------- data ----------------
+  function items() { return arr(B && B.items); }
+  function byId(id) { var l = items(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function calls() { return arr(B && B.calls); }
+  function callIndex(site) { var l = calls(); for (var i = 0; i < l.length; i++) if (l[i].site === site) return i; return -1; }
+  function pend() { return arr(B && B.pending); }
+  function running() { return arr(B && B.running); }
+  function hl() { return obj(B && B.headline); }
+  function waitingItems() { return items().filter(function (i) { return i.waiting; }); }
+  function decidedItems() { return items().filter(function (i) { return (i.status === "dismissed" || i.status === "postponed") && !i.due; }); }
+  function improvements() { return items().filter(function (i) { return i.kind === "improvement"; }); }
+  function blocked() { return (B && B.apply_blocked) || ""; }
+  function undoOnly() { var p = pend(); return p.length > 0 && p.every(function (r) { return r.action === "undo"; }); }
+  function applyState() {
+    if (!LIVE) return {off: true, why: FROZEN ? FROZEN_NOTE : "Static page: no server."};
+    if (S.conn !== "ok") return {off: true, why: "The local server isn’t reachable."};
+    if (running().length) return {off: true, why: "Apply session " + running().map(function (r) { return r.session; }).join(", ") + " is running. This page updates as it works."};
+    if (!pend().length) return {off: true, why: "Nothing to apply yet: approve an improvement or mark something for undo."};
+    if (blocked() && !undoOnly()) return {off: true, why: blocked()};
+    return {off: false, why: blocked() ? "Only undos are on the list, so Apply is allowed. " + blocked() : ""};
+  }
+
+  // ---------------- API ----------------
+  function api(method, path, body) {
+    var opt = {method: method, headers: {"X-RM-Token": TOKEN}, cache: "no-store", credentials: "same-origin"};
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.text().then(function (txt) {
+        var j = null; try { j = JSON.parse(txt); } catch (e) {}
+        if (!r.ok) { var err = new Error((j && j.error) || ("HTTP " + r.status)); err.status = r.status; throw err; }
+        return {json: j, text: txt};
+      });
+    });
+  }
+  function sigOf(b) { if (!b) return ""; var g = b.generated; b.generated = null; var s = JSON.stringify(b); b.generated = g; return s; }
+  function refresh(force) {
+    if (!LIVE) return Promise.resolve();
+    return api("GET", "/api/bundle").then(function (res) {
+      setConn("ok");
+      var nb = res.json, sig = sigOf(nb);
+      if (!force && sig === S.sig) return;
+      S.sig = sig; B = nb; window.__RM__ = B;
+      var ae = document.activeElement;
+      if (!force && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#main")) { S.pending = true; return; }
+      renderAll(false);
+    }).catch(function (e) { setConn(e.status === 403 ? "auth" : "down"); });
+  }
+  function setConn(c) { if (S.conn !== c) { S.conn = c; renderAll(false); } }
+  function toast(msg, err) {
+    var t = document.getElementById("toast");
+    t.innerHTML = '<div class="toast' + (err ? " err" : "") + '" role="status">' + icon(err ? "warn" : "check") + "<span>" + esc(msg) + "</span></div>";
+    clearTimeout(toast._t); clearTimeout(toast._o);
+    toast._o = setTimeout(function () { var el = t.firstChild; if (el) el.classList.add("out"); }, err ? 5600 : 2700);
+    toast._t = setTimeout(function () { t.innerHTML = ""; }, err ? 5800 : 2900);
+  }
+  var DONE = {apply: "Approved", dismiss: "Dismissed", postpone: "Postponed", undo: "Marked for undo"};
+  function title(id) { var it = byId(id); return it ? it.title : id; }
+  function finish() { S.busy = null; renderAll(false); return refresh(true); }
+  function request(id, action, extra) {
+    if (!LIVE || S.busy) return;
+    var p = {item: id, action: action};
+    if (extra && extra.reason) p.reason = extra.reason;
+    if (extra && extra.until) p.until = extra.until;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request", p).then(function () { delete S.form[id]; toast(DONE[action] + ": " + title(id)); })
+      .catch(function (e) { toast("Couldn’t save: " + e.message, true); }).then(finish);
+  }
+  function withdraw(id) {
+    if (!LIVE || S.busy) return;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request/clear", {item: id}).then(function () { toast("Withdrawn: " + title(id)); })
+      .catch(function (e) { toast("Couldn’t withdraw: " + e.message, true); }).then(finish);
+  }
+  function doApply() {
+    var st = applyState();
+    if (st.off || S.busy) { if (st.why) toast(st.why.replace(/`/g, ""), true); return; }
+    S.busy = "apply"; renderAll(false);
+    api("POST", "/api/apply", {})
+      .then(function (res) { var d = obj(res.json && res.json.result); S.applyResult = {ok: true, data: d}; toast(d.mode === "headless" ? "Apply session " + (d.session || "") + " started" : "Ready: paste the command to start the apply session"); })
+      .catch(function (e) { S.applyResult = {ok: false, error: e.message, status: e.status}; toast("Apply didn’t start: " + e.message, true); })
+      .then(function () { S.busy = null; setTab("queue", true); window.scrollTo({top: 0}); return refresh(true); });
+  }
+
+  // ---------------- small components ----------------
+  function tone(t) { return "tone-" + (t || "neutral"); }
+  function kindOf(k) { return KIND[k] || [cap(k || "item"), "neutral", "note"]; }
+  function kindBadge(k) { var x = kindOf(k); return '<span class="kb ' + tone(x[1]) + '">' + icon(x[2]) + esc(x[0]) + "</span>"; }
+  function statusOf(it) {
+    var x = STATUS[it.status] || [cap(it.status), "neutral"], label = x[0], t = x[1], rq = obj(it.request);
+    if (it.status === "postponed" && rq.until) label = it.due ? "Postponed · due " + fmtDate(rq.until) : "Postponed to " + fmtDate(rq.until);
+    if (it.due) t = "solar";
+    return [label, t];
+  }
+  function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '"><span class="dot"></span>' + esc(s[0]) + "</span>"; }
+  function callRef(site) {
+    var i = callIndex(site), c = i >= 0 ? calls()[i] : null;
+    if (!c) return '<span class="cref" title="Not in the calls table">' + esc(site) + "</span>";
+    return '<button class="cref" type="button" data-go-call="' + esc(site) + '" title="' + esc(site + (c.feature ? " · " + c.feature : "")) + '">' + esc(site) + (c.feature ? " <em>" + esc(c.feature) + "</em>" : "") + "</button>";
+  }
+  function itemLink(id) {
+    var it = byId(id);
+    if (!it) return '<span class="cref">' + esc(id) + "</span>";
+    var k = kindOf(it.kind);
+    return '<button class="ilink ' + tone(k[1]) + '" type="button" data-go-item="' + esc(id) + '" title="' + esc(k[0]) + '"><span class="sdot"></span><span class="tt">' + esc(it.title || id) + "</span></button>";
+  }
+  function evRow(e) {
+    var r = RESULT[e.result] || RESULT.info, name = e.label || CHECK[e.check] || cap(e.check), agent = e.source === "agent";
+    return '<li class="ev"><span class="r ' + tone(r[2]) + '">' + icon(r[1]) + esc(r[0]) + '</span><span class="k">' + esc(name) + '</span><span class="d">' + esc(e.detail || name + ": " + r[0]) + "</span>" +
+      '<span class="s' + (agent ? " agent" : "") + '" title="' + (agent ? "Reported by the agent" : "Measured by the outside check: code the agent can’t influence") + '">' + (agent ? "agent" : "check") + "</span></li>";
+  }
+  function more(key, label, meta, body) {
+    return '<details class="more" data-key="' + esc(key) + '"' + (S.open[key] ? " open" : "") + "><summary>" + icon("chev") + esc(label) + (meta ? ' <span class="meta">' + meta + "</span>" : "") + '</summary><div class="more-b">' + body + "</div></details>";
+  }
+  function copyVal(v, label) { return '<span class="copyv" title="' + esc(label || v) + '"><span class="cv">' + esc(label || v) + '</span><button class="btn ghost" type="button" data-act="copy" data-v="' + esc(v) + '">Copy</button></span>'; }
+
+  // ---------------- diff (from git), lightly highlighted ----------------
+  var KW = {};
+  ("const let var function return if else for while do switch case break continue import from export default class new await async try catch finally throw typeof instanceof " +
+   "def self None True False null undefined true false in of is not and or with as lambda yield pass raise elif except interface type extends implements public private " +
+   "protected static readonly enum this super print nonlocal global del assert").split(" ").forEach(function (k) { KW[k] = 1; });
+  function langOf(f) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(String(f || "")); var e = m ? m[1].toLowerCase() : "";
+    if (/^(py|pyi|sh|bash|rb|yml|yaml|toml|cfg|ini|r|pl)$/.test(e)) return "hash";
+    if (/^(js|jsx|ts|tsx|mjs|cjs|go|java|kt|rs|c|h|cc|cpp|cs|swift|scala|php|css|scss|dart)$/.test(e)) return "slash";
+    if (e === "json") return "json";
+    return "";
+  }
+  var TOK = {
+    hash: /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    slash: /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    json: /()("(?:[^"\\]|\\.)*"?)|(\b-?\d+(?:\.\d+)?\b)|(\btrue\b|\bfalse\b|\bnull\b)/g};
+  function hi(code, lang) {
+    var re = TOK[lang]; if (!re) return esc(code);
+    re.lastIndex = 0; var out = "", last = 0, m;
+    while ((m = re.exec(code))) {
+      if (m[0] === "") { re.lastIndex++; continue; }
+      out += esc(code.slice(last, m.index));
+      var cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "n" : (m[4] && (KW[m[4]] || lang === "json")) ? "k" : "";
+      out += cls ? '<span class="sy-' + cls + '">' + esc(m[0]) + "</span>" : esc(m[0]);
+      last = m.index + m[0].length;
+    }
+    return out + esc(code.slice(last));
+  }
+  var diffMemo = {};
+  function parseDiff(text) {
+    if (diffMemo[text]) return diffMemo[text];
+    var lines = String(text || "").split("\n"), pre = [], files = [], cur = null, o = 0, n = 0, ro = 0, rn = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i], m;
+      if (l.indexOf("diff --git ") === 0 && ro <= 0 && rn <= 0) {
+        m = /^diff --git a\/(.*) b\/(.*)$/.exec(l);
+        cur = {file: m ? m[2] : l.slice(11), rows: [], add: 0, del: 0, meta: []}; files.push(cur); continue;
+      }
+      if (!cur) { pre.push(l); continue; }
+      m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(l);
+      if (m && ro <= 0 && rn <= 0) { o = +m[1]; n = +m[3]; ro = m[2] == null ? 1 : +m[2]; rn = m[4] == null ? 1 : +m[4]; cur.rows.push({t: "hunk", c: l}); continue; }
+      if (ro > 0 || rn > 0) {
+        var ch = l.charAt(0);
+        if (ch === "+") { cur.rows.push({t: "add", n: n++, c: l.slice(1)}); cur.add++; rn--; }
+        else if (ch === "-") { cur.rows.push({t: "del", o: o++, c: l.slice(1)}); cur.del++; ro--; }
+        else if (ch === "\\") { cur.rows.push({t: "hunk", c: l}); }
+        else { cur.rows.push({t: "ctx", o: o++, n: n++, c: l.slice(1)}); ro--; rn--; }
+        continue;
+      }
+      if (/^(new file mode|deleted file mode|rename from|rename to|Binary files|similarity index)/.test(l)) cur.meta.push(l);
+    }
+    var head = {commit: null, author: null, date: null, msg: [], stat: [], total: ""};
+    pre.forEach(function (l) {
+      if (/^commit [0-9a-f]{7,}/.test(l)) head.commit = l.slice(7, 19);
+      else if (/^Author:/.test(l)) head.author = l.replace(/^Author:\s*/, "").replace(/\s*<[^>]*>$/, "");
+      else if (/^Date:/.test(l)) head.date = l.replace(/^Date:\s*/, "");
+      else if (/^ {4}/.test(l)) head.msg.push(l.slice(4));
+      else if (/^ \d+ files? changed/.test(l)) head.total = l.trim();
+      else if (/^ \S.*\|\s+(\d+|Bin)/.test(l)) head.stat.push(l.trim());
+    });
+    var res = {head: head, files: files, add: files.reduce(function (a, f) { return a + f.add; }, 0), del: files.reduce(function (a, f) { return a + f.del; }, 0)};
+    diffMemo[text] = res;
+    return res;
+  }
+  function diffBody(d) {
+    var p = parseDiff(d.text), h = p.head, out = '<div class="dv">';
+    var subj = h.msg.filter(function (x) { return x.trim(); })[0];
+    out += '<div class="dv-h">' + (subj ? '<span class="msg">' + esc(subj) + "</span>" : '<span class="msg">' + esc(d.how || "") + "</span>") +
+      (h.commit ? '<span class="mono">' + esc(h.commit) + "</span>" : "") + (h.total ? '<span class="mono">' + esc(h.total) + "</span>" : "") + "</div>";
+    if (!p.files.length && h.stat.length) out += '<div class="stat">' + esc(h.stat.join("\n")) + "</div>";
+    p.files.forEach(function (f) {
+      var lang = langOf(f.file);
+      out += '<div class="df"><div class="df-h"><span class="f">' + esc(f.file) + "</span>" + f.meta.map(function (x) { return '<span class="m">' + esc(x.replace(/ mode \d+$/, "")) + "</span>"; }).join("") +
+        '<span class="plus">+' + f.add + '</span><span class="minus">−' + f.del + "</span></div>";
+      if (f.rows.length) out += '<div class="df-b"><table><tbody>' + f.rows.map(function (r) {
+        if (r.t === "hunk") return '<tr class="hunk"><td class="n o"></td><td class="n"></td><td class="g"></td><td class="c">' + esc(r.c) + "</td></tr>";
+        return '<tr class="' + r.t + '"><td class="n o">' + (r.o != null ? r.o : "") + '</td><td class="n">' + (r.n != null ? r.n : "") + '</td><td class="g">' + (r.t === "add" ? "+" : r.t === "del" ? "−" : "") + '</td><td class="c">' + hi(r.c, lang) + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+      out += "</div>";
+    });
+    if (d.truncated) out += '<div class="dv-trunc">Showing the first ' + fmtInt(String(d.text).split("\n").length) + " of " + fmtInt(d.lines) + " lines. Run <code>" + esc(d.how) + "</code> for all of it.</div>";
+    return out + "</div>";
+  }
+  function diffBlock(it) {
+    var d = it.diff;
+    if (!d) return "";
+    if (d.error || !d.text) return '<span class="nodiff" title="' + esc(d.how || "") + '">' + icon("dash") + "Diff not available: " + esc(d.error || "no changes") + "</span>";
+    var p = parseDiff(d.text);
+    var meta = p.files.length + " " + plural(p.files.length, "file") + ' · <span class="plus">+' + p.add + '</span> <span class="minus">−' + p.del + "</span>";
+    return more("diff-" + it.id, "Diff", meta, diffBody(d));
+  }
+
+  // ---------------- the one card ----------------
+  function glp(it) {
+    if (!it.gains && !it.loses && !it.price) return "";
+    var none = /^\s*nothing\s*\.?$/i.test(it.loses || "");
+    return '<div class="glp"><div><span class="lbl">You gain</span><div class="g">' + esc(it.gains || "–") + "</div></div>" +
+      '<div><span class="lbl">You give up</span><div class="l' + (none ? " none" : "") + '">' + esc(it.loses || "–") + "</div></div>" +
+      '<div><span class="lbl">Price</span><div class="pr">' + esc(it.price || "–") + "</div></div></div>";
+  }
+  function samplesHtml(list) {
+    list = arr(list).filter(function (s) { return s && typeof s === "object"; }).slice(0, 10);
+    if (!list.length) return "";
+    return '<div class="samples">' + list.map(function (s) {
+      var a = s.before != null ? s.before : s.old, b = s.after != null ? s.after : s.new, same = String(a) === String(b);
+      return '<div class="sample' + (same ? "" : " diff") + '"><div><span class="lbl">Input</span>' + esc(s.input || "") + '</div><div><span class="lbl">Before</span>' + esc(a) + '</div><div><span class="lbl">After' + (same ? " · same" : " · differs") + "</span>" + esc(b) + "</div></div>";
+    }).join("") + "</div>";
+  }
+  function modelBox(it) {
+    var sbs = arr(it.checked).filter(function (e) { return e.check === "side-by-side"; });
+    return '<div class="mc"><div class="mc-h">' + icon("swap") + '<div class="tx"><b>Answers will differ</b>A different model answers ' + (arr(it.calls).length === 1 ? "this call" : "these calls") + '. ' + (sbs.length ? "Compare the side-by-side results before you approve." : "No side-by-side results: the change is unverified.") + "</div></div>" +
+      (sbs.length ? '<ul class="evl">' + sbs.map(evRow).join("") + "</ul>" : "") + sbs.map(function (e) { return samplesHtml(e.samples); }).join("") + "</div>";
+  }
+  function flagsHtml(flags, withItems) {
+    flags = arr(flags); if (!flags.length) return "";
+    return '<div class="flags">' + icon("flag") + '<div class="tx">' + flags.map(function (f) {
+      var files = arr(f.files).filter(function (x) { return String(f.detail || "").indexOf(x) < 0; });
+      return '<div><span class="fk">' + esc(FLAG[f.kind] || cap(f.kind || "flag")) + '</span><span class="fd">' + esc(f.detail || "") + "</span>" +
+        (files.length ? '<div class="ff">' + files.map(function (x) { return '<span class="cref">' + esc(x) + "</span>"; }).join("") + "</div>" : "") +
+        (withItems && f.item ? '<div class="ff">' + itemLink(f.item) + "</div>" : "") + "</div>";
+    }).join("") + "</div></div>";
+  }
+  function relHtml(it) {
+    var out = "";
+    if (arr(it.depends_on).length) out += '<span class="lbl">Depends on</span>' + it.depends_on.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    if (arr(it.excludes).length) out += (out ? '<span style="width:12px"></span>' : "") + '<span class="lbl">Excludes</span>' + it.excludes.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    return out ? '<div class="rel">' + out + "</div>" : "";
+  }
+  function requestNote(it) {
+    var r = it.request; if (!r || r.session) return "";
+    var what = {apply: "You approved this. It goes to the next apply session.", undo: "You asked to undo this. It goes to the next apply session.",
+      dismiss: "You dismissed this.", postpone: "You postponed this" + (r.until ? " until " + fmtDate(r.until) : "") + "."}[r.action] || r.action;
+    var t = {apply: "blue", undo: "amber", dismiss: "muted", postpone: it.due ? "solar" : "muted"}[r.action] || "neutral";
+    return '<div class="note ' + tone(t) + '">' + icon(r.action === "undo" ? "undo" : r.action === "apply" ? "check" : "clock") + '<div class="tx"><b>' + esc(what) + "</b>" +
+      (r.reason ? " “" + esc(r.reason) + "”" : "") + (r.at ? ' <span class="meta">· ' + esc(fmtTime(r.at)) + "</span>" : "") +
+      (it.stale ? '<div style="margin-top:6px"><span class="pill tone-amber">' + icon("warn") + "Changed since your request: review it again</span></div>" : "") +
+      (it.due ? '<div style="margin-top:6px"><span class="pill tone-solar">' + icon("clock") + "The date has passed: decide now</span></div>" : "") + "</div></div>";
+  }
+  function resultsHtml(it) {
+    var rs = arr(it.results); if (!rs.length) return "";
+    return rs.slice(-3).map(function (r) {
+      var bad = r.status === "declined" || r.status === "failed";
+      var verb = (r.action === "undo" ? "Undo " : "Apply ") + (r.status === "done" ? "done" : r.status);
+      return '<div class="note ' + tone(bad ? "red" : r.status === "done" ? "green" : "neutral") + '">' + icon(bad ? "warn" : "check") + '<div class="tx"><b>' + esc(verb) + "</b> " +
+        '<span class="meta">in session ' + esc(r.session || "?") + (r.finished ? ", " + esc(fmtTime(r.finished)) : "") + "</span>" + (r.note ? '<div style="margin-top:2px">' + esc(r.note) + "</div>" : "") +
+        (arr(r.commits).length ? '<div class="row" style="margin-top:6px">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div></div>";
+    }).join("");
+  }
+  function btn(cls, act, id, label, ic) {
+    var off = !LIVE || !!S.busy || S.conn !== "ok";
+    return '<button class="btn ' + cls + '" type="button" data-act="' + act + '" data-id="' + esc(id) + '"' + (off ? " disabled" : "") + (!LIVE ? ' title="' + esc(FROZEN_NOTE) + '"' : "") + ">" +
+      (S.busy === id && act !== "form" ? '<span class="spin"></span>' : ic ? icon(ic) : "") + esc(label) + "</button>";
+  }
+  function actionsHtml(it) {
+    var acts = arr(it.actions); if (!acts.length) return "";
+    return '<div class="acts">' + acts.map(function (a) {
+      if (a === "approve") return btn("primary", "approve", it.id, it.status === "check failed" ? "Approve anyway" : it.status === "undone" || it.status === "declined" ? "Approve again" : "Approve");
+      if (a === "dismiss") return btn("", "form-dismiss", it.id, it.kind === "needs-decision" ? "Leave as is" : "Dismiss");
+      if (a === "postpone") return btn("", "form-postpone", it.id, "Postpone");
+      if (a === "undo") return btn("warn", "form-undo", it.id, "Undo", "undo");
+      if (a === "withdraw") return btn("ghost", "withdraw", it.id, "Withdraw request");
+      return "";
+    }).join("") + "</div>";
+  }
+  function formHtml(it) {
+    var f = S.form[it.id]; if (!f || !LIVE) return "";
+    var label = {dismiss: it.kind === "needs-decision" ? "Leave as is" : "Dismiss", postpone: "Postpone", undo: "Mark for undo"}[f.k];
+    var input = f.k === "postpone" ? '<input type="date" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" min="' + today() + '" aria-label="Postpone until">'
+      : '<input type="text" maxlength="2000" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" placeholder="' + (f.k === "undo" ? "Why? The apply session reads this (optional)" : "Why? (optional)") + '" aria-label="Reason">';
+    return '<div class="form">' + input + '<button class="btn primary" type="button" data-act="confirm" data-id="' + esc(it.id) + '">' + esc(label) + '</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(it.id) + '">Cancel</button>' +
+      (f.k === "undo" ? '<span class="hint">The apply session undoes it and adapts later work, or says why it couldn’t.</span>' : "") + "</div>";
+  }
+  function card(it) {
+    var h = [], ev = arr(it.checked).filter(function (e) { return !(it.model_change && e.check === "side-by-side"); });
+    h.push('<article class="card item' + (it.waiting ? " waiting" : "") + '" id="item-' + esc(it.id) + '">');
+    h.push('<header class="ih">' + kindBadge(it.kind) + '<h3 class="it">' + esc(it.title || it.id) + "</h3>" + statusChip(it) + "</header>");
+    if (it.summary) h.push('<p class="isum">' + esc(it.summary) + "</p>");
+    if (arr(it.calls).length) h.push('<div class="row"><span class="lbl">' + plural(it.calls.length, "Call") + "</span>" + it.calls.map(callRef).join("") + "</div>");
+    if (it.model_change) h.push(modelBox(it));
+    h.push(glp(it));
+    if (ev.length) h.push('<div class="chk"><span class="lbl">Checked</span><ul class="evl">' + ev.map(evRow).join("") + "</ul></div>");
+    h.push(flagsHtml(it.flags));
+    h.push(relHtml(it));
+    h.push(requestNote(it));
+    h.push(resultsHtml(it));
+    var disc = (it.why ? more("why-" + it.id, "Why", "the agent’s reasoning", '<p class="whyt">' + esc(it.why) + "</p>") : "") + diffBlock(it);
+    if (disc) h.push('<div class="disc">' + disc + "</div>");
+    var refs = (it.commit ? '<span class="ref" title="commit">' + icon("commit") + "<span>" + esc(it.commit) + "</span></span>" : "") +
+      (it.branch ? '<span class="ref" title="branch">' + icon("branch") + "<span>" + esc(it.branch) + "</span></span>" : "");
+    var acts = actionsHtml(it);
+    if (refs || acts) h.push('<footer class="ifoot">' + refs + '<span class="sp"></span>' + acts + formHtml(it) + "</footer>");
+    h.push("</article>");
+    return h.join("");
+  }
+
+  // ---------------- shell ----------------
+  function counts() {
+    return {calls: calls().length || "", changes: items().length || "", queue: (waitingItems().length + pend().length) || "", history: arr(B && B.history).length || ""};
+  }
+  function renderSide() {
+    var side = document.getElementById("side"), c = B ? counts() : {};
+    if (B && B.repo) document.title = B.repo + " · router-migrate";
+    function item(p) {
+      return '<button class="nav-item" type="button" data-tab="' + p[0] + '"' + (S.tab === p[0] ? ' aria-current="page"' : "") + ">" + icon(p[2]) + '<span class="nl">' + esc(p[1]) + "</span>" +
+        (c[p[0]] ? '<span class="cnt' + (p[0] === "queue" ? " hot" : "") + '">' + esc(c[p[0]]) + "</span>" : "") + "</button>";
+    }
+    side.innerHTML = '<div class="brand"><b>router-migrate</b><span>for Router</span></div><nav class="nav" aria-label="Pages">' + PAGES.map(item).join("") + "</nav>" +
+      '<div class="side-spacer"></div><div class="nav-label">More</div><nav class="nav" aria-label="More">' + MORE.map(item).join("") + "</nav>" +
+      '<div class="side-foot">' + esc((B && B.tool_version) || "router-migrate") + (B && B.generated ? "<br>" + (FROZEN ? "Report from " : "Updated ") + esc(fmtTime(B.generated)) : "") + "</div>";
+  }
+  function keyBadge(cls) {
+    var live = !!(B && B.live);
+    return '<span class="status key ' + (live ? "live" : "") + (cls ? " " + cls : "") + '" title="' + (live ? "A migration key was available: the agent checked requests against Router itself" : "No migration key: Router acceptance comes from the simulator") + '">' +
+      icon("key") + (live ? "Router key: live checks" : "No key: simulator only") + "</span>";
+  }
+  function themeIcon() { return S.theme === "light" ? "sun" : S.theme === "dark" ? "moon" : "auto"; }
+  function renderTop() {
+    var el = document.getElementById("topbar"), page = PAGES.concat(MORE).filter(function (x) { return x[0] === S.tab; })[0];
+    var st = LIVE ? (S.conn === "ok" ? ["live", "Live", true] : ["err", S.conn === "auth" ? "Session expired" : "Server stopped", false]) : ["frozen", FROZEN ? "Frozen report" : "Static page", false];
+    var path = B && B.root ? String(B.root).replace(/^\/(Users|home)\/[^\/]+/, "~") : "";
+    el.innerHTML = '<div class="topbar-in"><div class="repo-chip" title="' + esc(B && B.root) + '"><span class="repo-ic">' + icon("repo") + '</span><div class="repo-id"><span class="nm">' + esc((B && B.repo) || "No repo") + "</span>" +
+      (path ? '<span class="path">' + esc(path) + "</span>" : "") + "</div></div>" + (page ? '<span class="crumb">' + esc(page[1]) + "</span>" : "") + '<span class="sp"></span>' +
+      (B ? keyBadge() : "") + '<span class="status ' + st[0] + '" title="' + esc(FROZEN ? FROZEN_NOTE : "") + '"><span class="dot' + (st[2] ? " ping" : "") + '"></span><span class="lbl2">' + esc(st[1]) + "</span></span>" +
+      '<button class="iconbtn" type="button" data-act="theme" title="Theme: ' + esc(S.theme) + '" aria-label="Theme: ' + esc(S.theme) + '">' + icon(themeIcon()) + "</button></div>";
+  }
+  function renderSticky() {
+    var el = document.getElementById("sticky"), n = pend().length;
+    if (!B || !n || S.tab === "queue" || S.tab === "setup") { el.innerHTML = ""; S.stickyN = 0; return; }
+    var first = !S.stickyN; S.stickyN = n;
+    var u = pend().filter(function (r) { return r.action === "undo"; }).length, a = n - u;
+    var what = [a ? a + " to apply" : "", u ? u + " to undo" : ""].filter(Boolean).join(", ");
+    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + " " + plural(n, "request") + "</b> ready for the apply session: " + esc(what) + "." +
+      (running().length ? " A session is running now." : "") + '</span><button class="btn primary" type="button" data-tab="queue">Review' + icon("arrow") + "</button></div></div>";
+  }
+
+  // ---------------- overview ----------------
+  function testsLine(t) {
+    t = obj(t); if (!t.status) return null;
+    var c = obj(t.counts), b = obj(t.baseline);
+    if (t.status === "running") return ["Tests still running", "amber"];
+    if (t.status === "skipped") return ["Tests skipped", "muted"];
+    var txt = num(c.passed) != null ? fmtInt(c.passed) + " passed" + (c.failed ? ", " + c.failed + " failed" : "") + (c.errors ? ", " + c.errors + " errors" : "") : t.status;
+    var same = num(b.passed) != null && num(c.passed) != null && c.passed >= b.passed && (c.failed || 0) + (c.errors || 0) <= (b.failed || 0) + (b.errors || 0);
+    return ["Tests " + txt + (same ? ", same as before" : num(b.passed) != null ? " (before: " + fmtInt(b.passed) + " passed" + (b.failed ? ", " + b.failed + " failed" : "") + ")" : ""), t.status === "passed" ? "green" : "red"];
+  }
+  function renderOverview() {
+    var h = [], tr = obj(hl().traffic), bh = obj(hl().behaviour), w = obj(hl().waiting), imps = improvements();
+    h.push(banners(true));
+    var on = num(tr.on_router) || 0, tot = num(tr.total) || 0;
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Overview</div><h1>' + (tot ? fmtInt(on) + ' <span class="muted">of</span> ' + fmtInt(tot) + " production LLM " + plural(tot, "call") + " on Router" : "No production LLM calls listed yet") + "</h1>" +
+      '<p class="sub">' + (B.live ? "Checked with a Router key: the agent sent real requests through Router." : "Checked without a Router key: Router acceptance comes from the simulator.") + " Nothing reaches production until <code>RAMP_ROUTER_API_KEY</code> is set in the app’s environment.</p></div></header>");
+    // three numbers
+    var segs = [["verified", "green", ""], ["unverified", "green", "o"], ["not_routing", "red", ""], ["stays", "muted", ""]].filter(function (s) { return tr[s[0]]; });
+    var bar = '<div class="segbar" role="img" aria-label="' + esc(segs.map(function (s) { return tr[s[0]] + " " + s[0].replace("_", " "); }).join(", ")) + '">' +
+      (segs.length ? segs.map(function (s) { return '<i class="' + tone(s[1]) + " " + (s[1] === "muted" ? "muted" : s[2]) + '" style="flex:' + tr[s[0]] + '"></i>'; }).join("") : '<i class="muted" style="flex:1"></i>') + "</div>";
+    var door1 = '<button class="door" type="button" data-tab="calls"><div class="door-top"><span class="ic t tone-green">' + icon("route") + "</span><h3>Traffic on Router</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(on) + "<small>/" + fmtInt(tot) + '</small></span><span class="u">' + plural(tot, "call") + "</span></div>" + bar +
+      '<div class="mini"><span class="tone-green"><span class="sdot"></span><b>' + fmtInt(tr.verified || 0) + "</b>verified</span>" +
+      (tr.unverified ? '<span class="tone-green"><span class="sdot o"></span><b>' + fmtInt(tr.unverified) + "</b>on Router, not verifiable statically</span>" : "") +
+      (tr.not_routing ? '<span class="tone-red"><span class="sdot"></span><b>' + fmtInt(tr.not_routing) + "</b>reported moved but don’t route</span>" : "") +
+      '<span class="tone-muted"><span class="sdot o"></span><b>' + fmtInt(tr.stays || 0) + "</b>" + (tr.stays === 1 ? "stays" : "stay") + " on " + (tr.stays === 1 ? "its" : "their") + " provider</span></div>" +
+      '<div class="door-foot"><span>Route truth from the outside check</span><span class="sp"></span><span class="go">Every call' + icon("arrow") + "</span></div></button>";
+    var bt = !bh.checked ? ["Not checked", "muted"] : bh.ok === false ? ["Check failed", "red"] : obj(bh.tests).status === "running" ? ["Tests running", "amber"] : ["Preserved", "green"];
+    var tl = testsLine(bh.tests), tc = obj(bh.typecheck), rr = obj(bh.router);
+    var mini2 = [];
+    if (tl) mini2.push('<span class="' + tone(tl[1]) + '"><span class="sdot"></span>' + esc(tl[0]) + "</span>");
+    if (num(tc.errors) != null) mini2.push('<span class="' + tone(tc.errors <= (tc.baseline || 0) ? "green" : "red") + '"><span class="sdot"></span>Typecheck ' + tc.errors + " " + plural(tc.errors, "error") + (num(tc.baseline) != null ? ", before " + tc.baseline : "") + "</span>");
+    if (num(rr.requests)) mini2.push('<span class="' + tone(arr(rr.invalid).length ? "red" : "green") + '"><span class="sdot"></span>Router accepts ' + fmtInt(rr.valid || 0) + " of " + fmtInt(rr.requests) + " requests</span>");
+    arr(bh.failures).slice(0, 2).forEach(function (f) { mini2.push('<span class="tone-red"><span class="sdot"></span>' + esc((f.gate ? f.gate + ": " : "") + (f.detail || "")) + "</span>"); });
+    if (!bh.checked) mini2.push("<span>Run <code>router-migrate finish</code> to check the migration.</span>");
+    var door2 = '<button class="door" type="button" data-tab="history"><div class="door-top"><span class="ic t ' + tone(bt[1]) + '">' + icon(bt[1] === "green" ? "check" : bt[1] === "red" ? "warn" : "clock") + "</span><h3>Behaviour</h3></div>" +
+      '<div class="door-big ' + tone(bt[1]) + '"><span class="v word">' + esc(bt[0]) + "</span></div>" + '<div class="mini">' + mini2.join("") + "</div>" +
+      '<div class="door-foot"><span>' + (bh.at ? "Outside check, " + esc(fmtTime(bh.at)) : "Outside check") + '</span><span class="sp"></span><span class="go">History' + icon("arrow") + "</span></div></button>";
+    var wi = waitingItems(), by = {};
+    wi.forEach(function (i) { var k = i.due ? "due" : i.kind === "needs-decision" ? "decide" : i.status; by[k] = (by[k] || 0) + 1; });
+    var bits = [["proposed", "improvement to review", "improvements to review"], ["decide", "decision only you can make", "decisions only you can make"],
+      ["check failed", "improvement failed the check", "improvements failed the check"], ["declined", "declined by the apply session", "declined by the apply session"], ["due", "postponed, now due", "postponed, now due"]]
+      .filter(function (b) { return by[b[0]]; }).map(function (b) { return "<span><b>" + by[b[0]] + "</b>" + esc(by[b[0]] === 1 ? b[1] : b[2]) + "</span>"; });
+    if (pend().length) bits.push('<span class="tone-blue"><b>' + pend().length + "</b>" + plural(pend().length, "request") + " ready to apply</span>");
+    if (running().length) bits.push('<span class="tone-amber"><span class="spin"></span>apply session ' + esc(running().map(function (r) { return r.session; }).join(", ")) + " running</span>");
+    var n3 = num(w.count) != null ? w.count : wi.length, hot = n3 + pend().length > 0;
+    var door3 = '<button class="door' + (hot ? " hot" : "") + '" type="button" data-tab="queue"><div class="door-top"><span class="ic">' + icon("inbox") + "</span><h3>Waiting on you</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(n3) + '</span><span class="u">' + (n3 ? plural(n3, "decision") : "nothing to decide") + "</span></div>" +
+      '<div class="mini">' + (bits.length ? bits.join("") : "<span>Every item has been decided.</span>") + "</div>" +
+      '<div class="door-foot"><span>Nothing changes until you Apply</span><span class="sp"></span><span class="go">Your queue' + icon("arrow") + "</span></div></button>";
+    h.push('<div class="doors">' + door1 + door2 + door3 + "</div>");
+    // the agent's account
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>What the agent did</h2></div></div>' +
+      (B.summary ? '<div class="quote">' + icon("spark") + '<div class="qt"><span class="by">The agent’s summary</span>' + esc(B.summary) + "</div></div>" : '<div class="panel empty">The agent hasn’t written its summary yet.</div>') +
+      (B.reviewed ? (imps.length ? '<div class="reviewed">' + icon("layers") + '<div class="tx"><b>Reviewed for improvements:</b> ' + esc(B.reviewed) + ' <button class="link" type="button" data-go-kind="improvement">' + imps.length + " " + plural(imps.length, "improvement") + icon("arrow") + "</button></div></div>"
+        : '<div class="reviewed big">' + icon("spark") + '<div class="tx"><b>Reviewed: nothing to propose</b>' + esc(B.reviewed) + "</div></div>") : "") + "</section>");
+    var fl = arr(bh.flags);
+    if (fl.length) {
+      var owner = {};
+      items().forEach(function (i) { arr(i.flags).forEach(function (f) { owner[JSON.stringify([f.kind, f.detail])] = i.id; }); });
+      h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Flagged for you</h2><p>The outside check doesn’t forbid these; it shows them so nothing changes behind your back.</p></div></div>' +
+        flagsHtml(fl.map(function (f) { return {kind: f.kind, detail: f.detail, files: f.files, item: owner[JSON.stringify([f.kind, f.detail])]}; }), true) + "</section>");
+    }
+    var kc = {}; items().forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; });
+    if (items().length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Every change, by kind</h2><p>The same card for every kind, on every page.</p></div></div><div class="kchips">' +
+      KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return '<button class="fchip ' + tone(x[1]) + '" type="button" data-go-kind="' + esc(k) + '"><span class="sdot"></span>' + esc(x[0]) + ' <span class="n">' + kc[k] + "</span></button>"; }).join("") + "</div></section>");
+    var c = obj(B.cost), facts = [];
+    facts.push("<span>" + icon("key") + (B.live ? "<b>Router key: live checks</b>" : "<b>No key: simulator only</b>") + "</span>");
+    if (num(c.agent_usd) != null) facts.push("<span>Agent cost <b>" + usd(c.agent_usd) + "</b></span>");
+    if (num(c.agent_minutes) != null) facts.push("<span>Agent time <b>" + Math.round(c.agent_minutes) + " min</b></span>");
+    if (num(c.live_requests) != null) facts.push("<span>Live Router requests <b>" + fmtInt(c.live_requests) + "</b></span>");
+    if (B.base) facts.push("<span>Started from <b>" + esc(String(B.base).slice(0, 10)) + "</b></span>");
+    if (B.migration_ref) facts.push("<span>Branch <b>" + esc(B.migration_ref) + "</b></span>");
+    h.push('<div class="facts-line">' + facts.join("") + "</div>");
+    return h.join("");
+  }
+  function banners(withBlocked) {
+    var out = "";
+    if (LIVE && S.conn === "auth") out += '<div class="banner tone-red">' + icon("warn") + '<span class="tx">The session token was rejected. Re-run the command and open the new link.</span></div>';
+    else if (LIVE && S.conn === "down") out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">Lost the local server. Decisions are paused until it runs again.</span></div>';
+    var errs = arr(B && B.report_errors);
+    if (errs.length) out += '<div class="banner tone-amber">' + icon("warn") + '<div class="tx"><b>MIGRATION.json doesn’t match the format</b>, so parts of this page may be missing:<ul>' + errs.slice(0, 6).map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + (errs.length > 6 ? "<li>and " + (errs.length - 6) + " more</li>" : "") + "</ul></div></div>";
+    running().forEach(function (r) { out += '<div class="banner tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><span class="tx"><b>Apply session ' + esc(r.session) + " is running</b> on " + r.items.length + " " + plural(r.items.length, "request") + ". This page updates as it works.</span></div>"; });
+    if (withBlocked && blocked() && pend().length) out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">' + md(blocked()) + "</span></div>";
+    return out;
+  }
+
+  // ---------------- calls ----------------
+  function routeCell(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown;
+    return '<span class="route ' + tone(r[2]) + '"><span class="sdot' + (r[3] ? " o" : "") + '"></span>' + esc(r[0]) + "</span>" +
+      '<div class="sub">' + esc(c.reason ? (c.route === "stays" ? c.reason : r[1] + ": " + c.reason) : r[1]) + "</div>";
+  }
+  function renderCalls() {
+    var h = [], l = calls(), tr = obj(hl().traffic);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Calls</div><h1>Every production LLM call</h1><p class="sub">Where each call goes now, by the outside check’s route truth where it could see, and the item that covers it. ' +
+      fmtInt(tr.verified || 0) + " verified, " + fmtInt(tr.unverified || 0) + " on Router but not verifiable statically, " + fmtInt(tr.stays || 0) + " staying" + (tr.not_routing ? ", " + tr.not_routing + " reported moved but not routing" : "") + ".</p></div></header>");
+    if (!l.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in <code>MIGRATION.json</code>.</div>'); return h.join(""); }
+    h.push('<div class="panel tblw"><table class="ctbl"><thead><tr><th>Call</th><th>Model · task</th><th>Who waits</th><th>Where it goes now</th><th>Item</th></tr></thead><tbody>' + l.map(function (c, i) {
+      return '<tr id="call-' + i + '"><td><div class="site">' + esc(c.site) + "</div>" + (c.feature ? '<div class="sub">feature: ' + esc(c.feature) + "</div>" : "") + "</td>" +
+        '<td data-l="Model"><div><div class="mdl">' + esc(c.model || "set at run time") + "</div>" + (c.task ? '<div class="sub">' + esc(c.task) + "</div>" : "") + "</div></td>" +
+        '<td data-l="Who waits"><span class="lat">' + esc(LAT[c.latency] || "–") + "</span></td>" +
+        '<td data-l="Now"><div>' + routeCell(c) + "</div></td>" +
+        '<td data-l="Item"><div>' + (c.item ? itemLink(c.item) + '<div class="sub">' + esc(kindOf(c.item_kind)[0]) + " · " + esc(lower1(statusOf(byId(c.item) || {status: c.item_status})[0])) + "</div>" : '<span class="sub">no item</span>') + "</div></td></tr>";
+    }).join("") + "</tbody></table></div>");
+    return h.join("");
+  }
+
+  // ---------------- changes ----------------
+  function renderChanges() {
+    var h = [], all = items();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Changes</div><h1>Every decision and improvement</h1><p class="sub">The agent’s migration decisions, what stays, and the improvements it built, each with what it gains, what it gives up, what was checked, and its diff from git.</p></div></header>');
+    if (!all.length) { h.push('<div class="panel empty">No items yet.</div>'); return h.join(""); }
+    var kc = {}, sc = {};
+    all.forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; if (S.fk === "all" || i.kind === S.fk) sc[i.status] = (sc[i.status] || 0) + 1; });
+    if (S.fs !== "all" && !sc[S.fs]) S.fs = "all";
+    function chip(kind, v, label, n, t) { return '<button class="fchip' + (t ? " " + tone(t) : "") + '" type="button" data-act="filter" data-f="' + kind + '" data-v="' + esc(v) + '" aria-pressed="' + ((kind === "k" ? S.fk : S.fs) === v) + '">' + (t ? '<span class="sdot"></span>' : "") + esc(label) + ' <span class="n">' + n + "</span></button>"; }
+    h.push('<div class="filters"><span class="lbl">Kind</span>' + chip("k", "all", "All", all.length) + KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return chip("k", k, x[0], kc[k], x[1]); }).join("") + "</div>");
+    var stTotal = Object.keys(sc).reduce(function (a, k) { return a + sc[k]; }, 0);
+    h.push('<div class="filters"><span class="lbl">Status</span>' + chip("s", "all", "All", stTotal) + STATUS_ORDER.filter(function (s) { return sc[s]; }).map(function (s) { return chip("s", s, (STATUS[s] || [s])[0].replace(" · ready to apply", ""), sc[s], (STATUS[s] || [0, "neutral"])[1]); }).join("") + "</div>");
+    var shown = all.filter(function (i) { return (S.fk === "all" || i.kind === S.fk) && (S.fs === "all" || i.status === S.fs); });
+    var any = false;
+    GROUPS.forEach(function (g) {
+      var list = shown.filter(function (i) { return g[1].indexOf(i.kind) >= 0; });
+      if (!list.length) return; any = true;
+      h.push('<section class="group"><div class="group-h"><h2 style="font-size:17px">' + esc(g[0]) + ' <span class="sec-h"><span class="n">' + list.length + "</span></span></h2><p>" + esc(g[2]) + '</p></div><div class="stack">' + list.map(card).join("") + "</div></section>");
+    });
+    var other = shown.filter(function (i) { return KIND_ORDER.indexOf(i.kind) < 0; });
+    if (other.length) { any = true; h.push('<section class="group"><div class="stack">' + other.map(card).join("") + "</div></section>"); }
+    if (!any) h.push('<div class="panel empty" style="margin-top:24px">Nothing matches these filters.</div>');
+    return h.join("");
+  }
+
+  // ---------------- queue ----------------
+  function applyResultHtml() {
+    var r = S.applyResult, ln = obj(B && B.launch);
+    if (!r && !ln.mode) return "";
+    if (r && !r.ok) return '<div class="banner ' + tone(r.status === 501 ? "amber" : "red") + '">' + icon("warn") + '<span class="tx"><b>Apply didn’t start.</b> ' + md(r.error) + '</span><button class="btn ghost" type="button" data-act="close-result">Close</button></div>';
+    var d = r ? r.data : ln;
+    if (d.mode === "command" || (!d.mode && d.command)) return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + icon("play") + '<span class="tx"><b>Start the apply session in Claude Code.</b> Paste this; it reads the request list from this repo and says what it did.</span>' +
+      copyVal(d.command || "/router-migrate apply") + '<button class="btn ghost" type="button" data-act="close-result">Close</button></div></div>';
+    var tail = arr(ln.tail);
+    return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + (running().length ? '<span class="spin"></span>' : icon("check")) + '<span class="tx"><b>Apply session ' + esc(d.session || ln.session || "") + (running().length ? " is working" : " started") + ".</b> " +
+      (running().length ? "It merges, reverts and commits on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>, then the outside check runs. This page updates as it works." : "Its result shows in History when it finishes.") + "</span>" +
+      '<button class="btn ghost" type="button" data-tab="history">History' + icon("arrow") + "</button></div>" + (tail.length ? '<pre class="term">' + esc(tail.join("\n")) + "</pre>" : "") + "</div>";
+  }
+  function pendRow(r) {
+    var t = r.action === "undo" ? ["Undo", "amber"] : ["Apply", "blue"];
+    return '<div class="prow"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"pill tone-red\">not in the report</span>") +
+      '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "from the CLI" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
+      (r.stale ? '<span class="pill tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div>";
+  }
+  function renderQueue() {
+    var h = [], p = pend(), wi = waitingItems(), dec = decidedItems(), st = applyState();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Your queue</div><h1>' + (wi.length ? wi.length + " " + plural(wi.length, "item") + " waiting on you" : p.length ? "Ready to apply" : "Nothing waits on you") + "</h1>" +
+      '<p class="sub">Decide here. One Apply hands the whole list to an apply session: it chooses the order, merges, reverts and adapts later work, commits each result and says what it did. The outside check runs after it.</p></div></header>');
+    if (FROZEN) h.push('<div class="banner tone-blue">' + icon("info") + '<span class="tx"><b>Frozen report.</b> Actions are off here; open the live dashboard to approve, undo or apply.</span></div>');
+    h.push(applyResultHtml());
+    var u = p.filter(function (r) { return r.action === "undo"; }).length;
+    h.push('<section class="sec" style="margin-top:0"><div class="sec-h"><div class="t"><h2>Ready to apply<span class="n">' + p.length + "</span></h2><p>" + (p.length ? "Approved improvements and undo requests no session has taken yet." : "Approve an improvement or mark a decision for undo, and it lands here.") + "</p></div></div>" +
+      '<div class="panel">' + (p.length ? p.map(pendRow).join("") : '<div class="empty">The list is empty.</div>') +
+      '<div class="applybar"><span class="tx"><b>' + p.length + " " + plural(p.length, "request") + "</b>" + (p.length ? " (" + (p.length - u) + " to apply, " + u + " to undo)" : "") + " go to one apply session.</span>" +
+      '<button class="btn primary lg" type="button" data-act="apply"' + (st.off || S.busy ? " disabled" : "") + (st.why ? ' title="' + esc(st.why.replace(/`/g, "")) + '"' : "") + ">" + (S.busy === "apply" ? '<span class="spin"></span>Handing off' : icon("play") + "Apply " + p.length + " " + plural(p.length, "request")) + "</button>" +
+      (st.why && (p.length || !LIVE) ? '<span class="why">' + icon(st.off ? "warn" : "info") + "<span>" + md(st.why) + "</span></span>" : "") + "</div></div></section>");
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Needs your decision<span class="n">' + wi.length + "</span></h2><p>Improvements to approve, dismiss or postpone; choices only you can make; anything the apply session declined.</p></div></div>" +
+      (wi.length ? '<div class="stack">' + wi.map(card).join("") + "</div>" : '<div class="panel empty"><b>Nothing waits on you.</b> Every item is decided.</div>') + "</section>");
+    if (dec.length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Decided earlier<span class="n">' + dec.length + "</span></h2><p>Dismissed or postponed. Withdraw to decide again.</p></div></div><div class=\"panel\">" +
+      dec.map(function (i) { var r = obj(i.request); return '<div class="prow">' + statusChip(i) + '<div class="tx">' + itemLink(i.id) + '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</div></div>" + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div>"; }).join("") + "</div></section>");
+    return h.join("");
+  }
+
+  // ---------------- history ----------------
+  function renderHistory() {
+    var h = [], hs = arr(B.history).slice().reverse(), bh = obj(hl().behaviour);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">History</div><h1>Apply sessions</h1><p class="sub">What each session did with your list, what it declined and why, its commits, and the outside check after it.</p></div></header>');
+    if (bh.checked) h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + icon("check") + '</span><div class="tx"><b>Latest outside check</b><span class="mt">' + esc(bh.ref || "") + (bh.at ? " · " + esc(fmtTime(bh.at)) : "") + "</span></div>" +
+      '<span class="sc ' + tone(bh.ok === false ? "red" : "green") + '"><span class="dot"></span>' + (bh.ok === false ? "Failed" : "Passed") + "</span></div>" +
+      (arr(bh.entries).length ? '<div class="sess-ck"><ul class="evl">' + bh.entries.map(evRow).join("") + "</ul></div>" : "") + "</div>");
+    if (!hs.length && !running().length) { h.push('<div class="panel empty">No apply sessions yet. When you Apply from your queue, each session’s log lands here.</div>'); return h.join(""); }
+    running().forEach(function (r) {
+      h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + esc(r.session) + '</span><div class="tx"><b>Apply session ' + esc(r.session) + '</b><span class="mt">Running · ' + r.items.length + " " + plural(r.items.length, "request") + '</span></div><span class="sc tone-blue"><span class="spin"></span>Running</span></div>' +
+        '<div class="sess-ck">' + r.items.map(itemLink).join(" ") + "</div></div>");
+    });
+    h.push('<div class="stack">' + hs.map(function (s) {
+      var ck = obj(s.check), mins = minutes(s.started, s.finished), rs = arr(s.results);
+      var sum = {done: 0, declined: 0, failed: 0}; rs.forEach(function (r) { sum[r.status] = (sum[r.status] || 0) + 1; });
+      return '<section class="panel sess"><div class="sess-h"><span class="sid">' + esc(s.id || "?") + '</span><div class="tx"><b>Apply session ' + esc(s.id || "") + "</b>" +
+        '<span class="mt">' + esc(fmtTime(s.started)) + (s.finished ? " → " + esc(fmtClock(s.finished)) : "") + (mins != null ? " · " + mins + " min" : "") + " · " + rs.length + " " + plural(rs.length, "result") +
+        (sum.declined || sum.failed ? " · " + [sum.done ? sum.done + " done" : "", sum.declined ? sum.declined + " declined" : "", sum.failed ? sum.failed + " failed" : ""].filter(Boolean).join(", ") : "") + "</span></div>" +
+        (s.check ? '<span class="sc ' + tone(ck.ok === false ? "red" : "green") + '"><span class="dot"></span>Check after: ' + (ck.ok === false ? "failed" : "passed") + "</span>" : '<span class="sc tone-muted"><span class="dot"></span>No check recorded</span>') + "</div>" +
+        (s.summary ? '<p class="sess-sum">' + esc(s.summary) + "</p>" : "") +
+        rs.map(function (r) {
+          var bad = r.status === "declined" || r.status === "failed";
+          return '<div class="rrow"><div class="tx">' + itemLink(r.item) + (r.note ? '<div class="nt">' + esc(r.note) + "</div>" : "") +
+            (arr(r.commits).length ? '<div class="cm">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div>" +
+            '<div class="rt"><span class="atag ' + tone(r.action === "undo" ? "amber" : "blue") + '">' + esc(r.action || "") + '</span><span class="sc ' + tone(bad ? "red" : "green") + '"><span class="dot"></span>' + esc(r.status || "") + "</span></div></div>";
+        }).join("") +
+        (arr(s.check_entries).length ? '<div class="sess-ck"><span class="lbl">The outside check after it</span><ul class="evl">' + s.check_entries.map(evRow).join("") + "</ul></div>" : "") + "</section>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- router setup ----------------
+  function setupSteps() {
+    var su = obj(B && B.setup), mc = arr(su.model_changes).map(byId).filter(Boolean);
+    return [
+      {id: "golive", title: "Turn Router on in production", prio: ["Go live", "solar"], lead: "Nothing changes at run time until the app’s own environment has a Router key. Set it where the app runs (not in the repo), then deploy. The migration key the agent used is separate: use a production key here.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("RAMP_ROUTER_API_KEY=") + "</div></div>", link: "https://app.router.com/"},
+      {id: "off", title: "Know the off switch", prio: ["Rollback", "amber"], lead: "Set this and restart: every call goes back to its original provider, with no code change. Unset it to return to Router.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("ROUTER_MIGRATE_DISABLE=1") + "</div></div>"},
+      {id: "cap", title: "Set a spend cap on the production key", prio: ["Before rollout", "solar"], lead: "Router stops requests at the cap, so give the key one before traffic moves. Size it from the models these calls use and your monthly volume.",
+        where: ["API keys", "your production key", "Spend cap"], link: "https://app.router.com/",
+        body: arr(su.models).length ? '<div class="s-block"><span class="lbl">Models behind this key</span><div class="taglist">' + su.models.map(function (m) { return '<span class="chip mono">' + esc(m) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "spend", title: "Watch spend by feature", prio: ["After rollout", "neutral"], lead: "Each routed request carries the feature label the agent wired, so Router can show spend per feature.",
+        body: arr(su.features).length ? '<div class="s-block"><span class="lbl">Feature labels in this repo</span><div class="taglist">' + su.features.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "flex", title: "Decide the account Flex default", prio: ["Decide once", "neutral"], where: ["Routing", "Cost-efficient routing"], link: "https://app.router.com/strategies",
+        lead: "Flex trades latency for price. The vendored runtime asks for the standard tier unless a change you approved opts a feature into Flex, so keeping the account default on is safe.",
+        body: arr(su.background).length ? '<div class="s-block"><span class="lbl">Background work nobody waits on</span><div class="taglist">' + su.background.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "shadow", title: "Shadow a model before you switch", prio: mc.length ? ["Before a model change", "lilac"] : ["Optional", "neutral"], where: ["Routing", "Shadow models"], link: "https://app.router.com/strategies",
+        lead: "Side-by-side samples are evidence, not proof. Before a model change ships, let Router shadow the candidate on a slice of real traffic and compare cost and latency.",
+        body: mc.length ? '<div class="s-block"><span class="lbl">Model changes proposed here</span><div class="rel" style="margin-top:0">' + mc.map(function (i) { return itemLink(i.id); }).join("") + "</div></div>" : ""}];
+  }
+  function setupKey(s) { return "rm6.setup." + ((B && B.repo) || "repo") + "." + s.id; }
+  function setupDone(s) { return store(setupKey(s)) === "1"; }
+  function renderSetup() {
+    var steps = setupSteps(), done = steps.filter(setupDone).length, h = [];
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Router setup</div><h1>Going live</h1><p class="sub">The code is ready; these steps happen outside it. The tool never changes your Router account or your app’s environment, so each step says where to go and what to set.</p></div>' +
+      '<div class="ph-side"><div class="prog"><div class="prog-bar">' + steps.map(function (s) { return '<i class="' + (setupDone(s) ? "on" : "") + '"></i>'; }).join("") + '</div><span class="tx"><b>' + done + "</b> of " + steps.length + " done</span></div></div></header>");
+    h.push('<div class="stack">' + steps.map(function (s, k) {
+      var d = setupDone(s), link = safeLink(s.link);
+      return '<article class="card scard' + (d ? " done" : "") + '"><div class="s-rail"><span class="s-num">0' + (k + 1) + '</span><button class="check' + (d ? " on" : "") + '" type="button" data-act="setup-done" data-id="' + esc(s.id) + '" aria-pressed="' + d + '" aria-label="Mark done">' + (d ? icon("check") : "") + "</button></div>" +
+        '<div class="s-body"><div class="s-head"><h3>' + esc(s.title) + '</h3><span class="prio ' + tone(s.prio[1]) + '">' + esc(s.prio[0]) + "</span></div>" + '<p class="s-lead">' + esc(s.lead) + "</p>" +
+        (arr(s.where).length ? '<div class="where"><span>Router app</span>' + s.where.map(function (w, i) { return icon("chev") + '<span class="' + (i === s.where.length - 1 ? "r" : "") + '">' + esc(w) + "</span>"; }).join("") + "</div>" : "") +
+        (s.body || "") + '<div class="s-foot">' + (link ? '<a class="btn" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">Open Router ' + icon("ext") + "</a>" : "") + '<span class="nt">' + (d ? "Marked done in this browser" : "Tick the circle when it’s set") + "</span></div></div></article>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- render ----------------
+  function renderAll(enter) {
+    S.pending = false;
+    renderSide(); renderTop();
+    var main = document.getElementById("main");
+    if (!B || (!B.has_report && !arr(B.report_errors).length)) {
+      main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + (B ? banners(false) : "") + '<header class="ph"><div class="ph-t"><div class="eyebrow">router-migrate</div><h1>No migration report yet</h1><p class="sub">This page shows what the agent wrote in <code>.router-migrate/MIGRATION.json</code>, checked by <code>router-migrate finish</code>. Run the migration first; this page updates when the report lands.</p></div></header></div>';
+      document.getElementById("sticky").innerHTML = ""; return;
+    }
+    var fn = {overview: renderOverview, calls: renderCalls, changes: renderChanges, queue: renderQueue, history: renderHistory, setup: renderSetup}[S.tab] || renderOverview;
+    var y = window.scrollY;
+    main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + fn() + "</div>";
+    if (!enter) window.scrollTo(0, y);
+    renderSticky();
+  }
+  function setTab(t, push) {
+    if (!PAGES.concat(MORE).some(function (x) { return x[0] === t; })) t = "overview";
+    var changed = t !== S.tab; S.tab = t;
+    if (push && location.hash !== "#" + t) { try { history.replaceState(null, "", location.pathname + location.search + "#" + t); } catch (e) {} }
+    renderAll(changed);
+    if (changed) window.scrollTo(0, 0);
+  }
+  function goTo(id) {
+    var el = document.getElementById(id); if (!el) return;
+    var bar = document.getElementById("topbar"), off = (bar ? bar.getBoundingClientRect().bottom : 0) + 20;
+    window.scrollTo({top: el.getBoundingClientRect().top + window.scrollY - off, behavior: "smooth"});
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  function go(tab, id) { setTab(tab, true); if (id) requestAnimationFrame(function () { requestAnimationFrame(function () { goTo(id); }); }); }
+  function applyTheme() { if (S.theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", S.theme); }
+
+  // ---------------- events ----------------
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-tab],[data-act],[data-go-call],[data-go-item],[data-go-kind]");
+    if (!t) return;
+    if (t.hasAttribute("data-go-call")) { go("calls", "call-" + callIndex(t.getAttribute("data-go-call"))); return; }
+    if (t.hasAttribute("data-go-item")) {
+      var gid = t.getAttribute("data-go-item"), here = document.getElementById("item-" + gid);
+      if (here && !t.closest("#item-" + cssId(gid))) { goTo("item-" + gid); return; }
+      S.fk = "all"; S.fs = "all"; go("changes", "item-" + gid); return;
+    }
+    if (t.hasAttribute("data-go-kind")) { S.fk = t.getAttribute("data-go-kind"); S.fs = "all"; go("changes"); return; }
+    if (t.hasAttribute("data-tab") && !t.hasAttribute("data-act")) { go(t.getAttribute("data-tab")); return; }
+    var a = t.getAttribute("data-act"), id = t.getAttribute("data-id");
+    if (a === "filter") { if (t.getAttribute("data-f") === "k") { S.fk = t.getAttribute("data-v"); S.fs = "all"; } else S.fs = t.getAttribute("data-v"); renderAll(false); }
+    else if (a === "approve") request(id, "apply");
+    else if (a === "withdraw") withdraw(id);
+    else if (a === "apply") doApply();
+    else if (a === "close-result") { S.applyResult = null; if (B) delete B.launch; renderAll(false); }
+    else if (a && a.indexOf("form-") === 0 && a !== "form-cancel") {
+      var k = a.slice(5), cur = S.form[id];
+      if (cur && cur.k === k) delete S.form[id]; else S.form[id] = {k: k, v: k === "postpone" ? plusDays(14) : ""};
+      renderAll(false);
+      var inp = document.querySelector('[data-form="' + cssId(id) + '"]'); if (inp) inp.focus({preventScroll: true});
+    }
+    else if (a === "form-cancel") { delete S.form[id]; renderAll(false); }
+    else if (a === "confirm") {
+      var f = S.form[id]; if (!f) return; var v = String(f.v || "").trim();
+      if (f.k === "postpone") { if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast("Pick a date", true); return; } request(id, "postpone", {until: v}); }
+      else request(id, f.k, {reason: v});
+    }
+    else if (a === "theme") { S.theme = S.theme === "auto" ? "light" : S.theme === "light" ? "dark" : "auto"; store("rm.theme", S.theme === "auto" ? null : S.theme); applyTheme(); renderTop(); }
+    else if (a === "setup-done") { var s = setupSteps().filter(function (x) { return x.id === id; })[0]; if (s) { store(setupKey(s), setupDone(s) ? null : "1"); renderAll(false); } }
+    else if (a === "copy") {
+      var val = t.getAttribute("data-v"), ok = function () { var old = t.textContent; t.textContent = "Copied"; setTimeout(function () { t.textContent = old; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(val).then(ok, function () { toast("Copy failed", true); }); else toast(val);
+    }
+  });
+  document.addEventListener("toggle", function (e) { var d = e.target; if (d.tagName === "DETAILS" && d.hasAttribute("data-key")) S.open[d.getAttribute("data-key")] = d.open; }, true);
+  document.addEventListener("input", function (e) { var t = e.target; if (t.hasAttribute && t.hasAttribute("data-form")) { var f = S.form[t.getAttribute("data-form")]; if (f) f.v = t.value; } });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute("data-form")) return;
+    if (e.key === "Enter") { var b = t.parentNode.querySelector('[data-act="confirm"]'); if (b) b.click(); }
+    if (e.key === "Escape") { delete S.form[t.getAttribute("data-form")]; renderAll(false); }
+  });
+  document.addEventListener("focusout", function () { setTimeout(function () { if (S.pending) { var ae = document.activeElement; if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) renderAll(false); } }, 0); });
+  window.addEventListener("hashchange", function () { var h = location.hash.replace(/^#/, ""); if (h && h !== S.tab) setTab(h, false); });
+
+  // ---------------- boot ----------------
+  S.theme = store("rm.theme") || "auto"; if (["auto", "light", "dark"].indexOf(S.theme) < 0) S.theme = "auto"; applyTheme();
+  var h0 = location.hash.replace(/^#/, ""); if (h0) S.tab = h0;
+  if (!PAGES.concat(MORE).some(function (x) { return x[0] === S.tab; })) S.tab = "overview";
+  S.sig = sigOf(B);
+  renderAll(true);
+  if (LIVE) { refresh(false); setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000); }
+})();
+</script>
+</body>
+</html>
