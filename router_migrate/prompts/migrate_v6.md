@@ -14,21 +14,18 @@ every decision and proposal on a dashboard and can undo or decline each one: mak
 {BUDGET}
 
 ## Router, briefly
-Read the fact sheet (`router_migrate/data/ROUTER.md` in the router-migrate install; path in the context) before any
-decision that depends on Router: every lever, where it applies, what it costs, what was measured and what wasn't. The
-measured facts that shape most migrations:
+The fact sheet (path in the context) has every lever, where it applies, what it costs, and what was and wasn't
+measured; consult it as needed. The facts that shape most migrations:
 - Router serves `POST /v1/responses`, `POST /v1/messages` (+ `count_tokens`) and `GET /v1/models`; no Chat Completions,
   embeddings, images, audio, files or batches. It keeps no state: `store: true`, `previous_response_id`, conversations
   and response retrieval don't work.
 - Only catalog ids are served (`levers` lists them); dated snapshot ids 404. OpenAI, Anthropic, xAI and open-weight
   models are served on both surfaces, so a call can change vendor without changing SDK.
-- Flex (half price on gpt-5.4-mini; one call took 61 s) is the account default for the OpenAI models that have it.
-  Where a person waits on such a call, send `service_tier: "default"` so the move doesn't make them wait longer.
+- Flex (cheaper, sometimes much slower: one gpt-5-nano call took 61 s) is the account default for the OpenAI models
+  that have it. Where a person waits on such a call, send `service_tier: "default"` so the move doesn't make them wait.
 - Router-only fields (`models` fallbacks, `allow_flex_tier`, `provider_timeout`) work on `/v1/responses` only, and the
   original provider would reject them: put them only on requests that reach Router (`router.policy.json`, or a code
   path that only runs against Router).
-- Anthropic server tools (`web_search_20260209`, `web_fetch_20260209`) work on `/v1/messages` with claude-sonnet-5;
-  claude-haiku-4-5 gets a 400 for them unless the tool sets `allowed_callers: ["direct"]`.
 - The vendored runtime (`router_runtime.py` / `routerRuntime.ts`, added by `wrap`) sits under an SDK client: per request
   it sends what Router can serve to Router (translating Chat Completions to Responses) and the rest to the original
   provider unchanged, and does nothing until `RAMP_ROUTER_API_KEY` is set. It is the safe default, not the only way:
@@ -58,21 +55,20 @@ where the app has no operator key; the app's own gateway.
   scanner's map is a hint: it misses clients built in factories, containers and wrappers. Find those yourself.
 - `router-migrate check --run "CMD"`: run CMD with the runtime pointed at a local Router simulator (offline, provider
   keys dummied) and see which requests reached Router and whether it would accept them. Call the function a site lives
-  in with minimal inputs, stubbing what isn't the LLM call. A move is verified only when a check shows a valid Router
-  request from it.
+  in with minimal inputs, stubbing what isn't the LLM call. When it's cheap, confirm a move this way (a valid Router
+  request from it); otherwise report it and move on (the dashboard shows it as unverified).
 - `router-migrate check --run "CMD" --live` (with a migration key): the same against real Router, the key injected as
   `RAMP_ROUTER_API_KEY` for that command only. Use it for what the simulator can't tell you (does Router accept this
-  shape; side-by-side samples for a model change). Scripts that call Router directly build URLs from
-  `RAMP_ROUTER_BASE_URL` (no `/v1` suffix), never print the key, and set a User-Agent if they use Python's `urllib`.
+  shape; samples for a model change). Scripts that call Router directly build URLs from `RAMP_ROUTER_BASE_URL` (no
+  `/v1` suffix) and set a User-Agent if they use Python's `urllib`.
   It spends real money under the key's spend cap: a handful of short requests per question. On a 402 or 429, stop.
 - `router-migrate levers [MODEL|FILE:LINE]`: the lever table, catalog prices, Flex eligibility and same-family models
   (live with a key), and heuristic hints (they can be wrong; you decide).
 - Optional helpers: `router-migrate wrap|unwrap FILE:LINE` adds or removes the runtime at a client construction;
   `router-migrate adapt FILE:LINE --LEVER --loses "..." --why "..."` applies a trade-off to Router-bound requests only
-  (levers: `--drop P`, `--model-map OLD=NEW`, `--unlock-host H`, `--operator-key-only`, `--drop-betas F`). Hand edits
-  are as good. Commit what they change yourself.
-- `router-migrate check --final [--tests]`: a dry run of the outside check `finish` runs, as often as you like.
-Run the repo's own tests and typecheck along the way; the suite's duration is in the context above.
+  (levers in `--help`). Hand edits are as good. Commit what they change yourself.
+- `router-migrate check --final [--tests]`: the outside check on the migration branch as a dry run, as often as you
+  like (`finish` also checks each improvement branch).
 
 ## Record your work in git
 `start` checked out `router-migrate/migration` from the base commit. Commit there, one commit per decision a human might
@@ -87,7 +83,8 @@ Where the app already knows what a request is for (a stage, a task name, a route
 the request header `x-router-migrate-feature` (Python SDKs: `extra_headers=`; TS SDKs: the request options' `headers`).
 The runtime uses it as the request's label: Router records it with the request's spend (`metadata.feature` on
 Responses) and `router.policy.json` matches on it. Elsewhere the runtime labels each request with the calling
-`<file>:<function>`. Record each call's label in the report.
+`<file>:<function>`. When you pass a label, put it in that call's `feature` in the report (the check matches requests
+by it).
 
 ## Improve: review the system on Router
 With the traffic on Router, look at the whole system as a senior engineer who knows Router well would: what each call
@@ -95,8 +92,8 @@ does, who waits on it, what it costs, how you would design it on Router. Typical
 short, well-specified tasks; Flex (or a model that has it) for work nobody waits on; Router fallbacks in place of
 hand-rolled cross-provider retries; a prompt reordered so its long fixed prefix caches; one client where there are
 several; a call moved to the surface where the levers it needs apply; timeouts that fit the app. Build what is worth
-building as a branch and test it like the migration. A model change keeps "answers will differ" in `loses`; samples
-through both models are optional, worth it only when a few requests would settle a real doubt. A small change with evidence beats a
+building as a branch and test it like the migration. Samples through both models for a model change are optional,
+worth it only when a few requests would settle a real doubt. A small change with evidence beats a
 large one without; don't propose what the app doesn't need. The rest, if a reviewer should know it, becomes a short
 note. Proposing nothing is valid; then say in `reviewed` what you looked at and why nothing paid for itself. A
 sub-agent may do the review; you own it.
@@ -116,15 +113,13 @@ for the human), `improvement` (a tested branch), `note`.
    "calls": ["app/triage.py:18", "app/jobs/digest.py:41"], "gains": "Both calls on Router: one key, spend per feature",
    "loses": "nothing", "price": "no change",
    "why": "Both calls go through app/llm.py. The classifier answers a waiting user, so it pins the standard tier instead of Router's Flex default.",
-   "evidence": [{"check": "tests", "result": "pass", "detail": "pytest with Router on (simulator): 212 pass, as on the base commit"},
-                {"check": "router-live", "result": "pass", "detail": "check --run --live: 3 classify and 2 digest requests, all 200 from openai; classify at the standard tier"}],
+   "evidence": [{"check": "router-live", "result": "pass", "detail": "check --run --live: 3 classify and 2 digest requests, all 200 from openai; classify at the standard tier"}],
    "commit": "a1b2c3d", "branch": null, "depends_on": [], "excludes": []},
   {"id": "i1", "kind": "improvement", "title": "Classifier on gpt-5.4-nano", "summary": "Ticket classification moves from gpt-5.4-mini to gpt-5.4-nano.",
    "calls": ["app/triage.py:18"], "gains": "About -73% list price on every classify request",
    "loses": "A different model labels every ticket: answers will differ", "price": "$0.75/$4.50 to $0.20/$1.25 per 1M tokens",
    "why": "One label from a fixed list of six, fully specified by the prompt.",
-   "evidence": [{"check": "tests", "result": "pass", "detail": "pytest with Router on (simulator): 212 pass"},
-                {"check": "price", "result": "info", "detail": "catalog list prices (live)"}],
+   "evidence": [{"check": "price", "result": "info", "detail": "catalog list prices (live)"}],
    "commit": null, "branch": "router-migrate/improve/classifier-nano", "depends_on": ["m1"], "excludes": []}]}
 ```
 
@@ -136,9 +131,10 @@ for the human), `improvement` (a tested branch), `note`.
   labels differed"). `loses` is "nothing" only when that is true; a model change always loses "answers will differ".
 - `price`: from catalog prices, per 1M input/output tokens or per request, or "no change". Never invent volumes or totals.
 - `why`: a short paragraph a reviewer can check against the code.
-- `evidence`: one entry per check saying what ran against what and what came back. `check`: `tests`, `typecheck`,
-  `router-live`, `simulator`, `side-by-side`, `price` or `other`; `result`: `pass`, `fail`, `info` or `not-run` (say
-  why, e.g. "no migration key: simulator only"). Never a bare "ok".
+- `evidence`: only what the outside check can't see (it attaches tests, typecheck and simulator results itself): live
+  checks, samples, where a price came from. Each entry says what ran against what and what came back; `check`:
+  `router-live`, `side-by-side`, `price`, `simulator`, `tests`, `typecheck` or `other`; `result`: `pass`, `fail`, `info`
+  or `not-run`.
 - `commit`: the decision's commit; `branch`: an improvement's branch; `depends_on` / `excludes`: items it needs or
   conflicts with. In `calls`: `site` is FILE:LINE at the migration branch's last commit; `latency` is who waits:
   `background` (nobody: cron, queues, batch), `interactive` (a person watches output arrive) or `user_waiting` (a person

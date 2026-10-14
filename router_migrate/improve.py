@@ -450,7 +450,7 @@ SETUP = [
     {"id": "setup.budget", "title": "Set a per-key spend cap", "why": "Router enforces caps per API key (401 when hit); set one before rollout.",
      "values": {"page": "API keys", "cap": "your monthly limit"}, "link": "https://app.router.com/", "done": False},
     {"id": "setup.flex_default", "title": "Decide the account Flex default", "why": "Flex is on by default (allow_flex_tier_default=true, measured) and served "
-     "requests at up to ~61 s. router-migrate sends service_tier \"default\" on every routed call unless a policy opts a feature into Flex.",
+     "requests at up to ~61 s. A call stays at the standard tier only where its code (or policy) sends service_tier \"default\".",
      "values": {"allow_flex_tier_default": "keep on (tool overrides per call) or off"}, "link": "https://app.router.com/strategies", "done": False},
     {"id": "setup.jev", "title": "Jev auto routing (optional, unmeasured)", "why": "Jev picks among 2-6 models you describe per routing profile. Not measured: "
      "the docs say allow_flex_tier opts a request out of Jev; whether service_tier \"default\" does is unverified.",

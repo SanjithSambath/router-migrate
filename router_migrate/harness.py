@@ -21,7 +21,7 @@ from . import agent as AG
 from . import report_v6 as R
 
 AGENT_TOOLS = "Read,Grep,Glob,Edit,MultiEdit,Write,TodoWrite,Task,Bash,WebFetch,WebSearch"
-AGENT_COMMANDS = ("check", "levers", "wrap", "unwrap", "adapt", "request")
+AGENT_COMMANDS = ("check", "levers", "wrap", "unwrap", "adapt", "policy")
 DUMMY_KEYS = {"OPENAI_API_KEY": "sk-dummy-not-a-real-key", "ANTHROPIC_API_KEY": "sk-ant-dummy-not-a-real-key"}
 BACKGROUND_TESTS_SECS = 90  # a suite slower than this is checked in the background after finish; Apply waits for it
 MIGRATION_BRANCH = R.MIGRATION_BRANCH
@@ -289,14 +289,16 @@ def run_tests(root, base):
     return fails, info
 
 
-def check_tree(root, led, tests=True, report=True):
-    """The outside check on the tree at `root` (the migration checkout or a branch worktree), against the base commit.
-    Returns the validation.json entry. Never changes the tree."""
+def check_tree(root, led, tests=True, report=True, since_tree=None):
+    """The outside check on the tree at `root` (the migration checkout or a branch worktree). Edits, flags and parse are
+    judged against `since_tree` (default: the base commit; an improvement branch: the migration it was built on); tests
+    and typecheck always against the baseline. Returns the validation.json entry. Never changes the tree."""
     from .verify import syntax_check
     base = led.get("baseline") or {}
     res = {"ok": True, "failures": [], "flags": [], "tests": {}, "typecheck": {}, "router": {}, "routes": {}}
     fails, flags = res["failures"], res["flags"]
-    changes = AG.changed_since(root, led["base_tree"])
+    since = since_tree or led["base_tree"]
+    changes = AG.changed_since(root, since)
     changed = [p for st, p in changes if st != "D"]
     for x in syntax_check(root, changed)["failed"]:
         fails.append({"gate": "parse", "detail": "%s: %s" % (x["file"], x["error"][-300:])})
@@ -319,7 +321,7 @@ def check_tree(root, led, tests=True, report=True):
     if rt:
         flags.append({"kind": "runtime-edit", "detail": "the vendored runtime was edited by hand", "files": rt})
     try:
-        gone = AG.provider_key_removals(root, led["base_tree"])
+        gone = AG.provider_key_removals(root, since)
     except Exception:
         gone = []
     if gone:
@@ -577,7 +579,7 @@ def setup(root, a):
            "Typecheck command: %s (the final check compares its errors with the baseline)." % tc_cmd if tc_cmd else "",
            "Python with the repo's dependencies: %s" % baseline["python"] if baseline["python"] else "",
            ("A migration key is available: `router-migrate check --run \"CMD\" --live` runs code against the real Router "
-            "(spend-capped; the key is injected into that command only; never print it). The catalog is live (`router-migrate levers`)."
+            "(spend-capped; the key is injected into that command only). The catalog is live (`router-migrate levers`)."
             if key else "No migration key: verify with the simulator (`check --run`) and record live checks as not-run in your evidence."),
            "LLM calls the scanner sees (%d; it misses dynamically built and imported clients), as the code stands:" % len(rows), _fmt(rows)]
     budget = "Budget: aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
@@ -614,7 +616,9 @@ def check_branch(root, led, branch, tests=True):
         for d in DEP_DIRS:
             if os.path.exists(os.path.join(root, d)) and not os.path.exists(os.path.join(wt, d)):
                 os.symlink(os.path.realpath(os.path.join(root, d)), os.path.join(wt, d))
-        res = check_tree(wt, led, tests=tests, report=False)
+        fork = _g(root, "merge-base", MIGRATION_BRANCH, commit)  # the migration commit it was built on: judge only what it adds
+        mig = _g(root, "rev-parse", (fork or MIGRATION_BRANCH) + "^{tree}")
+        res = check_tree(wt, led, tests=tests, report=False, since_tree=mig)
         res.pop("routes", None)
     finally:
         AG._git(root, "worktree", "remove", "--force", wt)

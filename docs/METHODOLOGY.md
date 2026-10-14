@@ -43,10 +43,10 @@ is: **which parts can we verify, and who should own the rest?**
 | Where config points in production; whose key; is it production code | | **decides**, from code and config | |
 | The edit | exact codemods on request | **decides** the method; edits by hand where tools can't reach | |
 | Near-lossless trade-offs (drop `seed`, dated id, operator key, perf beta, same-model vendor endpoint) | records, compiles, offers Undo | **takes** them | can undo |
-| Latency class and task of each call | compiles guardrails from them | **judges** | |
+| Latency class and task of each call | shows them on the dashboard | **judges** | |
 | Prices, Flex availability, compatible fallbacks, cache threshold | **computes** | | |
-| Which improvements to propose | rule defaults | **proposes**, with reasons | |
-| Flex on user-facing calls, fallbacks, a different model, vendor ports | prices and validates | proposes | **decides** |
+| Which improvements to propose | facts and hints (`levers`) | **builds** them as branches, with reasons | |
+| Flex on user-facing calls, fallbacks, a different model, vendor ports | checks each branch | builds | **decides** |
 | Did anything break? | **decides** (outside check) | can self-test any time | |
 | Per-request route in production | **decides** (runtime) | | |
 

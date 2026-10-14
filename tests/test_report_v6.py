@@ -33,6 +33,7 @@ def test_fixture_report_is_valid_and_covers_every_kind_and_status():
     (lambda d: d["items"][0].update(evidence=[{"check": "vibes", "result": "pass"}]), "items[m1].evidence[0]"),
     (lambda d: d["items"][5].update(depends_on=["nope"]), "items[i1].depends_on"),
     (lambda d: d["calls"][0].update(item="nope"), "calls[0].item"),
+    (lambda d: d["calls"][0].update(now="routed"), "calls[0].now"),
     (lambda d: d["items"].append(dict(d["items"][0])), "is used twice"),
 ])
 def test_validation_names_the_field(mutate, field):

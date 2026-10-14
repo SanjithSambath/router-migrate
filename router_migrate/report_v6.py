@@ -145,6 +145,8 @@ def validate_report(doc):
             continue
         if c.get("latency") is not None and c.get("latency") not in LATENCY:
             e.append("%s.latency: one of %s, or null" % (w, ", ".join(LATENCY)))
+        if c.get("now") is not None and c.get("now") not in ("router", "provider", "unknown"):
+            e.append("%s.now: router, provider or unknown" % w)
         if c.get("item") is not None and c.get("item") not in ids:
             e.append("%s.item: unknown item id %r" % (w, c.get("item")))
     return e

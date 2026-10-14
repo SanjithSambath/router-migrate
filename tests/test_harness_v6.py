@@ -137,6 +137,8 @@ def test_finish_checks_outcomes_not_edit_categories(repo):
     v = state(repo, "validation.json")["migration"]
     kinds = {f["kind"] for f in v["flags"]}
     assert {"deleted-file", "dependencies"} <= kinds and v["ok"], r.stdout
+    branch = state(repo, "validation.json")["branches"]["router-migrate/improve/newer-mini"]
+    assert not any(f["kind"] in ("deleted-file", "dependencies") for f in branch["flags"]), branch["flags"]  # the migration's, not its own
     (repo / "tests" / "test_basic.py").write_text("def test_imports():\n    pass\n")  # editing an existing test: a failure
     git(repo, "commit", "-qam", "weaken test")
     r = rm("finish", ".", "--no-dashboard", cwd=repo)
