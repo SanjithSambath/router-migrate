@@ -569,6 +569,23 @@ def build(root, plan, catalog, repo=None, scan=None, judgments=None, current_lin
         c["evidence"]["results"] = res
         c["tool_facts"] = [r["fact"] for r in res if r.get("source") != "agent"]
         c["agent_rationale"] = [{"fact": r["fact"], "evidence": r.get("evidence") or []} for r in res if r.get("source") == "agent"]
+    # Flex and fallbacks on one feature are either/or: a request with a models list is served without Flex [measured].
+    # Say so on both cards before anyone approves; Flex is the suggested pick for work nobody waits on.
+    flex = {f: c for c in cards if c["rule"] == "tier.flex_background" for f in c["scope"]["features"]}
+    for c in cards:
+        if c["rule"] != "fallback.candidates":
+            continue
+        for f in c["scope"]["features"]:
+            if f in flex:
+                fx = flex[f]
+                fx.setdefault("conflicts_with", []).append(c["id"])
+                c.setdefault("conflicts_with", []).append(fx["id"])
+                fx["conflict_note"] = ("Either this or the fallback card for %s: Router serves a request that carries fallbacks (a "
+                                       "models list) without Flex. Suggested for a background job: Flex (half price; a failed call "
+                                       "can be retried later)." % f)
+                c["conflict_note"] = ("Either this or the Flex card for %s: with fallbacks set, Router serves the request without "
+                                      "Flex, so the half-price tier would be lost. Pick this only if outages matter more than cost "
+                                      "for this job." % f)
     return {"catalog_version": getattr(catalog, "source", "snapshot"), "rules_version": RULES_VERSION, "repo": repo,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "repo_kind": kind, "signals": sig, "cards": cards,
             "considered_not_recommended": considered}

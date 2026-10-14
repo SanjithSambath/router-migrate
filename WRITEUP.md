@@ -88,6 +88,19 @@ waiting user). No Flex card fired, correctly: the one background workload runs o
 showcase repo (a nightly job, a chat route, an xAI client, an Anthropic beta call) one real run produced cards on all six
 levers ($0.44 migrate + $0.29 improve; eval/v3/improve_showcase/). Screenshots: eval/v3/screenshots/.
 
+**End to end, the way a person runs it** (eval/v3/e2e/, `eval/v3/e2e_run.py`): `run --agent claude`, then the live
+dashboard driven in a real browser (approve, "Apply N changes"), then `finish` again, then the request each feature now
+sends. On a fresh repo (sec-insights): migrated and gated (15/15 tests), 5 cards, 3 approved and applied in the UI, `finish`
+OK, both features now send a fallback models list with the product tag; $1.01 of agent time. On the showcase repo: 6 cards
+applied from the UI across every lever that applies, including **Flex** (the nightly job now sends `allow_flex_tier` and a
+cache key) and **both unlocks** (the xAI client patched to route `grok-4.3` through Router; the Anthropic beta dropped),
+`finish` OK. The setup checklist's budget item is specific to the repo: list price per model with its features, a
+per-1,000-calls figure at a stated token shape, and the features whose model is picked at runtime; no cap is invented.
+Closing the loop found six defects card-level tests had missed, the most important being that **Flex and fallbacks on one
+feature are either/or** (Router serves a models list without Flex), which the cards now say before anyone approves
+(DECISIONS D15). It also showed agent variance plainly: the same command on chatgpt-telegram-bot migrated its 4
+per-tenant-credential sites once and flagged them once; both passed the gate, and that call should be the user's.
+
 ## Results on the 15 pinned repos (9 Python, 6 TS)
 
 | | v1 (automatic) | v2 MVP (every unlock and same-model card approved) |

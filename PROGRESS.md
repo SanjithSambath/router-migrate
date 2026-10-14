@@ -192,4 +192,9 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
 - **Improve on the 10 fresh repos** (eval/v3/run_improve.py -> eval/v3/improve/<repo>/, IMPROVE_RESULTS.md): 9 features
   judged, 4 -> 15 cards, $2.32; 10 dashboard screenshots in eval/v3/screenshots/. Done when:
   `bash scripts/done_check_v3_improve.sh` prints DONE_CHECK_V3_IMPROVE: PASS.
-
+- **Improve, closed end to end** (eval/v3/e2e_run.py + e2e_dashboard.py -> eval/v3/e2e/<repo>/): `run --agent claude`,
+  approve + Apply in the live dashboard (headless Chromium), `finish` again, request bodies probed offline. sec-insights
+  (fresh): 3 cards applied, `finish` OK; showcase: 6 applied incl. Flex and both unlocks, `finish` OK. Fixed what it found
+  (DECISIONS D15: snapshot race, Flex/fallback either/or, applied unlock re-id, re-apply count, repo-specific budget,
+  audited policy applies); per-card button now says Approve. Done when: both e2e summaries report quick gate ok and
+  `finish` OK after Apply; tests/test_improve_v3.py (8); `bash scripts/done_check_v3_improve.sh` PASS.

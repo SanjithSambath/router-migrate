@@ -312,3 +312,31 @@ frozen toolkit (commit 5eec746).
 - **Not done:** model ownership is still v2's heuristic (it withholds model cards on 7 config-chosen features); judgments
   were not adjudicated against a blind reading (Track 2).
 
+
+## D15. Improve, closed end to end: what driving the real dashboard found
+
+The Improve phase was first verified card by card. Driving the whole loop the way a person does (`run --agent claude`, then
+approve in the browser, Apply, `finish` again, then inspect the request each feature now sends; eval/v3/e2e_run.py) found six
+defects that unit tests had not, each now fixed with a test:
+- **Snapshot race.** The live page refreshes its bundle (which snapshots the tree) while Apply runs the quick gate (which
+  snapshots it too); both shared one private git index, so one call could rebuild it between the other's `add` and its
+  state-dir removal and the gate saw `.router-migrate/` as out-of-scope edits. Reproduced: 24 concurrent snapshots of one
+  tree gave 5 different trees (3 of them containing the state dir) and 4 failed calls. Now one temporary index per
+  snapshot, with the state dir excluded in the `add` pathspec itself.
+- **Flex and fallbacks are either/or on one feature.** Router serves a request carrying a models list without Flex
+  (measured in v2). Approving both, which "approve everything applicable" does, silently loses the half-price tier; the
+  warning only appeared after Apply. Both cards now carry `conflicts_with` and a note before anyone approves (Flex
+  suggested for background work), the dashboard shows it with the other card's state, and AGENTS.md/the skill say approve
+  one, never both.
+- **An applied unlock came back as a new card.** The unlock codemod moves the call's line, so its site id and card id
+  change. Applied unlocks are now matched by feature (recorded in unlocks.json) and shown as applied.
+- **Apply re-counted earlier cards** as newly applied; it now skips cards with `applied_at` and reports them separately.
+- **The budget item counted every scanned feature** (kept ones included) and missed applied unlocks; it now counts and
+  prices what routes through the key: list price per model with its features, a per-1,000-calls figure at a stated token
+  shape (the agent's judged static prompt where there is one), and the features whose model is picked at runtime.
+- **Policy applies were not in the ledger.** Every Apply now records an audited edit (files, cards, policy hash).
+
+**Agent variance is real and recorded, not hidden.** chatgpt-telegram-bot run twice with the same command: the first agent
+migrated the 4 per-tenant-credential sites, the second claimed them `flagged` (all tenants would share one Router key).
+Both passed the gate and both are defensible; the ledger says why each time. That decision belongs to the user, not to
+either agent: Track 2 turns "per-tenant provider credentials" into a question the run asks before migrating.

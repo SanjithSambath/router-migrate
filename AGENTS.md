@@ -51,6 +51,8 @@ part; you do the judgment calls it hands you. Never print, log, or commit `RAMP_
      evidence bar is met.
    - **Ask the user first:** unlock cards (they move traffic and list what is lost), `fallback.candidates` (another model
      answers on outages) and any model card.
+   - **Either/or pairs:** a card with `conflicts_with` (Flex and fallbacks on one feature: Router serves a models list
+     without Flex) is one choice of two. Approve one, never both; the card's `conflict_note` says which is suggested.
    - **Never edit decisions.json by hand.** It carries an etag per card. A stale etag, meaning the code or catalog changed,
      is skipped and has to be re-confirmed.
 3. `router-migrate apply . --decisions` writes `router.policy.json` and compiles it into `router_policy.py` / `routerPolicy.ts`

@@ -115,18 +115,26 @@ def _git(root, *args, env=None):
 def snapshot_tree(root):
     """Tree id of the working tree as it is now (tracked + untracked, .gitignore respected, state dir excluded), built in a
     private index so the user's index and history are untouched."""
-    idx = sp(root, "snap.index")
+    # one index per call: the live dashboard snapshots (bundle refresh) while Apply runs the gate, and a shared index let one
+    # call rebuild it between the other's `add` and its state-dir removal (the state dir then showed up as out-of-scope edits)
+    os.makedirs(os.path.join(root, STATE), exist_ok=True)
+    fd, idx = tempfile.mkstemp(prefix="snap.", suffix=".index", dir=os.path.join(root, STATE))
+    os.close(fd)
+    os.remove(idx)  # git wants to create it
     env = {"GIT_INDEX_FILE": idx}
-    if os.path.exists(idx):
-        os.remove(idx)
-    r = _git(root, "add", "-A", "--", ".", env=env)
-    if r.returncode:
-        raise RuntimeError("git add failed: %s" % r.stderr.strip()[-300:])
-    _git(root, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", STATE, env=env)
-    t = _git(root, "write-tree", env=env)
-    if t.returncode:
-        raise RuntimeError("git write-tree failed: %s" % t.stderr.strip()[-300:])
-    return t.stdout.strip()
+    try:
+        r = _git(root, "add", "-A", "--", ".", ":(exclude)%s" % STATE, env=env)
+        if r.returncode:
+            raise RuntimeError("git add failed: %s" % r.stderr.strip()[-300:])
+        _git(root, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", STATE, env=env)
+        t = _git(root, "write-tree", env=env)
+        if t.returncode:
+            raise RuntimeError("git write-tree failed: %s" % t.stderr.strip()[-300:])
+        return t.stdout.strip()
+    finally:
+        for f in (idx, idx + ".lock"):
+            if os.path.exists(f):
+                os.remove(f)
 
 
 def changed_since(root, tree):
@@ -494,6 +502,21 @@ def open_dashboard(root, a):
     print("report: %s" % sp(root, "REPORT.html"))
     if getattr(a, "no_dashboard", False):
         return 0
+    srv, url = serve_dashboard(root, open_browser=not getattr(a, "no_browser", False))
+    _event(root, "dashboard", "done", msg=url.split("?")[0])
+    print("router-migrate dashboard: %s  (Ctrl-C to stop)" % url, flush=True)
+    import threading
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        srv.shutdown()
+    return 0
+
+
+def serve_dashboard(root, open_browser=False):
+    """The live dashboard's server: Approve/Skip write decisions.json; Apply runs `apply --decisions` plus the quick gate.
+    Returns (server, url with session token); stop with server.shutdown()."""
+    from . import improve as imp
     from .dashboard import server as dash_server
     from .catalog import Catalog as _Cat
 
@@ -505,8 +528,9 @@ def open_dashboard(root, a):
         led = load_ledger(root)
         ok, fails, _ = gate(root, led, quick=True) if led else (True, [], {})
         do_improve(root)
-        lines = ["applied %d card(s), skipped %d%s" % (len(out["applied"]), len(out["skipped"]),
-                                                      "; policy %s" % out["policy_hash"][:8] if out.get("policy_hash") else "")]
+        lines = ["applied %d card(s), skipped %d%s%s" % (len(out["applied"]), len(out["skipped"]),
+                                                        ", %d applied earlier" % len(out["already_applied"]) if out.get("already_applied") else "",
+                                                        "; policy %s" % out["policy_hash"][:8] if out.get("policy_hash") else "")]
         lines += ["  applied %s (%s)" % (x["card"], x["rule"]) for x in out["applied"]]
         lines += ["  skipped %s: %s" % (x["card"], x["reason"]) for x in out["skipped"]]
         lines += ["  warning %s" % w for w in out.get("warnings") or []]
@@ -514,16 +538,7 @@ def open_dashboard(root, a):
         lines.append("next: router-migrate finish %s  (full gate: tests vs baseline, Router-on run)" % root)
         return {"command": "router-migrate apply --decisions %s" % root, "output": "\n".join(lines)}
 
-    srv, url = dash_server.serve(lambda: imp.bundle(root, repo=os.path.basename(root)), on_decide, on_apply,
-                                 open_browser=not getattr(a, "no_browser", False))
-    _event(root, "dashboard", "done", msg=url.split("?")[0])
-    print("router-migrate dashboard: %s  (Ctrl-C to stop)" % url, flush=True)
-    import threading
-    try:
-        threading.Event().wait()
-    except KeyboardInterrupt:
-        srv.shutdown()
-    return 0
+    return dash_server.serve(lambda: imp.bundle(root, repo=os.path.basename(root)), on_decide, on_apply, open_browser=open_browser)
 
 
 # ------------------------------------------------------------------------------------------------ improve (v3)

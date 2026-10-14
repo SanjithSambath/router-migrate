@@ -25,6 +25,23 @@ Cards by lever: Tiers / Flex **0**, Fallbacks **7**, Caching **2**, Spend tags *
 | page-assist | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 (0) | 0.00 | 0.0 |
 | sec-insights | 2 | 2 | 0 | 2 | 0 | 1 | 0 | 2 | 5 (1) | 0.49 | 2.8 |
 
+## Every lever, every repo
+
+Each cell is the number of cards, or why the lever has none in that repo (the first reason from the repo's considered-not-recommended list). Every lever is evaluated on every migrated feature; a lever with no card is a decision with a reason, never silence.
+
+| repo | Tiers / Flex | Fallbacks | Caching | Spend tags | Unlocks | Model recs |
+|---|---|---|---|---|---|---|
+| AI-Scientist | model chosen at runtime (gpt-4o-2024-05-13); flex eligibility unknown | model chosen at runtime; candidates need a known model | **2** | **1** | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | model owner is library_param: model changes are the library caller's c… |
+| OpenManus | no migrated feature | no migrated feature | no migrated feature | no migrated feature | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | no migrated feature |
+| chatgpt-telegram-bot | gpt-4o has no flex tier | **4** | agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs … | **1** | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | model owner is library_param: model changes are the library caller's c… |
+| computer_use_ootb | no migrated feature | no migrated feature | no migrated feature | no migrated feature | beta flags computer-use-2024-10-22 are required by the request's tools… | no migrated feature |
+| llmcord | no migrated feature | no migrated feature | no migrated feature | no migrated feature | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | no migrated feature |
+| obsidian-copilot | no migrated feature | no migrated feature | no migrated feature | no migrated feature | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | no migrated feature |
+| obsidian-textgenerator-plugin | no migrated feature | no migrated feature | no migrated feature | no migrated feature | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | no migrated feature |
+| openui | gpt-3.5-turbo has no flex tier | **1** | agent: static prompt prefix ~490 tokens, below the ~1,024 a cache need… | **1** | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | model owner is library_param: model changes are the library caller's c… |
+| page-assist | no migrated feature | no migrated feature | no migrated feature | no migrated feature | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | no migrated feature |
+| sec-insights | gpt-4o-mini has no flex tier | **2** | no static system prompt >= ~1,024 tokens found (longest ~0 tokens) | **1** | no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta | **2** |
+
 ## Where the agent's judgment differed from the filename heuristic (latency class)
 
 | repo | feature | heuristic | agent | agent's reason |
@@ -64,9 +81,51 @@ Cards by lever: Tiers / Flex **0**, Fallbacks **7**, Caching **2**, Spend tags *
 - **No Flex card fired, correctly.** The one background workload (AI-Scientist) runs on `gpt-4o-2024-05-13` and Claude 3.5
   Sonnet, which have no Flex tier on Router; the considered-not-recommended list says so. **No unlock card fired**: the only
   candidate (computer_use_ootb) needs the computer-use beta, which can't be dropped.
-- **All six levers fire on the showcase repo** (tests/test_v2.py's synthetic app: a nightly job with a long prompt, a chat
-  route, an xAI client, an Anthropic beta call): 10 cards, one or more per lever, from a real `router-migrate run . --agent
-  claude` ($0.44 migrate + $0.29 improve; eval/v3/improve_showcase/ and the screenshots).
 - **Cost.** $2.32 of agent time for the 4 repos with features (median $0.54, 2-6 minutes). Nothing is applied until a human
   approves a card; the live dashboard's Apply runs `router-migrate apply --decisions` and a quick scope gate, then asks for
   `finish` (the full gate) before anything ships.
+- **Budgets are repo-specific.** The per-key cap item lists what routes through the key (migrated features plus applied
+  unlocks): the list price per model with the features on it, a per-1,000-calls figure at a stated token shape (the
+  agent's judged static prompt where it judged one, otherwise 1,000 in / 500 out, marked assumed), the features whose model
+  is picked at runtime (7 of the 10 repos: nothing in code or config to price), and the spend tag to watch. No cap number is
+  invented: volume is unknown to the tool and to Router.
+- **Still a heuristic: model ownership.** Model-change cards are shown only where the app or its operator owns the model;
+  ownership still comes from v2's heuristic, which labels some config-chosen models `library_param` (7 features here),
+  withholding model cards there. Making ownership an agent judgment is a Track 2 item.
+
+
+## End to end, as a person runs it (eval/v3/e2e/, eval/v3/e2e_run.py)
+
+One command per repo, `router-migrate run <repo> --agent claude` (floor -> agent migrates -> `finish` gate -> agent judges
+-> cards), then the live dashboard driven by headless Chromium on its 127.0.0.1 session URL (approve each applicable card in
+the UI, click "Apply N changes", read the result panel), then `finish` again on the applied repo, then the Router request body
+each feature now sends, built offline by the repo's own vendored runtime (nothing sent; $0 Router spend).
+
+| repo | floor -> routes now | migrate agent | gate | improve agent | cards (levers) | approved in the UI -> applied | quick gate | `finish` after Apply |
+|---|---|---|---|---|---|---|---|---|
+| sec-insights (fresh) | 2 -> 2 | $0.69, 5.9 min | 15/15 tests | 2 judged, $0.32, 1.5 min | 5 (3) | 3 -> 3 | ok | OK, 15/15 |
+| showcase | 2 -> 2, 4 with unlocks | $0.27, 1.5 min | 1/1 | 2 judged, $0.38, 3.6 min | 10 (6) | 6 -> 6 | ok | OK, 1/1 |
+
+What each routed feature sends after Apply (eval/v3/e2e/<repo>/policy_probe.json):
+- **showcase** `nightly_summaries.py:summarize_all` (background): `gpt-5.4-mini` with `allow_flex_tier: true` and its
+  `prompt_cache_key` (**Flex and caching, applied**); `chat.py:answer`: `models: [gpt-4-turbo, gpt-5.5, claude-opus-5]`
+  (fallbacks); `xai.py:generate`: `grok-4.3` through Router instead of api.x.ai (**vendor-endpoint unlock, applied**: the
+  client is patched with `unlock_hosts`); `agent.py:run`: Router's /v1/messages with the prompt-caching beta dropped
+  (**stated-loss unlock, applied**). Every one carries `metadata.product=showcase`. The fallback card for the nightly job
+  was left undecided: it is the either/or partner of the Flex card (below).
+- **sec-insights** both LlamaIndex features: `models: [gpt-4o-mini, gpt-6-luna, claude-haiku-5-5]` with
+  `metadata.product=sec-insights`. Its two model cards stay recommendations (never applied).
+
+**chatgpt-telegram-bot, twice.** Run 1 (live in the browser pane): floor 0, the agent migrated the 4 per-tenant-credential
+sites (+4, $0.91), gate 5/5, improve 5 cards ($0.46), all 5 applied from the dashboard in two rounds, `finish` OK, every
+feature sending a fallback models list. Run 2, same command on a fresh copy: the agent claimed the same 4 sites `flagged`
+(all tenants would share one Router key; $0.95), the gate passed, and Improve correctly had nothing to improve (0 cards; the
+dashboard's Apply stays disabled). Both choices are defensible and the ledger records why; the decision belongs to the user
+(Track 2: ask before migrating per-tenant credentials). Run 1's artifacts were overwritten by run 2; its numbers are from
+the run log.
+
+**What closing the loop found** (DECISIONS D15; each fixed with a test): the live page and Apply raced on one snapshot
+index (the gate saw the state dir as edits); Flex and fallbacks on one feature are either/or (a models list is served
+without Flex) and now say so on both cards before approval; an applied unlock came back as a new card (the codemod moved
+its line); Apply re-counted earlier cards; the budget counted kept features and missed unlocks; policy applies were not in
+the ledger.

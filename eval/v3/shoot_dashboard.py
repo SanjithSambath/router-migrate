@@ -4,7 +4,7 @@
   .venv/bin/python eval/v3/shoot_dashboard.py <REPORT.html> <outdir> <prefix> [--width 1440 --height 1100]
 
 Writes <prefix>-overview.png, -improve.png (scrolled to the lever grid), -improve-card.png (the first card with agent
-rationale), -setup.png, -migration.png (scrolled to the agent ledger). Network blocked except Google Fonts."""
+rationale), -improve-conflict.png (an either/or card, when there is one), -setup.png, -migration.png (scrolled to the agent ledger). Network blocked except Google Fonts."""
 import os
 import sys
 
@@ -44,6 +44,8 @@ with sync_playwright() as p:
     tab("overview"); shot("overview")
     tab("improve"); shot("improve", ".levers", -230)
     shot("improve-card", ".why2", -420)
+    if page.query_selector(".card .banner.warn"):  # an either/or pair (Flex vs fallbacks on one feature)
+        shot("improve-conflict", ".card .banner.warn", -520)
     tab("setup"); shot("setup")
     tab("migration"); shot("migration", "h2", -40) if page.query_selector("h2") else shot("migration")
     b.close()

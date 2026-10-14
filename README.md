@@ -47,7 +47,9 @@ router-migrate improve . [--agent claude]   # Improve: cards for every Router le
 router-migrate judge FILE:LINE latency background --why "..." --evidence app/tasks.py:30   # latency | task | model | cacheable
 ```
 After the gate, `run --agent claude` continues into Improve and opens the dashboard (the whole run, a lever grid, cards
-with tool facts vs agent rationale, a repo-specific Router setup checklist). Results: [eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md).
+with tool facts vs agent rationale, a repo-specific Router setup checklist). Approve cards there and click "Apply N
+changes"; then run `finish` again. Results: [eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md); the whole loop end to
+end (run, approve and Apply in the browser, `finish`, the request each feature now sends): [eval/v3/e2e/](eval/v3/e2e/).
 On 10 fresh repos the agent + toolkit arm made 10 correct moves, 0 wrong, broke 0 repos ([eval/v3/RESULTS.md](eval/v3/RESULTS.md)).
 Design: [SPEC_V3.md](SPEC_V3.md). Prompt: [router_migrate/prompts/migrate.md](router_migrate/prompts/migrate.md).
 

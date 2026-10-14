@@ -133,6 +133,27 @@ def aggregate():
         L.append("| %s | %d | %d | %s | %d (%d) | %.2f | %s |" % (r["repo"], r["features"], r["judged"],
                                                              " | ".join(str(r["cards_by_lever"].get(k, 0)) for k, _ in names),
                                                              r["cards"], r["cards_before_judgments"], r["usd"], r["minutes"]))
+    L += ["", "## Every lever, every repo", "",
+          "Each cell is the number of cards, or why the lever has none in that repo (the first reason from the repo's "
+          "considered-not-recommended list). Every lever is evaluated on every migrated feature; a lever with no card is a "
+          "decision with a reason, never silence.", "",
+          "| repo | " + " | ".join(n for _, n in names) + " |", "|---|" + "---|" * len(names)]
+    for r in rows:
+        cells = []
+        for k, _ in names:
+            n = r["cards_by_lever"].get(k, 0)
+            if n:
+                cells.append("**%d**" % n)
+            elif k == "unlock":  # unlock rules read the sites that did NOT move, so they apply with or without migrated features
+                why = (r["considered_by_lever"].get(k) or [""])[0]
+                cells.append((why[:70] + ("…" if len(why) > 70 else "")).replace("|", "/") if why else
+                             "no unlock candidate: no OpenAI-compatible vendor endpoint on a catalog model, no droppable beta")
+            elif not r["features"]:
+                cells.append("no migrated feature")
+            else:
+                why = (r["considered_by_lever"].get(k) or [""])[0]
+                cells.append((why[:70] + ("…" if len(why) > 70 else "")).replace("|", "/") if why else "not applicable")
+        L.append("| %s | %s |" % (r["repo"], " | ".join(cells)))
     L += ["", "## Where the agent's judgment differed from the filename heuristic (latency class)", ""]
     if flips:
         L += ["| repo | feature | heuristic | agent | agent's reason |", "|---|---|---|---|---|"]

@@ -26,7 +26,8 @@ v3: you are the judgment layer; the CLI gives you facts and a gate. The full pro
 
 ## v2: improve (after finish passes)
 5. `router-migrate up . --agent` prints the undecided Improve cards. Approve risk 0–1 same-model cards whose evidence bar is
-   met; ask the user before approving unlock, fallback or model cards (`router-migrate decide <id> ... --by agent`).
+   met; ask the user before approving unlock, fallback or model cards (`router-migrate decide <id> ... --by agent`). Cards
+   with `conflicts_with` are either/or (Flex vs fallbacks on one feature): approve one, never both.
 6. `router-migrate apply . --decisions`, then `router-migrate status .` (must exit 0), then re-run `finish`.
 
 ## Guardrails

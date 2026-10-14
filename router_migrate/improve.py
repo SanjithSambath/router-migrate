@@ -50,8 +50,17 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
         raise SystemExit("no plan: run `router-migrate plan` (or `up`) first")
     r = rec_mod.build(root, plan, catalog, repo=repo, scan=scan, judgments=judgments, current_lines=current_lines)
     dec = load(root, "decisions.json", {"cards": {}})
+    # an applied unlock patches the client, which moves the call's line and so its site id and card id: match by feature
+    unl = load(root, "unlocks.json", {"sites": {}})["sites"]
+    unlocked = {(u["rule"], u.get("feature") or sid.split(":")[1]): u["card"] for sid, u in unl.items()}
     for c in r["cards"]:
         d = dec["cards"].get(c["id"])
+        if not d and c["rule"].startswith("unlock."):
+            prior = next((unlocked[k] for k in [(c["rule"], f) for f in c["scope"]["features"]] +
+                          [(c["rule"], x.split(":")[1]) for x in c["scope"]["sites"]] if k in unlocked), None)
+            if prior:
+                c["state"], c["applied_as"] = "applied", prior
+                continue
         if d:
             c["state"] = {"approve": "approved", "dismiss": "dismissed", "postpone": "postponed", "shadow_first": "shadow_first"}[d["action"]]
             if d["action"] == "approve" and d.get("applied_at"):
@@ -67,7 +76,8 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
 
 def undecided(root):
     r, dec = load(root, "recommendations.json", {"cards": []}), load(root, "decisions.json", {"cards": {}})
-    return [c for c in r["cards"] if c["id"] not in dec["cards"] or dec["cards"][c["id"]].get("etag") != c["etag"]]
+    return [c for c in r["cards"] if c.get("state") != "applied" and
+            (c["id"] not in dec["cards"] or dec["cards"][c["id"]].get("etag") != c["etag"])]
 
 
 # ------------------------------------------------------------------------------------------------ decide
@@ -149,7 +159,7 @@ def apply_decisions(root, catalog, dry_run=False):
     dec = load(root, "decisions.json", {"cards": {}})
     if r is None:
         raise SystemExit("no recommendations: run `router-migrate recommend` first")
-    applied, skipped, files = [], [], []
+    applied, skipped, files, already = [], [], [], []
     p, err = pol.load(root)
     if err:
         raise SystemExit("router.policy.json: %s (fix or delete it; nothing applied)" % err)
@@ -165,6 +175,9 @@ def apply_decisions(root, catalog, dry_run=False):
             continue
         if not c.get("applies", True):
             skipped.append({"card": c["id"], "reason": "model change: recommendation only, the tool never applies it"})
+            continue
+        if d.get("applied_at"):  # applied earlier: policy entries are already in router.policy.json, code already patched
+            already.append(c["id"])
             continue
         if c["change"]["kind"] == "policy":
             patch = json.loads(c["change"]["diff"])
@@ -197,15 +210,15 @@ def apply_decisions(root, catalog, dry_run=False):
             if rt_rel and not os.path.exists(os.path.join(root, rt_rel)):
                 from .runtime import render
                 open(os.path.join(root, rt_rel), "w").write(render("router_runtime.py", catalog))
+                files.append(rt_rel)
             files.append(cl["file"])
             for sid in c["scope"]["sites"]:
-                unlocks["sites"][sid] = {"card": c["id"], "rule": c["rule"]}
+                sg = r["signals"].get(sid) or {}
+                unlocks["sites"][sid] = {"card": c["id"], "rule": c["rule"], "feature": sg.get("feature"),
+                                         "model": sg.get("resolved_model") or (c.get("rule_inputs") or {}).get("model")}
             applied.append({"card": c["id"], "rule": c["rule"], "kind": "code", "file": cl["file"]})
-    log = {"applied": applied, "skipped": skipped, "policy_hash": None, "files": files, "warnings": flex_conflicts(p)}
-    led = load(root, "ledger.json")
-    if led is not None and log["files"] and not dry_run:  # v3: edits from approved decisions are in scope for the gate
-        led.setdefault("edits", []).append({"by": "decisions", "files": sorted(set(log["files"])), "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
-        save(root, "ledger.json", led)
+    log = {"applied": applied, "skipped": skipped, "already_applied": already, "policy_hash": None, "files": files,
+           "warnings": flex_conflicts(p)}
     if applied and not dry_run:  # remember what was applied, so the dashboard and `up --agent` stop counting it as pending
         dec2 = load(root, "decisions.json", {"cards": {}})
         for x in applied:
@@ -219,6 +232,11 @@ def apply_decisions(root, catalog, dry_run=False):
         runtime_files = runtime_paths(root)
         log["files"] += [pol.POLICY_FILE] + _compile_everywhere(root, p, runtime_files)
         log["policy_hash"] = pol.policy_hash(p)
+    led = load(root, "ledger.json")
+    if led is not None and log["files"] and not dry_run:  # v3: edits from approved decisions are in scope for the gate, and audited
+        led.setdefault("edits", []).append({"by": "decisions", "files": sorted(set(log["files"])), "cards": [x["card"] for x in applied],
+                                            "policy_hash": log["policy_hash"], "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        save(root, "ledger.json", led)
     if not dry_run:
         save(root, "unlocks.json", unlocks)
         event(root, "apply_decisions", "done", {"applied": len(applied), "skipped": len(skipped)})
@@ -310,6 +328,14 @@ def setup_for(root, r, led=None):
     feats = {}
     for s in sig.values():
         feats.setdefault(s["feature"], s)
+    plan = load(root, "plan_v3.json") or load(root, "plan.json") or {}
+    moved = {x["id"] for x in plan.get("sites") or [] if x.get("outcome") == "migrated"}
+    routed = {sig[i]["feature"]: sig[i] for i in sorted(moved) if i in sig} if moved else dict(feats)
+    for u in (load(root, "unlocks.json", {"sites": {}})["sites"]).values():  # applied unlocks route through the same key
+        f = u.get("feature")
+        if f and f not in routed:
+            base = feats.get(f) or {"feature": f}
+            routed[f] = dict(base, resolved_model=base.get("resolved_model") or u.get("model"))
     bg = sorted(f for f, s in feats.items() if s.get("latency_class") == "background")
     chat = sorted(f for f, s in feats.items() if s.get("task") in ("chat", "agentic", "reasoning", "generation"))
     coding = sorted(f for f, s in feats.items() if s.get("task") == "agentic")
@@ -317,7 +343,11 @@ def setup_for(root, r, led=None):
     models = sorted({s.get("resolved_model") for s in feats.values() if s.get("resolved_model")})
     for it in items:
         if it["id"] == "setup.budget":
-            it["values"] = {"page": "API keys", "cap": "your monthly limit", "features behind this key": str(len(feats))}
+            it["values"] = {"page": "API keys", "cap": "your monthly limit", "features behind this key": str(len(routed))}
+            bh = budget_hints(r, routed)
+            it["values"].update(bh["values_extra"])
+            if bh["values_extra"]:
+                it["why"] += bh["why_extra"]
         elif it["id"] == "setup.flex_default":
             it["applies_to"] = bg
             if bg:
@@ -343,6 +373,61 @@ def setup_for(root, r, led=None):
     return items
 
 
+def _short(feature):
+    """bot/openai_helper.py:__summarise -> openai_helper.py:__summarise (a function name alone can repeat: <module>, __call__)."""
+    path, _, fn = feature.rpartition(":")
+    return "%s:%s" % (os.path.basename(path), fn) if path else feature
+
+
+def budget_hints(r, feats):
+    """Repo-specific budget facts for the features that route through Router: list price per model (grouped), a per-1,000-calls
+    figure at a stated token shape (the agent's judged static prompt where it judged one, else 1,000 in / 500 out, assumed and
+    said so), and the spend tag to watch. Volume is unknown, so no cap is invented."""
+    from .catalog import Catalog
+    cat = Catalog.load()
+    by_model = {}
+    for f, s in sorted(feats.items()):
+        if s.get("resolved_model"):
+            by_model.setdefault(s["resolved_model"], []).append((f, s))
+    prices, est = [], []
+    for rid, fs in sorted(by_model.items()):
+        pr = ((cat.by_id.get(rid) or {}).get("pricing")) or {}
+        try:
+            pin, pout = float(pr.get("input") or 0), float(pr.get("output") or 0)
+        except ValueError:
+            continue
+        if not (pin or pout):
+            continue
+        names = ", ".join(_short(f) for f, _ in fs)
+        prices.append("%s $%g / $%g per M tokens in / out (%s)" % (rid, pin, pout, names))
+        judged = [(f, int(t)) for f, s in fs for t in [((s.get("agent") or {}).get("cacheable") or {}).get("value")]
+                  if t is not None and str(t).isdigit() and int(t) > 0]
+        for f, toks in judged:
+            est.append("%s: ~$%.2f per 1,000 calls (%s-token static prompt as judged + 300 dynamic in, 500 out assumed)" % (
+                _short(f), ((toks + 300) * pin + 500 * pout) / 1e3, "{:,}".format(toks)))
+        rest = [f for f, _ in fs if f not in dict(judged)]
+        if rest:
+            est.append("%s: ~$%.2f per 1,000 calls at 1,000 tokens in + 500 out (assumed shape; %s)" % (
+                rid, (1000 * pin + 500 * pout) / 1e3, ", ".join(_short(f) for f in rest)))
+    tag = next((json.loads(c["change"]["diff"]).get("defaults", {}).get("metadata", {}).get("product") for c in (r or {}).get("cards") or []
+                if c["rule"] == "attr.metadata"), None)
+    vals = {}
+    if prices:
+        vals["list prices"] = "; ".join(prices[:4])
+    unpriced = sorted({_short(f) for f, s in feats.items() if not s.get("resolved_model")})
+    if unpriced:
+        vals["not priced here"] = "%s: no default model in code or config to price (picked at runtime or in user settings); " \
+                                  "price it on Router's Models page once you know it" % ", ".join(unpriced[:6])
+    if est:
+        vals["per-call estimates"] = "; ".join(est[:4])
+    if tag:
+        vals["watch spend by"] = "metadata.product=%s (approve the spend-tag card), then metadata.feature per call site" % tag
+    out = {"why_extra": " Router can't see your volume and neither can this tool, so no cap is invented: multiply your expected "
+                        "monthly calls per feature by the per-call figures below, and set the cap above it."}
+    out["values_extra"] = vals
+    return out
+
+
 def run_summary(root):
     """The v3 run, for the dashboard: phases with cost and time, the gate, what the agent changed."""
     led = load(root, "ledger.json")
@@ -360,10 +445,12 @@ def run_summary(root):
     added = sum(1 for it in led.get("worklist") or [] if it.get("type") == "site" and it.get("tool_outcome") != "migrated" and
                 any(_near(it, c) and c["outcome"] == "migrated" and c.get("confirmed") in ("static", "dynamic") for c in claims))
     last = ((fin.get("history") or [{}])[-1] or {}).get("info") if fin.get("history") else {}
+    # the agent's edits are fixed at its first passing gate; later finishes also see Apply's edits (policy, unlock codemods)
+    first_ok = next((h.get("info") for h in fin.get("history") or [] if h.get("ok")), last)
     return {"floor_migrated": (led.get("floor") or {}).get("migrated"), "result": res, "routes_now": routes_now, "added_by_agent": added,
             "corrected_by_agent": res.get("overridden_to_not_migrated", 0), "tests": (last or {}).get("tests"),
             "tests_before": (led.get("baseline") or {}).get("before"), "sim": (last or {}).get("sim"),
-            "agent_edit_files": len((last or {}).get("agent_changed_files") or []),
+            "agent_edit_files": len((first_ok or {}).get("agent_changed_files") or []),
             "migrate": {"usd": cost.get("agent_usd"), "minutes": cost.get("agent_minutes"), "turns": cost.get("agent_turns"),
                         "model": cost.get("agent_model")},
             "improve": {"usd": (imp.get("cost") or {}).get("usd"), "minutes": (imp.get("cost") or {}).get("minutes"),

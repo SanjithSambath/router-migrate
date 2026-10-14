@@ -186,7 +186,7 @@ see Router requests inside their mocks under the deterministic floor too; only a
 | T4 | 10 fresh repos, blind inventories, test recipes; independent breakage check | pinned and inventoried before any arm C run | committed 488677a, before the first arm C commit |
 | T5 | Eval harness, arms A/B/B'/C, blind adjudication, REPORT.html ledger table | RESULTS.md with per-repo table, $ and minutes | eval/v3/RESULTS.md (section 6) |
 | T6 | WRITEUP v3 section, email draft, DEMO_V3.md (2-minute demo on a fresh repo), "What Router should build" | every number traces to a file | WRITEUP.md, EMAIL_TO_KEDAR.md (draft, not sent), DEMO_V3.md |
-| Improve | `judge`, `improve`, the improve session, cards from judgments, specific setup, the whole-run dashboard (5.5) | REPORT.html + recommendations.json for all 10 fresh repos; >= 4 screenshots | eval/v3/IMPROVE_RESULTS.md: 9 features judged, 4 -> 15 cards, $2.32; showcase repo: all 6 levers |
+| Improve | `judge`, `improve`, the improve session, cards from judgments, specific setup, the whole-run dashboard (5.5) | REPORT.html + recommendations.json for all 10 fresh repos; >= 4 screenshots | eval/v3/IMPROVE_RESULTS.md: 9 features judged, 4 -> 15 cards, $2.32; showcase repo: all 6 levers; end to end (eval/v3/e2e/): approve + Apply in the live dashboard, `finish` OK after Apply on sec-insights and the showcase |
 
 ### 5.5 The Improve phase (after the gate)
 
@@ -207,7 +207,14 @@ Same split, applied to optimization. After `finish` passes, `run --agent claude`
    feature is an agentic coding task, shadow pairs taken from the model cards, budgets.
 5. **Dashboard:** the whole run (floor → migrate → gate → improve → cards, with cost and time per phase), a grid of the six
    levers (cards, best impact, or why none), cards with facts vs rationale. Apply runs `apply --decisions` plus a quick
-   scope gate and records `applied_at`; edits from approved decisions are in scope for `finish`.
+   scope gate and records `applied_at`; edits from approved decisions are in scope for `finish` and audited in the ledger.
+6. **Either/or cards.** Flex and fallbacks on one feature are one choice, not two: Router serves a request carrying a
+   models list without Flex. Both cards carry `conflicts_with` and say so before approval (Flex suggested for background
+   work). Applied unlocks are matched by feature, since the codemod moves the call's line and so its card id.
+
+Built and closed end to end (eval/v3/e2e/): `run --agent claude` -> approve and Apply in the live dashboard (headless
+browser) -> `finish` again -> the request each feature now sends. sec-insights (fresh): 3 cards applied, `finish` OK;
+showcase: 6 applied including Flex and both unlocks, `finish` OK. Six defects found that way are in DECISIONS D15.
 
 Why a second session instead of continuing the first: the migration session's context is full of call sites and claims;
 the improve judgments need callers, decorators and prompts. A fresh, read-only, separately gated session keeps each
