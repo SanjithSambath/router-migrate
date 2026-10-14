@@ -320,6 +320,21 @@ SETUP = [
 ]
 
 
+SETUP_UI = {  # how the dashboard presents each step: urgency, where in the Router app, and one plain sentence first
+    "setup.budget": {"kind": "budget", "priority": "Before rollout", "where": ["API keys", "this repo's key", "Spend cap"],
+                     "lead": "Router stops requests at the cap, so give this repo's key one before rollout. Estimate monthly calls below to get a number."},
+    "setup.flex_default": {"kind": "flex", "priority": "Decide once", "where": ["Routing", "Cost-efficient routing"],
+                           "lead": "Flex is on for your account by default. router-migrate sends the standard tier on every call unless you approved Flex for "
+                                   "that feature, so keeping it on is safe."},
+    "setup.shadow": {"kind": "shadow", "priority": "Before a model change", "where": ["Routing", "Shadow models"],
+                     "lead": "Before switching a model, let Router shadow the candidate on a slice of real traffic and compare cost and latency."},
+    "setup.jev": {"kind": "jev", "priority": "Optional", "where": ["Routing", "Routing profiles"],
+                  "lead": "Jev can pick among models you describe for each request. Not measured by this tool yet, so it stays optional."},
+    "setup.switchyard": {"kind": "switchyard", "priority": "Experimental", "where": ["Routing", "NVIDIA NeMo Switchyard routing"],
+                         "lead": "For coding agents: switches model family mid-conversation. The tool never writes it."},
+}
+
+
 def setup_for(root, r, led=None):
     """The Router setup checklist, made specific to this repo: which features each account-level lever applies to, and the
     exact values to enter. Account settings are never changed by the tool."""
@@ -342,18 +357,21 @@ def setup_for(root, r, led=None):
     model_cards = [c for c in (r or {}).get("cards") or [] if c.get("lever_group") == "model"]
     models = sorted({s.get("resolved_model") for s in feats.values() if s.get("resolved_model")})
     for it in items:
+        it.update(SETUP_UI.get(it["id"], {}))
         if it["id"] == "setup.budget":
             it["values"] = {"page": "API keys", "cap": "your monthly limit", "features behind this key": str(len(routed))}
             bh = budget_hints(r, routed)
             it["values"].update(bh["values_extra"])
             if bh["values_extra"]:
                 it["why"] += bh["why_extra"]
+            it.update(rows=bh["rows"], unpriced=bh["unpriced"], tag=bh["tag"], routed=len(routed))
         elif it["id"] == "setup.flex_default":
             it["applies_to"] = bg
             if bg:
                 it["why"] += " This repo has background features (%s); the Flex cards opt only those in." % ", ".join(bg[:3])
         elif it["id"] == "setup.jev":
             it["applies_to"] = chat
+            it["models"] = models[:6]
             if models:
                 it["values"] = dict(it["values"], **{"models in use here": ", ".join(models[:6])})
             if not chat:
@@ -363,14 +381,21 @@ def setup_for(root, r, led=None):
             if not coding:
                 it["why"] += " Not applicable here: no feature was judged an agentic coding task."
                 it["na"] = True
+                it["priority"] = "Not for this repo"
         elif it["id"] == "setup.shadow":
+            if not model_cards:
+                it["priority"] = "Optional"
+            it["pairs"] = [{"feature": _short(c["scope"]["features"][0]) if c["scope"]["features"] else "", "now": c["rule_inputs"].get("model"),
+                            "candidate": c["rule_inputs"].get("candidate") or c["rule_inputs"].get("replacement"),
+                            "pct": (c.get("impact") or {}).get("per_call_pct")} for c in model_cards[:6]]
             if model_cards:
                 it["applies_to"] = sorted({f for c in model_cards for f in c["scope"]["features"]})
                 it["values"] = dict(it["values"], **{"shadow pairs": "; ".join(
                     "%s -> %s" % (c["rule_inputs"].get("model"), c["rule_inputs"].get("candidate") or c["rule_inputs"].get("replacement"))
                     for c in model_cards[:4])})
                 it["why"] += " Every model card above is a candidate: shadow it before changing code."
-    return items
+    order = {"setup.budget": 0, "setup.flex_default": 1, "setup.shadow": 2, "setup.jev": 3, "setup.switchyard": 4}
+    return sorted(items, key=lambda it: (bool(it.get("na")), order.get(it["id"], 9)))
 
 
 def _short(feature):
@@ -389,7 +414,7 @@ def budget_hints(r, feats):
     for f, s in sorted(feats.items()):
         if s.get("resolved_model"):
             by_model.setdefault(s["resolved_model"], []).append((f, s))
-    prices, est = [], []
+    prices, est, rows = [], [], []
     for rid, fs in sorted(by_model.items()):
         pr = ((cat.by_id.get(rid) or {}).get("pricing")) or {}
         try:
@@ -405,6 +430,11 @@ def budget_hints(r, feats):
         for f, toks in judged:
             est.append("%s: ~$%.2f per 1,000 calls (%s-token static prompt as judged + 300 dynamic in, 500 out assumed)" % (
                 _short(f), ((toks + 300) * pin + 500 * pout) / 1e3, "{:,}".format(toks)))
+        for f, _ in fs:
+            toks = dict(judged).get(f)
+            rows.append({"feature": f, "short": _short(f), "model": rid, "pin": pin, "pout": pout,
+                         "per1k": round(((toks + 300) * pin + 500 * pout) / 1e3 if toks else (1000 * pin + 500 * pout) / 1e3, 4),
+                         "basis": ("%s-token fixed prompt (agent's reading) + 300 in, 500 out" % "{:,}".format(toks)) if toks else "1,000 in, 500 out (assumed)"})
         rest = [f for f, _ in fs if f not in dict(judged)]
         if rest:
             est.append("%s: ~$%.2f per 1,000 calls at 1,000 tokens in + 500 out (assumed shape; %s)" % (
@@ -425,6 +455,7 @@ def budget_hints(r, feats):
     out = {"why_extra": " Router can't see your volume and neither can this tool, so no cap is invented: multiply your expected "
                         "monthly calls per feature by the per-call figures below, and set the cap above it."}
     out["values_extra"] = vals
+    out["rows"], out["unpriced"], out["tag"] = rows, unpriced, tag
     return out
 
 
