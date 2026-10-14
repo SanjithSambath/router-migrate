@@ -99,12 +99,14 @@ def test_view_of_a_run_after_improvements_are_applied(tmp_path):
     v = b["view"]
     calls = {c["fn"]: c for c in v["calls"]}
     # how each call reached Router, with the line that changed
-    assert calls["answer"]["status"] == "lossless" and calls["answer"]["model"]["match"] == "1:1"
+    assert calls["answer"]["status"] == "moved" and calls["answer"]["by"] == "rules" and calls["answer"]["verified"]
+    assert calls["answer"]["model"]["match"] == "1:1"
     assert calls["answer"]["code"][0]["after"] == ["client = _router_wrap_openai(OpenAI())"]
     assert calls["generate"]["status"] == "unlocked" and calls["generate"]["routes"]
     assert any("unlock_hosts=['api.x.ai']" in "".join(cd["after"]) for cd in calls["generate"]["code"])
-    assert calls["run"]["status"] == "decide" and not calls["run"]["code"]  # beta call stays: no change to show for it
+    assert calls["run"]["status"] == "decide" and not calls["run"]["code"] and not calls["run"]["routes"]  # beta call stays: no change to show for it
     assert v["counts"]["routed"] == 3 and v["counts"]["total"] == 4
+    assert v["headline"]["moved"] == 3 and v["headline"]["needs_decision"] == 1 and v["headline"]["total"] == 4
     # each improvement: its change and its effect on a request, in plain words
     imps = {i["rule"]: i for i in v["improvements"]}
     flex = imps["tier.flex_background"]
@@ -128,7 +130,7 @@ def test_view_of_a_run_after_improvements_are_applied(tmp_path):
 
 
 def test_a_call_the_floor_did_not_move_is_credited_to_the_agent():
-    """Lossless means the rules moved it (the floor plan, made before any agent ran). A call the rules flagged and the agent
+    """"by rules" means the rules moved it (the floor plan, made before any agent ran). A call the rules flagged and the agent
     moved is the agent's, even though the tool's re-check of the edited code now says it routes."""
     site = {"id": "py:bot/h.py:268:25:call", "file": "bot/h.py", "line": 268, "function": "reply", "outcome": "migrated", "sdk": "openai",
             "reason": "client patched; model chosen at runtime", "model": {"value": "self.model", "static": False}}
@@ -140,7 +142,7 @@ def test_a_call_the_floor_did_not_move_is_credited_to_the_agent():
              "worklist": [{"type": "site", "file": "bot/h.py", "line": 261, "tool_outcome": "flagged",
                            "why": "flagged: per-tenant provider credentials: all tenants would share one Router key"}]}}
     (c,) = view.calls_view(b, [site], {}, {}, {}, floor_sites=[dict(site, id="py:bot/h.py:261:25:call", line=261, outcome="flagged")])
-    assert c["status"] == "agent" and c["agent"]["why"] == "wrapped the client"
+    assert c["status"] == "moved" and c["by"] == "agent" and c["agent"]["why"] == "wrapped the client"
     assert c["why"].startswith("The rules flagged it: each user brings their own provider key")
-    (c,) = view.calls_view(b, [site], {}, {}, {}, floor_sites=[dict(site, line=261)])  # the floor moved it: lossless
-    assert c["status"] == "lossless"
+    (c,) = view.calls_view(b, [site], {}, {}, {}, floor_sites=[dict(site, line=261)])  # the floor moved it: the rules did
+    assert c["status"] == "moved" and c["by"] == "rules"

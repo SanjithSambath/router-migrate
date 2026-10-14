@@ -396,9 +396,10 @@ def calls_view(b, plan_sites, floor_blocks, post_blocks, unlocks, floor_sites=No
         if status == "tradeoff":
             why = "Goes through Router at a stated cost: what it gives up is below%s." % (
                 "" if verified else "; not verifiable statically, so the Router-on test run is the evidence")
-        if status == "not_routing":
+        if status == "not_routing":  # the check's own words (lower-case identifiers like base_url stay as written)
+            raw = re.sub(r"^stays on its provider:\s*", "", str((stay or {}).get("reason") or s.get("reason") or "").strip(), flags=re.I)
             why = "The agent reported this as moved, but it doesn't route: %s" % (
-                (stay_reason.rstrip(".") + ".") if stay_reason else "the outside check sees it go to its provider.")
+                (raw.rstrip(".") + ".") if raw else "the outside check sees it go to its provider.")
         if status == "decide":
             why = ((rc or claim or {}).get("why") or "").strip() or _plain(s.get("reason"), host) or why
         if status == "left":
@@ -459,8 +460,9 @@ def _unmatched(b, res, report, calls):
         add(loc, "unverified", STATUS["unverified"][1], rep(loc), False)
     for loc in res.get("claimed_not_routing") or []:
         st = _near_loc(_loc(loc)[0], _loc(loc)[1], [x for x in res.get("stays") or [] if isinstance(x, dict)])
+        raw = re.sub(r"^stays on its provider:\s*", "", str((st or {}).get("reason") or "").strip(), flags=re.I)
         add(loc, "not_routing", "The agent reported this as moved, but it doesn't route: %s" % (
-            _plain((st or {}).get("reason"), None).rstrip(".") + "." if st else "the outside check sees it go to its provider."), rep(loc))
+            raw.rstrip(".") + "." if raw else "the outside check sees it go to its provider."), rep(loc))
     for c in report:
         if c.get("reason_code") == "needs_decision":
             add("%s:%s" % (c.get("file"), c.get("line")), "decide", (c.get("why") or "").strip() or STATUS["decide"][1], c)

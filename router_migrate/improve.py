@@ -716,7 +716,7 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     try:
         from .dashboard import view as view_mod
         floor_sites = (load(root, "plan.json") or {}).get("sites") if v3 else None  # the floor's plan, before any agent ran
-        if v3 and (led.get("floor") or {}).get("applied") is False:  # v5: no floor was applied, the agent moved every call
+        if v3 and led.get("version") == 5:  # v5: no rules pass ran first; the one agent session moved every call
             floor_sites = []
         b["view"] = view_mod.build(b, root, floor_diff, post_diff, prod, unlocks["sites"], floor_sites)
         b["moved"] = b["view"]["headline"] if led else None  # the overview's numbers: the same calls the Migrate page lists
