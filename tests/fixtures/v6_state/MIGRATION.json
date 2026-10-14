@@ -1,0 +1,332 @@
+{
+ "version": 6,
+ "summary": "Moved all of the app's LLM traffic to Router through its one shared Anthropic client, ported research web search to the Responses API, and dropped seed on the summarizer. Embeddings stay on OpenAI.",
+ "reviewed": "Model tiers, retries, caching structure, spend labels, background jobs and the API surface each call uses.",
+ "calls": [
+  {
+   "site": "src/ai/complete.ts:50",
+   "feature": "stage",
+   "model": "claude-sonnet-5",
+   "task": "chat",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/ai/preflight.ts:52",
+   "feature": "preflight",
+   "model": "claude-sonnet-5",
+   "task": "other",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "app/jobs/summarize.py:41",
+   "feature": "summarize",
+   "model": "gpt-5.4-mini",
+   "task": "summarization",
+   "latency": "background",
+   "now": "router",
+   "item": "t1"
+  },
+  {
+   "site": "src/agents/research.ts:88",
+   "feature": "research",
+   "model": "gpt-5.4-mini",
+   "task": "agentic",
+   "latency": "interactive",
+   "now": "router",
+   "item": "p1"
+  },
+  {
+   "site": "app/rag/index.py:12",
+   "feature": "embed",
+   "model": "text-embedding-3-small",
+   "task": "other",
+   "latency": "background",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "app/byok.py:30",
+   "feature": "byok",
+   "model": null,
+   "task": "chat",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "d1"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route the shared Anthropic client through Router",
+   "summary": "The one Anthropic client every call uses now sends its traffic to Router.",
+   "calls": [
+    "src/ai/complete.ts:50",
+    "src/ai/preflight.ts:52"
+   ],
+   "gains": "All model traffic on Router: one key, spend per feature, provider choice per request",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Every LLM call goes through src/ai/client.ts; routing that client moves all of them with one change.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "947 pass, 1 failing as before the change"
+    },
+    {
+     "check": "typecheck",
+     "result": "pass",
+     "detail": "0 errors, as before"
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "messages.create and count_tokens returned 200 from Router"
+    }
+   ],
+   "commit": "a1b2c3d",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "t1",
+   "kind": "trade-off",
+   "title": "Drop seed on the summarizer",
+   "summary": "Router rejects seed, so the summarizer's requests drop it.",
+   "calls": [
+    "app/jobs/summarize.py:41"
+   ],
+   "gains": "The nightly summarizer moves to Router",
+   "loses": "Runs are no longer reproducible with a fixed seed",
+   "price": "no change",
+   "why": "seed is only used in a debug path.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "request accepted without seed"
+    }
+   ],
+   "commit": "b2c3d4e"
+  },
+  {
+   "id": "p1",
+   "kind": "port",
+   "title": "Port web search to the Responses API",
+   "summary": "The research agent's web search moves from Anthropic server tools to Router's Responses web search.",
+   "calls": [
+    "src/agents/research.ts:88"
+   ],
+   "gains": "Web search works through Router on any catalog model",
+   "loses": "Citation format changes; the renderer was updated to match",
+   "price": "about the same per search",
+   "why": "Router served Anthropic's tool only on Sonnet 5; the agent runs on Haiku.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "citation tests updated by new tests, existing ones unchanged"
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "search returned results with citations"
+    }
+   ],
+   "commit": "c3d4e5f"
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Embeddings stay on OpenAI",
+   "summary": "Router has no embeddings endpoint, so the three embedding calls stay where they are.",
+   "calls": [
+    "app/rag/index.py:12"
+   ],
+   "why": "No /v1/embeddings on Router (measured)."
+  },
+  {
+   "id": "d1",
+   "kind": "needs-decision",
+   "title": "Users' own OpenAI keys",
+   "summary": "Some users bring their own OpenAI key; routing those calls would bill them to your Router key.",
+   "calls": [
+    "app/byok.py:30"
+   ],
+   "gains": "More traffic on Router",
+   "loses": "You'd pay for users' calls",
+   "why": "Product decision, not a technical one."
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "title": "Classifier on Haiku 5.5",
+   "summary": "The classifier tier moves from claude-haiku-4-5 to claude-haiku-5-5.",
+   "calls": [
+    "src/ai/complete.ts:50"
+   ],
+   "gains": "-90% list price on every classifier call",
+   "loses": "A different model answers: classification may differ",
+   "price": "$1/$5 to $0.10/$0.50 per 1M tokens",
+   "why": "Short, well-specified outputs; the newer Haiku is far cheaper.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "947 pass"
+    },
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "10 sample emails: same label on 9, 1 differs (shown below)"
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "catalog prices, live"
+    }
+   ],
+   "branch": "router-migrate/improve/classifier-haiku-5-5",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i2",
+   "kind": "improvement",
+   "title": "Composer on Opus 5.5",
+   "summary": "The composer tier moves from claude-opus-5 to claude-opus-5-5.",
+   "calls": [
+    "src/ai/complete.ts:50"
+   ],
+   "gains": "-20% list price; cheaper cache reads",
+   "loses": "A different model writes the replies",
+   "price": "$5/$25 to $4/$20 per 1M tokens",
+   "why": "Same family, newer, cheaper; the prompt-caching floor is the same.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "947 pass"
+    },
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "5 sample replies, shown below"
+    }
+   ],
+   "branch": "router-migrate/improve/composer-opus-5-5"
+  },
+  {
+   "id": "i3",
+   "kind": "improvement",
+   "title": "Spend tags per stage",
+   "summary": "Each request carries the pipeline stage as its feature label.",
+   "calls": [
+    "src/ai/complete.ts:50"
+   ],
+   "gains": "Router shows spend per stage",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The app already passes a stage to complete().",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "947 pass"
+    }
+   ],
+   "branch": "router-migrate/improve/stage-labels"
+  },
+  {
+   "id": "i4",
+   "kind": "improvement",
+   "title": "Fallback to GPT-5.4 mini on outages",
+   "summary": "Reply calls fail over to another vendor's model when Anthropic is down.",
+   "calls": [
+    "src/ai/complete.ts:50"
+   ],
+   "gains": "Replies keep going out during an Anthropic outage",
+   "loses": "A different vendor answers those requests",
+   "price": "only on failed requests",
+   "why": "Hand-rolled retries can't switch providers.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "fail",
+     "detail": "2 tests fail: response shape differs"
+    }
+   ],
+   "branch": "router-migrate/improve/reply-fallback"
+  },
+  {
+   "id": "i5",
+   "kind": "improvement",
+   "title": "Flex for the reminder digests",
+   "summary": "The nightly reminder digest runs on Flex.",
+   "calls": [
+    "src/remind/digest.ts:20"
+   ],
+   "gains": "-50% on the digest",
+   "loses": "Up to a minute slower; nobody waits",
+   "price": "-50%",
+   "why": "Background job.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "accepted"
+    }
+   ],
+   "branch": "router-migrate/improve/digest-flex"
+  },
+  {
+   "id": "i6",
+   "kind": "improvement",
+   "title": "Cache-friendly system prompt",
+   "summary": "The composer's fixed instructions move ahead of the per-email context.",
+   "calls": [
+    "src/agents/output-composer.ts:40"
+   ],
+   "gains": "More cache hits on the composer",
+   "loses": "nothing",
+   "price": "cached reads at a tenth of the price",
+   "why": "The fixed prefix was split by per-email text.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "947 pass"
+    }
+   ],
+   "branch": "router-migrate/improve/composer-cache"
+  },
+  {
+   "id": "i7",
+   "kind": "improvement",
+   "title": "Consolidate retry policy into Router",
+   "summary": "Per-tier retries move to Router fallbacks.",
+   "calls": [
+    "src/ai/models.ts:40"
+   ],
+   "gains": "One place for retries",
+   "loses": "Retry timing changes",
+   "price": "no change",
+   "why": "Overlaps with Router's own retries.",
+   "evidence": [],
+   "branch": "router-migrate/improve/router-retries"
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Flex needs the Responses API",
+   "summary": "Flex, fallbacks and cache keys apply to Responses-style calls; this app uses /v1/messages.",
+   "why": "Moving the reply path to Responses would unlock them; a bigger change, left for you to decide."
+  }
+ ]
+}
