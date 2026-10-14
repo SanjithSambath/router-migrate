@@ -630,8 +630,8 @@ def tests_state(led):
     t = (((led or {}).get("result") or {}).get("tests")) or {}
     full = t.get("full") if isinstance(t.get("full"), dict) else {}
     st = full.get("status") if full.get("status") in TEST_STATES else None
-    return {"baseline": t.get("baseline"), "affected": t.get("affected"), "full": {"status": st, "counts": full.get("counts") or {}},
-            "status": st}
+    return {"baseline": t.get("baseline"), "affected": t.get("affected"), "status": st,
+            "full": {"status": st, "counts": full.get("counts") or {}, "failures": full.get("failures") or [], "why": full.get("why")}}
 
 
 def apply_blocked(ts):

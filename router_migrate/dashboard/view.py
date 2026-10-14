@@ -52,6 +52,14 @@ REASON_CODES = {
 LEVER = {"tier.flex_background": "flex", "fallback.candidates": "fallback", "cache.key": "cache", "attr.metadata": "tags",
          "unlock.vendor_endpoint": "unlock", "unlock.stated_loss": "unlock", "model.deprecated": "model",
          "model.newer_cheaper_same_family": "model", "model.right_size": "model"}
+AGENT_RULE = {"agent.flex": "tier.flex_background", "agent.fallbacks": "fallback.candidates", "agent.cache_key": "cache.key"}
+
+
+def rule_of(c):
+    """The rule a card reads as: an agent proposal for a lever a rule also covers (agent.flex) reads like that rule's card."""
+    return AGENT_RULE.get(c["rule"], c["rule"])
+
+
 LEVERS = [("flex", "Flex", "Half price for work nobody waits on"),
           ("fallback", "Fallbacks", "Another model answers when one fails"),
           ("cache", "Caching", "Repeated prompt text billed at a fraction"),
@@ -489,18 +497,20 @@ def _pct(p):
 def _impact(c):
     im = c.get("impact") or {}
     p = im.get("per_call_pct")
-    if c["rule"].startswith("tradeoff."):
+    if rule_of(c).startswith("tradeoff."):
         return {"label": "Undone" if c.get("state") == "undone" else "", "tone": "neutral"}  # the card's badge says it is on Router
-    if c["rule"] == "cache.key":
+    if rule_of(c) == "cache.key":
         m = re.search(r"-(\d+)%", im.get("detail") or "")
         return {"label": "−%s%% on cached input" % m.group(1) if m else "Cheaper repeats", "tone": "save"}
+    if rule_of(c) == "tier.flex_background" and p is None:
+        return {"label": "Half price per call", "tone": "save"}
     if p:
         return {"label": "%s per call" % _pct(p) if c["lever_group"] != "model" else "%s list price" % _pct(p), "tone": "save" if p < 0 else "cost"}
-    if c["rule"] == "attr.metadata":
+    if rule_of(c) == "attr.metadata":
         return {"label": "Visibility", "tone": "neutral"}
-    if c["rule"] == "fallback.candidates":
+    if rule_of(c) == "fallback.candidates":
         return {"label": "Reliability", "tone": "neutral"}
-    if c["rule"].startswith("unlock."):
+    if rule_of(c).startswith("unlock."):
         return {"label": "More on Router", "tone": "neutral"}
     return {"label": "Same price", "tone": "neutral"}
 
@@ -512,7 +522,7 @@ def _feat_model(sig_by_feat, f, c):
 
 def _request(c, f, model, b):
     """The request body before and after, key by key (what Router receives for this feature)."""
-    r, ri = c["rule"], c.get("rule_inputs") or {}
+    r, ri = rule_of(c), c.get("rule_inputs") or {}
     m = _q(model) if model else "(set at run time)"
     try:
         patch = json.loads(c["change"]["diff"]) if c["change"].get("kind") == "policy" else {}
@@ -668,7 +678,7 @@ def _plain_judgment(key, val):
 
 
 def _sentence(c, f, model, b):
-    r, ri = c["rule"], c.get("rule_inputs") or {}
+    r, ri = rule_of(c), c.get("rule_inputs") or {}
     _, fn = short(f)
     if r.startswith("tradeoff."):
         site = ((c.get("scope") or {}).get("sites") or [f])[0]
@@ -681,6 +691,11 @@ def _sentence(c, f, model, b):
         return "Run %s on Flex" % fn, "Half price per call for a job nobody waits on. Replies can take up to about a minute."
     if r == "fallback.candidates":
         fbs = ri.get("candidates") or []
+        if not fbs and c["change"].get("kind") == "policy":
+            try:
+                fbs = ((json.loads(c["change"]["diff"]).get("features") or {}).get(f) or {}).get("fallbacks") or []
+            except (ValueError, TypeError):
+                fbs = []
         return "Add fallbacks to %s" % fn, "If %s fails before answering, %s answers instead." % (model or "the model", " then ".join(fbs) or "another model")
     if r == "cache.key":
         n = ri.get("static_prompt_tokens")
@@ -698,19 +713,22 @@ def _sentence(c, f, model, b):
         return "Try %s for %s" % (ri.get("candidate"), fn), "A newer model in the same family, at a lower list price."
     if r == "model.right_size":
         return "Try a smaller model for %s" % fn, "The task is short and well specified; a smaller model may do it for less."
-    return c["title"], ""
+    if r == "agent.model":
+        return c["title"], c.get("gains") or "A different model would answer every request: shadow it on real traffic before changing code."
+    return c["title"], c.get("gains") or ""
 
 
 def provenance(c):
     """Who proposed a card and whether the tool kept it: the migration agent (its rationale shown with the card) or a rule
     default. `validated` is True, or the reason the tool rejected the agent's proposal (shown, never approvable)."""
     ev = [r for r in ((c.get("evidence") or {}).get("results") or []) if r.get("level") == "agent"]
-    origin = c.get("origin") or ("agent" if c["rule"].startswith("agent.") else "rule")
-    rationale = c.get("rationale") or (ev[0].get("fact") if origin == "agent" and ev else None) or ""
+    origin = c.get("origin") or ("agent" if c["rule"].startswith("agent.") else "rule")  # rule | agent | agent+rule
+    rationale = c.get("rationale") or (ev[0].get("fact") if origin.startswith("agent") and ev else None) or ""
     v = c.get("validated", True)
     im = c.get("impact") or {}
-    return {"origin": origin, "rationale": rationale, "validated": v is True or v is None, "rejected": v if isinstance(v, str) and v else None,
-            "monthly_usd": im.get("monthly_usd"), "price_note": im.get("ignores") if origin == "agent" else None}
+    return {"origin": origin, "rationale": rationale, "gain": c.get("gains") or None, "validated": v is True or v is None,
+            "rejected": v if isinstance(v, str) and v else None, "monthly_usd": im.get("monthly_usd"),
+            "price_note": im.get("ignores") if origin.startswith("agent") and im.get("ignores") != c.get("gains") else None}
 
 
 def improvements_view(b, root, post_blocks):
@@ -729,7 +747,7 @@ def improvements_view(b, root, post_blocks):
         title, summary = _sentence(c, f, model, b)
         applied = c.get("state") == "applied" or bool((dec.get(c["id"]) or {}).get("applied_at"))
         assumptions = []
-        for key in ASSUMES.get(c["rule"], []):
+        for key in ASSUMES.get(rule_of(c), []):
             j = (judgments.get(f) or {}).get(key) if f else None
             if j:
                 assumptions.append({"key": key, "text": _plain_judgment(key, j.get("value")), "why": j.get("why") or "",
@@ -742,15 +760,16 @@ def improvements_view(b, root, post_blocks):
                 l = "a different model answers every request, so check quality on real traffic first (shadow it)"
             trade.append(l)
         out.append(dict({
-            "id": c["id"], "rule": c["rule"], "lever": "tradeoff" if c["rule"].startswith("tradeoff.") else LEVER.get(c["rule"], "other"), "title": title, "summary": summary,
+            "id": c["id"], "rule": c["rule"], "lever": "tradeoff" if c["rule"].startswith("tradeoff.") else LEVER.get(rule_of(c), "model" if c["rule"] == "agent.model" else "other"),
+            "title": title, "summary": summary,
             "tool_title": c.get("title"), "features": feats, "fn": short(f)[1] if f else ("%d features" % len(feats) if feats else ""),
-            "kind": "tradeoff" if c["rule"].startswith("tradeoff.")
+            "kind": "tradeoff" if c["rule"].startswith("tradeoff.") else "decision" if c.get("lever_group") == "decision"
             else "model" if c.get("lever_group") == "model" or c.get("applies") is False
             else "unlock" if c["rule"].startswith("unlock.") else "same",
             "impact": _impact(c), "request": _request(c, f, model, b),
             "code": _code_change(c, f, root, post_blocks, judgments, applied), "assumptions": assumptions,
             "facts": c.get("tool_facts") or [], "tradeoffs": trade, "conflicts_with": c.get("conflicts_with") or [],
-            "conflict_note": c.get("conflict_note"), "suggested": c["rule"] == "tier.flex_background" and bool(c.get("conflicts_with")),
+            "conflict_note": c.get("conflict_note"), "suggested": rule_of(c) == "tier.flex_background" and bool(c.get("conflicts_with")),
             "options": c.get("options") or []}, **provenance(c)))
         if c["rule"].startswith("tradeoff."):  # what moved, why the agent took it, and whether Undo can reverse it
             t = trades.get((c.get("rule_inputs") or {}).get("tradeoff")) or {}
@@ -793,8 +812,9 @@ def build(b, root=None, floor_diff=None, post_diff=None, plan_sites=None, unlock
         "counts": dict(counts, total=len(calls), routed=sum(counts[k] for k in ROUTED)), "headline": headline(calls, b),
         "statuses": [{"k": k, "label": STATUS[k][0], "hint": STATUS[k][1]} for k in STATUS_ORDER],
         "levers": [{"k": k, "name": n, "hint": h} for k, n, h in LEVERS],
-        "considered": [{"lever": LEVER.get(x["rule"], "other"), "fn": short(((x.get("scope") or {}).get("features") or [""])[0])[1],
-                        "reason": x.get("reason")} for x in (b.get("recommendations") or {}).get("considered_not_recommended") or []],
+        "considered": [{"lever": LEVER.get(AGENT_RULE.get(x["rule"], x["rule"]), "other"), "rule": x["rule"],
+                        "fn": short(((x.get("scope") or {}).get("features") or [""])[0])[1], "feature": ((x.get("scope") or {}).get("features") or [""])[0],
+                        "origin": x.get("origin") or "rule", "reason": x.get("reason")} for x in (b.get("recommendations") or {}).get("considered_not_recommended") or []],
         "steps": {"migrate": {"usd": (run.get("migrate") or {}).get("usd"), "minutes": (run.get("migrate") or {}).get("minutes"),
                               "turns": (run.get("migrate") or {}).get("turns"), "model": (run.get("migrate") or {}).get("model"),
                               "floor": run.get("floor_migrated"), "agent_edit_files": run.get("agent_edit_files")},

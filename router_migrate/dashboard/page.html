@@ -116,7 +116,8 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .tests .spin { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--amber); border-right-color: transparent; animation: spin .8s linear infinite; flex: none; }
 .tests.running { border-color: var(--amber-line); background: var(--amber-tint); }
 .tests.failed { border-color: var(--red-line); background: var(--red-tint); }
-.tests.failed svg.i { color: var(--red); }
+.tests.failed { align-items: flex-start; }
+.tests.failed svg.i { color: var(--red); margin-top: 2px; }
 .tests code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; color: var(--text); }
 .blocked-note { color: var(--amber); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
 .blocked-note svg.i { width: 14px; height: 14px; }
@@ -296,6 +297,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .imp-h h3 { font-size: 16px; line-height: 24px; font-weight: 500; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .imp-h p { color: var(--text-2); margin-top: 4px; }
 .imp-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 20px; }
+.blk { min-width: 0; }
 .blk .lbl { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
 .notes { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .note { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 20px; color: var(--text-2); }
@@ -339,7 +341,7 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .imp-f .meta { color: var(--text-3); font-size: 12.5px; }
 .badge-sug { font: 500 10px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--solar-ink); background: var(--solar); padding: 2px 7px; border-radius: 4px; }
 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; position: relative; }
-.pair .imp-grid { grid-template-columns: 1fr; }
+.pair .imp-grid { grid-template-columns: minmax(0, 1fr); }
 .pair .or { position: absolute; left: 50%; top: 28px; transform: translate(-50%, 0); z-index: 2; font: 500 10.5px/14px var(--mono); letter-spacing: .08em; color: var(--amber); background: var(--bg); border: 1px solid var(--amber-line); border-radius: 10px; padding: 3px 8px; }
 .prow { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-top: 1px solid var(--line); }
 .prow:first-child { border-top: 0; }
@@ -579,17 +581,21 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   .page { padding: 28px 16px 160px; }
   .ph { flex-direction: column; align-items: flex-start; gap: 14px; }
   .ph h1 { font-size: 26px; line-height: 34px; }
-  .doors, .imp-grid, .pair, .levers, .glp { grid-template-columns: 1fr; }
+  .doors, .imp-grid, .pair, .levers, .glp { grid-template-columns: minmax(0, 1fr); }
   .glp > div { border-left: 0; border-top: 1px solid var(--line); }
   .glp > div:first-child { border-top: 0; }
   .ph h1.hl { font-size: 22px; line-height: 31px; }
-  .jrow { padding: 16px; }
+  .jrow { padding: 16px; flex-wrap: wrap; }
+  .jrow .tx { flex: 1 1 calc(100% - 30px); }
+  .jrow > .link { margin-left: 22px; }
   .pair .or { display: none; }
   .flow { padding: 20px; }
   .flow-grid { grid-template-columns: 1fr; gap: 18px; }
   .stay-grid { grid-template-columns: 1fr; }
   .flow svg.wires, .flow-mid { display: none; }
   .group-h { flex-wrap: wrap; gap: 4px 12px; }
+  .group-h p { flex: 1 1 100%; }
+  .group-h .eyebrow { white-space: normal; }
   .card { padding: 18px; }
   .sticky { left: 0; }
   .sticky-in { padding: 12px 16px; }
@@ -740,11 +746,13 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function calls() { return arr(V().calls); }
   function callById(id) { return calls().filter(function (c) { return c.id === id; })[0]; }
   function isModel(i) { return i.kind === "model"; }
+  function isAdvice(i) { return i.kind === "model" || i.kind === "decision"; }  // the tool never applies these: a person does
+  function byAgent(i) { return /^agent/.test(i.origin || ""); }
   function partnerOf(i) { var p = arr(i.conflicts_with)[0]; return p ? impById(p) : null; }
   function notChosen(i) { var p = partnerOf(i), ps = p ? stateOf(p.id) : null; return !!p && (ps === "approved" || ps === "applied") && stateOf(i.id) === "new"; }
   // the lifecycle: waiting -> approved -> live; or decided (dismissed, postponed, shadow first, not chosen)
   function waiting() { return imps().filter(function (i) { return (stateOf(i.id) === "new" || stale(i.id)) && !notChosen(i); }); }
-  function approved() { return imps().filter(function (i) { return stateOf(i.id) === "approved" && !stale(i.id) && !isModel(i); }); }
+  function approved() { return imps().filter(function (i) { return stateOf(i.id) === "approved" && !stale(i.id) && !isAdvice(i); }); }
   function live() { return imps().filter(function (i) { return stateOf(i.id) === "applied"; }); }
   function decided() { return imps().filter(function (i) { var s = stateOf(i.id); return s === "dismissed" || s === "postponed" || s === "shadow_first" || notChosen(i); }); }
   function safeOne(i) { var c = cardById(i.id) || {}; return i.kind === "same" && num(c.risk) != null && c.risk <= 1 && !arr(i.conflicts_with).length; }
@@ -768,7 +776,11 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     var f = fullTests(); if (!f) return "";
     var cnt = testCounts(f.counts);
     if (f.status === "running") return '<div class="tests running" role="status"><span class="spin" aria-hidden="true"></span><span class="tt"><b>Full test suite running.</b> Apply turns on when it passes' + (cnt ? " (so far: " + esc(cnt) + ")" : "") + ".</span></div>";
-    if (f.status === "failed") return '<div class="tests failed" role="alert">' + icon("warn") + '<span class="tt"><b>Full test suite failed' + (cnt ? ": " + esc(cnt) : "") + ".</b> " + esc(applyBlocked() || "Apply is off until it passes.").replace(/`([^`]+)`/g, "<code>$1</code>") + "</span></div>";
+    if (f.status === "failed") {
+      var fl = arr(f.failures).map(function (x) { return typeof x === "string" ? x : obj(x).detail || obj(x).gate || ""; }).filter(Boolean);
+      return '<div class="tests failed" role="alert">' + icon("warn") + '<span class="tt"><b>Full test suite failed' + (cnt ? ": " + esc(cnt) : "") + ".</b> Apply stays off until it passes: fix the failure, then re-run <code>router-migrate finish</code>." +
+        (fl.length ? '<span style="display:block;margin-top:6px;color:var(--text-2)">' + fl.slice(0, 3).map(function (d) { return esc(trim(d.split("\n")[0], 240)); }).join("<br>") + "</span>" : "") + "</span></div>";
+    }
     return "";
   }
   function testsInfo() {
@@ -1041,10 +1053,10 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
       '</span><span class="sp"></span><span class="go">What’s live' + icon("arrow") + "</span></div></button>";
     var bits = [];
     if (ap.length) bits.push([ap.length, "approved, ready to apply"]);
-    var nSafe = w.filter(function (i) { return safeOne(i) && !isModel(i); }).length, nModel = w.filter(isModel).length, nOther = w.length - nSafe - nModel;
+    var nSafe = w.filter(function (i) { return safeOne(i) && !isModel(i); }).length, nModel = w.filter(isAdvice).length, nOther = w.length - nSafe - nModel;
     if (nSafe) bits.push([nSafe, "low-risk " + plural(nSafe, "change") + " to approve"]);
     if (nOther) bits.push([nOther, plural(nOther, "change") + " with a trade-off"]);
-    if (nModel) bits.push([nModel, "model " + plural(nModel, "change") + " to test"]);
+    if (nModel) bits.push([nModel, plural(nModel, "change") + " only you can make (model, code)"]);
     if (jc.length) bits.push([jc.length, plural(jc.length, "call") + " for your judgment"]);
     var tl = tradesLive().length, up = undoPending().length;
     if (up) bits.unshift([up, plural(up, "undo", "undos") + " ready to apply"]);
@@ -1192,7 +1204,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     var s = stateOf(i.id), d = decisionOf(i.id);
     if (stale(i.id)) return '<span class="pill warn">' + icon("warn") + "Code changed · re-confirm</span>";
     if (s === "applied") return '<span class="pill live">' + icon("check") + "Live</span>";
-    if (s === "approved") return '<span class="pill solar">Approved · ready to apply</span>';
+    if (s === "approved") return isAdvice(i) ? '<span class="pill agent">Accepted · yours to change in code</span>' : '<span class="pill solar">Approved · ready to apply</span>';
     if (s === "dismissed") return '<span class="pill">Dismissed' + (d.reason ? ": " + esc(trim(d.reason, 60)) : "") + "</span>";
     if (s === "postponed") return '<span class="pill">Postponed' + (d.until ? " until " + esc(d.until) : "") + "</span>";
     if (s === "shadow_first") return '<span class="pill agent">Shadow first</span>';
@@ -1206,14 +1218,15 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function provHtml(i) {
     if (i.kind === "tradeoff") return '<span class="prov agent" title="The migration agent took this move during Migrate">' + icon("agent") + "Agent’s move</span>";
     if (i.rejected) return '<span class="prov bad" title="' + esc(i.rejected) + '">' + icon("warn") + "Rejected by the tool</span>";
-    return i.origin === "agent" ? '<span class="prov agent" title="Proposed by the migration agent; the tool validated and priced it">' + icon("agent") + "Agent proposal</span>"
+    if (i.origin === "agent+rule") return '<span class="prov agent" title="The migration agent proposed it and a rule found it too">' + icon("agent") + "Agent + rule</span>";
+    return byAgent(i) ? '<span class="prov agent" title="Proposed by the migration agent; the tool validated it">' + icon("agent") + "Agent proposal</span>"
       : '<span class="prov" title="A rule the tool applies to every repo">Rule default</span>';
   }
   // what approving it buys, what it costs in behavior, and what it does to the price
   function glpHtml(i) {
     if (i.kind === "tradeoff") return "";
     var im = obj(i.impact), lose = arr(i.tradeoffs), mo = num(i.monthly_usd), gain = gainOf(i);
-    var price = im.tone === "save" ? '<span class="pr save">' + esc(im.label) + "</span>" : im.tone === "cost" ? '<span class="pr" style="color:var(--red)">' + esc(im.label) + "</span>" : '<span class="pr">' + esc(im.label || "No price change") + "</span>";
+    var price = im.tone === "save" ? '<span class="pr save">' + esc(im.label) + "</span>" : im.tone === "cost" ? '<span class="pr" style="color:var(--red)">' + esc(im.label) + "</span>" : '<span class="pr">No price change</span>';
     if (mo != null) price += '<div class="sub">≈ ' + (mo < 0 ? "−" : "+") + "$" + Math.abs(mo).toFixed(2) + " a month</div>";
     else if (i.price_note) price += '<div class="sub">' + esc(cap(i.price_note)) + "</div>";
     return '<div class="glp"><div><div class="lbl">You gain</div><div class="g">' + esc(gain) + '</div></div><div><div class="lbl">You give up</div><div class="l">' +
@@ -1223,16 +1236,16 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function bodyHtml(i) {
     var code = arr(i.code).map(codeHtml).join(""), req = reqHtml(i.request);
     if (!code && !req) return "";
-    var lbl = i.kind === "tradeoff" ? "What moved" : isModel(i) ? "You would change" : i.kind === "unlock" ? "Code change" : "Policy change";
+    var lbl = i.kind === "tradeoff" ? "What moved" : isAdvice(i) ? "You would change" : i.kind === "unlock" ? "Code change" : "Policy change";
     return '<div class="imp-grid">' + (code ? '<div class="blk"><div class="lbl">' + lbl + "</div>" + code + "</div>" : "") + (req ? '<div class="blk"><div class="lbl">Each request to Router</div>' + req + "</div>" : "") + "</div>";
   }
   function impHtml(i, opts) {
     opts = opts || {};
     var s = stateOf(i.id), partner = partnerOf(i), h = [];
     var cls = i.kind === "tradeoff" ? (tradeState(i) === "undo" ? " is-ok" : "") : s === "applied" ? " is-live" : s === "approved" ? " is-ok" : "";
-    h.push('<article class="card imp' + cls + '" id="imp-' + esc(i.id) + '"><div class="imp-h"><span class="ic' + (i.origin === "agent" || i.kind === "tradeoff" ? " agent" : "") + '">' + icon(i.origin === "agent" ? "agent" : leverOf(i.lever)[2]) + '</span><div class="t"><h3>' + esc(i.title) +
+    h.push('<article class="card imp' + cls + '" id="imp-' + esc(i.id) + '"><div class="imp-h"><span class="ic' + (byAgent(i) || i.kind === "tradeoff" ? " agent" : "") + '">' + icon(byAgent(i) ? "agent" : leverOf(i.lever)[2]) + '</span><div class="t"><h3>' + esc(i.title) +
       (opts.suggested ? '<span class="badge-sug">Suggested</span>' : "") + provHtml(i) + "</h3>" + (opts.glp && gainOf(i) === i.summary ? "" : "<p>" + esc(i.summary) + "</p>") + "</div>" + impactHtml(i) + "</div>");
-    if (!opts.brief && i.origin === "agent" && i.rationale && i.kind !== "tradeoff") h.push('<div class="quote">' + icon("agent") + '<div><div class="qt"><b>The agent’s rationale:</b> ' + esc(cap(i.rationale)) + "</div></div></div>");
+    if (!opts.brief && byAgent(i) && i.rationale && i.kind !== "tradeoff") h.push('<div class="quote">' + icon("agent") + '<div><div class="qt"><b>The agent’s rationale:</b> ' + esc(cap(i.rationale)) + "</div></div></div>");
     if (!opts.brief && i.rejected) h.push('<div class="quote honest">' + icon("warn") + '<div><div class="qt"><b>Why the tool rejected it:</b> ' + esc(cap(i.rejected)) + "</div></div></div>");
     if (!opts.brief && opts.glp) h.push(glpHtml(i));
     if (!opts.brief) h.push(bodyHtml(i));
@@ -1263,14 +1276,15 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     if (s === "applied" || opts.readonly || i.rejected) { h.push("</div>"); return h.join(""); }
     if (s === "approved") {
       h.push('<button class="btn ghost" type="button" data-act="form" data-k="dismiss" data-id="' + esc(i.id) + '"' + dis + tip + ">Withdraw</button>");
-      h.push(applyBtn("Apply now") + "</div>");
+      h.push((isAdvice(i) ? "" : applyBtn("Apply now")) + "</div>");
       return h.join("") + formHtml(i);
     }
     if (s !== "new" && !stale(i.id)) { h.push("</div>"); return h.join(""); }
     var blocked = partner && (stateOf(partner.id) === "approved" || stateOf(partner.id) === "applied");
     h.push('<button class="btn ghost" type="button" data-act="form" data-k="postpone" data-id="' + esc(i.id) + '"' + dis + tip + ">Postpone</button>");
     h.push('<button class="btn ghost" type="button" data-act="form" data-k="dismiss" data-id="' + esc(i.id) + '"' + dis + tip + ">Dismiss</button>");
-    if (isModel(i)) h.push('<button class="btn" type="button" data-act="decide" data-a="shadow_first" data-id="' + esc(i.id) + '"' + dis + tip + ">" + busyLabel(i.id, "Shadow it first") + "</button>");
+    if (i.kind === "decision") h.push('<button class="btn" type="button" data-act="decide" data-a="approve" data-id="' + esc(i.id) + '"' + dis + (LIVE ? ' title="Records that you accept it; the tool never changes code for this, you do"' : tip) + ">" + busyLabel(i.id, "Accept") + "</button>");
+    else if (isModel(i)) h.push('<button class="btn" type="button" data-act="decide" data-a="shadow_first" data-id="' + esc(i.id) + '"' + dis + tip + ">" + busyLabel(i.id, "Shadow it first") + "</button>");
     else h.push('<button class="btn primary" type="button" data-act="decide" data-a="approve" data-id="' + esc(i.id) + '"' + (blocked ? " disabled" : dis) + (blocked ? ' title="You approved the other option"' : tip) + ">" + busyLabel(i.id, "Approve") + "</button>");
     h.push("</div>");
     return h.join("") + formHtml(i);
@@ -1282,7 +1296,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   }
   function detailsBody(i) {
     var c = cardById(i.id) || {}, ev = arr(obj(c.evidence).results), facts = arr(i.facts);
-    return '<dl class="kvs"><dt>Proposed by</dt><dd>' + (i.kind === "tradeoff" ? "the migration agent (taken during Migrate)" : i.origin === "agent" ? "the migration agent" + (i.rejected ? "; rejected by the tool" : "; validated and priced by the tool") : "a rule default") + '</dd><dt>Rule</dt><dd class="mono">' + esc(i.rule) + "</dd><dt>Tool’s title</dt><dd>" + esc(i.tool_title || "") + "</dd>" +
+    return '<dl class="kvs"><dt>Proposed by</dt><dd>' + (i.kind === "tradeoff" ? "the migration agent (taken during Migrate)" : i.origin === "agent+rule" ? "the migration agent, and a rule found it too" : byAgent(i) ? "the migration agent" + (i.rejected ? "; rejected by the tool" : "; validated by the tool") : "a rule default") + '</dd><dt>Rule</dt><dd class="mono">' + esc(i.rule) + "</dd><dt>Tool’s title</dt><dd>" + esc(i.tool_title || "") + "</dd>" +
       (arr(i.features).length ? '<dt>Features</dt><dd class="mono">' + arr(i.features).map(esc).join("<br>") + "</dd>" : "") +
       (c.risk != null ? "<dt>Risk</dt><dd>" + esc(c.risk) + " of 3</dd>" : "") + '<dt>Card</dt><dd class="mono">' + esc(i.id) + (c.etag ? " · " + esc(c.etag) : "") + "</dd></dl>" +
       (facts.length ? '<div><div class="eyebrow" style="margin-bottom:6px">Tool facts</div><ul class="facts">' + facts.map(function (f) { return "<li>" + esc(f) + "</li>"; }).join("") + "</ul></div>" : "") +
@@ -1335,21 +1349,22 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     }
     var secN = 0, secT = 0;
     function section(title, hint) { secN++; return '<section class="sec"' + (secN === 1 ? ' style="margin-top:8px"' : "") + '><div class="sec-h"><div class="t">' + (secT > 1 ? '<div class="eyebrow" style="margin-bottom:6px">' + secN + " of " + secT + "</div>" : "") + "<h2>" + esc(title) + "</h2><p>" + esc(hint) + "</p></div></div>"; }
-    var safe = w.filter(function (i) { return safeOne(i) && !isModel(i); }), pairs = [], seen = {}, trade = [], unl = [], models = [];
+    var safe = w.filter(function (i) { return safeOne(i) && !isModel(i); }), pairs = [], seen = {}, trade = [], unl = [], models = [], advice = [];
     w.forEach(function (i) {
       if (safe.indexOf(i) >= 0) return;
       var p = partnerOf(i);
       if (p && w.indexOf(p) >= 0) { if (!seen[i.id] && !seen[p.id]) { seen[i.id] = seen[p.id] = true; pairs.push(i.suggested ? [i, p] : [p, i]); } return; }
-      if (isModel(i)) models.push(i); else if (i.kind === "unlock") unl.push(i); else trade.push(i);
+      if (i.kind === "decision") advice.push(i); else if (isModel(i)) models.push(i); else if (i.kind === "unlock") unl.push(i); else trade.push(i);
     });
     // (a) moves the agent already made at a stated cost: keep, or Undo on the next Apply
-    var rej = rejectedImps(), nAgent = imps().filter(function (i) { return i.origin === "agent"; }).length;
-    var anyImp = ap.length || safe.length || pairs.length || trade.length || unl.length || models.length;
-    secT = (tl.length ? 1 : 0) + (anyImp || rej.length ? 1 : 0) + (jc.length ? 1 : 0);
+    var rejC = arr(V().considered).filter(function (x) { return /^agent/.test(x.origin || ""); });
+    var rej = rejectedImps(), nAgent = imps().filter(function (i) { return byAgent(i); }).length, nRej = rej.length + rejC.length;
+    var anyImp = ap.length || safe.length || pairs.length || trade.length || unl.length || models.length || advice.length;
+    secT = (tl.length ? 1 : 0) + (anyImp || nRej ? 1 : 0) + (jc.length ? 1 : 0);
     if (tl.length) h.push(section("Migrated with trade-offs", "These already go through Router at a stated cost. Keep them, or Undo one to put it back as it was when you Apply.") +
       '<div class="stack">' + tl.map(function (i) { return impHtml(i); }).join("") + "</div></section>");
     // (b) improvements: the agent's proposals (validated and priced) and the rule defaults
-    if (anyImp || rej.length) {
+    if (anyImp || nRej) {
       h.push(section("Improvements", "Each one says what you gain, what you give up and what it does to the price." +
         (nAgent ? " " + nAgent + " " + plural(nAgent, "was", "were") + " proposed by the migration agent and checked by the tool; the rest are rule defaults." : "")));
       var G = {glp: true};
@@ -1360,9 +1375,12 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
         pairs.map(function (p) { return '<div class="pair">' + impHtml(p[0], {suggested: !!p[0].suggested, inPair: true}) + '<span class="or">or</span>' + impHtml(p[1], {inPair: true}) + "</div>"; }).join('<div style="height:12px"></div>') + "</div>");
       if (trade.length) h.push(grp("Your call", "Same model, with a trade-off to read first.", "var(--text-2)", trade, "", G));
       if (unl.length) h.push(grp("Move more traffic", "Each unlock moves a call that stayed in place, with what you give up stated.", "var(--blue)", unl, "", G));
+      if (advice.length) h.push(grp("Changes only you can make", "The agent proposed these; they change code the tool won’t write (a port, a different SDK). Accept to record that you will, or dismiss with why.", "var(--lilac)", advice, "", G));
       if (models.length) h.push(grp("Models to test", "A different model would answer. The tool never applies these: shadow on real traffic, then edit the code.", "var(--lilac)", models, "", G));
       if (!anyImp) h.push('<div class="panel empty">No improvement waits on you.</div>');
-      if (rej.length) h.push('<div class="group">' + more("rejected", "Agent proposals the tool rejected (" + rej.length + ")", '<div class="stack">' + rej.map(function (i) { return impHtml(i, {readonly: true}); }).join("") + "</div>") + "</div>");
+      if (nRej) h.push('<div class="group">' + more("rejected", "Agent proposals the tool rejected (" + nRej + ")", (rej.length ? '<div class="stack">' + rej.map(function (i) { return impHtml(i, {readonly: true}); }).join("") + "</div>" : "") +
+        (rejC.length ? '<div class="panel tbl-wrap"><table class="tbl"><thead><tr><th>Proposal</th><th>Call</th><th>Why the tool rejected it</th></tr></thead><tbody>' + rejC.map(function (x) {
+          return '<tr><td class="mono">' + esc(String(x.rule || "").replace(/^agent\./, "")) + '</td><td class="mono">' + esc(x.fn || x.feature) + "</td><td>" + esc(cap(String(x.reason || "").replace(/^proposed by the migration agent; not valid:\s*/, ""))) + "</td></tr>"; }).join("") + "</tbody></table></div>" : "")) + "</div>");
       h.push("</section>");
     }
     // (c) the calls the agent left for a person: its reasoning, and what moving would take
@@ -1375,7 +1393,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   }
   function judgmentRow(c) {
     var a = obj(c.agent);
-    return '<div class="jrow st st-decide"><span class="sdot"></span><div class="tx"><div class="tt">' + esc(c.fn) + '<span class="mono">' + esc(base(c.file)) + ":" + esc(c.line) + "</span></div>" +
+    return '<div class="jrow st st-decide"><span class="sdot"></span><div class="tx"><div class="tt">' + esc(c.fn) + '<span class="mono">' + esc(c.synthetic ? c.file : base(c.file) + ":" + c.line) + "</span></div>" +
       '<div class="rs">' + esc(cap(c.why)) + "</div>" +
       (a.levers || a.loses ? '<div class="if">' + (a.levers ? "<b>Moving it would take:</b> " + esc(a.levers) + ". " : "") + (a.loses ? "<b>You would give up:</b> " + esc(cap(a.loses)) : "") + "</div>" : "") +
       judgChips(a) + '</div><button class="link" type="button" data-go-call="' + esc(c.id) + '" style="align-self:flex-start">See the call' + icon("arrow") + "</button></div>";
