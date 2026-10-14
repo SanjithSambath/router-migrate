@@ -83,7 +83,7 @@ All are taken with:
 
 ```bash
 router-migrate adapt FILE:LINE <lever> --loses "<what is given up>" --why "<why it is acceptable>"
-router-migrate adapt FILE:LINE --undo
+router-migrate adapt --undo T3        # the trade-off id the dashboard and ledger show
 ```
 
 ### Drop parameters Router rejects

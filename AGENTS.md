@@ -30,10 +30,10 @@ Move as much production LLM traffic onto Router as you reasonably can, without c
    | `router-migrate check --all` | See every call, whether it routes, why not, and the fix. Run it after each batch of edits. |
    | `router-migrate check FILE:LINE` | The same for some calls. |
    | `router-migrate check --run "<cmd>"` | Run code with the runtime pointed at a local Router simulator (offline, provider keys dummied). Shows which calls sent valid Router requests. This is how you verify a client the scanner can't see. |
-   | `router-migrate levers FILE:LINE` | Improvement facts for a migrated call: Flex availability, prices, compatible fallbacks, cache threshold, rule defaults. |
+   | `router-migrate levers FILE:LINE` | Improvement facts for migrated calls: model, Flex availability, price, latency class, and the cards the rules would suggest (fallback candidates, cache key, Flex, model) or reject, with reasons. |
    | `router-migrate wrap FILE:LINE` / `unwrap FILE:LINE` | Exact codemods at a client construction. `FILE:1` adds a file's LiteLLM or module hook. |
-   | `router-migrate adapt FILE:LINE <lever> --loses "..." --why "..."` | Take a trade-off: `--drop seed`, `--model-map OLD=NEW`, `--unlock-host H`, `--operator-key-only`, `--drop-betas F`. `--undo` reverses it. |
-   | `router-migrate check --final` | Dry run of the final check. |
+   | `router-migrate adapt FILE:LINE <lever> --loses "..." --why "..."` | Take a trade-off: `--drop seed`, `--model-map OLD=NEW`, `--unlock-host H`, `--operator-key-only`, `--drop-betas F`. `adapt --undo T<n>` reverses one. |
+   | `router-migrate check --final [--tests]` | Dry run of the final check (the test suite only with `--tests`). |
 
    Where the tools can't edit (a dynamic provider table, a TS factory), edit by hand: pass `router_runtime.http_client()`,
    `routerFetch()` or `routerOptions()` in, the way `wrap` does. Then verify with `check --run`.
@@ -51,12 +51,16 @@ Move as much production LLM traffic onto Router as you reasonably can, without c
    ```json
    {"sites": [
      {"site": "app/llm.py:42", "outcome": "migrated", "levers": ["drop_params:seed"], "loses": "seed determinism",
-      "why": "...", "latency": "background", "task": "summarization"},
+      "why": "...", "latency": "background", "task": "summarization", "cacheable": 0,
+      "improvements": [{"lever": "flex", "change": {}, "gains": "half price", "loses": "slower (up to ~1 min)",
+                        "why": "nightly batch job; gpt-5.4-mini has Flex"}]},
      {"site": "app/embed.py:10", "outcome": "cannot_route", "why": "embeddings: no Router endpoint"},
      {"site": "app/byok.py:7", "outcome": "needs_decision", "why": "users' own keys and no operator key"}
-   ],
-   "proposals": [{"site": "app/llm.py:42", "lever": "flex", "why": "nightly batch job; gpt-5.4-mini has Flex"}]}
+   ]}
    ```
+   `lever` is `flex`, `fallbacks` (`change: {"fallbacks": [ids]}`), `cache_key`, `model` (`change: {"model": id}`),
+   `vendor_port` or `other`. Each proposal becomes a card after validation against the catalog; one a rule also found
+   enriches that card instead.
    `outcome` is `migrated`, `kept`, `cannot_route` or `needs_decision`. Any entry with `levers` must fill `loses`.
    `router-migrate start` prints the current schema; follow it if it differs.
 

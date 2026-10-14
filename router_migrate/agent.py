@@ -780,7 +780,7 @@ def open_dashboard(root, a):
     print("report: %s" % sp(root, "REPORT.html"))
     if getattr(a, "no_dashboard", False):
         return 0
-    srv, url = serve_dashboard(root, open_browser=not getattr(a, "no_browser", False))
+    srv, url = serve_dashboard(root, open_browser=not (getattr(a, "no_browser", False) or os.environ.get("ROUTER_MIGRATE_NO_BROWSER")))
     _event(root, "dashboard", "done", msg=url.split("?")[0])
     print("router-migrate dashboard: %s  (Ctrl-C to stop)" % url, flush=True)
     import threading

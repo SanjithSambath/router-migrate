@@ -102,7 +102,7 @@ v4 added `service_tier`, `drop_params` and `model_map`).
 
 ### Cards (`recommendations.json`)
 
-Each card carries: `id`, `rule` (the lever), `source` (`agent` or `rule`), `scope` (sites, features, latency class),
+Each card carries: `id`, `rule` (the lever), `origin` (`rule`, `agent`, or `agent+rule` when both found it; agent cards add `rationale` and `gains`), `scope` (sites, features, latency class),
 `change` (policy patch or code diff), `loses`, `evidence` (facts with their source, the agent's rationale with the lines
 it read), `impact` (per-call price change at a stated token shape; no volume is invented), `etag` (code span plus catalog
 row) and `state`. Cards with `conflicts_with` are either/or (Flex and fallbacks on one feature).
@@ -182,7 +182,7 @@ The repo always ends in a state that passes.
 | `check --final` | Dry run of the outside check. |
 | `levers FILE:LINE` | Improvement facts for a migrated call: Flex availability, prices, compatible fallbacks, cache threshold, rule defaults. |
 | `wrap FILE:LINE` / `unwrap FILE:LINE` | Exact codemods at a client construction. `FILE:1` is a file's LiteLLM or module hook. |
-| `adapt FILE:LINE --drop P \| --model-map A=B \| --unlock-host H \| --operator-key-only \| --drop-betas F --loses "..." --why "..."` | Take a trade-off. `--undo` reverses it. |
+| `adapt FILE:LINE --drop P \| --model-map A=B \| --unlock-host H \| --operator-key-only \| --drop-betas F --loses "..." --why "..."` | Take a trade-off. `adapt --undo T<n>` reverses one. |
 
 Older pipeline commands (`scan`, `plan`, `apply` without `--decisions`, `verify`, `up`, `claim`, `probe`, `judge`) remain
 for v1–v4 compatibility and are documented in [archive/docs/](../archive/docs/).
