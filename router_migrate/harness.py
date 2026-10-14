@@ -402,23 +402,38 @@ def route_truth(root, led, doc, mig):
     routing = [r["site"] for r in rows if r["routes"]]
     near = lambda loc, pool: any(v.rsplit(":", 1)[0] == loc.rsplit(":", 1)[0] and abs(int(v.rsplit(":", 1)[1]) - int(loc.rsplit(":", 1)[1])) <= 3
                                  for v in pool if ":" in v)
-    probed = {r.get("feature") for p in (led.get("probes") or {}).values() for r in p.get("requests") or [] if r.get("valid")}
-    probed |= {r.get("feature") for p in led.get("live_probes") or [] for r in p.get("requests") or [] if (r.get("status") or 999) < 400}
+    # checks recorded before an apply session undid something may describe code that no longer exists: they stop counting
+    undos = [x.get("finished") or "" for x in (R.load(root, "apply_log.json", {"sessions": []}) or {}).get("sessions") or []
+             if any(r.get("action") == "undo" and r.get("status") == "done" for r in x.get("results") or [])]
+    cutoff = max(undos) if undos else ""
+    probed = {r.get("feature") for p in (led.get("probes") or {}).values() if (p.get("at") or "") >= cutoff
+              for r in p.get("requests") or [] if r.get("valid")}
+    probed |= {r.get("feature") for p in led.get("live_probes") or [] if (p.get("at") or "") >= cutoff
+               for r in p.get("requests") or [] if (r.get("status") or 999) < 400}
     probed.discard(None)
     calls = (doc or {}).get("calls") or []
-    verified, unverified, not_routing = list(routing), [], []
+    last = {}  # the latest apply/undo that went through, per item
+    for x in (R.load(root, "apply_log.json", {"sessions": []}) or {}).get("sessions") or []:
+        for r in x.get("results") or []:
+            if r.get("status") == "done":
+                last[r.get("item")] = (r.get("action"), x.get("id"))
+    verified, unverified, not_routing, undone = list(routing), [], [], []
     for c in calls:
         site = c.get("site") or ""
+        if (last.get(c.get("item")) or ("", ""))[0] == "undo":  # its decision was undone: back on its provider
+            undone.append({"site": site, "reason": "undone in apply session %s" % last[c["item"]][1]})
+            continue
         if c.get("now") != "router" or not AG.parse_loc(site)[0] or near(site, verified):
             continue
         f, ln = AG.parse_loc(site)
-        if c.get("feature") in probed or AG._feature(root, f, ln) in probed:
-            verified.append(site)
-        elif near(site, [r["site"] for r in rows]):
+        if near(site, [r["site"] for r in rows]):  # the scanner sees it and it doesn't route now: an older check can't override that
             not_routing.append(site)
+        elif c.get("feature") in probed or AG._feature(root, f, ln) in probed:
+            verified.append(site)
         else:
             unverified.append(site)
     stays = [{"site": r["site"], "reason": r["reason"]} for r in rows if not r["routes"]]
+    stays += [u for u in undone if not near(u["site"], [x["site"] for x in stays])]
     return {"verified": sorted(set(verified)), "unverified": unverified, "not_routing": not_routing, "stays": stays}
 
 
