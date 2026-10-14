@@ -46,9 +46,8 @@ Live checks work best with a Router key. Use a dedicated key with a spend cap, s
 mkdir -p ~/.config/router-migrate && (umask 077; printf '%s' "$KEY" > ~/.config/router-migrate/key)
 ```
 
-With it, the agent sends real requests to confirm what Router accepts, reads the live catalog and prices, and compares
-models side by side. Without it everything still works against the offline simulator, and every card says which kind of
-evidence it has. The key is only injected into commands the tool runs for the agent; it is never printed or stored.
+With it, the agent sends real requests to confirm what Router accepts and reads the live catalog and prices. Without
+it everything still works against the offline simulator, and every card says which kind of evidence it has. The key is only injected into commands the tool runs for the agent; it is never printed or stored.
 
 ### Migrate and improve
 
@@ -161,7 +160,8 @@ was measured about each live in [router_migrate/data/ROUTER.md](router_migrate/d
   provider (or the agent ports them, if it judges that worth it).
 - Router keeps no server-side state. Code that relies on stored responses or conversations stays on the provider.
 - One Router key per deployment. Per-user keys stay on the provider unless the app also has an operator key.
-- Answer quality after a model change can't be measured offline; with a key the agent attaches side-by-side samples.
+- Answer quality after a model change isn't measured: the card says answers will differ (the agent may attach a few
+  samples through both models when a key is available).
 - Evaluated with one run per repository. See [docs/EVAL.md](docs/EVAL.md#limitations).
 
 ## Repo layout

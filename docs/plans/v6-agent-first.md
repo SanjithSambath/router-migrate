@@ -32,7 +32,7 @@ with a Router spend cap** (e.g. $10-20), separate from production. Never printed
 |---|---|---|
 | Does Router accept this request? | Simulator (built from measured rules; unknown shapes pass or fail by guess) | Real Router requests from the migrated code paths |
 | Catalog and prices | Snapshot with its date | Live |
-| A proposed model change | "Answers will differ; unverified" | Side-by-side: the same sample requests through the old and new model via Router, with outputs, cost and latency on the card |
+| A proposed model change | "Answers will differ; unverified" | The same, plus optional samples through both models when a few requests would settle a doubt (not required: MVP) |
 | Facts like "does Router take Anthropic server tools on `/v1/messages`?" | Unknown | Measured during the run and written to the fact sheet |
 
 Every step and every hand-off (migrate → improve → `finish` → dashboard → apply session → check) runs the same with or
@@ -85,7 +85,7 @@ router-migrate start .                        code: clean tree required; branch 
      one commit per decision; say what can't move and why
   ── agent: improve (same session or a sub-agent; its choice) ───────────────────────────────────────────────────
      a bird's-eye review of the system on Router; what is worth building becomes a branch, built and tested
-     (side-by-side model comparisons with the key); the rest becomes short notes; if nothing, one line on what was
+     (optional samples through both models with the key); the rest becomes short notes; if nothing, one line on what was
      reviewed and why nothing was proposed
 router-migrate finish .                       code: the outside check on the migration branch and on each improvement
                                               branch (background when the suite is slow); REPORT.html + dashboard
@@ -167,7 +167,7 @@ handling in `start`/`finish`, the apply session, the per-request label, live che
 | Scope | Flex, fallbacks, cache key, model, vendor port, other | Anything that uses Router better: models per tier, Flex for work nobody waits on, fallbacks instead of hand-rolled retries, cache-friendly prompts, consolidating clients, moving calls to the surface where Router's levers apply, cross-vendor models, spend tags, timeouts that fit the app |
 | Depends on | Regex signals (model owner, latency from file names, prompt length, family) | The agent reading the code; facts from `levers` |
 | Output | A policy line or a sentence, untested | A branch the agent built and tested, or a note |
-| Evidence | Catalog checks only | The outside check per branch; with the key, side-by-side outputs, cost and latency for model changes; cards say exactly what was checked |
+| Evidence | Catalog checks only | The outside check per branch; optional samples through both models for a model change; cards say exactly what was checked |
 
 ### Apply and undo
 

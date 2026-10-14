@@ -44,7 +44,7 @@ If $ARGUMENTS starts with `apply`, go to **Apply**. Otherwise **Migrate and impr
 
 ## The migration key
 - Optional. Without it everything runs against the local Router simulator; with it, live checks show what Router
-  really accepts, catalog prices are live, and model changes get side-by-side samples. Use a dedicated key with a Router
+  really accepts, catalog prices are live, and a model change can be sampled through both models when that's worth it. Use a dedicated key with a Router
   spend cap (e.g. $10-20), separate from production.
 - It lives in `~/.config/router-migrate/key` (or the env `ROUTER_MIGRATE_KEY`, or the file named by
   `ROUTER_MIGRATE_KEY_FILE`). If the user wants to add one, they create that file themselves (`chmod 600`); never ask

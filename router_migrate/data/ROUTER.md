@@ -184,7 +184,8 @@ OpenAI's own API also accepts: `service_tier`, `prompt_cache_key`, `prompt_cache
   including gpt-5-nano encrypted reasoning items replayed to Claude and gpt-4o-mini [v2 #25].
 - Structured output works across vendors: `responses.parse` with Pydantic on gpt-4o-mini and Claude, zod, LangChain
   `with_structured_output`, Vercel `generateObject` [v2 sdk].
-- A different model gives different answers: evidence is side-by-side samples through both models via Router.
+- A different model gives different answers; nothing offline measures quality. Samples through both models via Router
+  are optional evidence when a few requests would settle a doubt.
 
 ### 6.7 Built-in and server tools
 - Responses: `web_search` works on gpt-4o-mini, claude-haiku-4-5 and gpt-oss-120b (one search answer: $0.011, $0.021 and

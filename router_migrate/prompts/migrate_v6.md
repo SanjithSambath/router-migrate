@@ -95,8 +95,8 @@ does, who waits on it, what it costs, how you would design it on Router. Typical
 short, well-specified tasks; Flex (or a model that has it) for work nobody waits on; Router fallbacks in place of
 hand-rolled cross-provider retries; a prompt reordered so its long fixed prefix caches; one client where there are
 several; a call moved to the surface where the levers it needs apply; timeouts that fit the app. Build what is worth
-building as a branch and test it like the migration; with a key, give a model change side-by-side samples (the same
-5-10 inputs through the old and new setup via Router: outputs, cost, latency). A small change with evidence beats a
+building as a branch and test it like the migration. A model change keeps "answers will differ" in `loses`; samples
+through both models are optional, worth it only when a few requests would settle a real doubt. A small change with evidence beats a
 large one without; don't propose what the app doesn't need. The rest, if a reviewer should know it, becomes a short
 note. Proposing nothing is valid; then say in `reviewed` what you looked at and why nothing paid for itself. A
 sub-agent may do the review; you own it.
@@ -121,10 +121,10 @@ for the human), `improvement` (a tested branch), `note`.
    "commit": "a1b2c3d", "branch": null, "depends_on": [], "excludes": []},
   {"id": "i1", "kind": "improvement", "title": "Classifier on gpt-5.4-nano", "summary": "Ticket classification moves from gpt-5.4-mini to gpt-5.4-nano.",
    "calls": ["app/triage.py:18"], "gains": "About -73% list price on every classify request",
-   "loses": "A different model labels tickets: 1 of 10 samples differed", "price": "$0.75/$4.50 to $0.20/$1.25 per 1M tokens",
+   "loses": "A different model labels every ticket: answers will differ", "price": "$0.75/$4.50 to $0.20/$1.25 per 1M tokens",
    "why": "One label from a fixed list of six, fully specified by the prompt.",
-   "evidence": [{"check": "side-by-side", "result": "info", "detail": "10 sample tickets through both models via Router: same label on 9, 1 differs (billing vs account)"},
-                {"check": "tests", "result": "pass", "detail": "pytest with Router on (simulator): 212 pass"}],
+   "evidence": [{"check": "tests", "result": "pass", "detail": "pytest with Router on (simulator): 212 pass"},
+                {"check": "price", "result": "info", "detail": "catalog list prices (live)"}],
    "commit": null, "branch": "router-migrate/improve/classifier-nano", "depends_on": ["m1"], "excludes": []}]}
 ```
 
