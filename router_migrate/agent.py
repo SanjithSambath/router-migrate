@@ -123,7 +123,10 @@ def snapshot_tree(root):
     os.remove(idx)  # git wants to create it
     env = {"GIT_INDEX_FILE": idx}
     try:
-        r = _git(root, "add", "-A", "--", ".", ":(exclude)%s" % STATE, env=env)
+        # naming an ignored path in a pathspec (even as an exclusion) makes `git add` fail, e.g. repos whose .gitignore is `*`
+        # plus an allowlist, or that ignore the state dir: then `add -A` skips it anyway and no exclusion is needed
+        ignored = _git(root, "check-ignore", "-q", STATE).returncode == 0
+        r = _git(root, "add", "-A", "--", ".", *([] if ignored else [":(exclude)%s" % STATE]), env=env)
         if r.returncode:
             raise RuntimeError("git add failed: %s" % r.stderr.strip()[-300:])
         _git(root, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", STATE, env=env)
