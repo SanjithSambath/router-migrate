@@ -57,6 +57,6 @@ Write `.router-migrate/APPLY.json` with one result per request:
 the commits on `router-migrate/migration` that carry the result. `summary` is one paragraph; each `note` is one or two
 plain sentences with numbers where there are any. Then run `router-migrate apply --done`: it validates APPLY.json, runs
 the outside check and records the session for the dashboard. If it rejects APPLY.json or the working tree, fix that and
-run it again. If the outside check fails, fix the cause in a new commit and confirm with
-`router-migrate check --final --tests`. Finish with a few lines for the user: what was done, what was declined and why,
+run it again. If the outside check fails, the session stays open: fix the cause in a new commit (update APPLY.json if a
+result changed) and run `router-migrate apply --done` again. Finish with a few lines for the user: what was done, what was declined and why,
 and the check result.
