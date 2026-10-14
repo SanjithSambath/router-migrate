@@ -1,26 +1,29 @@
-"""router-migrate: move a codebase's production LLM calls onto Ramp's Router.
+"""router-migrate: move a codebase's production LLM calls onto Ramp's Router, without breaking it.
 
-  router-migrate scan    PATH          find LLM clients, call sites, raw HTTP and env usage (Python + TS/JS)
-  router-migrate plan    PATH          bucket every site (migrated / kept / flagged / handoff) with exact reasons; dry-run diff
-  router-migrate apply   PATH          vendor router_runtime + patch client constructions; write HANDOFF.md for agent tasks
-  router-migrate verify  PATH          tests before vs after, syntax/type checks, requests replayed against router-sim, optional --live
-  router-migrate report  PATH          REPORT.md + report.json (every site, outcome, reason, coverage)
-  router-migrate run     PATH          v4: baseline + a proposal for every site (nothing applied); --agent: the agent decides, then the gate
-  router-migrate check   FILE:LINE     v4: facts for one site: routes or not, hard limits, the proposal, evidence so far, native eligibility
-  router-migrate wrap    FILE:LINE     v4: the deterministic one-line wrap at any client construction (factories included); prints the diff
-  router-migrate unwrap  FILE:LINE     v4: undo a wrap (or native edit, or FILE:1 install hook)
-  router-migrate probe   [FILE:LINE] --cmd CMD  v4: run CMD against router-sim; a valid request tagged with a site's feature confirms it
-  router-migrate card    FILE:LINE --kind K     v4: propose a lossy move for a human (model_swap, vendor_endpoint, per_user_key, beta_flags)
-  router-migrate claim   FILE:LINE OUT v4: your decision for one or more sites, with --why and --evidence (lines read, probes run)
-  router-migrate finish  PATH          v4: the gate (hard limits, invariants, tests, Router-on run, evidence for every migrated claim)
-  router-migrate improve PATH          v3: cards across every Router lever from the migrated code + agent judgments; features still to judge
-  router-migrate judge   FILE:LINE K V v3: record a judgment (latency | task | cacheable) for a feature, with --why and --evidence
-  router-migrate up      PATH          v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the dashboard (--agent: exit 2 while cards are undecided)
-  router-migrate recommend PATH        v2: Improve cards (unlock, same-model policy, model recommendations) -> recommendations.json + RECOMMENDATIONS.md
-  router-migrate decide  ID ACTION     v2: approve | dismiss --reason R | postpone --until DATE | shadow-first a card (writes decisions.json)
-  router-migrate status  PATH          v2: effective policy per feature, compiled-policy hash check, orphan entries, undecided cards
+In Claude Code (any model): /router-migrate, or
+  router-migrate start  [PATH]        set up (map every LLM call, baseline in the background); print the agent's instructions
+  ...the session migrates with its own tools and the commands below, and writes .router-migrate/MIGRATION.json...
+  router-migrate finish [PATH]        the outside check, improvement cards, REPORT.html and the dashboard (prints its URL)
+
+Headless (CI, evals):
+  router-migrate run PATH --agent claude [--model M]   start -> a headless agent session -> finish
+
+Agent tools (run from the repository root; FILE:LINE accepts a comma-separated list):
+  router-migrate check --all | FILE:LINE    does each call route to Router now, why not, and the fix
+  router-migrate check --run "CMD"          run CMD against a local Router simulator; which calls sent valid requests
+  router-migrate check --final [--tests]    dry run of the outside check
+  router-migrate levers [FILE:LINE]         model, Flex tier, price, and what the rules suggest or reject per migrated call
+  router-migrate wrap | unwrap FILE:LINE    exact codemods at a client construction
+  router-migrate adapt FILE:LINE --LEVER --loses "..."   take a trade-off (shown with an undo); adapt --undo T<n>
+
+Review and apply (or use the dashboard):
+  router-migrate dashboard [PATH]           REPORT.html + the live dashboard
+  router-migrate decide CARD approve|dismiss|postpone|shadow-first
+  router-migrate apply PATH --decisions     apply approved cards (policy compile / codemod options / trade-off undo)
+  router-migrate status [PATH]              effective policy per feature, hash check, undecided cards
 
 Nothing changes at runtime until RAMP_ROUTER_API_KEY is set; ROUTER_MIGRATE_DISABLE=1 turns it off again.
+Earlier pipelines (scan, plan, verify, report, up, recommend, probe, claim, card, improve, judge) still run; see archive/README.md.
 """
 import argparse
 import difflib
@@ -263,12 +266,20 @@ def do_report(root, quiet=False):
     return report(root, quiet=quiet)
 
 
+LEGACY_HELP = {"scan": "find LLM clients, call sites, raw HTTP and env usage (Python + TS/JS)",
+               "plan": "bucket every site with exact reasons; dry-run diff",
+               "apply": "--decisions: apply approved cards (legacy: vendor the runtime and patch every client)",
+               "verify": "tests before vs after, syntax/type checks, requests replayed against router-sim",
+               "report": "REPORT.md + report.json", "run": "start -> agent -> finish (--agent claude [--model M])"}
+HIDDEN = {"scan", "plan", "verify", "report", "up", "recommend", "probe", "claim", "card", "improve", "judge", "_baseline", "_fulltest"}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="router-migrate", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version="router-migrate " + __version__)
     sub = ap.add_subparsers(dest="cmd")
     for name in ("scan", "plan", "apply", "verify", "report", "run"):
-        sp = sub.add_parser(name, help=[l for l in __doc__.splitlines() if l.strip().startswith("router-migrate " + name)][0].split(name, 1)[1].strip())
+        sp = sub.add_parser(name, help=LEGACY_HELP[name])
         sp.add_argument("path", nargs="?", default=".")
         sp.add_argument("--live", action="store_true", help="use the live catalog / replay against the real Router (needs RAMP_ROUTER_API_KEY)")
         sp.add_argument("--json", action="store_true", help="print the JSON result")
@@ -281,20 +292,20 @@ def main(argv=None):
             sp.add_argument("--budget", type=float, default=0.25, help="USD cap for --live replay (default 0.25)")
             sp.add_argument("--timeout", type=int, default=1800)
         if name == "apply":
-            sp.add_argument("--decisions", action="store_true", help="v2: apply approved cards from .router-migrate/decisions.json")
+            sp.add_argument("--decisions", action="store_true", help="apply approved cards from .router-migrate/decisions.json")
         if name == "run":
             sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
-            sp.add_argument("--typecheck-cmd", help="v3: typecheck command; its error count is the baseline finish compares against")
-            sp.add_argument("--force", action="store_true", help="v3: re-apply the floor and reset the ledger's floor snapshot")
+            sp.add_argument("--typecheck-cmd", help="typecheck command; its error count is the baseline finish compares against")
+            sp.add_argument("--force", action="store_true", help="re-apply the floor and reset the ledger's floor snapshot")
             sp.add_argument("--no-floor", action="store_true", help="v4 default (kept for older scripts): nothing is applied")
-            sp.add_argument("--agent", choices=["claude"], help="v3: after the floor, run the coding agent headless on the residue, then finish")
-            sp.add_argument("--arm", choices=["min", "free"], help="D3 harness: facts + optional tools + (min) one final outside check")
-            sp.add_argument("--model", help="v3: agent model (default: the agent CLI's default)")
-            sp.add_argument("--agent-timeout", type=int, default=2700, help="v3: seconds before the agent run is stopped")
-            sp.add_argument("--skip-improve", action="store_true", help="v3: stop after the migration gate (no Improve phase)")
-            sp.add_argument("--no-dashboard", action="store_true", help="v3: write REPORT.html but don't serve the live dashboard")
-            sp.add_argument("--no-browser", action="store_true", help="v3: serve the dashboard without opening a browser")
-    s_up = sub.add_parser("up", help="v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
+            sp.add_argument("--agent", choices=["claude"], help="run a headless Claude Code session as the migration agent (start -> agent -> finish)")
+            sp.add_argument("--arm", choices=["min", "free"], help="eval ablation: min (default) = with the outside check; free = without it")
+            sp.add_argument("--model", help="agent model (default: the agent CLI's default)")
+            sp.add_argument("--agent-timeout", type=int, default=2700, help="seconds before the agent run is stopped")
+            sp.add_argument("--skip-improve", action="store_true", help="stop after the migration gate (no Improve phase)")
+            sp.add_argument("--no-dashboard", action="store_true", help="write REPORT.html but don't serve the live dashboard")
+            sp.add_argument("--no-browser", action="store_true", help="serve the dashboard without opening a browser")
+    s_up = sub.add_parser("up", help="scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
     s_up.add_argument("path", nargs="?", default=".")
     s_up.add_argument("--agent", action="store_true", help="no dashboard; print pending cards as JSON; exit 2 while any card is undecided")
     s_up.add_argument("--no-browser", action="store_true", help="serve the dashboard without opening a browser")
@@ -302,10 +313,10 @@ def main(argv=None):
     s_up.add_argument("--test-cmd")
     s_up.add_argument("--live", action="store_true")
     s_up.add_argument("--max-usd", type=float, default=0.25)
-    s_rec = sub.add_parser("recommend", help="v2: write .router-migrate/recommendations.json and RECOMMENDATIONS.md")
+    s_rec = sub.add_parser("recommend", help="write .router-migrate/recommendations.json and RECOMMENDATIONS.md")
     s_rec.add_argument("path", nargs="?", default=".")
     s_rec.add_argument("--json", action="store_true")
-    s_dec = sub.add_parser("decide", help="v2: record a decision on a card (approve | dismiss | postpone | shadow-first)")
+    s_dec = sub.add_parser("decide", help="record a decision on a card (approve | dismiss | postpone | shadow-first)")
     s_dec.add_argument("card_id")
     s_dec.add_argument("action", choices=["approve", "dismiss", "postpone", "shadow-first"])
     s_dec.add_argument("--reason")
@@ -314,9 +325,17 @@ def main(argv=None):
     s_dec.add_argument("--by", default="cli", choices=["cli", "agent", "ui"])
     from . import agent as agentmod
     agentmod.add_parsers(sub)
-    s_st = sub.add_parser("status", help="v2: effective setup per feature, policy hash check, orphans; exit 1 if stale or orphaned")
+    s_st = sub.add_parser("status", help="effective setup per feature, policy hash check, orphans; exit 1 if stale or orphaned")
     s_st.add_argument("path", nargs="?", default=".")
     s_st.add_argument("--json", action="store_true")
+    # the v5 surface, in the order a user meets it; earlier pipelines stay runnable but unadvertised
+    import re as _re
+    order = ["start", "finish", "run", "check", "levers", "wrap", "unwrap", "adapt", "dashboard", "decide", "apply", "status"]
+    acts = {x.dest: x for x in sub._choices_actions}
+    for x in acts.values():
+        x.help = _re.sub(r"^v\d( improve)?: ", "", x.help or "")
+    sub._choices_actions = [acts[n] for n in order if n in acts]
+    sub.metavar = "{%s}" % ",".join(order)
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()

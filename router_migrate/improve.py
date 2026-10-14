@@ -237,8 +237,9 @@ def _compile_everywhere(root, p, runtime_files):
     return written
 
 
-def apply_decisions(root, catalog, dry_run=False):
-    """Apply approved, non-stale cards. Returns a log {applied:[...], skipped:[...], policy_hash, files:[...]}."""
+def apply_decisions(root, catalog, dry_run=False, undo_only=False):
+    """Apply approved, non-stale cards. Returns a log {applied:[...], skipped:[...], policy_hash, files:[...]}.
+    undo_only: only the trade-off undos (allowed while the full suite is failing; approvals wait for it to pass)."""
     r = load(root, "recommendations.json")
     dec = load(root, "decisions.json", {"cards": {}})
     if r is None:
@@ -280,6 +281,9 @@ def apply_decisions(root, catalog, dry_run=False):
     for c in r["cards"]:
         d = dec["cards"].get(c["id"])
         if not d or d["action"] != "approve" or c["rule"].startswith("tradeoff."):  # approving a trade-off keeps it: nothing to do
+            continue
+        if undo_only:
+            skipped.append({"card": c["id"], "reason": "waits until the full test suite passes"})
             continue
         if d.get("etag") != c["etag"]:
             skipped.append({"card": c["id"], "reason": "stale: the code or catalog changed since approval; re-confirm"})
@@ -642,8 +646,8 @@ def apply_blocked(ts):
     if ts.get("status") == "failed":
         c = (ts.get("full") or {}).get("counts") or {}
         n = (c.get("failed") or 0) + (c.get("errors") or 0)
-        return ("The full test suite failed%s. Apply stays off until it passes: fix the failure, then re-run "
-                "`router-migrate finish`." % (" (%d failing)" % n if n else ""))
+        return ("The full test suite failed%s. Approved changes wait until it passes: fix the failure (undoing a trade-off "
+                "is still allowed), then re-run `router-migrate finish`." % (" (%d failing)" % n if n else ""))
     return None
 
 
@@ -699,7 +703,7 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
     ts = tests_state(led)
     b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
-         "tradeoffs": tradeoffs, "moved": None, "tests": ts, "tests_status": ts["status"], "apply_blocked": apply_blocked(ts),
+         "tradeoffs": tradeoffs, "moved": None, "tests": ts, "tests_status": ts["status"], "apply_blocked": apply_blocked(ts), "undo_allowed": ts.get("status") == "failed",
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),

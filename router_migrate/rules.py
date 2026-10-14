@@ -1,4 +1,4 @@
-"""Registry of every migration rule and the test that proves it. `tests/test_rules_registry.py` checks that each referenced test
+"""Registry of every migration rule and the test that proves it. `archive/tests/test_rules_registry.py` checks that each referenced test
 exists and reports rule coverage (`make rules`). Source: [measured] live Router API, [upstream] provider API contract, [design]."""
 
 RULES = [

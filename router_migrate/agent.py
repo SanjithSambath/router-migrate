@@ -801,8 +801,8 @@ def serve_dashboard(root, open_browser=False):
     def on_decide(payload):
         return imp.decide(root, payload["card_id"], payload["action"], reason=payload.get("reason"), until=payload.get("until"), by="ui")
 
-    def on_apply():
-        out = imp.apply_decisions(root, _Cat.load())
+    def on_apply(undo_only=False):
+        out = imp.apply_decisions(root, _Cat.load(), undo_only=undo_only)
         led = load_ledger(root)
         ok, fails, _ = gate(root, led, quick=True) if led else (True, [], {})
         do_improve(root)
@@ -1990,8 +1990,8 @@ def add_parsers(sub):
     s.add_argument("--evidence", action="append")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
-    s = sub.add_parser("finish", help="v4: the gate (parse, scope + invariants, guardrails, typecheck, tests vs baseline, Router-on run, evidence "
-                                      "for every migrated claim, a decision for every item); reverts after --max-attempts failures")
+    s = sub.add_parser("finish", help="the outside check (parse, scope, typecheck, tests with Router on vs the baseline, route truth), "
+                                      "then improvement cards, REPORT.html and the dashboard; a second failure reverts the offending files")
     s.add_argument("path", nargs="?", default=".")
     s.add_argument("--hook", action="store_true", help="Claude Code Stop hook mode (JSON decision on stdout)")
     s.add_argument("--max-attempts", type=int, default=3)

@@ -134,7 +134,8 @@ def test_full_suite_status_gates_apply_in_bundle_and_server(tmp_path):
 
     current = {"b": b}
     applied = []
-    server, url = serve(lambda: current["b"], lambda p: p, lambda: applied.append(1) or {"command": "x"}, open_browser=False)
+    server, url = serve(lambda: current["b"], lambda p: p, lambda undo_only=False: applied.append("undos" if undo_only else "all") or {"command": "x"},
+                        open_browser=False)
     try:
         port = urlsplit(url).port
 
@@ -145,10 +146,14 @@ def test_full_suite_status_gates_apply_in_bundle_and_server(tmp_path):
             r = conn.getresponse()
             return r.status, json.loads(r.read())
 
+        current["b"] = dict(b, apply_blocked="The full test suite is still running.", undo_allowed=False)
         st, body = apply()
-        assert st == 409 and "full test suite failed" in body["error"] and applied == []
-        current["b"] = dict(b, apply_blocked=None)
-        assert apply()[0] == 200 and applied == [1]
+        assert st == 409 and "still running" in body["error"] and applied == []
+        assert b["undo_allowed"]  # failed: undoing a trade-off is how you back out the change that broke the tests
+        current["b"] = b
+        assert apply()[0] == 200 and applied == ["undos"]
+        current["b"] = dict(b, apply_blocked=None, undo_allowed=False)
+        assert apply()[0] == 200 and applied == ["undos", "all"]
     finally:
         server.shutdown()
 

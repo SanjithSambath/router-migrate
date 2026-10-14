@@ -8,7 +8,7 @@
 //
 // scan prints the site JSON described in router_migrate/SCHEMA.md (lang "ts").
 // apply patches only client construction sites so they take the vendored runtime's fetch
-// (routerOptions()/routerFetch()); call sites are never touched. See SCHEMA.md and research/sdk_surfaces.md (E, F).
+// (routerOptions()/routerFetch()); call sites are never touched. See SCHEMA.md and archive/research/sdk_surfaces.md (E, F).
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";

@@ -764,6 +764,10 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   // the full test suite gates Apply: while it runs or after it fails, Apply is off here and the server refuses it too
   function fullTests() { var f = obj(obj(B && B.tests).full); return f.status ? f : null; }
   function applyBlocked() { return (B && B.apply_blocked) || ""; }
+  // after a failed suite, undoing trade-offs is still allowed (it is how you back out the change that broke the tests);
+  // approvals wait until the suite passes
+  function undoOnly() { return !!(B && B.undo_allowed) && undoPending().length > 0; }
+  function blockedNow() { return undoOnly() ? "" : applyBlocked(); }
   function testCounts(c) {
     c = obj(c); var bits = [];
     if (num(c.passed) != null) bits.push(fmtInt(c.passed) + " passed");
@@ -937,7 +941,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   }
   function doApply() {
     if (!LIVE || S.busy) return;
-    if (applyBlocked()) { toast(applyBlocked().replace(/`/g, ""), true); return; }
+    if (blockedNow()) { toast(blockedNow().replace(/`/g, ""), true); return; }
     S.busy = "apply"; renderAll();
     api("POST", "/api/apply", {})
       .then(function (res) { S.applyResult = {ok: true, data: res.json}; toast("Applied. Now live in the code."); })
@@ -947,7 +951,8 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function busyLabel(id, label) { return S.busy === id ? '<span class="spin"></span>Saving' : label; }
   // an Apply button: off in a frozen report, while saving, and while the full test suite runs or after it failed
   function applyBtn(label, cls) {
-    var why = !LIVE ? FROZEN_NOTE : applyBlocked(), off = !LIVE || S.busy || !!applyBlocked();
+    var why = !LIVE ? FROZEN_NOTE : blockedNow() || (undoOnly() && approved().length ? "Only the undos apply now; approved changes wait until the full test suite passes." : ""),
+        off = !LIVE || S.busy || !!blockedNow();
     return '<button class="btn primary' + (cls ? " " + cls : "") + '" type="button" data-act="apply"' + (off ? " disabled" : "") + (why ? ' title="' + esc(why.replace(/`/g, "")) + '"' : "") + ">" + busyLabel("apply", label) + "</button>";
   }
 
@@ -1525,7 +1530,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     var first = !S.stickyN; S.stickyN = n;
     var what = u ? (a ? a + " approved " + plural(a, "change") + " and " : "") + u + " " + plural(u, "undo", "undos") : "approved " + plural(a, "change");
     el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx">' + (u ? "<b>" + n + "</b> ready to apply: " + esc(what) : "<b>" + n + "</b> " + esc(what) + " ready to apply") + "</span><span class=\"sp\"></span>" +
-      (!LIVE ? '<span class="tx" style="font-size:12.5px">Frozen report: apply from the live dashboard.</span>' : applyBlocked() ? '<span class="blocked-note">' + icon("warn") + (fullTests() && fullTests().status === "running" ? "Waiting for the full test suite" : "Full test suite failed") + "</span>" : "") +
+      (!LIVE ? '<span class="tx" style="font-size:12.5px">Frozen report: apply from the live dashboard.</span>' : applyBlocked() ? '<span class="blocked-note">' + icon("warn") + (fullTests() && fullTests().status === "running" ? "Waiting for the full test suite" : undoOnly() ? "Full test suite failed: only the undos apply" : "Full test suite failed") + "</span>" : "") +
       applyBtn("Apply " + n + " " + plural(n, "change"), "lg") + "</div></div>";
   }
 
