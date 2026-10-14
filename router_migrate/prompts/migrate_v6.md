@@ -14,8 +14,9 @@ every decision and proposal on a dashboard and can undo or decline each one: mak
 {BUDGET}
 
 ## Router, briefly
-Read the fact sheet (`ROUTER.md`, path above) before any decision that depends on Router: every lever, where it
-applies, what it costs, what was measured and what wasn't. The measured facts that shape most migrations:
+Read the fact sheet (`router_migrate/data/ROUTER.md` in the router-migrate install; path in the context) before any
+decision that depends on Router: every lever, where it applies, what it costs, what was measured and what wasn't. The
+measured facts that shape most migrations:
 - Router serves `POST /v1/responses`, `POST /v1/messages` (+ `count_tokens`) and `GET /v1/models`; no Chat Completions,
   embeddings, images, audio, files or batches. It keeps no state: `store: true`, `previous_response_id`, conversations
   and response retrieval don't work.
@@ -64,11 +65,12 @@ where the app has no operator key; the app's own gateway.
   shape; side-by-side samples for a model change). Scripts that call Router directly build URLs from
   `RAMP_ROUTER_BASE_URL` (no `/v1` suffix), never print the key, and set a User-Agent if they use Python's `urllib`.
   It spends real money under the key's spend cap: a handful of short requests per question. On a 402 or 429, stop.
-- `router-migrate levers [FILE:LINE]`: catalog facts and prices (live with a key), Flex eligibility, which levers apply
-  where, and heuristic hints (they can be wrong; you decide).
-- Optional helpers: `router-migrate wrap|unwrap FILE:LINE` (the runtime at a client construction) and `router-migrate
-  adapt FILE:LINE --drop P | --model-map OLD=NEW | --unlock-host H | --operator-key-only | --drop-betas F --loses "..."
-  --why "..."` (a trade-off on Router-bound requests only). Hand edits are as good. Commit what they change yourself.
+- `router-migrate levers [MODEL|FILE:LINE]`: the lever table, catalog prices, Flex eligibility and same-family models
+  (live with a key), and heuristic hints (they can be wrong; you decide).
+- Optional helpers: `router-migrate wrap|unwrap FILE:LINE` adds or removes the runtime at a client construction;
+  `router-migrate adapt FILE:LINE --LEVER --loses "..." --why "..."` applies a trade-off to Router-bound requests only
+  (levers: `--drop P`, `--model-map OLD=NEW`, `--unlock-host H`, `--operator-key-only`, `--drop-betas F`). Hand edits
+  are as good. Commit what they change yourself.
 - `router-migrate check --final [--tests]`: a dry run of the outside check `finish` runs, as often as you like.
 Run the repo's own tests and typecheck along the way; the suite's duration is in the context above.
 

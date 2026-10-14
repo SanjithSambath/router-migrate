@@ -16,6 +16,7 @@ the key you are given: when a fact decides a change and a migration key is avail
 | [catalog] | `data/catalog.json` (`GET /v1/models`, 2026-10-12/13), `data/flex_models.json`, `data/dated_equivalents.json` |
 | [runtime] | the vendored runtime's code (`runtime/router_runtime.py`, `runtime/routerRuntime.ts`): what it does, not a measurement |
 | [sdk] | `archive/research/sdk_surfaces.md` (SDK source reading) |
+| [sim] | `sim/server.py`, the local Router simulator; each of its rules is marked measured or upstream |
 | [upstream] | the OpenAI or Anthropic API contract; not measured through Router |
 
 ## 1. What Router is for
@@ -41,7 +42,7 @@ the key you are given: when a fact decides a change and a migration key is avail
 | `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/images/generations`, `/v1/files`, `GET /v1/models/{id}` | 404, plain text `404 page not found` | [v1 #16] |
 | `GET /v1/responses/{id}`, `/input_items` | 404 except background responses | `cancel` and `DELETE` return 405 [v2 #2] |
 | `POST /v1/conversations` | 404 | [v2 #2] |
-| batches, moderation, audio endpoints | not served | batches per [docs]; audio *input* on Responses returns 400 "Audio input is not available" [v2] |
+| batches, moderation, audio endpoints | not in Router's endpoint list | [docs]; audio *input* on Responses returns 400 "Audio input is not available" [v2] |
 | `POST /v1/decisions`, `POST /v1/systemone` | documented, limited availability | not measured [docs] |
 
 Chat Completions has no Router endpoint: code that uses it either goes through the vendored runtime (which translates
@@ -49,7 +50,8 @@ each request to Responses, section 9) or is ported to Responses.
 
 ## 3. Auth, base URLs, clients
 
-- `Authorization: Bearer <router key>`; `X-Api-Key` is also accepted [docs]. The provider key is not used for routed traffic.
+- `Authorization: Bearer <router key>`; `X-Api-Key` is also accepted [docs]. The provider key is not used for routed
+  traffic.
 - Base URL: OpenAI-style SDKs take `https://api.router.com/v1`; Anthropic SDKs take `https://api.router.com` (they add
   `/v1`; a `/v1` base produces `/v1/v1/messages`) [sdk, docs].
 - `RAMP_ROUTER_BASE_URL`: the runtime's default is `https://api.router.com`, and it strips a trailing `/v1` [runtime].
@@ -188,7 +190,8 @@ OpenAI's own API also accepts: `service_tier`, `prompt_cache_key`, `prompt_cache
 - Responses: `web_search` works on gpt-4o-mini, claude-haiku-4-5 and gpt-oss-120b (one search answer: $0.011, $0.021 and
   $0.0004, with 3,000-10,500 input tokens) [v2 #18]. `code_interpreter` works on gpt-4o-mini; its `usage.cost` showed no
   container fee, so cost may be understated (not verified) [v2 #18]. Remote MCP tools are passed through [v2].
-  `file_search` can't be used: there is no Files API, and vector stores made with a provider key aren't visible (404) [v2].
+  `file_search` can't be used: there is no Files API, and vector stores made with a provider key aren't visible (404)
+  [v2].
 - Messages: Anthropic server tools `web_search_20260209` and `web_fetch_20260209` work with claude-sonnet-5 (200,
   `x-router-provider: anthropic`). With claude-haiku-4-5, Anthropic returns 400 "does not support programmatic tool
   calling" for those versions: set `allowed_callers: ["direct"]` on the tool or use a model that supports it [L14].
@@ -228,11 +231,11 @@ wrapper) decide per request [runtime]:
 - `POST .../chat/completions` to OpenAI becomes `POST /v1/responses` on Router (request, JSON and SSE stream translated
   back); `POST .../responses` goes to Router with `store` dropped; `POST /v1/messages` to Anthropic goes to Router's
   `/v1/messages` with the model id mapped.
-- It stays on the provider, unchanged: embeddings, images, audio, files, model lists; models not in the catalog; `n > 1`,
-  `logprobs`, `seed`, a non-zero `presence_penalty`, output caps under 16 (Python), a message `name`, `logit_bias`, audio or
-  prediction options; `store: true`, `conversation`, `background`, stored prompts, a `previous_response_id` the provider
-  issued, provider file ids, `file_search`; any request with an `anthropic-beta` header (unless the client was wrapped
-  with `drop_betas` listing it); Azure, Bedrock and Vertex clients.
+- It stays on the provider, unchanged: embeddings, images, audio, files, model lists; models not in the catalog;
+  `n > 1`, `logprobs`, `seed`, a non-zero `presence_penalty`, output caps under 16 (Python), a message `name`,
+  `logit_bias`, audio or prediction options; `store: true`, `conversation`, `background`, stored prompts, a
+  `previous_response_id` the provider issued, provider file ids, `file_search`; any request with an `anthropic-beta`
+  header (unless the client was wrapped with `drop_betas` listing it); Azure, Bedrock and Vertex clients.
 - Chains: a `previous_response_id` that Router served is replaced by the full history inline, from the last 256 chains
   kept in memory per process; `GET /responses/{id}` for those is answered locally; an evicted Router id gets a clear 400.
 - On an OpenAI reasoning model it asks for `reasoning.encrypted_content` so reasoning can replay without `store`.
@@ -281,7 +284,8 @@ Repo root, committed; adds Router fields per label to Router-bound requests only
 - Guards: `allow_flex_tier: true` is skipped for a model without Flex; fallback candidates that lack the request's tools,
   structured output, modalities or temperature support are dropped; `allow_flex_tier` is dropped when fallbacks apply.
 - The runtime reads a compiled copy beside itself (`router_policy.py`, `routerPolicy.ts`/`.js`/`.mjs`), not the JSON
-  file; `router-migrate adapt` writes and compiles both.
+  file. `router-migrate adapt` writes and compiles both, and the CLI recompiles a hand-edited `router.policy.json` on
+  `check` and `finish`; confirm the effect with `check --run` (the simulator logs each Router request's fields).
 
 ## 11. Ways to put a call on Router
 
