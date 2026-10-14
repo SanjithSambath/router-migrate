@@ -3,7 +3,7 @@
 
   .venv/bin/python eval/v3/shoot_dashboard.py <REPORT.html> <outdir> <prefix> [--width 1440 --height 1100]
 
-Writes <prefix>-overview.png, -overview-steps.png, -migrate.png, -improve.png, -improve-card.png (the first improvement
+Writes <prefix>-overview.png, -overview-flow.png, -migrate.png, -improve.png, -improve-card.png (the first improvement
 resting on an agent judgment), -decisions.png, -decisions-choice.png (an either/or pair, when there is one), -setup.png and
 -audit.png. Network blocked except Google Fonts."""
 import os
@@ -42,14 +42,14 @@ with sync_playwright() as p:
         page.screenshot(path=out, full_page=full)
         print(out)
 
-    tab("overview"); shot("overview"); shot("overview-steps", ".steps", -120)
+    tab("overview"); shot("overview"); shot("overview-flow", "#flow", -110)
     tab("migrate"); shot("migrate")
     tab("improve"); shot("improve")
     if page.query_selector(".imp .note.agent"):
         shot("improve-card", ".imp:has(.note.agent)", -24)
     tab("decisions"); shot("decisions")
-    if page.query_selector(".choice-pair"):
-        shot("decisions-choice", ".choice-pair", -60)
+    if page.query_selector(".pair"):
+        shot("decisions-choice", ".pair", -70)
     tab("setup"); shot("setup")
     tab("audit"); shot("audit")
     b.close()

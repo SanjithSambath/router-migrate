@@ -371,3 +371,17 @@ again (`_router_wrap_anthropic(_router_wrap_anthropic(Anthropic(), ...), ...)`),
 exact columns while unlock targets use (line, any column); (2) calls the agent moved were credited to the rules, because the
 agent's claim keeps the line from before its own edit and the tool's re-check of the edited line says "migrated". The view
 now credits a move to the rules only if the floor plan (made before any agent ran) moved that feature.
+
+**Revision (same day): one job per page, and no idle re-renders.**
+- **Each page has one job and each item one home.** Overview says where the repo stands (a headline, three doorway cards
+  for Migrate / Improve / Decisions with their key numbers, the traffic diagram); it holds no item lists. Migrate is every
+  call and how it reached Router (read-only). Improve is what is live in the code plus the lever map (live, waiting on you,
+  or why a lever doesn't apply). Decisions is only what waits on you (ready to apply, approve, pick one, unlocks, models to
+  test, calls for your judgment as one-line pointers to Migrate) with decided items as collapsed history. A change moves
+  Decisions -> (Apply) -> Improve. The tile row, the overview lists and the sidebar spend footer were removed as duplicates.
+- **Dropdowns closed by themselves and the diagram stuttered** because the live page re-rendered every 2 s: the bundle's
+  `generated` stamp changes every second, so each poll looked like new data. The page now compares bundles without it,
+  keeps open disclosures and half-typed forms across real updates, and redraws the diagram only when its geometry changes.
+  Motion is limited to the page-enter fade on tab change, disclosure reveal, toast and apply-bar slide-in, the segment-bar
+  grow and a calmer wire flow; all of it is off under prefers-reduced-motion.
+- A syntax error in the page would blank the dashboard silently; tests/test_dashboard.py now parses the inline script.

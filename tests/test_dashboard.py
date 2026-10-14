@@ -229,3 +229,16 @@ def test_render_report_has_no_external_urls(bundle):
 def test_render_page_rejects_unknown_mode(bundle):
     with pytest.raises(ValueError):
         render_page(bundle, "edit")
+
+
+def test_page_script_parses():
+    """A syntax error in page.html blanks the whole dashboard; parse the inline script with node when it is installed."""
+    import shutil
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    import subprocess
+    src = page_template()
+    script = re.findall(r"<script>([\s\S]*?)</script>", src)[-1]
+    r = subprocess.run([node, "-e", "new Function(require('fs').readFileSync(0, 'utf8'))"], input=script, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr[-500:]

@@ -106,13 +106,14 @@ def drive(root, outdir, approve=None, prefix="e2e", log=print):
             ctx.route("**/*", lambda r: r.continue_() if r.request.url.startswith(allowed) else r.abort())
             page = ctx.new_page()
             page.on("pageerror", lambda e: errors.append(str(e)))
-            page.goto(url + "#improve", wait_until="load")
-            page.wait_for_selector('.nav-item[data-tab="improve"][aria-current="page"]')
+            page.goto(url + "#decisions", wait_until="load")  # pending changes live on Decisions; applied ones move to Improve
+            page.wait_for_selector('.nav-item[data-tab="decisions"][aria-current="page"]')
             for c in cards:
                 sel = 'button[data-act="decide"][data-a="approve"][data-id="%s"]' % c["id"]
                 page.locator(sel).scroll_into_view_if_needed()
                 page.locator(sel).click()
-                page.wait_for_selector('#imp-%s .pill.solar' % c["id"])  # "Approved · apply to go live"
+                page.wait_for_selector('#imp-%s .pill.solar' % c["id"])  # "Approved · ready to apply"
+                page.wait_for_timeout(800)  # the page re-renders once more when the server's fresh bundle arrives
                 log("approved in the UI: %s  %s" % (c["id"], c["title"][:100]))
             page.evaluate("() => window.scrollTo(0, 0)")
             if not cards:  # nothing migrated, or nothing applicable: the page says so; Apply stays disabled

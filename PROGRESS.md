@@ -203,3 +203,8 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   for every call and change, request-body diffs for every improvement, agent assumptions with the lines read, either/or as
   one choice. Fixed the unlock double wrap and agent-move attribution. Done when: tests/test_dashboard_view.py (4) and the
   full suite pass, live approve + Apply work in a browser, all reports re-rendered, `bash scripts/done_check_v3_improve.sh` PASS.
+- **Dashboard: one job per page, smooth live updates** (DECISIONS D16 revision): Overview / Migrate / Improve (live) /
+  Decisions (to do) with no duplicated item lists; fixed the 2 s re-render that closed dropdowns and restarted the diagram;
+  disclosure state and forms survive live updates; motion polish; page-script parse test. Done when: live checks (no idle
+  re-render, details stay open, form survives polling) pass in a browser, full suite passes, reports and screenshots
+  re-rendered.

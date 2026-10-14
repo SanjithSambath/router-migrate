@@ -479,9 +479,9 @@ def _sentence(c, f, model, b):
     if r == "model.deprecated":
         return "Replace %s" % ri.get("model"), "%s is deprecated in Router's catalog; %s is the suggested replacement." % (ri.get("model"), ri.get("replacement"))
     if r == "model.newer_cheaper_same_family":
-        return "Try %s for %s" % (ri.get("candidate"), fn), "A newer model in the same family at a lower list price. A different model answers, so test it first."
+        return "Try %s for %s" % (ri.get("candidate"), fn), "A newer model in the same family, at a lower list price."
     if r == "model.right_size":
-        return "Try a smaller model for %s" % fn, "The task is short and well specified; a smaller model may do it for less. Test it first."
+        return "Try a smaller model for %s" % fn, "The task is short and well specified; a smaller model may do it for less."
     return c["title"], ""
 
 
