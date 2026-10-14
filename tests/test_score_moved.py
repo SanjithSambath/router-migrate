@@ -309,3 +309,14 @@ def test_a_probe_at_a_chat_client_does_not_verify_an_embeddings_call_in_the_same
     by = {r["line"]: r["bucket"] for r in out["sites"]}
     assert by == {14: "moved_verified", 18: "not_movable"}
     assert out["counts"]["wrong"] == 0
+
+
+def test_a_probe_the_scanner_cant_place_verifies_one_claimed_site_of_its_file():
+    """D_r2 on obsidian-copilot: the probe proves the providerFetch helper (line 35), which no scanner site or client explains;
+    it verifies the nearest claimed site of that file, once, and never an unclaimed one."""
+    f = "src/LLMProviders/chatModelManager.ts"
+    inv = [inv_site(f, 136, "chat"), inv_site(f, 146), inv_site(f, 165, "chat")]
+    decs = [dec(f, 136, "migrated"), dec(f, 146, "migrated")]
+    out = SM.classify(inv, [], [], decs, {}, [{"file": f, "line": 35}])
+    by = {r["line"]: r["bucket"] for r in out["sites"]}
+    assert by == {136: "moved_verified", 146: "moved_unverified", 165: "missed"}

@@ -562,6 +562,19 @@ def classify(inv, static, clients, decisions, checks, dyn, scope=None, has_chann
         r.update(bucket="moved_verified" if r["movable"] else "wrong", evidence="static (file-level match): " + ck["reason"],
                  scanner="%s:%s" % (s["file"], s.get("line_now", s["line"])))
         file_level += 1
+    # the same for a re-verified probe of a claim the scanner can't place (a helper, a hand-built client): it pairs with the
+    # nearest claimed, still unverified site of its file (only a claimed one: the probe proves the arm's own claim)
+    used = [x for x in dyn if any(x["file"] == r["file"] and r["bucket"] in ("moved_verified", "wrong") and
+                                  any(abs(int(x["line"]) - ln) <= 3 for ln in [int(r["line"])] + ([int(r["_s"]["line"])] if r["_s"] else []))
+                                  for r in rows)]
+    for x in dyn:
+        if x in used or any(_near(dict(file=c["file"], line=c["line"]), x["file"], x["line"]) for c in clients):
+            continue
+        cands = [r for r in rows if r["file"] == x["file"] and r["movable"] and r["bucket"] in ("moved_unverified", "claimed_not_routing")]
+        if cands:
+            r = sorted(cands, key=lambda r: abs(int(r["line"]) - int(x["line"])))[0]
+            r.update(bucket="moved_verified", evidence="dynamic (file-level match): a re-verified probe of this file's claim at line %s" % x["line"])
+            file_level += 1
     paired = {id(r["_s"]) for r in rows if r["_s"] is not None}
     unmatched = []
     for s in static:
@@ -1045,7 +1058,7 @@ def _cell(r):
     b = r.get("buckets") or {}
     tags = [("u", b.get("moved_unverified")), ("s", b.get("surfaced_for_decision")), ("k", b.get("correctly_kept")),
             ("n", b.get("claimed_not_routing")), ("m", b.get("missed")), ("w", r.get("sites_moved_wrong")),
-            ("d", (r.get("destructive") or {}).get("count"))]
+            ("d", r["destructive"] if isinstance(r.get("destructive"), int) else (r.get("destructive") or {}).get("count"))]
     return "%s/%s %s%s" % (r.get("sites_moved_movable"), r.get("movable_total"), " ".join("%s%d" % (k, v) for k, v in tags if v),
                            " b" if r.get("broken") else "")
 
@@ -1154,10 +1167,13 @@ MIGRATION.json.
 
 `wrong` counts verified moves of sites that are not movable (hard limit, non-production). `one_approval_away` = moved +
 surfaced: what ships once a human answers the surfaced questions. A decision covers a site when it names the site (within 3
-lines of the mapped line, or inside a reported range: a call spans lines), names the client construction the call uses (the
-scanner's call-to-client link; for a call the scanner can't see, a client in the same class or the only client in the file),
-or, for keeps and needs-decision only, sits on no site in the same function, or is a group decision on no site in a file of 3+
-sites (a provider table). A move is only ever claimed for a named site or client.
+lines of the mapped line, or inside a reported range: a call spans lines), or names the client construction the call uses
+(the scanner's call-to-client link). For keeps and needs-decision only, coverage also reaches a call the scanner can't see
+through a client in the same class or the only client in the file, a decision on no site in the same function, and a group
+decision on no site in a file of 3+ sites (a provider table). A move is only ever claimed for a named site or a scanner-linked
+client. When an arm rewrote a call so that line matching fails, a claimed call with valid traffic (or a re-verified probe the
+scanner can't place) pairs with the nearest leftover site of the same file and call family (claimed sites only for probes),
+for every arm.
 
 **Destructive edits** per run, from its diff.patch: provider-key references removed and not re-added anywhere in the diff
 (`*_API_KEY` names, `api_key` / `apiKey` config fields; distinct names), deleted files, and deleted classes/functions (not
@@ -1188,8 +1204,9 @@ CHANGES = """What changed in the scorer (every change applies to every arm):
 4. **Probe evidence is the record made right after the trial** (reverify.json). Re-running probes later is not reproducible:
    a repo's shared env has its editable install re-pointed at whichever trial copy ran last.
 5. **Buckets, destructive edits and one_approval_away** are new; `moved` keeps its meaning (verified Router traffic).
-6. **Minutes and $** are read the same way for every arm (agent.json first). Before, D3 runs showed no minutes (the scorer read
-   result.json before the trial had written it) and one D_r2 run (obsidian-copilot) showed $0 and no minutes.
+6. **Minutes and $** are read the same way for every arm (agent.json first). Before, the D3 runs and every held-out run
+   showed no minutes (the scorer read result.json before the trial had written it), and one D_r2 run (obsidian-copilot) showed
+   $0 and no minutes (a stale row).
 7. **Coverage.** Runs that never ran, were interrupted before scoring, or have no trial tree are `not_run` and listed.
 """
 
@@ -1225,7 +1242,16 @@ def results_md(path=None):
     L = ["# Router migration eval: results (scorer v5)", "",
          "Generated by `eval/v3/score_moved.py results` from the saved runs (rescored with `RM_EVAL_SET=v3|heldout "
          "eval/v3/score_moved.py score`); no agent was re-run. Per-site rows: %s." % ", ".join("`%s`" % v[2] for v in data.values()), "",
-         METHOD]
+         "## At a glance", "",
+         "Moved = verified Router traffic over the movable sites of the repos each arm was scored on (k = 1; see the notes).", ""]
+    for label, (d, runs_rel, md) in data.items():
+        ranked = sorted(d["arms"].items(), key=lambda kv: -(kv[1]["moved_verified"] / kv[1]["movable"]) if kv[1]["movable"] else 0)
+        L.append("- **%s**: " % label + "; ".join(
+            "%s %d/%d moved (%.0f%%), %d one approval away, %d wrong, %d destructive, %d broken, $%.2f/run over %d run%s" % (
+                a, t["moved_verified"], t["movable"], 100.0 * t["moved_verified"] / t["movable"] if t["movable"] else 0, t["one_approval_away"],
+                t["wrong"], t["destructive"], t["broken"], t["usd"] / t["runs"] if t["runs"] else 0, t["runs"], "s" if t["runs"] != 1 else "")
+            for a, t in ranked if t["runs"]) + ".")
+    L += ["", METHOD]
     for label, (d, runs_rel, md) in data.items():
         L += ["## %s set: %d repo%s (%s)" % (label.capitalize(), len(d["repos"]), "s" if len(d["repos"]) != 1 else "",
                                             "eval/v3/REPOS.json" if label == "dev" else "eval/heldout, only the repos any arm ran"), "",
