@@ -224,3 +224,23 @@ def test_caller_feature_label_wins_in_the_python_runtime(rt):
                       content=json.dumps({"model": "claude-haiku-4-5", "max_tokens": 16, "messages": [{"role": "user", "content": "hi"}]}).encode())
     route = rt.plan_request(r, {})
     assert route and route[2].get("feature") == "composer"
+
+
+def test_a_hand_edited_policy_must_be_compiled(repo):
+    assert rm("start", ".", "--test-cmd", TEST_CMD, cwd=repo).returncode == 0
+    migrate(repo)
+    site = at(repo, "svc/direct.py", "chat.completions")
+    assert rm("adapt", site, "--drop", "seed", "--loses", "no fixed seed", "--why", "Router rejects seed", cwd=repo).returncode == 0
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "drop seed")
+    p = json.load(open(repo / "router.policy.json"))
+    p.setdefault("defaults", {})["metadata"] = {"product": "zoo"}
+    (repo / "router.policy.json").write_text(json.dumps(p))
+    git(repo, "commit", "-qam", "spend tags")
+    r = rm("finish", ".", "--no-dashboard", cwd=repo)
+    assert r.returncode == 1 and "[policy]" in r.stdout and "router-migrate policy" in r.stdout
+    assert rm("policy", cwd=repo).returncode == 0
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "compile policy")
+    r = rm("finish", ".", "--no-dashboard", cwd=repo)
+    assert r.returncode == 0, r.stdout

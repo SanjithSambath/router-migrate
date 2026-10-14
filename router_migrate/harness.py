@@ -132,6 +132,7 @@ def probe_live(root, a):
     led = AG.load_ledger(root) or {}
     srv, base, recs = live_proxy.serve()
     env = {k: v for k, v in os.environ.items() if not k.startswith("RAMP_ROUTER")}
+    env.update(DUMMY_KEYS)  # a request Router refuses must not fall through to a real provider account
     env.update({"RAMP_ROUTER_API_KEY": key, "RAMP_ROUTER_BASE_URL": base, "ROUTER_MIGRATE_FEATURE_TAG": "on",
                 "ROUTER_MIGRATE_DISABLE": "", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"})
     py = (led.get("baseline") or {}).get("python")
@@ -182,16 +183,10 @@ def _family(mid):
     return re.sub(r"-+", "-", re.sub(r"(?<![a-z])\d+(\.\d+)*[a-z]?(?=-|$)", "", m)).strip("-")
 
 
-LEVER_FACTS = """Router levers (where each applies; measured unless marked; see router_migrate/data/ROUTER.md):
-  model choice          any surface; the code names the model. A different model answers every request.
-  Flex (service_tier)   Responses surface only; on by default for the account; cheaper, slower (up to ~1 min measured).
-  fallbacks (models[])  Responses surface only; another model answers on a pre-answer failure; a request with a models
-                        list is served without Flex (measured).
-  prompt_cache_key      Responses surface; cache reads are billed at a fraction of input (see each model's cache price).
-  metadata / spend tags Responses surface; the feature label header goes on every Router request on any surface.
-  provider_timeout      Responses surface (Router-only field).
-  model_map / drop_params  router.policy.json, applied by the vendored runtime on any surface.
-  /v1/messages          Anthropic-shaped calls: model choice, feature labels, model_map apply; the Router-only fields don't."""
+LEVER_FACTS = """Router levers: model choice applies on every surface (the code names the model); Flex, fallbacks
+(a models list), prompt_cache_key, metadata and provider_timeout are Router fields on /v1/responses; on /v1/messages only
+the model, model_map/drop_params (router.policy.json, applied by the runtime) and the feature-label header apply. Every
+lever's measured behaviour, cost and interactions: router_migrate/data/ROUTER.md (read it before proposing)."""
 
 
 def cmd_levers(a):
@@ -329,6 +324,9 @@ def check_tree(root, led, tests=True, report=True):
         gone = []
     if gone:
         flags.append({"kind": "provider-key", "detail": "provider key reference(s) removed: %s" % ", ".join(gone), "files": []})
+    perr = policy_stale(root)
+    if perr:
+        fails.append({"gate": "policy", "detail": perr})
     if base.get("typecheck_cmd"):
         tc = AG.run_cmd(root, base["typecheck_cmd"])
         tb = base.get("typecheck_before") or {}
@@ -361,6 +359,39 @@ def check_tree(root, led, tests=True, report=True):
                     fails.append({"gate": "report", "detail": "items[%s].branch: branch %s does not exist" % (it["id"], b)})
     res["ok"] = not fails
     return res
+
+
+def policy_stale(root):
+    """Why router.policy.json and the compiled copies beside the runtime disagree, or None."""
+    from . import improve as imp, policy as pol
+    if not os.path.exists(os.path.join(root, pol.POLICY_FILE)):
+        return None
+    p, err = pol.load(root)
+    if err:
+        return "router.policy.json: %s" % err
+    want = pol.policy_hash(p)
+    for rt in imp.runtime_paths(root):
+        d = os.path.dirname(os.path.join(root, rt))
+        names = [pol.PY_NAME] if rt.endswith(".py") else ["routerPolicy.ts", "routerPolicy.js", "routerPolicy.mjs"]
+        got = [pol.compiled_hash(os.path.join(d, n)) for n in names if os.path.exists(os.path.join(d, n))]
+        if want not in got:
+            return "router.policy.json changed but the copy the runtime reads beside %s was not recompiled: run `router-migrate policy`" % rt
+    return None
+
+
+def cmd_policy(a):
+    """Compile router.policy.json into the policy files the vendored runtimes read (after a hand edit)."""
+    from . import improve as imp, policy as pol
+    root = AG.ledger_root(a.path)
+    p, err = pol.load(root)
+    if err or p is None:
+        return AG.err(False, err or "no router.policy.json", "the format is in router_migrate/data/ROUTER.md")
+    rts = imp.runtime_paths(root)
+    if not rts:
+        return AG.err(False, "no vendored runtime in this repo", "wrap a client first (the runtime reads the compiled policy)")
+    files = imp._compile_everywhere(root, p, rts)
+    print("policy %s compiled into: %s" % (pol.policy_hash(p)[:8], ", ".join(files)))
+    return 0
 
 
 def route_truth(root, led, doc, mig):
@@ -537,6 +568,7 @@ def setup(root, a):
         rows, led["check_error"] = [], str(e)[:300]
     secs = (b.get("before") or {}).get("seconds") if b.get("status") == "done" else None
     ctx = ["## This repository",
+           "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ROUTER.md"),
            "Base commit %s; you are on branch %s (commit your work here; improvements go on branches %s<name>)."
            % ((base or "")[:9], MIGRATION_BRANCH, R.IMPROVE_PREFIX),
            ("Test command: %s%s. The final check runs the full suite with Router on; how you test along the way is up to you."
@@ -845,6 +877,7 @@ def apply_done(root, a, runs=None):
     v = validate(root, led, tests="background" if slow else True)
     m = v["migration"]
     log = R.load(root, "apply_log.json", {"sessions": []})
+    log["sessions"] = [x for x in log.get("sessions") or [] if x.get("id") != pend["id"]]  # a re-run replaces the attempt
     sess = {"id": pend["id"], "started": pend["started"], "finished": time.strftime("%Y-%m-%dT%H:%M:%S"), "requests": pend["requests"],
             "summary": doc.get("summary"), "results": doc.get("results"), "head_before": pend.get("head"),
             "head_after": _g(root, "rev-parse", "HEAD"),
@@ -853,6 +886,11 @@ def apply_done(root, a, runs=None):
         sess["cost"] = {"usd": round(sum(r.get("usd") or 0 for r in runs), 4), "minutes": round(sum(r.get("minutes") or 0 for r in runs), 1)}
     log.setdefault("sessions", []).append(sess)
     R.save(root, "apply_log.json", log)
+    if not m["ok"]:  # the session stays open: fix in a new commit and run `apply --done` again
+        lines = ["apply %s: the check after the session FAILED; the session stays open. Fix the cause in a new commit, "
+                 "then run `router-migrate apply --done` again:" % pend["id"]]
+        lines += ["  [%s] %s" % (f["gate"], f["detail"][:500]) for f in m["failures"]]
+        return fail(lines)
     rq = R.load(root, "requests.json", {"requests": {}})
     for r in doc.get("results") or []:
         if r.get("item") in rq["requests"] and r.get("item") in pend["requests"]:
@@ -868,11 +906,8 @@ def apply_done(root, a, runs=None):
     _report_only(root, quiet=True)
     for r in doc.get("results") or []:
         msg.append("  %s %s: %s%s" % (r.get("action"), r.get("item"), r.get("status"), (" (%s)" % r["note"][:200]) if r.get("note") else ""))
-    print("apply %s: %d result(s); check %s%s\n%s" % (sess["id"], len(doc.get("results") or []), "passed" if m["ok"] else "FAILED",
-                                                    "" if m["ok"] else " (%s)" % ", ".join(f["gate"] for f in m["failures"]), "\n".join(msg)))
-    for f in m["failures"]:
-        print("  [%s] %s" % (f["gate"], f["detail"][:500]))
-    return 0 if m["ok"] else 1
+    print("apply %s: %d result(s); check passed\n%s" % (sess["id"], len(doc.get("results") or []), "\n".join(msg)))
+    return 0
 
 
 def _claude_logged_in():

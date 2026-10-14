@@ -19,6 +19,7 @@ Agent tools (run from the repository root; FILE:LINE accepts a comma-separated l
   router-migrate levers [MODEL|FILE:LINE]   Router levers, catalog prices and same-family models (live with a key), hints
   router-migrate wrap | unwrap FILE:LINE    exact codemods at a client construction (optional)
   router-migrate adapt FILE:LINE --LEVER --loses "..."   a policy trade-off: drop a parameter, map a model (optional)
+  router-migrate policy                     compile a hand-edited router.policy.json for the runtime
 
 Review (or use the dashboard):
   router-migrate dashboard [PATH]           REPORT.html + the live dashboard
@@ -342,7 +343,7 @@ def main(argv=None):
     s_st.add_argument("--json", action="store_true")
     # the v5 surface, in the order a user meets it; earlier pipelines stay runnable but unadvertised
     import re as _re
-    order = ["start", "finish", "run", "check", "levers", "wrap", "unwrap", "adapt", "dashboard", "request", "apply", "status"]
+    order = ["start", "finish", "run", "check", "levers", "wrap", "unwrap", "adapt", "policy", "dashboard", "request", "apply", "status"]
     acts = {x.dest: x for x in sub._choices_actions}
     for x in acts.values():
         x.help = _re.sub(r"^v\d( improve)?: ", "", x.help or "")
@@ -357,7 +358,7 @@ def main(argv=None):
         from . import harness
         return harness.cmd_apply(a)
     if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve", "start", "levers",
-                 "dashboard", "_baseline", "_validate", "request"):
+                 "dashboard", "_baseline", "_validate", "request", "policy"):
         from . import agent as agentmod
         if a.cmd != "run" or not getattr(a, "dry_run", False):
             return agentmod.dispatch(a)

@@ -1972,6 +1972,8 @@ def add_parsers(sub):
         s.add_argument("path")
         s.add_argument("--test-cmd")
         s.add_argument("--typecheck-cmd")
+    s = sub.add_parser("policy", help="compile router.policy.json into the policy files the vendored runtimes read (after a hand edit)")
+    s.add_argument("path", nargs="?", default=".")
     s = sub.add_parser("request", help="record what you want for an item: apply (an improvement), undo, dismiss, postpone (the "
                                        "dashboard does the same); `router-migrate apply` then hands the list to the agent")
     s.add_argument("item", help="item id from MIGRATION.json (shown on every dashboard card)")
@@ -2053,7 +2055,8 @@ def argparse_suppress():
 def dispatch(a):
     from . import harness
     v6 = {"start": harness.cmd_start, "levers": harness.cmd_levers, "dashboard": harness.cmd_dashboard,
-          "_baseline": harness.cmd_baseline, "_validate": harness.cmd_validate, "request": harness.cmd_request}
+          "_baseline": harness.cmd_baseline, "_validate": harness.cmd_validate, "request": harness.cmd_request,
+          "policy": harness.cmd_policy}
     if a.cmd in v6:
         return v6[a.cmd](a)
     if a.cmd == "finish" and (load_ledger(ledger_root(a.path)) or {}).get("version") == 6:

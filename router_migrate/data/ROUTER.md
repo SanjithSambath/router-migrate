@@ -284,8 +284,8 @@ Repo root, committed; adds Router fields per label to Router-bound requests only
 - Guards: `allow_flex_tier: true` is skipped for a model without Flex; fallback candidates that lack the request's tools,
   structured output, modalities or temperature support are dropped; `allow_flex_tier` is dropped when fallbacks apply.
 - The runtime reads a compiled copy beside itself (`router_policy.py`, `routerPolicy.ts`/`.js`/`.mjs`), not the JSON
-  file. `router-migrate adapt` writes and compiles both, and the CLI recompiles a hand-edited `router.policy.json` on
-  `check` and `finish`; confirm the effect with `check --run` (the simulator logs each Router request's fields).
+  file. `router-migrate adapt` writes and compiles both; after a hand edit run `router-migrate policy` (the outside check fails
+  on a stale compiled copy); confirm the effect with `check --run` (the simulator logs each Router request's fields).
 
 ## 11. Ways to put a call on Router
 
