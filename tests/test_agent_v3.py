@@ -79,12 +79,20 @@ def test_check_reports_facts_and_next(repo):
 
 def test_claim_requires_resolvable_evidence(repo):
     loc = at(repo, "svc/hidden.py", "completions.create")
-    r = rm("claim", loc, "flagged", "--why", "per-call key", cwd=repo)
+    r = rm("claim", loc, "flagged", "--reason", "R_PER_TENANT", "--why", "per-call key", cwd=repo)
     assert r.returncode == 1 and "evidence" in r.stdout
-    r = rm("claim", loc, "flagged", "--why", "per-call key", "--evidence", "svc/factory.py:999", cwd=repo)
+    r = rm("claim", loc, "flagged", "--reason", "R_PER_TENANT", "--why", "per-call key", "--evidence", "svc/factory.py:999", cwd=repo)
     assert r.returncode == 1 and "outside the file" in r.stdout
-    r = rm("claim", loc, "flagged", "--why", "key is a per-call parameter", "--evidence", at(repo, "svc/factory.py", "OpenAI("), cwd=repo)
+    r = rm("claim", loc, "--outcome", "flagged", "--reason", "R_PER_TENANT", "--why", "key is a per-call parameter", "--evidence", at(repo, "svc/factory.py", "OpenAI("), cwd=repo)
     assert r.returncode == 0, r.stdout
+
+
+def test_reason_code_required_and_trace(repo):
+    loc = at(repo, "svc/hidden.py", "completions.create")
+    r = rm("claim", loc, "--outcome", "kept", "--why", "x", "--evidence", "svc/factory.py:1", cwd=repo)
+    assert r.returncode == 1 and "R_OTHER_HOST" in r.stdout  # the error lists the codes
+    f = json.loads(rm("check", at(repo, "svc/direct.py", "completions.create"), "--json", cwd=repo).stdout)
+    assert f["verdict"] == "routes" and f["condition"] is None
 
 
 def test_facts_beat_claims(repo):
@@ -112,7 +120,7 @@ def test_finish_blocks_on_unresolved_worklist_and_hook_protocol(repo):
 def test_finish_scope_gate_and_revert_to_floor(repo):
     led = ledger(repo)
     for it in led["worklist"]:
-        rm("claim", "%s:%s" % (it["file"], it["line"]), "needs_human", "--why", "test", "--evidence", "%s:1" % it["file"], cwd=repo)
+        rm("claim", "%s:%s" % (it["file"], it["line"]), "needs_human", "--reason", "R_UNDECIDED", "--why", "test", "--evidence", "%s:1" % it["file"], cwd=repo)
     floor_direct = (repo / "svc/direct.py").read_text()
     (repo / "tests/test_basic.py").write_text("def test_imports():\n    pass\n")  # editing tests is out of scope
     for i in range(2):
@@ -128,7 +136,7 @@ def test_finish_scope_gate_and_revert_to_floor(repo):
 def test_finish_passes_and_confirms_static_claims(repo):
     led = ledger(repo)
     for it in led["worklist"]:
-        rm("claim", "%s:%s" % (it["file"], it["line"]), "flagged", "--why", "per-call key", "--evidence", at(repo, "svc/factory.py", "OpenAI("), cwd=repo)
+        rm("claim", "%s:%s" % (it["file"], it["line"]), "flagged", "--reason", "R_PER_TENANT", "--why", "per-call key", "--evidence", at(repo, "svc/factory.py", "OpenAI("), cwd=repo)
     loc = at(repo, "svc/direct.py", "completions.create")
     r = rm("claim", loc, "migrated", "--why", "wrapped client, default endpoint", "--evidence", at(repo, "svc/direct.py", "OpenAI()"), cwd=repo)
     assert r.returncode == 0

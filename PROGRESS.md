@@ -152,3 +152,14 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   Done when: arm A ran on all 10 repos (0/10 broken; 20 moved, 11 correct per inventory) and a headless arm C dry run on
   llmcord went through check/claim/finish with the Stop hook ($0.27, 1.3 min). The prompt is frozen from here: the dry
   run's one judgment error (llmcord's user-defined provider map, rule 2) was not tuned away.
+- **Spec alignment (SPEC_V3 section 5, which I had not read when T1-T5 started: the committed spec was a newer revision)**:
+  - T1 per spec: `check` agrees with plan.py on **170 of 170** dev sites and the dev set still migrates **48**
+    (eval/v3/check_agreement.py -> check_agreement.json). This found a third oracle bug: the vendored runtime's embedded
+    catalog counted as the repo's model names after the floor.
+  - Three-valued trace on `check` (`routes` / `wont_route` / `routes_if` + condition); unsettled `routes_if` sites are
+    reported `conditional`. Enumerated reason codes on `claim --outcome O --reason R_...`.
+  - `router-migrate run PATH --agent claude`: floor, then the agent headless with our prompt, tools limited to reading,
+    editing and router-migrate, a Stop hook from a temp settings file (nothing written to the repo's .claude/), then finish.
+  - REPORT.html / dashboard: an "Agent ledger" table (origin, outcome, reason code, what the tool says, evidence, why, cost).
+  - Harness: arm C goes through `run --agent claude`; independent breakage check the agent never sees (import smoke of
+    changed modules vs pristine, held-back replay against router-sim); `rescore` re-scores trial copies without re-running agents.

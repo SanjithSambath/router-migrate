@@ -314,7 +314,14 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
                  unlocked=s["id"] in unlocks["sites"], chips=[])
         sites.append(x)
     status_report, ok = status(root)
-    return {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root),
+    led = load(root, "ledger.json")  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
+    ledger = None
+    if led:
+        ledger = {"claims": [dict(c, key=k) for k, c in sorted((led.get("claims") or {}).items())], "worklist": led.get("worklist") or [],
+                  "result": led.get("result"), "cost": led.get("cost") or {},
+                  "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
+                             "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
+    return {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),

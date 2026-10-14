@@ -26,6 +26,22 @@ from .catalog import Catalog
 
 STATE = ".router-migrate"
 OUTCOMES = ("migrated", "kept", "flagged", "handoff", "needs_human", "not_a_site")
+REASON_CODES = {  # enumerated reasons for every outcome other than migrated (free text goes in --why)
+    "R_NO_ENDPOINT": "Router has no endpoint for this surface (embeddings, images, audio, files, moderation, legacy completions)",
+    "R_OTHER_HOST": "the request goes to another vendor's endpoint in production (incl. a user-defined provider list)",
+    "R_PER_TENANT": "the API key is per user / tenant / session",
+    "R_STATEFUL": "stateful Responses use or provider-side files",
+    "R_BETA": "Anthropic beta features",
+    "R_MODEL_NOT_IN_CATALOG": "the model is not a Router catalog id",
+    "R_DEAD_CODE": "unreachable or unused code",
+    "R_NOT_PRODUCTION": "tests, examples, scripts, eval harnesses, docs, templates, or not an LLM call",
+    "R_RAW_REQUESTS": "raw HTTP to OpenAI/Anthropic that needs a code change (no runtime adapter for this client)",
+    "R_OTHER_GATEWAY": "another LLM gateway (Vercel AI Gateway, LiteLLM proxy, ...)",
+    "R_OTHER_VENDOR_SDK": "another vendor's SDK whose model is in Router's catalog (needs a port or BYOK)",
+    "R_BYOK_REQUIRED": "Router serves the model only with the customer's own provider key",
+    "R_UNDECIDED": "the code doesn't settle it; say what a human needs to check",
+    "R_GATE_FAILED": "the edit failed the gate and was reverted",
+}
 SRC_EXT = (".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", ".next", "dist", "build", "out", "coverage", STATE,
              ".tox", ".mypy_cache", ".pytest_cache", "site-packages", ".turbo", ".cache"}
@@ -149,12 +165,28 @@ def _scan(root):
             sites += cli.run_ts(["scan", root]).get("sites", [])
         except Exception:
             pass
-    return {"sites": sites}
+    return {"sites": sites, "root": root}  # root lets the planner read the repo's model literals, exactly as plan.json does
 
 
 def current_plan(root):
     """The planner's verdict on the code as it stands (measure_only: router-migrate wraps count only where present)."""
-    return planmod.build(_scan(root), Catalog.load(), measure_only=True)
+    sc = _scan(root)
+    p = planmod.build(sc, Catalog.load(), measure_only=True)
+    p["clients"] = {s["id"]: s for s in sc["sites"] if s["kind"] == "client"}
+    return p
+
+
+def trace(s, clients):
+    """Three-valued: routes | wont_route | routes_if (routing depends on a runtime value; the condition is stated)."""
+    if s["outcome"] != "migrated":
+        return "wont_route", None
+    if "migrated when the configured client is" in s["reason"]:
+        return "routes_if", "the configured client is the OpenAI/Anthropic one (%s)" % s["reason"].split(";")[0].replace("migrated when the configured client is ", "")
+    c = clients.get(s.get("via_client") or s.get("client_id") or "") or {}
+    bu = c.get("base_url") or s.get("base_url")
+    if bu and not (bu.get("static") and bu.get("value")):
+        return "routes_if", "base URL `%s` is unset or the vendor's endpoint in production" % (bu.get("value") or "from config")
+    return "routes", None
 
 
 def site_at(sites, rel, line, slack=3):
@@ -171,9 +203,10 @@ def facts_for(root, rel, line, p=None):
         return {"found": False, "file": rel, "line": line, "routes": None,
                 "why": "the scanner sees no LLM call at %s:%d (nearest sites in this file: %s)" % (
                     rel, line, ", ".join(str(x["line"]) for x in p["sites"] if x["file"] == rel)[:120] or "none")}
+    verdict, cond = trace(s, p.get("clients") or {})
     f = {"found": True, "site": s["id"], "file": s["file"], "line": s["line"], "kind": s["kind"], "sdk": s["sdk"], "surface": s["surface"],
          "model": s.get("model"), "base_url": s.get("base_url"), "outcome": s["outcome"], "reason": s["reason"],
-         "routes": s["outcome"] == "migrated", "client": s.get("via_client") or s.get("client_id")}
+         "routes": s["outcome"] == "migrated", "verdict": verdict, "condition": cond, "client": s.get("via_client") or s.get("client_id")}
     del clients
     return f
 
@@ -183,8 +216,11 @@ def next_for(root, f, p=None):
     if not f.get("found"):
         return ("if this is a real LLM call the scanner misses, decide its outcome and `claim` it with evidence; a migrated claim "
                 "here is confirmed only if `finish`'s Router-on test run sees a request from it")
+    if f["routes"] and f.get("verdict") == "routes_if":
+        return ("routes only if %s: read the config, env examples and docs; claim `migrated` citing the line that settles it, or the "
+                "outcome that applies (e.g. `kept --reason R_OTHER_HOST`); unclaimed, it is reported as conditional" % f["condition"])
     if f["routes"]:
-        return "routes: claim it (`router-migrate claim %s:%s migrated --why ... --evidence FILE:LINE`)" % (f["file"], f["line"])
+        return "routes: claim it (`router-migrate claim %s:%s --outcome migrated --why ... --evidence FILE:LINE`)" % (f["file"], f["line"])
     reason = f["reason"]
     p = p or current_plan(root)
     if "constructed outside this repo or not resolvable" in reason or "not resolved statically" in reason or "could not be patched" in reason:
@@ -255,9 +291,9 @@ def worklist(root, p, hs):
             why = s["outcome"] + ": " + s["reason"]
         elif s["outcome"] == "migrated":
             c = clients.get(s.get("via_client") or s.get("client_id") or "") or {}
-            bu = c.get("base_url") or s.get("base_url")
-            if bu and not (bu.get("static") and bu.get("value")):
-                why = "migrated only if the configured base URL is OpenAI/Anthropic in production: confirm where it points"
+            verdict, cond = trace(s, clients)
+            if verdict == "routes_if":
+                why = "routes_if: %s; settle the condition with evidence or it is reported as conditional" % cond
             elif (c.get("api_key") or {}).get("static") is False and (c.get("api_key") or {}).get("value") is None and c.get("api_key"):
                 why = "migrated, but the API key comes from code the tool can't follow: confirm it is the operator's key, not a user's"
         elif s["outcome"] == "kept" and ("not resolved statically" in s["reason"] or "config-driven" in s["reason"]):
@@ -292,7 +328,8 @@ def cmd_run(a):
         for it in wl:
             lines.append("  %-4s %s %s:%s  %s  -- %s" % (it["id"], " " if it in left else "x", it["file"], it["line"], it["what"], it["why"][:150]))
         lines.append("next: `check` / `wrap` / `claim` each open item, look for LLM calls the scanner missed, then `router-migrate finish`")
-        return out({"ok": True, "worklist": wl, "open": [it["id"] for it in left]}, a.json, "\n".join(lines))
+        rc = out({"ok": True, "worklist": wl, "open": [it["id"] for it in left]}, a.json, "\n".join(lines))
+        return _run_agent_then_gate(root, a) if getattr(a, "agent", None) else rc
     t0 = time.time()
     typecheck_before = run_cmd(root, a.typecheck_cmd) if getattr(a, "typecheck_cmd", None) else None
     cli.do_scan(root, quiet=True)
@@ -328,7 +365,71 @@ def cmd_run(a):
         lines.append("  %-4s %s:%s  %s  -- %s" % (it["id"], it["file"], it["line"], it["what"], it["why"][:150]))
     lines.append("next: for each item read the code, then `router-migrate check FILE:LINE`; `wrap` client constructions the floor missed; "
                  "`claim` every item; then `router-migrate finish`")
-    return out({"ok": True, "summary": sm, "worklist": wl, "baseline": led["baseline"]}, a.json, "\n".join(lines))
+    rc = out({"ok": True, "summary": sm, "worklist": wl, "baseline": led["baseline"]}, a.json, "\n".join(lines))
+    return _run_agent_then_gate(root, a) if getattr(a, "agent", None) else rc
+
+
+AGENT_TOOLS = ("Read,Grep,Glob,Edit,MultiEdit,TodoWrite,Task,Bash(router-migrate:*),Bash(git diff:*),Bash(git status:*),Bash(git log:*),"
+               "Bash(ls:*),Bash(rg:*),Bash(grep:*),Bash(find:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sed -n:*),Bash(wc:*)")
+
+
+def launch_agent(root, agent="claude", model=None, timeout=2700, max_turns=250):
+    """Run the coding agent headless on the residue: our prompt, a Stop hook that runs `finish`, tools limited to reading,
+    editing and router-migrate. Nothing is written into the repo's .claude/ (settings come from a temp file).
+    Returns {exit, usd, turns, minutes, transcript}."""
+    if agent != "claude":
+        raise SystemExit("only --agent claude is supported in Track 1 (Codex: follow AGENTS.md; `finish` is the gate)")
+    here = os.path.dirname(os.path.abspath(__file__))
+    rm_bin = os.path.join(os.path.dirname(here), "bin")
+    prompt = open(os.environ.get("ROUTER_MIGRATE_PROMPT") or os.path.join(here, "prompts", "migrate.md")).read() + \
+        "\n\nThe floor has already been applied in this repository; start with `router-migrate run .`.\n"
+    tmp = tempfile.mkdtemp(prefix="router-migrate-agent-")
+    settings = os.path.join(tmp, "settings.json")
+    json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "timeout": 1800,
+                                               "command": "%s finish %s --hook" % (os.path.join(rm_bin, "router-migrate"), json.dumps(root))}]}]}},
+              open(settings, "w"))
+    cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--settings", settings,
+           "--allowedTools", AGENT_TOOLS, "--max-turns", str(max_turns)]
+    if model:
+        cmd += ["--model", model]
+    env = dict(os.environ)
+    env.pop("RAMP_ROUTER_API_KEY", None)  # the migration needs no live key; finish's Router-on run uses router-sim
+    env["PATH"] = rm_bin + os.pathsep + env.get("PATH", "")
+    log = sp(root, "agent_transcript.jsonl")
+    t = time.time()
+    with open(log, "w") as fh:
+        try:
+            code = subprocess.run(cmd, cwd=root, env=env, stdout=fh, stderr=subprocess.STDOUT, text=True, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            code = "timeout"
+    res = {}
+    for line in open(log, encoding="utf-8", errors="replace"):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") == "result":
+            res = ev
+    return {"exit": code, "usd": res.get("total_cost_usd"), "turns": res.get("num_turns"), "minutes": round((time.time() - t) / 60, 1),
+            "model": list((res.get("modelUsage") or {}).keys()), "final": (res.get("result") or "")[:4000],
+            "terminal_reason": res.get("terminal_reason"), "transcript": log}
+
+
+def _run_agent_then_gate(root, a):
+    info = launch_agent(root, a.agent, getattr(a, "model", None), getattr(a, "agent_timeout", 2700))
+    led = load_ledger(root)
+    led.setdefault("cost", {})
+    led["cost"].update({"agent_usd": info["usd"], "agent_minutes": info["minutes"], "agent_turns": info["turns"], "agent_model": info["model"],
+                        "agent_exit": info["exit"]})
+    save_ledger(root, led)
+    fa = argparse_ns(path=root, hook=False, max_attempts=3, json=False)
+    print("agent: %s, %s turns, %.1f min, $%s" % (info["exit"], info["turns"], info["minutes"], info["usd"]))
+    return cmd_finish(fa)
+
+
+def argparse_ns(**kw):
+    import argparse
+    return argparse.Namespace(**kw)
 
 
 def cmd_check(a):
@@ -371,6 +472,9 @@ def cmd_wrap(a):
     if rel.endswith(".py"):
         opts = {"responses": False} if a.stateful else None
         installs = set()
+        mods = [x for x in sites if x["file"] == rel and x["kind"] == "module_client" and x["sdk"] in ("litellm", "openai")]
+        if not c and mods:
+            c = mods[:1]  # module-level usage (litellm.completion / openai.ChatCompletion): the file gets the install hook
         if c and c[0]["kind"] == "module_client":
             installs = {"install_litellm" if c[0]["sdk"] == "litellm" else "install_openai_module"}
             targets = {}
@@ -425,8 +529,12 @@ def cmd_claim(a):
         return err(a.json, "no ledger", "run `router-migrate run .` first")
     if not rel or not os.path.exists(os.path.join(root, rel)):
         return err(a.json, "expected an existing FILE:LINE, got %r" % a.loc, "use the line where the call or construction starts")
+    a.outcome = a.outcome or a.outcome_pos
     if a.outcome not in OUTCOMES:
-        return err(a.json, "outcome must be one of %s" % ", ".join(OUTCOMES), "pick the outcome the rubric in your instructions gives")
+        return err(a.json, "--outcome must be one of %s" % ", ".join(OUTCOMES), "pick the outcome the rules in your instructions give")
+    if a.outcome != "migrated" and a.reason not in REASON_CODES:
+        return err(a.json, "--reason must be one of the codes for a %s claim (got %r)" % (a.outcome, a.reason),
+                   "codes: " + "; ".join("%s = %s" % kv for kv in REASON_CODES.items()))
     if not a.why:
         return err(a.json, "--why is required", "say in one sentence why, citing what you read")
     ev = []
@@ -454,7 +562,8 @@ def cmd_claim(a):
         confirmed = "static" if f["found"] else None  # unseen by the scanner: finish's Router-on run must see it
     key = "%s:%d" % (f["file"] if f.get("found") else rel, int(f["line"]) if f.get("found") else line)
     led["claims"][key] = {"file": f["file"] if f.get("found") else rel, "line": int(f["line"]) if f.get("found") else line,
-                          "outcome": a.outcome, "why": a.why, "evidence": ev, "tool_outcome": f.get("outcome"), "tool_reason": f.get("reason"),
+                          "outcome": a.outcome, "reason_code": a.reason if a.outcome != "migrated" else None, "why": a.why, "evidence": ev,
+                          "tool_outcome": f.get("outcome"), "tool_reason": f.get("reason"), "verdict": f.get("verdict"), "condition": f.get("condition"),
                           "origin": "scanner" if f["found"] else "agent", "confirmed": confirmed, "by": "agent",
                           "feature": _feature(root, rel, line), "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     save_ledger(root, led)
@@ -628,12 +737,13 @@ def cmd_finish(a):
             restore(root, led["floor"]["tree"], keep_rt)
             for c in led["claims"].values():
                 if c["outcome"] == "migrated" and c.get("tool_outcome") != "migrated" or c.get("origin") == "agent" and c["outcome"] == "migrated":
-                    c["outcome"], c["why"] = "needs_human", "reverted after %d failed gate runs: " % fin["attempts"] + c["why"]
+                    c["outcome"], c["reason_code"] = "needs_human", "R_GATE_FAILED"
+                    c["why"] = "reverted after %d failed gate runs: " % fin["attempts"] + c["why"]
             fin["reverted"] = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": [pth for _, pth in keep_rt], "last_failures": fails}
             msg_extra = "reverted your edits to the floor after %d failed gate runs (%s); sites you changed are now needs_human" % (
                 fin["attempts"], ", ".join(sorted({f["gate"] for f in hard})))
         for it in [it for it in led.get("worklist", []) if not resolved(led, it)]:
-            led["claims"]["%s:%s" % (it["file"], it["line"])] = {"file": it["file"], "line": it["line"], "outcome": "needs_human",
+            led["claims"]["%s:%s" % (it["file"], it["line"])] = {"file": it["file"], "line": it["line"], "outcome": "needs_human", "reason_code": "R_UNDECIDED",
                                                                  "why": "unresolved when the gate attempts ran out", "evidence": [], "by": "finish",
                                                                  "origin": "scanner" if it["type"] == "site" else "hotspot", "confirmed": None}
         ok, fails = True, []
@@ -650,7 +760,10 @@ def summarize(led, p):
         by[c["outcome"]] = by.get(c["outcome"], 0) + 1
     floor_ids = {"%s:%s" % (s["file"], s["line"]) for s in p["sites"] if s["outcome"] == "migrated" and s.get("prod")}
     agent_moved = [c for c in cl if c["outcome"] == "migrated" and c.get("confirmed") in ("static", "dynamic")]
-    return {"migrated_static": len(floor_ids), "claims": by, "migrated_confirmed_claims": len(agent_moved),
+    claimed = {(c["file"], int(c["line"])) for c in cl}
+    conditional = [s for s in p["sites"] if s.get("prod") and s["outcome"] == "migrated" and trace(s, p.get("clients") or {})[0] == "routes_if"
+                   and not any(f == s["file"] and abs(l - int(s["line"])) <= 3 for f, l in claimed)]
+    return {"migrated_static": len(floor_ids), "conditional_unresolved": len(conditional), "claims": by, "migrated_confirmed_claims": len(agent_moved),
             "migrated_unconfirmed_claims": sum(1 for c in cl if c["outcome"] == "migrated" and c.get("confirmed") == "unconfirmed"),
             "overridden_to_not_migrated": sum(1 for c in cl if c.get("tool_outcome") == "migrated" and c["outcome"] != "migrated")}
 
@@ -689,7 +802,9 @@ def add_parsers(sub):
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("claim", help="v3: record an outcome for a site or hotspot with evidence (facts beat claims)")
     s.add_argument("loc", help="FILE:LINE")
-    s.add_argument("outcome", choices=OUTCOMES)
+    s.add_argument("outcome_pos", nargs="?", choices=OUTCOMES, metavar="OUTCOME", help="same as --outcome")
+    s.add_argument("--outcome", choices=OUTCOMES)
+    s.add_argument("--reason", help="reason code, required unless the outcome is migrated: " + ", ".join(REASON_CODES))
     s.add_argument("--why", required=False)
     s.add_argument("--evidence", action="append", help="FILE:LINE that justifies the outcome (repeatable or comma-separated)")
     s.add_argument("--path", default=".")

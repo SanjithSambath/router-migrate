@@ -481,6 +481,33 @@ details.more > summary:hover { color: var(--text); }
       h.push('<tr class="' + r.t + '"><td class="n">' + (r.o != null ? r.o : "") + '</td><td class="n">' + (r.n != null ? r.n : "") + '</td><td class="c">' + esc(r.c) + "</td></tr>");
     });
     h.push("</tbody></table></div>");
+    h.push(ledgerHtml());
+    return h.join("");
+  }
+
+  // v3: the agent's ledger (claims with evidence, provenance, trace, gate result)
+  function ledgerHtml() {
+    var L = B && B.ledger;
+    if (!L) return "";
+    var r = obj(L.result), c = obj(L.cost), f = obj(L.finish), claims = arr(L.claims);
+    var h = ['<h2 style="margin-top:32px">Agent ledger</h2><div class="meta" style="margin:4px 0 12px">' + dotsep([
+      '<span class="num">' + fmtInt(claims.length) + "</span> claims",
+      '<span class="num">' + fmtInt(r.migrated_confirmed_claims || 0) + "</span> migrated (tool-confirmed)",
+      '<span class="num">' + fmtInt(r.migrated_unconfirmed_claims || 0) + "</span> unconfirmed",
+      '<span class="num">' + fmtInt(r.conditional_unresolved || 0) + "</span> conditional",
+      '<span class="num">' + fmtInt(r.overridden_to_not_migrated || 0) + "</span> overridden to not migrated",
+      "finish " + (f.last_ok ? "passed" : "not passed") + (f.reverted ? " (agent edits reverted to the floor)" : ""),
+      c.agent_usd != null ? "agent $" + Number(c.agent_usd).toFixed(2) + (c.agent_minutes != null ? " · " + c.agent_minutes + " min" : "") : "no agent run"]) + "</div>"];
+    if (!claims.length) { h.push('<div class="pane empty">No claims recorded.</div>'); return h.join(""); }
+    h.push('<div class="tbl-wrap"><table><thead><tr><th>Site</th><th>Origin</th><th>Outcome</th><th>Reason</th><th>Tool says</th><th>Evidence</th><th>Why</th></tr></thead><tbody>');
+    claims.forEach(function (x) {
+      var tool = x.verdict ? x.verdict + (x.condition ? ": " + x.condition : "") : (x.tool_outcome || "not seen by the scanner");
+      h.push('<tr><td class="site">' + pathHtml(x.file) + '<span class="ln">:' + esc(x.line) + "</span></td><td>" + esc(x.origin || "") +
+        (x.confirmed ? '<div class="meta">' + esc(x.confirmed) + "</div>" : "") + '</td><td class="nw"><span class="pill ' + (OUTCOME_CLS[x.outcome] || "") + '">' +
+        esc(x.outcome) + '</span></td><td class="mono nw">' + esc(x.reason_code || "") + '</td><td class="reason">' + esc(tool) + '</td><td class="mono">' +
+        arr(x.evidence).map(esc).join("<br>") + '</td><td class="reason">' + esc(x.why || "") + "</td></tr>");
+    });
+    h.push("</tbody></table></div>");
     return h.join("");
   }
   function changeBlock(diff) {
@@ -700,7 +727,7 @@ details.more > summary:hover { color: var(--text); }
       return '<button type="button" data-act="filter" data-v="' + o + '" aria-pressed="' + (S.filter === o) + '">' + esc(o === "all" ? "All" : o.charAt(0).toUpperCase() + o.slice(1)) +
         ' <span class="num">' + fmtInt(cnt[o]) + "</span></button>";
     }).join("") + '</div><input class="input" id="site-q" type="search" placeholder="Filter by file, SDK or reason" value="' + esc(S.q) + '" style="flex:1;max-width:320px"></div>');
-    if (!list.length) { h.push('<div class="pane empty">No sites match.</div>'); return h.join(""); }
+    if (!list.length) { h.push('<div class="pane empty">No sites match.</div>'); h.push(ledgerHtml()); return h.join(""); }
     var anyChips = all.some(function (s) { return arr(s.chips).length; });
     h.push('<div class="tbl-wrap"><table><thead><tr><th>Site</th><th>SDK · surface</th><th>Model</th><th>Outcome</th><th>Reason</th>' + (anyChips ? "<th>Params</th>" : "") + '<th><span class="sr">Diff</span></th></tr></thead><tbody>');
     list.forEach(function (s) {
@@ -710,6 +737,33 @@ details.more > summary:hover { color: var(--text); }
         '<td class="nw"><span class="pill ' + (OUTCOME_CLS[s.outcome] || "") + '">' + esc(s.outcome || "–") + "</span></td>" +
         '<td class="reason">' + esc(s.reason || "") + "</td>" + (anyChips ? "<td>" + (arr(s.chips).length ? '<div class="chips">' + arr(s.chips).map(chipHtml).join("") + "</div>" : '<span class="meta">–</span>') + "</td>" : "") +
         '<td class="nw">' + (f ? '<button class="btn" type="button" data-act="drawer" data-file="' + esc(s.file) + '">Diff <span class="stat-add">+' + f.add + '</span> <span class="stat-del">−' + f.del + "</span></button>" : "") + "</td></tr>");
+    });
+    h.push("</tbody></table></div>");
+    h.push(ledgerHtml());
+    return h.join("");
+  }
+
+  // v3: the agent's ledger (claims with evidence, provenance, trace, gate result)
+  function ledgerHtml() {
+    var L = B && B.ledger;
+    if (!L) return "";
+    var r = obj(L.result), c = obj(L.cost), f = obj(L.finish), claims = arr(L.claims);
+    var h = ['<h2 style="margin-top:32px">Agent ledger</h2><div class="meta" style="margin:4px 0 12px">' + dotsep([
+      '<span class="num">' + fmtInt(claims.length) + "</span> claims",
+      '<span class="num">' + fmtInt(r.migrated_confirmed_claims || 0) + "</span> migrated (tool-confirmed)",
+      '<span class="num">' + fmtInt(r.migrated_unconfirmed_claims || 0) + "</span> unconfirmed",
+      '<span class="num">' + fmtInt(r.conditional_unresolved || 0) + "</span> conditional",
+      '<span class="num">' + fmtInt(r.overridden_to_not_migrated || 0) + "</span> overridden to not migrated",
+      "finish " + (f.last_ok ? "passed" : "not passed") + (f.reverted ? " (agent edits reverted to the floor)" : ""),
+      c.agent_usd != null ? "agent $" + Number(c.agent_usd).toFixed(2) + (c.agent_minutes != null ? " · " + c.agent_minutes + " min" : "") : "no agent run"]) + "</div>"];
+    if (!claims.length) { h.push('<div class="pane empty">No claims recorded.</div>'); return h.join(""); }
+    h.push('<div class="tbl-wrap"><table><thead><tr><th>Site</th><th>Origin</th><th>Outcome</th><th>Reason</th><th>Tool says</th><th>Evidence</th><th>Why</th></tr></thead><tbody>');
+    claims.forEach(function (x) {
+      var tool = x.verdict ? x.verdict + (x.condition ? ": " + x.condition : "") : (x.tool_outcome || "not seen by the scanner");
+      h.push('<tr><td class="site">' + pathHtml(x.file) + '<span class="ln">:' + esc(x.line) + "</span></td><td>" + esc(x.origin || "") +
+        (x.confirmed ? '<div class="meta">' + esc(x.confirmed) + "</div>" : "") + '</td><td class="nw"><span class="pill ' + (OUTCOME_CLS[x.outcome] || "") + '">' +
+        esc(x.outcome) + '</span></td><td class="mono nw">' + esc(x.reason_code || "") + '</td><td class="reason">' + esc(tool) + '</td><td class="mono">' +
+        arr(x.evidence).map(esc).join("<br>") + '</td><td class="reason">' + esc(x.why || "") + "</td></tr>");
     });
     h.push("</tbody></table></div>");
     return h.join("");

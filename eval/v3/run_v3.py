@@ -119,7 +119,7 @@ def measure(dst, name):
             sites += cli.run_ts(["scan", dst]).get("sites", [])
         except Exception:
             pass
-    p = planmod.build({"sites": sites}, Catalog.load(), measure_only=True)
+    p = planmod.build({"sites": sites, "root": dst}, Catalog.load(), measure_only=True)
     pristine = os.path.join(RE.WORK, "pristine", name)
     maps = {}
     out = []
@@ -263,8 +263,9 @@ def run_agent(dst, prompt, settings, out_dir):
 
 
 def trial(arm, name):
+    """Run one arm on one repo (the expensive part), then score it."""
     rec = recipe(name)
-    base = baseline(name)
+    baseline(name)
     out_dir = os.path.join(RUNS, arm, name)
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir, exist_ok=True)
@@ -279,10 +280,25 @@ def trial(arm, name):
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         sh("cp -cR %s %s 2>/dev/null || cp -R %s %s" % ((shlex.quote(a_dir), shlex.quote(dst)) * 2))
         _reinstall(rec, dst)
-        prompt = open(os.path.join(ROOT, "router_migrate", "prompts", "migrate.md")).read()
-        prompt += "\n\nThe floor has already been applied in this copy; start with `router-migrate run .`.\n"
-        settings = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "%s finish %s --hook" % (RM, shlex.quote(dst)), "timeout": 1800}]}]}}
-        agent, wall = run_agent(dst, prompt, settings, out_dir)
+        # the product path: `router-migrate run --agent claude` (floor already in place, so run only launches the agent + gate)
+        cmd = [RM, "run", dst, "--agent", "claude", "--agent-timeout", str(AGENT_TIMEOUT)] + (["--model", MODEL] if MODEL else [])
+        p = subprocess.run(cmd, env=agent_env(), capture_output=True, text=True, timeout=AGENT_TIMEOUT + 3600)
+        open(os.path.join(out_dir, "run_agent.log"), "w").write((p.stdout or "")[-20000:] + (p.stderr or "")[-5000:])
+        L = json.load(open(os.path.join(dst, ".router-migrate", "ledger.json")))
+        cost = L.get("cost") or {}
+        tr = os.path.join(dst, ".router-migrate", "agent_transcript.jsonl")
+        final = ""
+        if os.path.exists(tr):
+            for line in open(tr, encoding="utf-8", errors="replace"):
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("type") == "result":
+                    final = (ev.get("result") or "")[:4000]
+            shutil.move(tr, os.path.join(out_dir, "transcript.jsonl"))
+        agent = {"exit": cost.get("agent_exit"), "usd": cost.get("agent_usd"), "turns": cost.get("agent_turns"), "model": cost.get("agent_model"),
+                 "final": final, "finish_exit": p.returncode}
     else:
         dst, rec = fresh_copy(name, arm)
         if arm == "A":
@@ -301,18 +317,94 @@ def trial(arm, name):
                 "{SIM_CMD}", "%s %s %s %s" % (os.path.join(ROOT, ".venv", "bin", "python"), os.path.join(HERE, "sim_test.py"), shlex.quote(dst),
                                              shlex.quote(test_cmd(rec, dst))))
             agent, wall = run_agent(dst, prompt, None, out_dir)
-    minutes = (time.time() - t0) / 60
-    # ---- score
+    json.dump({"agent": agent, "minutes": round((time.time() - t0) / 60, 1)}, open(os.path.join(out_dir, "agent.json"), "w"), indent=1, default=str)
+    return score_trial(arm, name)
+
+
+def independent_check(name, dst, rec):
+    """Breakage checks the agent's gate never runs: (1) import smoke of every production Python module the arm changed,
+    compared with the same import on the pristine source; `node --check` on changed JS files; (2) held-back replay: every
+    site the code now routes, rebuilt from its literal arguments and sent through the vendored runtime to router-sim."""
+    pristine = os.path.join(RE.WORK, "pristine", name)
+    py = os.path.join(RE.WORK, "envs", name, "bin", "python")
+    changed = subprocess.run("git diff --name-only $(git rev-list --max-parents=0 HEAD) -- . ; git ls-files --others --exclude-standard",
+                             cwd=dst, shell=True, capture_output=True, text=True).stdout.split()
+    changed = sorted({f for f in changed if scan_py.is_prod(f) and not f.startswith(".router-migrate") and
+                      not os.path.basename(f) in ("router_runtime.py", "router_policy.py", "routerRuntime.ts")})
+    env = dict(os.environ, OPENAI_API_KEY="sk-dummy", ANTHROPIC_API_KEY="sk-ant-dummy", GROQ_API_KEY="x", DEEPSEEK_API_KEY="x",
+               TELEGRAM_BOT_TOKEN="x", DISCORD_BOT_TOKEN="x", PYTHONDONTWRITEBYTECODE="1")
+    env.pop("RAMP_ROUTER_API_KEY", None)
+    regressed, checked = [], 0
+    for f in changed:
+        if f.endswith(".py") and os.path.exists(os.path.join(dst, f)) and os.path.exists(py):
+            root_dir, mod = _module_of(dst, f)
+            prog = "import importlib, sys; sys.path.insert(0, %r); importlib.import_module(%r)"
+            res = []
+            for base in (dst, pristine):
+                if not os.path.exists(os.path.join(base, f)):
+                    res.append(True)
+                    continue
+                rd = os.path.join(base, os.path.relpath(root_dir, dst))
+                try:
+                    r = subprocess.run([py, "-c", prog % (rd, mod)], cwd=rd, env=env, capture_output=True, text=True, timeout=90)
+                    res.append(r.returncode == 0)
+                except subprocess.TimeoutExpired:
+                    res.append(None)
+            checked += 1
+            if res[0] is False and res[1] is True:
+                regressed.append({"file": f, "check": "import"})
+        elif f.endswith((".js", ".mjs", ".cjs")) and os.path.exists(os.path.join(dst, f)):
+            checked += 1
+            if subprocess.run(["node", "--check", os.path.join(dst, f)], capture_output=True).returncode:
+                regressed.append({"file": f, "check": "node --check"})
+    # held-back replay through the vendored runtime against router-sim
+    from router_migrate import verify as V
+    from router_migrate.sim.server import serve
+    replay = None
+    try:
+        scan = scan_py.scan(dst)
+        p = planmod.build({"sites": scan["sites"], "root": dst}, Catalog.load(), measure_only=True)
+        srv, sim, base = serve()
+        try:
+            replay = V.replay(p, base, V.SIM_KEY, Catalog.load())
+        finally:
+            srv.shutdown()
+        replay = {"unique_requests": replay.get("unique_requests"), "ok": replay.get("ok"), "invalid": (replay.get("invalid") or [])[:5]}
+    except Exception as e:
+        replay = {"error": str(e)[:300]}
+    bad_replay = bool(replay and replay.get("unique_requests") and (replay.get("ok") or 0) < replay["unique_requests"])
+    return {"import_smoke": {"checked": checked, "regressed": regressed}, "replay": replay, "broken": bool(regressed) or bad_replay}
+
+
+def _module_of(root, rel):
+    parts = rel[:-3].split("/")
+    i = len(parts) - 1
+    while i > 0 and os.path.exists(os.path.join(root, *parts[:i], "__init__.py")):
+        i -= 1
+    return os.path.join(root, *parts[:i]) if i else root, ".".join(parts[i:])
+
+
+def score_trial(arm, name):
+    """Score an existing trial copy (re-runnable with `rescore` when the scorer changes; the agent is not re-run)."""
+    rec = recipe(name)
+    base = baseline(name)
+    out_dir = os.path.join(RUNS, arm, name)
+    dst = os.path.join(TRIALS, arm, name)
+    meta = json.load(open(os.path.join(out_dir, "agent.json"))) if os.path.exists(os.path.join(out_dir, "agent.json")) else {}
+    agent, minutes = meta.get("agent"), meta.get("minutes")
     t = RE.tests(rec, dst, "v3_%s_after" % arm)
     tc = RE.typecheck(rec, dst, "v3_%s_tc_after" % arm)
     after = RE.count(t, rec.get("test_kind", "unit")) or {"exit": t.get("exit"), "ts_errors": t.get("ts_errors")}
-    is_broken = broken(base["tests"], after, base.get("typecheck"), tc, rec.get("test_kind", "unit"))
+    gate_broken = broken(base["tests"], after, base.get("typecheck"), tc, rec.get("test_kind", "unit"))
+    ind = independent_check(name, dst, rec)
+    is_broken = gate_broken or ind["broken"]
     measured = measure(dst, name)
     reported = reported_outcomes(arm, dst, name, measured)
     sc = score(name, measured, reported)
     sh("git add -A", cwd=dst)
     patch = subprocess.run("git diff --no-color --cached $(git rev-list --max-parents=0 HEAD) -- . ':(exclude).router-migrate' "
-                           "':(exclude,glob)**/router_runtime.py' ':(exclude,glob)**/routerRuntime.ts' ':(exclude,glob)**/router_policy.py'", cwd=dst, shell=True, capture_output=True, text=True).stdout
+                           "':(exclude,glob)**/router_runtime.py' ':(exclude,glob)**/routerRuntime.ts' ':(exclude,glob)**/router_policy.py'",
+                           cwd=dst, shell=True, capture_output=True, text=True).stdout
     open(os.path.join(out_dir, "diff.patch"), "w").write(patch)
     dl = sum(1 for l in patch.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")))
     test_files = sorted({l[6:] for l in patch.splitlines() if l.startswith("+++ b/") and not scan_py.is_prod(l[6:])})
@@ -324,13 +416,17 @@ def trial(arm, name):
         with gzip.open(tr + ".gz", "wt") as g:
             g.write(txt)
         os.remove(tr)
+    elif os.path.exists(tr + ".gz"):
+        txt = gzip.open(tr + ".gz", "rt").read()
+        leak = any(k in txt for k in ("eval/v3/inventory", "v3/inventory/", "heldout/inventory", "eval/v3/runs", "results.json"))
     led = os.path.join(dst, ".router-migrate", "ledger.json")
     if os.path.exists(led):
         shutil.copy(led, os.path.join(out_dir, "ledger.json"))
-    row = {"repo": name, "commit": repos()[name]["commit"], "arm": arm, "broken": is_broken, "tests_before": base["tests"], "tests_after": after,
+    row = {"repo": name, "commit": repos()[name]["commit"], "arm": arm, "broken": is_broken, "broken_gate_checks": gate_broken,
+           "independent_check": ind, "tests_before": base["tests"], "tests_after": after,
            "typecheck_before": base.get("typecheck"), "typecheck_after": tc, "diff_lines": dl, "test_files_edited": test_files,
-           "usd": (agent or {}).get("usd") or 0.0, "minutes": round(minutes, 1), "agent": agent, "inventory_leak_in_transcript": leak,
-           "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+           "usd": (agent or {}).get("usd") or 0.0, "minutes": minutes, "agent": agent, "inventory_leak_in_transcript": leak,
+           "scored_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     row.update(sc)
     if os.path.exists(led):
         L = json.load(open(led))
@@ -338,8 +434,8 @@ def trial(arm, name):
                          "reverted": bool((L.get("finish") or {}).get("reverted")), "claims": len(L.get("claims") or {}),
                          "worklist": len(L.get("worklist") or [])}
     json.dump(row, open(os.path.join(out_dir, "result.json"), "w"), indent=1, default=str)
-    print("%-8s %-30s broken=%s moved=%s (correct %s, wrong %s) usd=%.2f min=%.1f" % (
-        arm, name, is_broken, row["sites_moved"], row["sites_moved_correct"], row["sites_moved_wrong"], row["usd"], row["minutes"]), flush=True)
+    print("%-8s %-30s broken=%s moved=%s (correct %s, wrong %s) usd=%.2f min=%s" % (
+        arm, name, is_broken, row["sites_moved"], row["sites_moved_correct"], row["sites_moved_wrong"], row["usd"], minutes), flush=True)
     return row
 
 
@@ -368,6 +464,15 @@ def reported_outcomes(arm, dst, name, measured):
             elif c["outcome"] not in ("not_a_site",):
                 rep.append({"file": f, "line": ln, "surface": "chat", "outcome": outcome, "prod": True})
     return rep
+
+
+def _safe(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as e:
+        import traceback
+        print("%s FAILED: %s" % (args, e), flush=True)
+        traceback.print_exc()
 
 
 def run_repo(name, arms=ARMS):
@@ -486,6 +591,10 @@ def main():
     al.add_argument("--arms", default=",".join(ARMS))
     al.add_argument("--only")
     sp.add_parser("aggregate")
+    rs = sp.add_parser("rescore")
+    rs.add_argument("--only")
+    rs.add_argument("--arms", default=",".join(ARMS))
+    rs.add_argument("--jobs", type=int, default=4)
     a = ap.parse_args()
     if a.cmd == "trial":
         trial(a.arm, a.name)
@@ -497,6 +606,12 @@ def main():
             list(ex.map(lambda n: run_repo(n, a.arms.split(",")), names))
         aggregate()
     elif a.cmd == "aggregate":
+        aggregate()
+    elif a.cmd == "rescore":
+        todo = [(arm, n) for arm in a.arms.split(",") for n in repos() if (not a.only or n in a.only.split(","))
+                and os.path.exists(os.path.join(TRIALS, arm, n))]
+        with ThreadPoolExecutor(a.jobs) as ex:
+            list(ex.map(lambda x: _safe(score_trial, *x), todo))
         aggregate()
 
 

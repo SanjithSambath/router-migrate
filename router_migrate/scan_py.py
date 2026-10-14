@@ -791,6 +791,8 @@ def collect_model_literals(root, max_files=20000):
             rel = os.path.relpath(p, root).replace(os.sep, "/")
             if not is_prod(rel) or os.path.basename(rel).endswith((".test.ts", ".spec.ts", ".test.js", ".spec.js", ".test.tsx")):
                 continue
+            if f in ("router_runtime.py", "routerRuntime.ts", "router_policy.py", "routerPolicy.ts"):
+                continue  # router-migrate's own vendored files embed the whole catalog; they are not the repo's model names
             n += 1
             if n > max_files:
                 return {k: sorted(v) for k, v in out.items()}
