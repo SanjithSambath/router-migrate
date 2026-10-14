@@ -88,8 +88,9 @@ await t("chat non-stream", async () => {
   const l = await lastReq();
   assert.equal(l.path, "/v1/responses"); assert.ok(l.valid, JSON.stringify(l));
   assert.equal(l.request.max_output_tokens, 20);
-  assert.equal(l.request.service_tier, "default");
+  assert.equal(l.request.service_tier, undefined); // v4: no forced tier
   assert.match(l.request.metadata.feature, /runtime_check\.mjs/);
+  assert.match(l.client || "", /runtime_check\.mjs/); // where the routed client was built (names framework sites)
 });
 await t("chat stream + usage", async () => {
   const s = await client.chat.completions.create({ model: "gpt-4o-mini", messages: HI, stream: true, stream_options: { include_usage: true } });
@@ -133,7 +134,7 @@ await t("passthrough: unknown model / n>1 / embeddings", async () => {
 await t("responses routed, store:false dropped", async () => {
   const r = await client.responses.create({ model: "gpt-4o-mini", input: "hi", store: false });
   assert.equal(r.output_text, "pong"); const l = await lastReq(); assert.ok(l.valid); assert.equal(l.request.store, undefined);
-  assert.equal(l.request.service_tier, "default");
+  assert.equal(l.request.service_tier, undefined); // v4: no forced tier
   assert.equal(l.request.include, undefined, "no include for non-reasoning models");
 });
 await t("router error surfaces (no fallback for other 400s)", async () => {
@@ -416,7 +417,7 @@ await t("M5 metadata at 16 keys gets no feature", async () => {
   await client.responses.create({ model: "gpt-4o-mini", input: "x", metadata: m16 });
   l = await lastReq(); assert.equal(l.request.metadata.feature, undefined);
 });
-await t("M5 service_tier default unless set; env override, auto = omit", async () => {
+await t("v4 service_tier: none unless the caller or ROUTER_MIGRATE_SERVICE_TIER sets one", async () => {
   await client.chat.completions.create({ model: "gpt-4o-mini", messages: HI, service_tier: "priority" });
   assert.equal((await lastReq()).request.service_tier, "priority");
   await withEnv({ ROUTER_MIGRATE_SERVICE_TIER: "flex" }, () => client.chat.completions.create({ model: "gpt-4o-mini", messages: HI }));
@@ -424,6 +425,8 @@ await t("M5 service_tier default unless set; env override, auto = omit", async (
   await withEnv({ ROUTER_MIGRATE_SERVICE_TIER: "Auto" }, () => client.chat.completions.create({ model: "gpt-4o-mini", messages: HI }));
   assert.equal((await lastReq()).request.service_tier, undefined);
   await withEnv({ ROUTER_MIGRATE_SERVICE_TIER: "auto" }, () => client.responses.create({ model: "gpt-4o-mini", input: "x" }));
+  assert.equal((await lastReq()).request.service_tier, undefined);
+  await client.chat.completions.create({ model: "gpt-4o-mini", messages: HI });
   assert.equal((await lastReq()).request.service_tier, undefined);
 });
 

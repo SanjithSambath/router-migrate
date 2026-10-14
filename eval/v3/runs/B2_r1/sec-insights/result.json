@@ -1,0 +1,121 @@
+{
+ "repo": "sec-insights",
+ "commit": "a9b6da0f5c4bff52437a5285954ff17bc713f14f",
+ "arm": "B2_r1",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 3,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 1,
+   "ok": 1,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 36,
+ "test_files_edited": [],
+ "usd": 1.7087161000000002,
+ "minutes": 7.9,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 1.7087161000000002,
+  "turns": 14,
+  "final": "Baseline tests still pass (7 passed), and the Router-on sim run no longer crashes. Both files I edited (`backend/app/chat/tools.py`) hold a site in the report.\n\n## Summary\n\n- Confirmed the two floor-migrated sites (`engine.py:273`, `llama_index_settings.py:14`) are correctly wrapped \u2014 OpenAI chat LLM on the default endpoint, `gpt-4o-mini`, operator key.\n- Added `backend/app/llama_index_settings.py:32` (`OpenAIEmbedding`) as `kept`/`R_NO_ENDPOINT` \u2014 Router has no embeddings endpoint.\n- Found a genuine production call site the scanner missed: `backend/app/chat/tools.py:156` builds its own `OpenAIAgent` from `Settings.llm.model_copy(deep=True)`. With Router active, that tried to `deepcopy` a live `httpx.Client`'s connection pool and crashed with `TypeError: cannot pickle '_thread.RLock' object` \u2014 breaking every SEC-document quantitative-query conversation. Fixed by changing `deep=True` \u2192 `deep=False` (tools.py:154); verified the shallow copy still shares the router-wired `http_client`/transport, the crash is gone under the Router-on sim, and the normal (Router-off) test suite still passes.\n- Wrote `.router-migrate/MIGRATION_REPORT.json` with all four judged sites and evidence.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 28,
+   "cache_creation_input_tokens": 40901,
+   "cache_read_input_tokens": 1457798,
+   "output_tokens": 20548,
+   "output_tokens_details": {
+    "thinking_tokens": 9280
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 40901,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 496,
+     "cache_read_input_tokens": 117667,
+     "cache_creation_input_tokens": 1758,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 1758
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed",
+  "final_gate_ok": true,
+  "final_gate_failures": [],
+  "gate_note": "",
+  "gate_attempts": 1,
+  "reverted": false,
+  "report_sites": 4,
+  "report_error": null
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-14T09:31:39",
+ "routed_static": 2,
+ "inventory_prod_sites": 3,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 2,
+ "sites_moved_correct": 2,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 2,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 2,
+ "reported_migrated_correct": 2,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 2,
+ "sites_moved_correct_adj": 2,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 1.0,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 2,
+ "reported_migrated_correct_adj": 2
+}

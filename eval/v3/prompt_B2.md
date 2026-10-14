@@ -37,11 +37,15 @@ what really happens to each LLM call in production, move what the floor missed, 
    with the rules below. Where a client construction the floor missed should move, wrap it.
 3. Look beyond the report for production LLM calls the scanner missed (clients returned by helpers, LiteLLM, raw
    `fetch`/`requests`/`httpx` to LLM hosts, other vendors' SDKs); decide and report each.
-4. Write `.router-migrate/MIGRATION_REPORT.json`:
-   `{"sites": [{"file": "app/llm.py", "line": 42, "outcome": "kept", "reason_code": "R_OTHER_HOST", "why": "...", "evidence": ["app/config.py:12"]}]}`
-   One entry per production call site you judged (`line` = where the call or construction starts, in the file as it is
-   now). Sites you leave out keep the floor report's outcome. Every outcome except `migrated` needs a reason code from the
-   list below. Evidence must be lines you read.
+4. Write `.router-migrate/MIGRATION_REPORT.json`, one entry per production call site you judged:
+   `{"sites": [{"floor_site": "app/llm.py:42", "outcome": "kept", "reason_code": "R_OTHER_HOST", "why": "...", "evidence": ["app/config.py:12"]},
+               {"file": "app/jobs.py", "line": 88, "outcome": "migrated", "why": "...", "evidence": ["app/jobs.py:80"]}]}`
+   - For a site listed in FLOOR_REPORT.md, set `floor_site` to its `site` value copied exactly (its line is where
+     that call is in the file as it is now).
+   - For a site the floor report doesn't list, set `file` and `line`: the line where the call starts (`.create(`,
+     `.stream(`, `generateText(`...; for LangChain/LlamaIndex, the model construction), in the file as it is now.
+   - Sites you leave out keep the floor report's outcome. Every outcome except `migrated` needs a reason code from the
+     list below. Evidence must be lines you read.
 5. Then stop. When you stop, a gate runs: syntax, scope (every edited file must hold a site in your report; no test,
    lockfile or CI edits), typecheck and tests vs the baseline, a Router-on run against the simulator, and your report's
    format. If it fails you will see why: fix it and stop again. After 3 failed gate runs your edits are reverted to the

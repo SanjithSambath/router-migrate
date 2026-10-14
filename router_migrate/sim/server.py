@@ -426,12 +426,39 @@ def make_handler(sim):
                 return self._send(e.status, {"type": "error", "error": {"type": e.kind, "message": e.message}})
             return self._send(e.status, {"error": {"message": e.message, "type": e.kind, "param": None, "code": e.code}})
 
+        def _proxied(self):
+            """The request path, also when this sim is used as the HTTP proxy (probes: HTTP(S)_PROXY points here so nothing
+            leaves the machine). Absolute-form requests for this sim are served; any other destination is blocked and logged."""
+            if not self.path.startswith(("http://", "https://")):
+                return self.path.split("?")[0]
+            from urllib.parse import urlsplit
+            u = urlsplit(self.path)
+            own = {"%s:%d" % (h, self.server.server_address[1]) for h in ("127.0.0.1", "localhost")}
+            if u.netloc in own:
+                return u.path
+            self._block(u.netloc)
+            return None
+
+        def _block(self, host):
+            sim.log({"ts": time.time(), "method": self.command, "path": host, "valid": False, "blocked": True,
+                     "error": "outbound traffic blocked (router-sim is the proxy)"})
+            n = int(self.headers.get("Content-Length") or 0)
+            if n:
+                self.rfile.read(n)
+            self._send(403, {"error": {"message": "router-sim: outbound traffic to %s is blocked here; only Router requests are "
+                                                  "served (stub the provider call in your probe)" % host, "type": "blocked", "code": "blocked"}})
+
+        def do_CONNECT(self):  # HTTPS to anywhere (a provider) through the proxy: refuse, so the run fails fast and offline
+            self._block(self.path)
+
         def _auth(self):
             a = self.headers.get("Authorization", "")
             return (a.startswith("Bearer ") and len(a) > 8) or bool(self.headers.get("x-api-key"))
 
         def do_GET(self):
-            path = self.path.split("?")[0]
+            path = self._proxied()
+            if path is None:
+                return
             if path == "/__last":  # test helper: the most recent logged request
                 return self._send(200, sim.records[-1] if sim.records else {})
             if path == "/__log":
@@ -454,7 +481,9 @@ def make_handler(sim):
             self.do_POST()
 
         def do_POST(self):
-            path = self.path.split("?")[0]
+            path = self._proxied()
+            if path is None:
+                return
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
             rec = {"ts": time.time(), "method": self.command, "path": path, "ua": self.headers.get("User-Agent"),
@@ -481,7 +510,9 @@ def make_handler(sim):
                 return self._err(SimError(400, "invalid_json", "Request body is not valid JSON", "[upstream]"), surface, rec)
             rec["body_keys"] = sorted(b.keys()) if isinstance(b, dict) else None
             rec["model"] = b.get("model") if isinstance(b, dict) else None
-            rec["feature"] = ((b.get("metadata") or {}) if isinstance(b, dict) else {}).get("feature") if isinstance((b or {}).get("metadata"), dict) else None
+            rec["feature"] = (((b.get("metadata") or {}) if isinstance(b, dict) else {}).get("feature") if isinstance((b or {}).get("metadata"), dict) else None) \
+                or self.headers.get("x-router-migrate-feature")
+            rec["client"] = self.headers.get("x-router-migrate-client")
             rec["stream"] = bool(b.get("stream")) if isinstance(b, dict) else False
             rec["request"] = b
             try:

@@ -1,0 +1,27 @@
+diff --git a/computer_use_demo/gui_agent/planner/anthropic_agent.py b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+index 63966be..5549e9a 100644
+--- a/computer_use_demo/gui_agent/planner/anthropic_agent.py
++++ b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+@@ -30,6 +30,13 @@ from PIL import Image
+ from io import BytesIO
+ import gradio as gr
+ from typing import Dict
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ BETA_FLAG = "computer-use-2024-10-22"
+@@ -95,7 +102,7 @@ class AnthropicActor:
+         # Instantiate the appropriate API client based on the provider
+         print("provider:", provider)
+         if provider == APIProvider.ANTHROPIC:
+-            self.client = Anthropic(api_key=api_key)
++            self.client = _router_wrap_anthropic(Anthropic(api_key=api_key))
+         elif provider == APIProvider.VERTEX:
+             self.client = AnthropicVertex()
+         elif provider == APIProvider.BEDROCK:

@@ -345,8 +345,12 @@ def build(root, plan, catalog, repo=None, scan=None, judgments=None, current_lin
         considered.append({"rule": rule, "scope": {"sites": [x["id"] for x in ss], "features": sorted({sig[x["id"]]["feature"] for x in ss})}, "reason": reason})
 
     migrated = [s for s in sites if s["outcome"] == "migrated"]
-    clients = {s["id"]: s for s in (scan or {}).get("sites", []) + plan["sites"] if s["kind"] == "client"}
+    # clients as the code stands (plan["clients"] from the current scan) win over scan.json, whose ids carry the lines from before
+    # any edit: joining current-line ids against it silently lost the unlock lever in every file that had been edited
+    clients = {s["id"]: s for s in (scan or {}).get("sites", []) + plan["sites"] + list((plan.get("clients") or {}).values())
+               if s["kind"] == "client"}
     patched = {pt["site_id"] for pt in plan.get("patches") or []}
+    patched_ctors = {(pt["file"], pt.get("label")) for pt in plan.get("patches") or []}
 
     def client_of(s):
         c = clients.get(s.get("via_client") or "")
@@ -386,9 +390,14 @@ def build(root, plan, catalog, repo=None, scan=None, judgments=None, current_lin
 
     # ---- unlock.stated_loss (Anthropic beta flags)
     for s in sites:
-        if s["outcome"] != "flagged" or "beta" not in s.get("reason", "").lower():
+        # the fact (this call sends Anthropic beta flags), not the label: in v4 an unwrapped client's beta call reads as unresolved
+        if s["outcome"] == "migrated" or not (s.get("has_beta") or s.get("beta_split") or "beta" in s.get("reason", "").lower()):
             continue
         cl = client_of(s)
+        # "patched": wrapped in the code as it stands, or the constructor the rules proposed to patch (ids carry lines, and the
+        # plan's are from before any edit, so match the proposal by file and constructor)
+        if cl is not None and cl["id"] not in patched and (cl.get("wrapped") or (cl["file"], cl.get("surface")) in patched_ctors):
+            patched = patched | {cl["id"]}
         if cl is None or cl["id"] not in patched or s["lang"] != "py":
             consider("unlock.stated_loss", [s], "the client is not one v1 patched (%s)" % ("unresolved" if cl is None else "TS/JS" if s["lang"] != "py" else (cl.get("api_key") or {}).get("why") and "per-tenant credentials" or "not patchable"))
             continue

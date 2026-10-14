@@ -66,6 +66,9 @@ class Catalog:
             return name, "exact catalog id"
         if name in self.alias:
             return self.alias[name], "catalog alias"
+        ci = next((k for k in self.by_id if k.lower() == name.lower() and not self.by_id[k].get("requires_byok")), None)
+        if ci:
+            return ci, "catalog id (case differs)"
         base = _PREFIX.sub("", name)
         if base in self.equiv and self.equiv[base] in self.by_id:
             return self.equiv[base], "dated snapshot Router itself serves as this catalog id (measured)"

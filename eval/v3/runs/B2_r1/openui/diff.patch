@@ -1,0 +1,83 @@
+diff --git a/backend/openui/litellm.py b/backend/openui/litellm.py
+index 9486a01..c50b3ae 100644
+--- a/backend/openui/litellm.py
++++ b/backend/openui/litellm.py
+@@ -3,6 +3,13 @@ import os
+ import tempfile
+ import openai
+ from .logs import logger
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ def generate_config():
+@@ -98,10 +105,10 @@ def generate_config():
+         )
+ 
+     if "OPENAI_COMPATIBLE_ENDPOINT" in os.environ:
+-        client = openai.OpenAI(
++        client = _router_wrap_openai(openai.OpenAI(
+             api_key=os.getenv("OPENAI_COMPATIBLE_API_KEY"),
+             base_url=os.getenv("OPENAI_COMPATIBLE_ENDPOINT"),
+-        )
++        ))
+         try:
+             for model in client.models.list().data:
+                 models.append(
+diff --git a/backend/openui/server.py b/backend/openui/server.py
+index 09f9e2c..3cdf7a5 100644
+--- a/backend/openui/server.py
++++ b/backend/openui/server.py
+@@ -50,6 +50,21 @@ from pathlib import Path
+ from typing import Optional
+ import traceback
+ import os
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import (
++        install_openai_module as _router_install_openai_module,
++        wrap_openai as _router_wrap_openai,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            install_openai_module as _router_install_openai_module,
++            wrap_openai as _router_wrap_openai,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_install_openai_module = lambda: None  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
++_router_install_openai_module()  # router-migrate
+ 
+ 
+ @asynccontextmanager
+@@ -69,20 +84,20 @@ app = FastAPI(
+     description="API for proxying LLM requests to different services",
+ )
+ 
+-openai = AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
++openai = _router_wrap_openai(AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY))
+ 
+-litellm = AsyncOpenAI(
++litellm = _router_wrap_openai(AsyncOpenAI(
+     api_key=config.LITELLM_API_KEY,
+     base_url=config.LITELLM_BASE_URL,
+-)
++))
+ 
+ if config.GROQ_API_KEY is not None:
+-    groq = AsyncOpenAI(base_url=config.GROQ_BASE_URL, api_key=config.GROQ_API_KEY)
++    groq = _router_wrap_openai(AsyncOpenAI(base_url=config.GROQ_BASE_URL, api_key=config.GROQ_API_KEY))
+ else:
+     groq = None
+ 
+ ollama = AsyncClient()
+-ollama_openai = AsyncOpenAI(base_url=config.OLLAMA_HOST + "/v1", api_key="xxx")
++ollama_openai = _router_wrap_openai(AsyncOpenAI(base_url=config.OLLAMA_HOST + "/v1", api_key="xxx"))
+ router = APIRouter()
+ session_store = DBSessionStore()
+ github_sso = GithubSSO(

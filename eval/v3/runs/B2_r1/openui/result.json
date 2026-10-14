@@ -1,0 +1,127 @@
+{
+ "repo": "openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "arm": "B2_r1",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 2,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 1,
+   "ok": 1,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "tests_after": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 36,
+ "test_files_edited": [],
+ "usd": 0.7256915999999998,
+ "minutes": 4.9,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 0.7256915999999998,
+  "turns": 19,
+  "final": "Report written to `.router-migrate/MIGRATION_REPORT.json`, no code changes needed.\n\nSummary of judgment on top of the floor's work:\n- **Kept as migrated**: the module-level `openai` client in `server.py` (default base URL is `https://api.openai.com/v1`) \u2014 correctly wrapped by the floor already.\n- **Reclassified from migrated \u2192 kept (`R_OTHER_HOST`)**: the `groq`, `litellm`, and `ollama_openai` clients in `server.py`. Their base URLs (`GROQ_BASE_URL`, `LITELLM_BASE_URL`, `OLLAMA_HOST`) default to Groq's API, a self-hosted LiteLLM proxy this app launches itself, and a local Ollama server, respectively \u2014 never `api.openai.com`. The floor's mechanical wrap is harmless (the runtime only routes requests whose host is `api.openai.com`), but these are not truly migrated traffic.\n- **Reclassified from handoff \u2192 kept (`R_OTHER_HOST`)**: both `frontend/src/api/openai.ts` call sites. The floor flagged the client's base URL as unresolved, but it actually always resolves to `${window.location}/v1` \u2014 this app's own backend origin, not OpenAI. It's an internal proxy call to the app's own `/v1/chat/completions` route (which handles auth/quota and dispatches to the real providers server-side, already judged above), so wrapping it with Router options would have misrouted an internal call.\n- Confirmed the four `models.list()` sites stay `kept R_NO_ENDPOINT` as the floor found.\n\nNo additional missed LLM call sites were found, and no files needed edits since the floor's existing wraps are either correct or inert for the hosts that should stay off Router.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 34,
+   "cache_creation_input_tokens": 60297,
+   "cache_read_input_tokens": 1329128,
+   "output_tokens": 21861,
+   "output_tokens_details": {
+    "thinking_tokens": 16139
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 60297,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 601,
+     "cache_read_input_tokens": 98714,
+     "cache_creation_input_tokens": 436,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 436
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed",
+  "final_gate_ok": true,
+  "final_gate_failures": [],
+  "gate_note": "",
+  "gate_attempts": 0,
+  "reverted": false,
+  "report_sites": 10,
+  "report_error": null
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-14T09:26:19",
+ "routed_static": 4,
+ "inventory_prod_sites": 11,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 1,
+ "sites_moved_correct": 1,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.5,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 10,
+ "reported_outcome_agreement": 0.9,
+ "reported_migrated": 1,
+ "reported_migrated_correct": 1,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 396,
+   "why": "Rule 8 (by extension): openai.models.list() on the same env-config default-OpenAI client as line 139; Router serves GET /v1/models so rule 1 does not apply. Res"
+  }
+ ],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 1,
+ "sites_moved_correct_adj": 1,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.5,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 0.9,
+ "reported_migrated_adj": 1,
+ "reported_migrated_correct_adj": 1
+}

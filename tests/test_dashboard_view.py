@@ -79,6 +79,8 @@ def test_view_of_a_run_after_improvements_are_applied(tmp_path):
     g("add", "-A")
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
     assert rm("run", str(tmp_path), "--skip-verify", cwd=tmp_path).returncode == 0
+    from conftest import accept_proposals
+    accept_proposals(tmp_path, rm)  # v4: the agent accepts the rules' proposals (v3 applied them before the agent)
     line = next(i for i, l in enumerate((tmp_path / "svc/workers/nightly_summaries.py").read_text().splitlines(), 1) if "completions.create" in l)
     loc = "svc/workers/nightly_summaries.py:%d" % line
     for key, val, ev in (("latency", "background", loc), ("task", "summarization", loc), ("cacheable", "1500", loc)):

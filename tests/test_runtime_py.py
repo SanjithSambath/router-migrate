@@ -51,7 +51,7 @@ def test_wrap_routes_chat_to_router(rt, sim):
     assert rec["path"] == "/v1/responses" and rec["valid"], rec
     req = rec["request"]
     assert req["max_output_tokens"] == 50
-    assert req["service_tier"] == "default"  # non-streaming calls too: the account's flex default adds latency [measured]
+    assert "service_tier" not in req  # v4: no forced tier; Router's account default (Flex) applies, guardrails come from policy
     assert req["input"][0] == {"role": "system", "content": "be brief"}
     assert req["metadata"]["feature"].endswith(":test_wrap_routes_chat_to_router")
 
@@ -66,7 +66,7 @@ def test_chat_stream_with_usage(rt, sim):
     finals = [ch.choices[0].finish_reason for ch in chunks if ch.choices and ch.choices[0].finish_reason]
     assert finals == ["stop"]
     assert chunks[-1].usage is not None and chunks[-1].choices == []
-    assert last(sim)["request"]["service_tier"] == "default" and last(sim)["valid"]
+    assert "service_tier" not in last(sim)["request"] and last(sim)["valid"]
     assert split.provider_calls == []
 
 
@@ -558,3 +558,76 @@ def test_drop_betas_routes_only_when_every_flag_is_approved(rt, sim):
     m = a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}],
                           extra_headers={"anthropic-beta": "prompt-caching-2024-07-31,computer-use-2025-01-24"})
     assert m.content[0].text == "from-provider" and sim.records == []
+
+
+# ------------------------------------------------------------------------------------------------ v4 runtime
+def test_operator_key_only_routes_only_the_operators_key(rt, sim):
+    """An approved per_user_key card: requests made with the operator's own provider key go to Router; a user's key stays on
+    the provider (billed to them)."""
+    split = Split()
+    for key, routed in (("sk-provider-test", True), ("sk-user-own-key", False)):
+        sim.records.clear()
+        split.provider_calls.clear()
+        c = rt.wrap_openai(openai.OpenAI(api_key=key, http_client=httpx.Client(transport=split)), operator_key_only=True)
+        c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+        assert bool(sim.records) == routed and bool(split.provider_calls) == (not routed), (key, sim.records, split.provider_calls)
+    sim.records.clear()
+    a = rt.wrap_anthropic(anthropic.Anthropic(api_key="sk-ant-someone-else", http_client=httpx.Client(transport=split)), operator_key_only=True)
+    a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}])
+    assert sim.records == []
+
+
+def test_feature_header_tags_messages_requests(rt, sim):
+    """Messages bodies can't carry metadata.feature, so every Router request also carries the calling file:function as a
+    header; router-sim records it. This is what lets `probe` confirm Anthropic sites."""
+    a = rt.wrap_anthropic(anthropic.Anthropic())
+    a.messages.create(model="claude-haiku-4-5", max_tokens=16, messages=[{"role": "user", "content": "hi"}])
+    assert last(sim)["feature"] and last(sim)["feature"].endswith(":test_feature_header_tags_messages_requests")
+
+
+def test_model_map_policy_swaps_the_model_for_its_feature_only(rt, sim):
+    rt.set_policy({"version": 1, "globs": {"**:swapped": {"model_map": {"gpt-4o-mini": "gpt-4.1-mini"}}}}, "h")
+    try:
+        c = rt.wrap_openai(openai.OpenAI())
+
+        def swapped():
+            c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+
+        swapped()
+        assert last(sim)["request"]["model"] == "gpt-4.1-mini"
+        c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+        assert last(sim)["request"]["model"] == "gpt-4o-mini"
+    finally:
+        rt.set_policy(None)
+
+
+def test_http_client_survives_deepcopy(rt, sim):
+    """LlamaIndex/LangChain configs are deep-copied (pydantic model_copy(deep=True)); the Router client must not break that."""
+    import copy
+
+    class Cfg(pydantic.BaseModel):
+        model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+        http_client: object = None
+
+    hc = rt.http_client()
+    assert hc is not None and copy.deepcopy(hc) is hc
+    cfg = Cfg(http_client=hc).model_copy(deep=True)
+    assert cfg.http_client is hc
+    c = openai.OpenAI(http_client=cfg.http_client)
+    c.chat.completions.create(model="claude-haiku-4-5", messages=[{"role": "user", "content": "hi"}])
+    assert last(sim)["valid"]
+
+
+def test_tool_message_name_is_dropped_but_speaker_names_stay_on_provider(rt, sim):
+    """LlamaIndex/LangChain agents put the tool's name on tool results: lossless to drop (the output is keyed by call id).
+    A user/assistant name is model-visible, so that request stays on the provider."""
+    c, split = client(rt)
+    msgs = [{"role": "user", "content": "weather?"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function",
+                                                                   "function": {"name": "get_weather", "arguments": '{"city":"x"}'}}]},
+            {"role": "tool", "tool_call_id": "call_1", "name": "get_weather", "content": "sunny"}]
+    c.chat.completions.create(model="gpt-4o-mini", messages=msgs, tools=TOOLS)
+    assert last(sim)["valid"] and last(sim)["path"] == "/v1/responses"
+    n = len(sim.records)
+    c.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "name": "alice", "content": "hi"}])
+    assert len(sim.records) == n and split.provider_calls[-1][1].endswith("/chat/completions")  # the provider, not Router

@@ -67,11 +67,11 @@ function routerBase(): string {
   return b.endsWith("/v1") ? b.slice(0, -3) : b;
 }
 
-/** service_tier for routed requests the caller did not set one on: "default" unless overridden ("auto" = send none). */
+/** service_tier for routed requests the caller did not set one on: none (Router's account default, Flex where offered) unless
+ * ROUTER_MIGRATE_SERVICE_TIER forces one. Latency guardrails come from the compiled policy (provider_timeout, service_tier). */
 function defaultTier(): string | undefined {
   const t = (env("ROUTER_MIGRATE_SERVICE_TIER") || "").trim();
-  if (!t) return "default";
-  return t.toLowerCase() === "auto" ? undefined : t;
+  return !t || t.toLowerCase() === "auto" ? undefined : t;
 }
 
 export function resolveModel(name: unknown): string | null {
@@ -83,7 +83,8 @@ export function resolveModel(name: unknown): string | null {
   if (name in override) return override[name] || null;
   if (CATALOG[name]) return name;
   if (ALIASES[name]) return ALIASES[name];
-  return DATED[name] || null;
+  const ci = Object.keys(CATALOG).find((k) => k.toLowerCase() === name.toLowerCase()); // e.g. MiniMax-M3 -> minimax-m3
+  return ci || DATED[name] || null;
 }
 
 // --- Router-issued response ids and in-process chains (bounded LRUs, shared by every copy of this module in the process)
@@ -240,7 +241,8 @@ export function chatToResponses(body: any, routerModel: string, ownedBy: string 
   const legacy: Record<string, string> = {};
   (body.messages || []).forEach((m: any, i: number) => {
     const role = m.role;
-    if (m.name != null && role !== "function") throw new Untranslatable("message name"); // Responses has no speaker names
+    // Responses has no speaker names; on a tool result the name only repeats the tool's (the output is keyed by call id)
+    if (m.name != null && role !== "function" && role !== "tool") throw new Untranslatable("message name");
     if (role === "system" || role === "developer") items.push({ role, content: textOf(m.content) });
     else if (role === "user") items.push({ role: "user", content: userParts(m.content) });
     else if (role === "assistant") {
@@ -735,7 +737,7 @@ function agentFor(agent: any) {
 type PolicyEntry = { allow_flex_tier?: boolean; prompt_cache_key?: string; metadata?: Record<string, string>; fallbacks?: string[]; provider_timeout?: number };
 type LoadedPolicy = { hash: string; defaults?: PolicyEntry; features: Record<string, PolicyEntry>; globs: [string, RegExp, PolicyEntry][] };
 
-const POLICY_KEYS = ["allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout"];
+const POLICY_KEYS = ["allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout", "service_tier", "model_map", "drop_params"];
 const POLICY_TOP_KEYS = ["version", "defaults", "globs", "features"];
 const MAX_FALLBACKS = 14; // Router takes 1-15 candidates; the original model is always first
 const POLICY_LOGS: Map<string, true> = sharedMap("router-migrate.policyLogs");
@@ -760,6 +762,9 @@ function validEntry(e: any): boolean {
     if (k === "metadata" && !(plainObject(v) && Object.values(v).every((x) => typeof x === "string"))) return false;
     if (k === "fallbacks" && !(Array.isArray(v) && v.length >= 1 && v.length <= MAX_FALLBACKS && v.every((x) => typeof x === "string" && !!x))) return false;
     if (k === "provider_timeout" && !(typeof v === "number" && Number.isFinite(v) && v >= 1 && v <= 660)) return false;
+    if (k === "service_tier" && !(v === "default" || v === "flex")) return false;
+    if (k === "model_map" && !(plainObject(v) && Object.keys(v).length && Object.entries(v).every(([a, b]) => !!a && typeof b === "string" && !!b))) return false;
+    if (k === "drop_params" && !(Array.isArray(v) && v.length && v.every((x) => typeof x === "string" && !!x))) return false;
   }
   return true;
 }
@@ -937,6 +942,8 @@ function policyBody(L: LoadedPolicy, nb: any, featId: string | undefined, caller
 
   const pt = layersPick(layers, "provider_timeout");
   if (pt !== undefined && out.provider_timeout == null) out.provider_timeout = pt;
+  const st = layersPick(layers, "service_tier");
+  if (st !== undefined && !callerTier && layersPick(layers, "allow_flex_tier") === undefined) out.service_tier = st;
 
   let multi = false;
   const fb: string[] | undefined = layersPick(layers, "fallbacks");
@@ -989,7 +996,7 @@ function policyFeature(meta: any, feat: string | undefined): string | undefined 
 
 type Plan =
   | { local: Response }
-  | { kind: "chat" | "responses" | "anthropic"; path: string; body: any; ctx?: any; items?: any[]; anthropic: boolean; headers: Headers; providerAuth: boolean };
+  | { kind: "chat" | "responses" | "anthropic"; path: string; body: any; ctx?: any; items?: any[]; anthropic: boolean; headers: Headers; providerAuth: boolean; feature?: string };
 
 const localJson = (o: any, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 
@@ -1013,8 +1020,60 @@ function localResponse(method: string, path: string): Response | null {
   return localJson(chain.response);
 }
 
+/** operatorKeyOnly (an approved per-user-keys card): route only requests carrying the operator's own provider key. */
+function operatorKeyOk(headers: Headers, anthropic: boolean): boolean {
+  const want = env(anthropic ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY") || "";
+  if (!want) return false;
+  const auth = headers.get("authorization") || "";
+  const got = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : (headers.get("x-api-key") || "").trim();
+  return !!got && got === want;
+}
+
+/** Router id for a request's model: an approved model swap for this feature (policy model_map) first, else the catalog. */
+function resolveFor(body: any, feat: string | undefined, origin?: string): string | null {
+  if (typeof body.model === "string") {
+    const mm = policyKey("model_map", body, feat, origin);
+    const to = plainObject(mm) && own(mm, body.model) ? mm[body.model] : undefined;
+    if (to && CATALOG[to]) return to;
+    if (to) policyLog("mm:" + to, `router-migrate policy: model_map target ${to} is not a Router catalog id: ignored`);
+  }
+  return resolveModel(body.model);
+}
+
+const MAX_TOKEN_KEYS = ["max_tokens", "max_completion_tokens", "max_output_tokens"];
+
+/** The Router-bound copy of a request with this feature's accepted trade-offs (policy drop_params): listed parameters are
+ * dropped, a listed output cap is raised to Router's minimum of 16, a listed `name` is folded into the message text. The
+ * original request is untouched, so a fallback to the provider still sends exactly what the code built. */
+function policyKey(key: string, body: any, feat: string | undefined, origin?: string): any {
+  const L = activePolicy();
+  if (!L) return undefined;
+  const v = layersPick(policyLayers(L, policyFeature(body.metadata, feat)), key);
+  return v || !origin ? v : layersPick(policyLayers(L, origin), key); // framework calls: the client's origin names the site
+}
+
+function adapt(body: any, feat: string | undefined, origin?: string): any {
+  const drop = policyKey("drop_params", body, feat, origin);
+  if (!Array.isArray(drop) || !drop.length) return body;
+  const b: any = { ...body };
+  for (const k of drop) {
+    if (MAX_TOKEN_KEYS.includes(k)) {
+      if (typeof b[k] === "number" && b[k] < 16) b[k] = 16;
+    } else if (k === "name" && Array.isArray(b.messages)) {
+      b.messages = b.messages.map((m: any) => {
+        if (!plainObject(m) || m.name == null || m.role === "function" || m.role === "tool") return m;
+        const { name, ...rest } = m;
+        return typeof rest.content === "string" ? { ...rest, content: `${name}: ${rest.content}` } : rest;
+      });
+    } else delete b[k];
+  }
+  return b;
+}
+
+export type RouterOpts = { operatorKeyOnly?: boolean; origin?: string };
+
 /** Decide where one request goes. null = the original provider, unchanged. Throws only on bugs (caller sends to provider). */
-function planRequest(input: any, init: any): Plan | null {
+function planRequest(input: any, init: any, opts?: RouterOpts): Plan | null {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input?.url;
   const method = (init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
   const [host, path] = hostPath(url || "");
@@ -1033,6 +1092,9 @@ function planRequest(input: any, init: any): Plan | null {
     return null;
   }
   if (!plainObject(body)) return null;
+  if (opts?.operatorKeyOnly && !operatorKeyOk(new Headers(init.headers || (typeof input === "object" ? input.headers : undefined)), isAnthropic)) return null;
+  const feat = featureTagOn() ? feature() : undefined;
+  body = adapt(body, feat, opts?.origin);
   let items: any[] | undefined;
   let chained = false;
   if (isResponses) {
@@ -1049,17 +1111,16 @@ function planRequest(input: any, init: any): Plan | null {
       items = asItems(body.input);
     }
   }
-  const rid = resolveModel(body.model);
+  const rid = resolveFor(body, feat, opts?.origin);
   if (!rid) return chained ? { local: stateError(400, `previous_response_id ${body.previous_response_id} was served by Router, but model ${body.model} is not; send the conversation inline, or set ROUTER_MIGRATE_DISABLE=1.`) } : null;
   const headers = new Headers(init.headers || (typeof input === "object" ? input.headers : undefined));
   const providerAuth = headers.has("authorization") || headers.has("x-api-key");
   const owned = CATALOG[rid]?.o;
-  const feat = featureTagOn() ? feature() : undefined;
   if (isAnthropic) {
     if (headers.get("anthropic-beta")) return null; // beta features unmeasured on Router
     if (activePolicy()) policyLog("messages", "router-migrate policy: not applied on /v1/messages (Router-only fields are not supported there)");
     const p = path.endsWith("count_tokens") ? "/v1/messages/count_tokens" : "/v1/messages";
-    return { kind: "anthropic", path: p, body: { ...body, model: rid }, anthropic: true, headers, providerAuth };
+    return { kind: "anthropic", path: p, body: { ...body, model: rid }, anthropic: true, headers, providerAuth, feature: feat };
   }
   if (isResponses) {
     if (responsesNeedsProvider({ ...body, input: items })) {
@@ -1081,16 +1142,17 @@ function planRequest(input: any, init: any): Plan | null {
       if (tier) nb.service_tier = tier;
     }
     const pb = applyPolicy(nb, policyFeature(body.metadata, feat), body.service_tier != null);
-    return { kind: "responses", path: "/v1/responses", body: pb, items, anthropic: false, headers, providerAuth };
+    return { kind: "responses", path: "/v1/responses", body: pb, items, anthropic: false, headers, providerAuth, feature: feat };
   }
   const tr = chatToResponses(body, rid, owned, feat);
   const pb = applyPolicy(tr.body, policyFeature(body.metadata, feat), body.service_tier != null);
-  return { kind: "chat", path: "/v1/responses", body: pb, ctx: tr.ctx, anthropic: false, headers, providerAuth };
+  return { kind: "chat", path: "/v1/responses", body: pb, ctx: tr.ctx, anthropic: false, headers, providerAuth, feature: feat };
 }
 
 /** fetch for OpenAI/Anthropic/Vercel/LangChain clients: Router when it can serve the request, the provider otherwise. */
-export function routerFetch(base?: AnyFetch): AnyFetch | undefined {
+export function routerFetch(base?: AnyFetch, opts?: RouterOpts): AnyFetch | undefined {
   if (!routerActive()) return base;
+  const origin = featureTagOn() ? feature() : undefined; // where this client was built: names framework sites, whose calls start in library code
   const inner: AnyFetch =
     base ||
     (async (input: any, init?: any) => {
@@ -1105,13 +1167,16 @@ export function routerFetch(base?: AnyFetch): AnyFetch | undefined {
     if (!routerActive()) return inner(input, init);
     let plan: Plan | null = null;
     try {
-      plan = planRequest(input, init);
+      plan = planRequest(input, init, { ...opts, origin });
     } catch {
       plan = null; // Untranslatable or an unexpected shape: the provider serves it exactly as before
     }
     if (!plan) return inner(input, init);
     if ("local" in plan) return plan.local;
-    const routerInit: any = { method: "POST", headers: routerHeaders(plan.headers, plan.anthropic), body: JSON.stringify(plan.body), signal: init?.signal };
+    const rh = routerHeaders(plan.headers, plan.anthropic);
+    if (plan.feature) rh.set("x-router-migrate-feature", plan.feature.slice(0, 200)); // the calling file:function (Messages bodies can't carry it)
+    if (origin) rh.set("x-router-migrate-client", origin.slice(0, 200));
+    const routerInit: any = { method: "POST", headers: rh, body: JSON.stringify(plan.body), signal: init?.signal };
     if (init?.agent) routerInit.agent = agentFor(init.agent);
     const up: any = await inner(routerBase() + plan.path, routerInit);
     if (up.status >= 400) {
@@ -1144,8 +1209,9 @@ export function routerFetch(base?: AnyFetch): AnyFetch | undefined {
   };
 }
 
-/** Spread into client options: new OpenAI({ ...opts, ...routerOptions(opts.fetch) }). */
-export function routerOptions(base?: AnyFetch): { fetch?: AnyFetch } {
-  const f = routerFetch(base);
+/** Spread into client options: new OpenAI({ ...opts, ...routerOptions(opts.fetch) }); routerOptions(undefined,
+ * { operatorKeyOnly: true }) routes only requests made with the operator's own provider key. */
+export function routerOptions(base?: AnyFetch, opts?: RouterOpts): { fetch?: AnyFetch } {
+  const f = routerFetch(base, opts);
   return f ? { fetch: f } : {};
 }

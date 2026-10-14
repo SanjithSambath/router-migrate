@@ -5,11 +5,14 @@
   router-migrate apply   PATH          vendor router_runtime + patch client constructions; write HANDOFF.md for agent tasks
   router-migrate verify  PATH          tests before vs after, syntax/type checks, requests replayed against router-sim, optional --live
   router-migrate report  PATH          REPORT.md + report.json (every site, outcome, reason, coverage)
-  router-migrate run     PATH          scan -> plan -> apply -> verify -> report; v3: also snapshots the floor, writes the ledger and the agent worklist
-  router-migrate check   FILE:LINE     v3: tool facts for one site as the code stands now: does the runtime reroute it? why not? next step
-  router-migrate wrap    FILE:LINE     v3: the deterministic one-line wrap at any client construction (factories included); prints the diff
-  router-migrate claim   FILE:LINE OUT v3: record migrated|kept|flagged|handoff|needs_human|not_a_site with --why and --evidence FILE:LINE
-  router-migrate finish  PATH          v3: the gate (syntax, scope, typecheck, tests vs baseline, Router-on sim run, claims, worklist)
+  router-migrate run     PATH          v4: baseline + a proposal for every site (nothing applied); --agent: the agent decides, then the gate
+  router-migrate check   FILE:LINE     v4: facts for one site: routes or not, hard limits, the proposal, evidence so far, native eligibility
+  router-migrate wrap    FILE:LINE     v4: the deterministic one-line wrap at any client construction (factories included); prints the diff
+  router-migrate unwrap  FILE:LINE     v4: undo a wrap (or native edit, or FILE:1 install hook)
+  router-migrate probe   [FILE:LINE] --cmd CMD  v4: run CMD against router-sim; a valid request tagged with a site's feature confirms it
+  router-migrate card    FILE:LINE --kind K     v4: propose a lossy move for a human (model_swap, vendor_endpoint, per_user_key, beta_flags)
+  router-migrate claim   FILE:LINE OUT v4: your decision for one or more sites, with --why and --evidence (lines read, probes run)
+  router-migrate finish  PATH          v4: the gate (hard limits, invariants, tests, Router-on run, evidence for every migrated claim)
   router-migrate improve PATH          v3: cards across every Router lever from the migrated code + agent judgments; features still to judge
   router-migrate judge   FILE:LINE K V v3: record a judgment (latency | task | cacheable) for a feature, with --why and --evidence
   router-migrate up      PATH          v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the dashboard (--agent: exit 2 while cards are undecided)
@@ -283,6 +286,7 @@ def main(argv=None):
             sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
             sp.add_argument("--typecheck-cmd", help="v3: typecheck command; its error count is the baseline finish compares against")
             sp.add_argument("--force", action="store_true", help="v3: re-apply the floor and reset the ledger's floor snapshot")
+            sp.add_argument("--no-floor", action="store_true", help="v4 default (kept for older scripts): nothing is applied")
             sp.add_argument("--agent", choices=["claude"], help="v3: after the floor, run the coding agent headless on the residue, then finish")
             sp.add_argument("--model", help="v3: agent model (default: the agent CLI's default)")
             sp.add_argument("--agent-timeout", type=int, default=2700, help="v3: seconds before the agent run is stopped")
@@ -316,7 +320,7 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
-    if a.cmd in ("check", "wrap", "claim", "finish", "run", "judge", "improve"):
+    if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve"):
         from . import agent as agentmod
         if a.cmd != "run" or not getattr(a, "dry_run", False):
             return agentmod.dispatch(a)
