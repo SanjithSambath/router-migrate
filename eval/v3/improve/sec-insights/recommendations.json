@@ -1,0 +1,546 @@
+{
+ "catalog_version": "bundled snapshot (GET https://api.router.com/v1/models (live, 2026-10-12/13))",
+ "rules_version": "v2-mvp-1",
+ "repo": "sec-insights",
+ "generated": "2026-10-13T23:11:03",
+ "repo_kind": "library",
+ "signals": {
+  "py:backend/app/llama_index_settings.py:28:19:client": {
+   "feature": "backend/app/llama_index_settings.py:_setup_llama_index_settings",
+   "function": "_setup_llama_index_settings",
+   "latency_class": "interactive",
+   "model_owner": "operator_config",
+   "model_value": "gpt-4o-mini",
+   "resolved_model": "gpt-4o-mini",
+   "sources": {
+    "latency_class": "agent",
+    "resolved_model": "agent"
+   },
+   "agent": {
+    "latency": {
+     "at": "2026-10-13T23:10:13",
+     "evidence": [
+      "backend/app/chat/tools.py:152",
+      "backend/app/chat/engine.py:252",
+      "backend/app/chat/messaging.py:134",
+      "backend/app/api/endpoints/conversation.py:75"
+     ],
+     "value": "interactive",
+     "why": "This sets the global Settings.llm, which tools.py:152 copies into an OpenAIAgent used as the quantitative-question sub-tool inside get_chat_engine. That agent is built per-request inside handle_chat_message, invoked synchronously from the SSE streaming endpoint /{conversation_id}/message, so a person is watching the reply stream in."
+    },
+    "model": {
+     "at": "2026-10-13T23:10:06",
+     "evidence": [
+      "backend/app/llama_index_settings.py:29",
+      "backend/app/core/config.py:68"
+     ],
+     "value": "gpt-4o-mini",
+     "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+    },
+    "task": {
+     "at": "2026-10-13T23:10:20",
+     "evidence": [
+      "backend/app/chat/tools.py:146",
+      "backend/app/chat/tools.py:156",
+      "backend/app/chat/tools.py:160"
+     ],
+     "value": "agentic",
+     "why": "The LLM configured here is used by tools.py's get_api_query_engine_tool, which wraps it in OpenAIAgent.from_tools with the polygon_io_tool so it can call the polygon.io API to extract SEC financial data and answer quantitative questions \u2014 a tool-using function-calling loop, not a single-shot completion."
+    }
+   },
+   "task": "agentic"
+  },
+  "py:backend/app/chat/engine.py:287:15:client": {
+   "feature": "backend/app/chat/engine.py:get_chat_engine",
+   "function": "get_chat_engine",
+   "latency_class": "interactive",
+   "model_owner": "operator_config",
+   "model_value": "gpt-4o-mini",
+   "resolved_model": "gpt-4o-mini",
+   "sources": {
+    "latency_class": "agent",
+    "resolved_model": "agent"
+   },
+   "agent": {
+    "latency": {
+     "at": "2026-10-13T23:10:33",
+     "evidence": [
+      "backend/app/chat/engine.py:305",
+      "backend/app/chat/messaging.py:134",
+      "backend/app/chat/messaging.py:150",
+      "backend/app/api/endpoints/conversation.py:70",
+      "backend/app/api/endpoints/conversation.py:77"
+     ],
+     "value": "interactive",
+     "why": "This chat_llm builds the top-level OpenAIAgent returned by get_chat_engine, which is created in handle_chat_message and streamed (astream_chat) back through an SSE endpoint (/{conversation_id}/message) to a chat UI \u2014 a person is watching the reply stream in token by token."
+    },
+    "model": {
+     "at": "2026-10-13T23:10:26",
+     "evidence": [
+      "backend/app/chat/engine.py:289",
+      "backend/app/core/config.py:68"
+     ],
+     "value": "gpt-4o-mini",
+     "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+    },
+    "task": {
+     "at": "2026-10-13T23:10:39",
+     "evidence": [
+      "backend/app/chat/engine.py:264",
+      "backend/app/chat/engine.py:305",
+      "backend/app/chat/engine.py:312"
+     ],
+     "value": "agentic",
+     "why": "chat_llm drives an OpenAIAgent.from_tools with max_function_calls=3 over two QueryEngineTools (qualitative and quantitative sub-question engines), which themselves route to document-level tools and the polygon.io SEC tool \u2014 a multi-step, tool-using function-calling loop, not a plain chat completion."
+    }
+   },
+   "task": "agentic"
+  }
+ },
+ "cards": [
+  {
+   "id": "rec_attr_metadata_55a4e3d5",
+   "rule": "attr.metadata",
+   "lever_group": "same_model",
+   "title": "Tag Router spend for 2 feature(s) with product=sec-insights",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client",
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine",
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "operator_config",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"defaults\": {\"metadata\": {\"product\": \"sec-insights\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "product": "sec-insights",
+    "features": 2
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "Router stores metadata as request tags; metadata.product attributes spend in Ramp",
+      "source": "docs"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "attribution only, no price change"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "f6bff72f3fa72032",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "Router stores metadata as request tags; metadata.product attributes spend in Ramp"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_fallback_candidates_5b4e69d8",
+   "rule": "fallback.candidates",
+   "lever_group": "same_model",
+   "title": "Fail over backend/app/chat/engine.py:get_chat_engine from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+   "scope": {
+    "sites": [
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "operator_config",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"backend/app/chat/engine.py:get_chat_engine\": {\"fallbacks\": [\"gpt-6-luna\", \"claude-haiku-5-5\"]}}}"
+   },
+   "loses": [
+    "on a pre-stream failure (429/5xx/no permission) a different model answers that request"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4o-mini",
+    "candidates": [
+     "gpt-6-luna",
+     "claude-haiku-5-5"
+    ]
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "candidates match gpt-4o-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L0",
+      "fact": "Router's models list advances on 403/unknown model (measured)",
+      "source": "measured"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+      "source": "agent",
+      "evidence": [
+       "backend/app/chat/engine.py:289",
+       "backend/app/core/config.py:68"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "price of the fallback model on the requests that fail over"
+   },
+   "risk": 2,
+   "effort": "none",
+   "options": [
+    {
+     "fallbacks": [
+      "gpt-6-luna"
+     ]
+    },
+    {
+     "fallbacks": [
+      "gpt-6-luna",
+      "claude-haiku-5-5"
+     ]
+    }
+   ],
+   "etag": "e7e04d72e31d1b53",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "candidates match gpt-4o-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+    "Router's models list advances on 403/unknown model (measured)"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+     "evidence": [
+      "backend/app/chat/engine.py:289",
+      "backend/app/core/config.py:68"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_fallback_candidates_02cfb028",
+   "rule": "fallback.candidates",
+   "lever_group": "same_model",
+   "title": "Fail over backend/app/llama_index_settings.py:_setup_llama_index_settings from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client"
+    ],
+    "features": [
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "operator_config",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"backend/app/llama_index_settings.py:_setup_llama_index_settings\": {\"fallbacks\": [\"gpt-6-luna\", \"claude-haiku-5-5\"]}}}"
+   },
+   "loses": [
+    "on a pre-stream failure (429/5xx/no permission) a different model answers that request"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4o-mini",
+    "candidates": [
+     "gpt-6-luna",
+     "claude-haiku-5-5"
+    ]
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "candidates match gpt-4o-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L0",
+      "fact": "Router's models list advances on 403/unknown model (measured)",
+      "source": "measured"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+      "source": "agent",
+      "evidence": [
+       "backend/app/llama_index_settings.py:29",
+       "backend/app/core/config.py:68"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "price of the fallback model on the requests that fail over"
+   },
+   "risk": 2,
+   "effort": "none",
+   "options": [
+    {
+     "fallbacks": [
+      "gpt-6-luna"
+     ]
+    },
+    {
+     "fallbacks": [
+      "gpt-6-luna",
+      "claude-haiku-5-5"
+     ]
+    }
+   ],
+   "etag": "d8fffac06d39ea9e",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "candidates match gpt-4o-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+    "Router's models list advances on 403/unknown model (measured)"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+     "evidence": [
+      "backend/app/llama_index_settings.py:29",
+      "backend/app/core/config.py:68"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_model_newer_cheaper_same_family_2c8671e0",
+   "rule": "model.newer_cheaper_same_family",
+   "lever_group": "model",
+   "title": "Try gpt-6-luna for backend/app/chat/engine.py:get_chat_engine (newer, -20% list price)",
+   "scope": {
+    "sites": [
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "operator_config",
+   "change": {
+    "kind": "config",
+    "diff": "change the default config value gpt-4o-mini to gpt-6-luna"
+   },
+   "loses": [
+    "a different model answers every request: needs L2 evidence before applying"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4o-mini",
+    "candidate": "gpt-6-luna"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-6-luna: same vendor, same capabilities, lower list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+      "source": "agent",
+      "evidence": [
+       "backend/app/chat/engine.py:289",
+       "backend/app/core/config.py:68"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -20,
+    "monthly_usd": null,
+    "ignores": "list prices only; output length and quality differ by model"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "e7e04d72e31d1b53",
+   "state": "new",
+   "applies": false,
+   "tool_facts": [
+    "gpt-6-luna: same vendor, same capabilities, lower list price"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+     "evidence": [
+      "backend/app/chat/engine.py:289",
+      "backend/app/core/config.py:68"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_model_newer_cheaper_same_family_1a5da4fa",
+   "rule": "model.newer_cheaper_same_family",
+   "lever_group": "model",
+   "title": "Try gpt-6-luna for backend/app/llama_index_settings.py:_setup_llama_index_settings (newer, -20% list price)",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client"
+    ],
+    "features": [
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "operator_config",
+   "change": {
+    "kind": "config",
+    "diff": "change the default config value gpt-4o-mini to gpt-6-luna"
+   },
+   "loses": [
+    "a different model answers every request: needs L2 evidence before applying"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4o-mini",
+    "candidate": "gpt-6-luna"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-6-luna: same vendor, same capabilities, lower list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+      "source": "agent",
+      "evidence": [
+       "backend/app/llama_index_settings.py:29",
+       "backend/app/core/config.py:68"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -20,
+    "monthly_usd": null,
+    "ignores": "list prices only; output length and quality differ by model"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "d8fffac06d39ea9e",
+   "state": "new",
+   "applies": false,
+   "tool_facts": [
+    "gpt-6-luna: same vendor, same capabilities, lower list price"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: production model: gpt-4o-mini (settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere)",
+     "evidence": [
+      "backend/app/llama_index_settings.py:29",
+      "backend/app/core/config.py:68"
+     ]
+    }
+   ]
+  }
+ ],
+ "considered_not_recommended": [
+  {
+   "rule": "cache.key",
+   "scope": {
+    "sites": [
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine"
+    ]
+   },
+   "reason": "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)"
+  },
+  {
+   "rule": "tier.flex_background",
+   "scope": {
+    "sites": [
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine"
+    ]
+   },
+   "reason": "gpt-4o-mini has no flex tier"
+  },
+  {
+   "rule": "cache.key",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client"
+    ],
+    "features": [
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ]
+   },
+   "reason": "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)"
+  },
+  {
+   "rule": "tier.flex_background",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client"
+    ],
+    "features": [
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ]
+   },
+   "reason": "gpt-4o-mini has no flex tier"
+  },
+  {
+   "rule": "model.right_size",
+   "scope": {
+    "sites": [
+     "py:backend/app/chat/engine.py:287:15:client"
+    ],
+    "features": [
+     "backend/app/chat/engine.py:get_chat_engine"
+    ]
+   },
+   "reason": "agent judged the task 'agentic': not a short, well-specified output"
+  },
+  {
+   "rule": "model.right_size",
+   "scope": {
+    "sites": [
+     "py:backend/app/llama_index_settings.py:28:19:client"
+    ],
+    "features": [
+     "backend/app/llama_index_settings.py:_setup_llama_index_settings"
+    ]
+   },
+   "reason": "agent judged the task 'agentic': not a short, well-specified output"
+  }
+ ]
+}

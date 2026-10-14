@@ -10,6 +10,8 @@
   router-migrate wrap    FILE:LINE     v3: the deterministic one-line wrap at any client construction (factories included); prints the diff
   router-migrate claim   FILE:LINE OUT v3: record migrated|kept|flagged|handoff|needs_human|not_a_site with --why and --evidence FILE:LINE
   router-migrate finish  PATH          v3: the gate (syntax, scope, typecheck, tests vs baseline, Router-on sim run, claims, worklist)
+  router-migrate improve PATH          v3: cards across every Router lever from the migrated code + agent judgments; features still to judge
+  router-migrate judge   FILE:LINE K V v3: record a judgment (latency | task | cacheable) for a feature, with --why and --evidence
   router-migrate up      PATH          v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the dashboard (--agent: exit 2 while cards are undecided)
   router-migrate recommend PATH        v2: Improve cards (unlock, same-model policy, model recommendations) -> recommendations.json + RECOMMENDATIONS.md
   router-migrate decide  ID ACTION     v2: approve | dismiss --reason R | postpone --until DATE | shadow-first a card (writes decisions.json)
@@ -284,6 +286,9 @@ def main(argv=None):
             sp.add_argument("--agent", choices=["claude"], help="v3: after the floor, run the coding agent headless on the residue, then finish")
             sp.add_argument("--model", help="v3: agent model (default: the agent CLI's default)")
             sp.add_argument("--agent-timeout", type=int, default=2700, help="v3: seconds before the agent run is stopped")
+            sp.add_argument("--skip-improve", action="store_true", help="v3: stop after the migration gate (no Improve phase)")
+            sp.add_argument("--no-dashboard", action="store_true", help="v3: write REPORT.html but don't serve the live dashboard")
+            sp.add_argument("--no-browser", action="store_true", help="v3: serve the dashboard without opening a browser")
     s_up = sub.add_parser("up", help="v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
     s_up.add_argument("path", nargs="?", default=".")
     s_up.add_argument("--agent", action="store_true", help="no dashboard; print pending cards as JSON; exit 2 while any card is undecided")
@@ -311,7 +316,7 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
-    if a.cmd in ("check", "wrap", "claim", "finish", "run"):
+    if a.cmd in ("check", "wrap", "claim", "finish", "run", "judge", "improve"):
         from . import agent as agentmod
         if a.cmd != "run" or not getattr(a, "dry_run", False):
             return agentmod.dispatch(a)

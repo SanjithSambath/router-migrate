@@ -13,7 +13,8 @@
   - a Router setup checklist.
 - **v3** puts a coding agent in charge of what rules can't decide: `router-migrate run . --agent claude` applies the
   deterministic floor, then the agent works the residue with five commands (`run`, `check`, `wrap`, `claim`, `finish`)
-  that give it facts and a gate it can't skip. On 10 fresh repos it was the only approach with no wrong moves.
+  that give it facts and a gate it can't skip. On 10 fresh repos it was the only approach with no wrong moves. After the
+  gate it runs the **Improve** phase (agent judgments + tool facts -> cards for every Router lever) and opens the dashboard.
 
 Every number below is from `eval/scoreboard.json`, `eval/scoreboard_v2.json`, `eval/heldout/audit.json` and
 `eval/v3/results.json`.
@@ -61,6 +62,31 @@ run . --agent claude` runs the whole loop headless with a Stop hook. `check` agr
 embedded catalog counted as the repo's model names; the per-tenant heuristic overrode a deliberate wrap); the Flex/fallback
 conflict (v2); and, from the transcripts, a hotspot list padded with TS test files (658 -> 37 items on the costliest repo,
 fixed after the eval).
+
+## v3 Improve: from migrated to optimized (`router-migrate run . --agent claude`)
+
+After `finish` passes, the same command keeps going: it turns the migration into improvements across every Router lever,
+then opens a local dashboard showing the whole run with cards to approve. The split is the same as for migration:
+- **Tools decide the facts:** which models have a Flex tier, catalog and cache prices, capability-matched fallbacks, what the
+  policy compiler accepts, which betas can be dropped, which vendor endpoints serve a catalog model.
+- **A second, short agent session decides the judgments** the v2 filename heuristics used to guess, each with cited lines:
+  `router-migrate judge FILE:LINE latency|task|model|cacheable VALUE --why ... --evidence FILE:LINE`. The session is gated
+  by `router-migrate improve . --hook` (it can't stop while a migrated feature is unjudged), and it can't edit code.
+- **Cards** for six levers: Tiers / Flex, fallbacks, prompt caching, spend tags, unlocks, model recommendations, each
+  showing tool facts and agent rationale apart. Plus a Router setup checklist made specific to the repo (which features
+  the Flex default, Jev and Switchyard apply to; shadow pairs taken from the model cards; budgets).
+- **Nothing applies itself.** The dashboard's Apply runs `router-migrate apply --decisions` (policy compile, unlock
+  codemods) and a quick scope gate, records what was applied, and points at `finish` for the full gate. Model cards are
+  never applied.
+
+**Measured on the 10 fresh repos** (eval/v3/IMPROVE_RESULTS.md), starting from arm C's migrations: the 9 migrated features
+across 4 repos were all judged for $2.32 of agent time (median $0.54 per repo, 2-6 minutes). Judgments took the cards from
+4 to 15: the agent found the production model behind config values (unlocking fallbacks and model candidates) and two
+long static prompts in AI-Scientist (7k and 18k tokens: caching). It disagreed with the filename heuristic on 8 of 9
+features' latency class, each with cited callers (an unattended research pipeline is background; three apps stream to a
+waiting user). No Flex card fired, correctly: the one background workload runs on models without a Flex tier. On the
+showcase repo (a nightly job, a chat route, an xAI client, an Anthropic beta call) one real run produced cards on all six
+levers ($0.44 migrate + $0.29 improve; eval/v3/improve_showcase/). Screenshots: eval/v3/screenshots/.
 
 ## Results on the 15 pinned repos (9 Python, 6 TS)
 

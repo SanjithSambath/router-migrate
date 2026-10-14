@@ -43,21 +43,25 @@ def event(root, stage, status, counts=None, msg="", cost_usd=0.0):
 
 
 # ------------------------------------------------------------------------------------------------ recommend
-def recommend(root, catalog, repo=None):
-    plan, scan = load(root, "plan.json"), load(root, "scan.json")
+def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines=False):
+    scan = load(root, "scan.json")
+    plan = plan or load(root, "plan.json")
     if plan is None:
         raise SystemExit("no plan: run `router-migrate plan` (or `up`) first")
-    r = rec_mod.build(root, plan, catalog, repo=repo, scan=scan)
+    r = rec_mod.build(root, plan, catalog, repo=repo, scan=scan, judgments=judgments, current_lines=current_lines)
     dec = load(root, "decisions.json", {"cards": {}})
     for c in r["cards"]:
         d = dec["cards"].get(c["id"])
         if d:
             c["state"] = {"approve": "approved", "dismiss": "dismissed", "postpone": "postponed", "shadow_first": "shadow_first"}[d["action"]]
+            if d["action"] == "approve" and d.get("applied_at"):
+                c["state"] = "applied"
             if d.get("etag") != c["etag"]:
                 c["state"] = "stale"  # code or catalog row changed since the decision: re-confirm
     save(root, "recommendations.json", r)
     open(sp(root, "RECOMMENDATIONS.md"), "w").write(rec_mod.render_markdown(r, dec))
-    event(root, "recommend", "done", {"cards": len(r["cards"]), "considered": len(r["considered_not_recommended"])})
+    if not current_lines:  # the v3 launcher records its own "improve" stage
+        event(root, "recommend", "done", {"cards": len(r["cards"]), "considered": len(r["considered_not_recommended"])})
     return r
 
 
@@ -198,6 +202,16 @@ def apply_decisions(root, catalog, dry_run=False):
                 unlocks["sites"][sid] = {"card": c["id"], "rule": c["rule"]}
             applied.append({"card": c["id"], "rule": c["rule"], "kind": "code", "file": cl["file"]})
     log = {"applied": applied, "skipped": skipped, "policy_hash": None, "files": files, "warnings": flex_conflicts(p)}
+    led = load(root, "ledger.json")
+    if led is not None and log["files"] and not dry_run:  # v3: edits from approved decisions are in scope for the gate
+        led.setdefault("edits", []).append({"by": "decisions", "files": sorted(set(log["files"])), "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        save(root, "ledger.json", led)
+    if applied and not dry_run:  # remember what was applied, so the dashboard and `up --agent` stop counting it as pending
+        dec2 = load(root, "decisions.json", {"cards": {}})
+        for x in applied:
+            if x["card"] in dec2["cards"]:
+                dec2["cards"][x["card"]]["applied_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        save(root, "decisions.json", dec2)
     if p and not dry_run:
         if not pol.policy_valid(p):
             raise SystemExit("approved cards produced an invalid policy (bug); nothing written")
@@ -288,12 +302,94 @@ SETUP = [
 ]
 
 
+def setup_for(root, r, led=None):
+    """The Router setup checklist, made specific to this repo: which features each account-level lever applies to, and the
+    exact values to enter. Account settings are never changed by the tool."""
+    items = [dict(x) for x in SETUP]
+    sig = (r or {}).get("signals") or {}
+    feats = {}
+    for s in sig.values():
+        feats.setdefault(s["feature"], s)
+    bg = sorted(f for f, s in feats.items() if s.get("latency_class") == "background")
+    chat = sorted(f for f, s in feats.items() if s.get("task") in ("chat", "agentic", "reasoning", "generation"))
+    coding = sorted(f for f, s in feats.items() if s.get("task") == "agentic")
+    model_cards = [c for c in (r or {}).get("cards") or [] if c.get("lever_group") == "model"]
+    models = sorted({s.get("resolved_model") for s in feats.values() if s.get("resolved_model")})
+    for it in items:
+        if it["id"] == "setup.budget":
+            it["values"] = {"page": "API keys", "cap": "your monthly limit", "features behind this key": str(len(feats))}
+        elif it["id"] == "setup.flex_default":
+            it["applies_to"] = bg
+            if bg:
+                it["why"] += " This repo has background features (%s); the Flex cards opt only those in." % ", ".join(bg[:3])
+        elif it["id"] == "setup.jev":
+            it["applies_to"] = chat
+            if models:
+                it["values"] = dict(it["values"], **{"models in use here": ", ".join(models[:6])})
+            if not chat:
+                it["why"] += " No feature here was judged a chat/agentic task, so a Jev profile has nothing obvious to route."
+        elif it["id"] == "setup.switchyard":
+            it["applies_to"] = coding
+            if not coding:
+                it["why"] += " Not applicable here: no feature was judged an agentic coding task."
+                it["na"] = True
+        elif it["id"] == "setup.shadow":
+            if model_cards:
+                it["applies_to"] = sorted({f for c in model_cards for f in c["scope"]["features"]})
+                it["values"] = dict(it["values"], **{"shadow pairs": "; ".join(
+                    "%s -> %s" % (c["rule_inputs"].get("model"), c["rule_inputs"].get("candidate") or c["rule_inputs"].get("replacement"))
+                    for c in model_cards[:4])})
+                it["why"] += " Every model card above is a candidate: shadow it before changing code."
+    return items
+
+
+def run_summary(root):
+    """The v3 run, for the dashboard: phases with cost and time, the gate, what the agent changed."""
+    led = load(root, "ledger.json")
+    if not led:
+        return None
+    cost = led.get("cost") or {}
+    imp = led.get("improve") or {}
+    fin = led.get("finish") or {}
+    res = led.get("result") or {}
+    p3 = load(root, "plan_v3.json") or {}
+    routes_now = sum(1 for x in p3.get("sites") or [] if x.get("prod") and x.get("outcome") == "migrated")
+    claims = list((led.get("claims") or {}).values())
+    def _near(it, c):
+        return c["file"] == it["file"] and abs(int(c["line"]) - int(it["line"])) <= 3
+    added = sum(1 for it in led.get("worklist") or [] if it.get("type") == "site" and it.get("tool_outcome") != "migrated" and
+                any(_near(it, c) and c["outcome"] == "migrated" and c.get("confirmed") in ("static", "dynamic") for c in claims))
+    last = ((fin.get("history") or [{}])[-1] or {}).get("info") if fin.get("history") else {}
+    return {"floor_migrated": (led.get("floor") or {}).get("migrated"), "result": res, "routes_now": routes_now, "added_by_agent": added,
+            "corrected_by_agent": res.get("overridden_to_not_migrated", 0), "tests": (last or {}).get("tests"),
+            "tests_before": (led.get("baseline") or {}).get("before"), "sim": (last or {}).get("sim"),
+            "agent_edit_files": len((last or {}).get("agent_changed_files") or []),
+            "migrate": {"usd": cost.get("agent_usd"), "minutes": cost.get("agent_minutes"), "turns": cost.get("agent_turns"),
+                        "model": cost.get("agent_model")},
+            "improve": {"usd": (imp.get("cost") or {}).get("usd"), "minutes": (imp.get("cost") or {}).get("minutes"),
+                        "turns": (imp.get("cost") or {}).get("turns"), "judged": len(led.get("judgments") or {}),
+                        "features": imp.get("features")},
+            "gate": {"attempts": fin.get("attempts"), "reverted": bool(fin.get("reverted")),
+                     "last": ((fin.get("history") or [{}])[-1] or {}).get("info") if fin.get("history") else None},
+            "judgments": led.get("judgments") or {}, "worklist": len(led.get("worklist") or []), "claims": len(led.get("claims") or {})}
+
+
 def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
-    plan = load(root, "plan.json", {"sites": [], "summary": {}})
+    # v3: once the agent has run, the whole-run view shows the code as it stands (plan_v3.json: measure-only plan with the
+    # agent's claims applied) and the full diff (the floor plus the agent's edits)
+    v3 = load(root, "plan_v3.json") if load(root, "ledger.json") else None
+    plan = v3 or load(root, "plan.json", {"sites": [], "summary": {}})
     r = load(root, "recommendations.json", {"cards": [], "considered_not_recommended": [], "signals": {}})
     dec = load(root, "decisions.json", {"cards": {}})
     unlocks = load(root, "unlocks.json", {"sites": {}})
     diff = open(sp(root, "apply.diff")).read() if os.path.exists(sp(root, "apply.diff")) else ""
+    if v3:
+        try:
+            from . import agent as agent_mod
+            led0 = load(root, "ledger.json")
+            diff += agent_mod.diff_since(root, led0["floor"]["tree"])  # the agent's edits on top of the floor
+        except Exception:
+            pass
     prod = [s for s in plan["sites"] if s.get("prod")]
     sm = plan.get("summary") or {}
     unsupported_surfaces = ("embeddings", "images", "audio", "files", "batches", "vector_stores", "assistants", "moderations", "completions.legacy", "models")
@@ -314,7 +410,11 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
                  unlocked=s["id"] in unlocks["sites"], chips=[])
         sites.append(x)
     status_report, ok = status(root)
-    led = load(root, "ledger.json")  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
+    led = load(root, "ledger.json")
+    if led and tests is None:  # v3: the gate's own test runs
+        hist = (led.get("finish") or {}).get("history") or []
+        last = (hist[-1].get("info") or {}).get("tests") if hist else None
+        tests = {"before": (led.get("baseline") or {}).get("before"), "after": last}  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
     ledger = None
     if led:
         ledger = {"claims": [dict(c, key=k) for k, c in sorted((led.get("claims") or {}).items())], "worklist": led.get("worklist") or [],
@@ -322,13 +422,14 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
                   "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
     return {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
-            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v2-mvp",
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),
                        "needs_review": sm.get("flagged", 0) + sm.get("handoff", 0), "kept": sm.get("kept", 0)},
             "kpis": {"lossless_migrated": sm.get("migrated", 0), "migrated_with_unlocks": sm.get("migrated", 0) + len(unlocks["sites"]),
                      "unlock_candidates": sum(1 for c in r["cards"] if c["lever_group"] == "unlock"),
                      "cards_total": len(r["cards"]), "live_spend_usd": live_spend_usd, "tests_before": (tests or {}).get("before"), "tests_after": (tests or {}).get("after")},
-            "sites": sites, "diff": diff, "recommendations": r, "decisions": dec, "setup": SETUP, "unsupported": unsup,
+            "sites": sites, "diff": diff, "recommendations": r, "decisions": dec, "setup": setup_for(root, r, led), "unsupported": unsup,
+            "run": run_summary(root),
             "policy": {"exists": status_report["policy_file"], "hash": status_report["policy_hash"],
                        "compiled_hash": (status_report["compiled"][0]["hash"] if status_report["compiled"] else None), "orphans": status_report["orphans"]}}

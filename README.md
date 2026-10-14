@@ -43,7 +43,11 @@ router-migrate check FILE:LINE        # does the runtime reroute this call as th
 router-migrate wrap FILE:LINE         # the deterministic wrap at any client construction (factories too)
 router-migrate claim FILE:LINE --outcome kept --reason R_OTHER_HOST --why "..." --evidence config.py:12
 router-migrate finish .               # the gate; reverts agent edits to the floor after 3 failures; --hook for a Stop hook
+router-migrate improve . [--agent claude]   # Improve: cards for every Router lever from your judgments; --agent runs the judging session
+router-migrate judge FILE:LINE latency background --why "..." --evidence app/tasks.py:30   # latency | task | model | cacheable
 ```
+After the gate, `run --agent claude` continues into Improve and opens the dashboard (the whole run, a lever grid, cards
+with tool facts vs agent rationale, a repo-specific Router setup checklist). Results: [eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md).
 On 10 fresh repos the agent + toolkit arm made 10 correct moves, 0 wrong, broke 0 repos ([eval/v3/RESULTS.md](eval/v3/RESULTS.md)).
 Design: [SPEC_V3.md](SPEC_V3.md). Prompt: [router_migrate/prompts/migrate.md](router_migrate/prompts/migrate.md).
 

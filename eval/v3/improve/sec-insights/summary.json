@@ -1,0 +1,128 @@
+{
+ "repo": "sec-insights",
+ "commit": "a9b6da0f5c4bff52437a5285954ff17bc713f14f",
+ "features": 2,
+ "judged": 2,
+ "judgments": {
+  "backend/app/chat/engine.py:get_chat_engine": {
+   "latency": {
+    "at": "2026-10-13T23:10:33",
+    "evidence": [
+     "backend/app/chat/engine.py:305",
+     "backend/app/chat/messaging.py:134",
+     "backend/app/chat/messaging.py:150",
+     "backend/app/api/endpoints/conversation.py:70",
+     "backend/app/api/endpoints/conversation.py:77"
+    ],
+    "value": "interactive",
+    "why": "This chat_llm builds the top-level OpenAIAgent returned by get_chat_engine, which is created in handle_chat_message and streamed (astream_chat) back through an SSE endpoint (/{conversation_id}/message) to a chat UI \u2014 a person is watching the reply stream in token by token."
+   },
+   "model": {
+    "at": "2026-10-13T23:10:26",
+    "evidence": [
+     "backend/app/chat/engine.py:289",
+     "backend/app/core/config.py:68"
+    ],
+    "value": "gpt-4o-mini",
+    "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+   },
+   "task": {
+    "at": "2026-10-13T23:10:39",
+    "evidence": [
+     "backend/app/chat/engine.py:264",
+     "backend/app/chat/engine.py:305",
+     "backend/app/chat/engine.py:312"
+    ],
+    "value": "agentic",
+    "why": "chat_llm drives an OpenAIAgent.from_tools with max_function_calls=3 over two QueryEngineTools (qualitative and quantitative sub-question engines), which themselves route to document-level tools and the polygon.io SEC tool \u2014 a multi-step, tool-using function-calling loop, not a plain chat completion."
+   }
+  },
+  "backend/app/llama_index_settings.py:_setup_llama_index_settings": {
+   "latency": {
+    "at": "2026-10-13T23:10:13",
+    "evidence": [
+     "backend/app/chat/tools.py:152",
+     "backend/app/chat/engine.py:252",
+     "backend/app/chat/messaging.py:134",
+     "backend/app/api/endpoints/conversation.py:75"
+    ],
+    "value": "interactive",
+    "why": "This sets the global Settings.llm, which tools.py:152 copies into an OpenAIAgent used as the quantitative-question sub-tool inside get_chat_engine. That agent is built per-request inside handle_chat_message, invoked synchronously from the SSE streaming endpoint /{conversation_id}/message, so a person is watching the reply stream in."
+   },
+   "model": {
+    "at": "2026-10-13T23:10:06",
+    "evidence": [
+     "backend/app/llama_index_settings.py:29",
+     "backend/app/core/config.py:68"
+    ],
+    "value": "gpt-4o-mini",
+    "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+   },
+   "task": {
+    "at": "2026-10-13T23:10:20",
+    "evidence": [
+     "backend/app/chat/tools.py:146",
+     "backend/app/chat/tools.py:156",
+     "backend/app/chat/tools.py:160"
+    ],
+    "value": "agentic",
+    "why": "The LLM configured here is used by tools.py's get_api_query_engine_tool, which wraps it in OpenAIAgent.from_tools with the polygon_io_tool so it can call the polygon.io API to extract SEC financial data and answer quantitative questions \u2014 a tool-using function-calling loop, not a single-shot completion."
+   }
+  }
+ },
+ "latency_heuristic_vs_agent": [
+  {
+   "feature": "backend/app/chat/engine.py:get_chat_engine",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "This chat_llm builds the top-level OpenAIAgent returned by get_chat_engine, which is created in handle_chat_message and streamed (astream_chat) back through an SSE endpoint (/{conversation_id}/message"
+  },
+  {
+   "feature": "backend/app/llama_index_settings.py:_setup_llama_index_settings",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "This sets the global Settings.llm, which tools.py:152 copies into an OpenAIAgent used as the quantitative-question sub-tool inside get_chat_engine. That agent is built per-request inside handle_chat_m"
+  }
+ ],
+ "cards": 5,
+ "cards_by_lever": {
+  "tags": 1,
+  "fallback": 2,
+  "model": 2
+ },
+ "considered_by_lever": {
+  "cache": [
+   "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)",
+   "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)"
+  ],
+  "tier": [
+   "gpt-4o-mini has no flex tier",
+   "gpt-4o-mini has no flex tier"
+  ],
+  "model": [
+   "agent judged the task 'agentic': not a short, well-specified output",
+   "agent judged the task 'agentic': not a short, well-specified output"
+  ]
+ },
+ "cards_before_judgments": 1,
+ "cards_added_by_judgments": [
+  "rec_fallback_candidates_02cfb028",
+  "rec_fallback_candidates_5b4e69d8",
+  "rec_model_newer_cheaper_same_family_1a5da4fa",
+  "rec_model_newer_cheaper_same_family_2c8671e0"
+ ],
+ "cards_removed_by_judgments": [],
+ "cards_with_agent_rationale": 4,
+ "usd": 0.48796439999999996,
+ "agent_minutes": 2.7,
+ "turns": 22,
+ "minutes": 2.8,
+ "exit": 0,
+ "card_titles": [
+  "Tag Router spend for 2 feature(s) with product=sec-insights",
+  "Fail over backend/app/chat/engine.py:get_chat_engine from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+  "Fail over backend/app/llama_index_settings.py:_setup_llama_index_settings from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+  "Try gpt-6-luna for backend/app/chat/engine.py:get_chat_engine (newer, -20% list price)",
+  "Try gpt-6-luna for backend/app/llama_index_settings.py:_setup_llama_index_settings (newer, -20% list price)"
+ ]
+}

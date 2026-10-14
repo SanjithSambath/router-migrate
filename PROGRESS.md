@@ -182,3 +182,14 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   and results, revision history), Stop-hook fields checked against the Claude Code hooks reference; DEMO_V3.md (2-minute demo
   on a fresh repo from the recorded run); WRITEUP "What Router should build"; Router-key evidence in RESULTS (no key in any
   v3 process, artifact or transcript; $0 live Router spend). Post-eval fix: `wrap` remaps ledger lines (+1 test, 281 total).
+
+## v3 Improve phase
+- **Improve after the gate** (`judge`, `improve [--agent claude] [--hook]`, the read-only improve session, cards from
+  judgments with tool facts vs agent rationale, `model.right_size` on the agent's task, a repo-specific setup checklist, the
+  whole-run dashboard with a lever grid, Apply that records `applied_at`). Done when: `run --agent claude` on the showcase
+  repo goes floor -> migrate -> gate -> improve -> cards on all six levers -> REPORT.html (eval/v3/improve_showcase/), and
+  approve + Apply work in the live dashboard (checked in the browser pane); tests/test_improve_v3.py (4).
+- **Improve on the 10 fresh repos** (eval/v3/run_improve.py -> eval/v3/improve/<repo>/, IMPROVE_RESULTS.md): 9 features
+  judged, 4 -> 15 cards, $2.32; 10 dashboard screenshots in eval/v3/screenshots/. Done when:
+  `bash scripts/done_check_v3_improve.sh` prints DONE_CHECK_V3_IMPROVE: PASS.
+

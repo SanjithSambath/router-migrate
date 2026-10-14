@@ -361,6 +361,8 @@ def cmd_run(a):
                 "finish": {"attempts": 0, "history": []}})
     led["edits"].append({"by": "codemod", "what": "floor", "files": json.load(open(sp(root, "apply.json"))).get("files_changed", [])})
     save_ledger(root, led)
+    _event(root, "floor", "done", {"sites": p["summary"]["sites_found"], "migrated": p["summary"]["migrated"], "worklist": len(led["worklist"])},
+           msg="tests %s" % _tc((v or {}).get("tests_before")) if v else "")
     wl = led["worklist"]
     sm = p["summary"]
     lines = ["floor applied: %d production sites, %d migrated by the deterministic codemod (%d kept, %d flagged, %d handoff) in %.0fs" % (
@@ -380,29 +382,34 @@ AGENT_TOOLS = ("Read,Grep,Glob,Edit,MultiEdit,TodoWrite,Task,Bash(router-migrate
                "Bash(ls:*),Bash(rg:*),Bash(grep:*),Bash(find:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(sed -n:*),Bash(wc:*)")
 
 
-def launch_agent(root, agent="claude", model=None, timeout=2700, max_turns=250):
-    """Run the coding agent headless on the residue: our prompt, a Stop hook that runs `finish`, tools limited to reading,
-    editing and router-migrate. Nothing is written into the repo's .claude/ (settings come from a temp file).
-    Returns {exit, usd, turns, minutes, transcript}."""
+def launch_agent(root, agent="claude", model=None, timeout=2700, max_turns=250, phase="migrate"):
+    """Run the coding agent headless: our prompt for the phase, a Stop hook that runs the phase's gate (`finish` for migrate,
+    `improve --hook` for improve), tools limited to reading, editing and router-migrate. Nothing is written into the repo's
+    .claude/ (settings come from a temp file). Returns {exit, usd, turns, minutes, transcript}."""
     if agent != "claude":
         raise SystemExit("only --agent claude is supported in Track 1 (Codex: follow AGENTS.md; `finish` is the gate)")
     here = os.path.dirname(os.path.abspath(__file__))
     rm_bin = os.path.join(os.path.dirname(here), "bin")
-    prompt = open(os.environ.get("ROUTER_MIGRATE_PROMPT") or os.path.join(here, "prompts", "migrate.md")).read() + \
-        "\n\nThe floor has already been applied in this repository; start with `router-migrate run .`.\n"
+    rm = os.path.join(rm_bin, "router-migrate")
+    if phase == "migrate":
+        prompt = open(os.environ.get("ROUTER_MIGRATE_PROMPT") or os.path.join(here, "prompts", "migrate.md")).read() + \
+            "\n\nThe floor has already been applied in this repository; start with `router-migrate run .`.\n"
+        hook = "%s finish %s --hook" % (rm, json.dumps(root))
+    else:
+        prompt = open(os.path.join(here, "prompts", "improve.md")).read() + "\n\nStart with `router-migrate improve .`.\n"
+        hook = "%s improve %s --hook" % (rm, json.dumps(root))
     tmp = tempfile.mkdtemp(prefix="router-migrate-agent-")
     settings = os.path.join(tmp, "settings.json")
-    json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "timeout": 1800,
-                                               "command": "%s finish %s --hook" % (os.path.join(rm_bin, "router-migrate"), json.dumps(root))}]}]}},
-              open(settings, "w"))
+    json.dump({"hooks": {"Stop": [{"hooks": [{"type": "command", "timeout": 1800, "command": hook}]}]}}, open(settings, "w"))
+    tools = AGENT_TOOLS if phase == "migrate" else AGENT_TOOLS.replace("Edit,MultiEdit,", "")  # improve only reads and judges
     cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--settings", settings,
-           "--allowedTools", AGENT_TOOLS, "--max-turns", str(max_turns)]
+           "--allowedTools", tools, "--max-turns", str(max_turns)]
     if model:
         cmd += ["--model", model]
     env = dict(os.environ)
     env.pop("RAMP_ROUTER_API_KEY", None)  # the migration needs no live key; finish's Router-on run uses router-sim
     env["PATH"] = rm_bin + os.pathsep + env.get("PATH", "")
-    log = sp(root, "agent_transcript.jsonl")
+    log = sp(root, "agent_transcript.jsonl" if phase == "migrate" else "agent_improve_transcript.jsonl")
     t = time.time()
     with open(log, "w") as fh:
         try:
@@ -422,16 +429,244 @@ def launch_agent(root, agent="claude", model=None, timeout=2700, max_turns=250):
             "terminal_reason": res.get("terminal_reason"), "transcript": log}
 
 
+def _event(root, stage, status, counts=None, msg=""):
+    from . import improve as imp
+    imp.event(root, stage, status, counts or {}, msg=msg)
+
+
 def _run_agent_then_gate(root, a):
+    _event(root, "agent_migrate", "running")
     info = launch_agent(root, a.agent, getattr(a, "model", None), getattr(a, "agent_timeout", 2700))
     led = load_ledger(root)
     led.setdefault("cost", {})
     led["cost"].update({"agent_usd": info["usd"], "agent_minutes": info["minutes"], "agent_turns": info["turns"], "agent_model": info["model"],
                         "agent_exit": info["exit"]})
     save_ledger(root, led)
+    _event(root, "agent_migrate", "done" if info["exit"] == 0 else "error",
+           {"claims": len(led.get("claims") or {}), "turns": info["turns"] or 0, "usd": round(info["usd"] or 0, 2), "minutes": info["minutes"]})
     fa = argparse_ns(path=root, hook=False, max_attempts=3, json=False)
     print("agent: %s, %s turns, %.1f min, $%s" % (info["exit"], info["turns"], info["minutes"], info["usd"]))
-    return cmd_finish(fa)
+    rc = cmd_finish(fa)
+    led = load_ledger(root)
+    fin = led.get("finish") or {}
+    _event(root, "gate", "done" if rc == 0 else "error", {k: v for k, v in (led.get("result") or {}).items() if isinstance(v, int)},
+           msg="reverted agent edits to the floor" if fin.get("reverted") else "")
+    if rc != 0 or getattr(a, "skip_improve", False):
+        return rc
+    return _improve_phase(root, a)
+
+
+def _improve_phase(root, a):
+    """After the gate passes: deterministic cards from the migrated code, an agent pass that replaces filename heuristics with
+    judgments (latency, task, cacheability) recorded with evidence, the final cards, REPORT.html, then the live dashboard."""
+    p0 = do_improve(root)
+    feats = p0["features_to_judge"]
+    led = load_ledger(root)
+    led.setdefault("improve", {})["features"] = len(p0["features"])
+    save_ledger(root, led)
+    if feats:
+        _event(root, "agent_improve", "running", {"features": len(feats)})
+        info = launch_agent(root, a.agent, getattr(a, "model", None), min(getattr(a, "agent_timeout", 2700), 1500), max_turns=120, phase="improve")
+        led = load_ledger(root)
+        led.setdefault("improve", {})["cost"] = {"usd": info["usd"], "minutes": info["minutes"], "turns": info["turns"], "exit": info["exit"]}
+        save_ledger(root, led)
+        print("improve agent: %s, %s turns, %.1f min, $%s" % (info["exit"], info["turns"], info["minutes"], info["usd"]))
+        _event(root, "agent_improve", "done" if info["exit"] == 0 else "error",
+               {"judged": len(led.get("judgments") or {}), "turns": info["turns"] or 0, "usd": round(info["usd"] or 0, 2)})
+    else:
+        _event(root, "agent_improve", "skipped", msg="no migrated features to judge")
+    final = do_improve(root)
+    r = final["recommendations"]
+    _event(root, "improve", "done", {"cards": len(r["cards"]), "considered": len(r["considered_not_recommended"])})
+    print("improve: %d cards across %d levers; %d considered and not recommended" % (
+        len(r["cards"]), len({c["rule"].split(".")[0] for c in r["cards"]}), len(r["considered_not_recommended"])))
+    for c in r["cards"][:12]:
+        print("  %-34s %s" % (c["rule"], c["title"][:110]))
+    return open_dashboard(root, a)
+
+
+def open_dashboard(root, a):
+    """Write the frozen REPORT.html, then serve the live dashboard (127.0.0.1, session token) unless --no-dashboard."""
+    from . import improve as imp
+    from .dashboard import render as dash_render
+    html = dash_render.render_report(imp.bundle(root, repo=os.path.basename(root)))
+    open(sp(root, "REPORT.html"), "w").write(html)
+    print("report: %s" % sp(root, "REPORT.html"))
+    if getattr(a, "no_dashboard", False):
+        return 0
+    from .dashboard import server as dash_server
+    from .catalog import Catalog as _Cat
+
+    def on_decide(payload):
+        return imp.decide(root, payload["card_id"], payload["action"], reason=payload.get("reason"), until=payload.get("until"), by="ui")
+
+    def on_apply():
+        out = imp.apply_decisions(root, _Cat.load())
+        led = load_ledger(root)
+        ok, fails, _ = gate(root, led, quick=True) if led else (True, [], {})
+        do_improve(root)
+        lines = ["applied %d card(s), skipped %d%s" % (len(out["applied"]), len(out["skipped"]),
+                                                      "; policy %s" % out["policy_hash"][:8] if out.get("policy_hash") else "")]
+        lines += ["  applied %s (%s)" % (x["card"], x["rule"]) for x in out["applied"]]
+        lines += ["  skipped %s: %s" % (x["card"], x["reason"]) for x in out["skipped"]]
+        lines += ["  warning %s" % w for w in out.get("warnings") or []]
+        lines.append("quick gate (parse, scope): %s" % ("ok" if ok else "; ".join(f["detail"] for f in fails)))
+        lines.append("next: router-migrate finish %s  (full gate: tests vs baseline, Router-on run)" % root)
+        return {"command": "router-migrate apply --decisions %s" % root, "output": "\n".join(lines)}
+
+    srv, url = dash_server.serve(lambda: imp.bundle(root, repo=os.path.basename(root)), on_decide, on_apply,
+                                 open_browser=not getattr(a, "no_browser", False))
+    _event(root, "dashboard", "done", msg=url.split("?")[0])
+    print("router-migrate dashboard: %s  (Ctrl-C to stop)" % url, flush=True)
+    import threading
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        srv.shutdown()
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------ improve (v3)
+JUDGE_KEYS = {"latency": "interactive | user_waiting | background", "task": "classification | extraction | routing | summarization | "
+              "chat | generation | agentic | reasoning | other", "cacheable": "estimated tokens of the static prompt prefix sent on every call (0 if none)",
+              "model": "the model id this feature uses in production by default (follow config/env defaults), when the tool can't resolve it"}
+
+
+def plan_for_improve(root):
+    """The plan Improve works from: the code as it stands after the agent (measure-only), with the agent's claims overriding
+    outcomes (a site the agent showed stays on its provider is not improved as if it moved)."""
+    p = current_plan(root)
+    led = load_ledger(root) or {}
+    claims = list((led.get("claims") or {}).values())
+    for s in p["sites"]:
+        c = [x for x in claims if x["file"] == s["file"] and abs(int(x["line"]) - int(s["line"])) <= 3]
+        if c and c[0]["outcome"] != "migrated":
+            out_ = "kept" if c[0]["outcome"] == "not_a_site" else c[0]["outcome"]
+            s["agent_note"] = "%s %s" % (c[0].get("reason_code") or "", c[0].get("why", "")[:200])
+            if out_ != s["outcome"]:  # the agent overrode the tool: its reason replaces the tool's
+                s["outcome"], s["reason"] = out_, "agent: " + s["agent_note"]
+            # same outcome: keep the tool's reason (rules such as unlock.vendor_endpoint read it)
+    v1 = json.load(open(sp(root, "plan.json"))) if os.path.exists(sp(root, "plan.json")) else {}
+    p["patches"] = v1.get("patches") or []
+    p["summary"] = planmod.summarize(p["sites"])
+    return p
+
+
+def do_improve(root):
+    from . import improve as imp
+    led = load_ledger(root) or {}
+    p = plan_for_improve(root)
+    json.dump(p, open(sp(root, "plan_v3.json"), "w"), indent=1, default=str)
+    r = imp.recommend(root, Catalog.load(), repo=os.path.basename(root), plan=p, judgments=led.get("judgments") or {}, current_lines=True)
+    feats = {}
+    for sid, sg in r["signals"].items():
+        s = next((x for x in p["sites"] if x["id"] == sid), None)
+        if s and s.get("prod") and s["outcome"] == "migrated":
+            feats.setdefault(sg["feature"], {"feature": sg["feature"], "file": s["file"], "line": s["line"], "model": sg.get("resolved_model"),
+                                              "model_needed": not sg.get("resolved_model") and sg["sources"].get("resolved_model") != "agent",
+                                              "latency_heuristic": sg["latency_class"] if sg["sources"]["latency_class"] == "heuristic" else None})
+    judged = led.get("judgments") or {}
+    need = lambda f: ("latency", "task") + (("model",) if f["model_needed"] else ())
+    todo = [f for f in feats.values() if not all(k in (judged.get(f["feature"]) or {}) for k in need(f))]
+    return {"recommendations": r, "features": list(feats.values()), "features_to_judge": todo}
+
+
+def cmd_judge(a):
+    root = os.path.abspath(a.path)
+    led = load_ledger(root)
+    if led is None:
+        return err(a.json, "no ledger", "run `router-migrate run .` first")
+    rel, line = parse_loc(a.loc)
+    if not rel or not os.path.exists(os.path.join(root, rel)):
+        return err(a.json, "expected an existing FILE:LINE (the call site of the feature), got %r" % a.loc, "use a line from `router-migrate improve .`")
+    if a.key not in JUDGE_KEYS:
+        return err(a.json, "KEY must be one of %s" % ", ".join(JUDGE_KEYS), "; ".join("%s = %s" % kv for kv in JUDGE_KEYS.items()))
+    from . import recommend as rec
+    v = a.value.strip().lower()
+    if a.key == "latency" and v not in rec.LATENCY:
+        return err(a.json, "latency must be one of %s" % ", ".join(rec.LATENCY), "background = nobody waits on the reply (jobs, cron, queues, batch)")
+    if a.key == "task" and v not in rec.TASKS:
+        return err(a.json, "task must be one of %s" % ", ".join(rec.TASKS), "pick the closest; `other` is allowed")
+    if a.key == "model":
+        v = a.value.strip()
+        rid = Catalog.load().resolve(v)[0]
+        if not rid:
+            print("note: %r is not a Router catalog id; recorded, but no model-dependent card (Flex, fallbacks, model recs) applies" % v)
+    if a.key == "cacheable" and not v.replace(",", "").isdigit():
+        return err(a.json, "cacheable takes an estimated token count of the static prompt prefix (0 if none)", "count ~4 characters per token of the prompt text that is the same on every call")
+    if not a.why:
+        return err(a.json, "--why is required", "one sentence citing what you read")
+    ev = _resolve_evidence(root, a.evidence or [])
+    if isinstance(ev, str):
+        return err(a.json, ev, "cite real lines, e.g. `--evidence app/tasks.py:30`")
+    if not ev:
+        return err(a.json, "at least one --evidence FILE:LINE is required", "cite the decorator, caller, queue or prompt lines that justify it")
+    feat = _feature(root, rel, line)
+    led.setdefault("judgments", {}).setdefault(feat, {})[a.key] = {"value": v.replace(",", ""), "why": a.why, "evidence": ev,
+                                                                   "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    save_ledger(root, led)
+    left = [f["feature"] for f in do_improve(root)["features_to_judge"]]
+    return out({"ok": True, "feature": feat, "key": a.key, "value": v, "left": left}, a.json,
+               "judged %s %s=%s\nfeatures still missing judgments: %d%s" % (feat, a.key, v, len(left), "" if left else "; next: `router-migrate improve .`"))
+
+
+def _resolve_evidence(root, items):
+    ev = []
+    for e in items:
+        for item in e.split(","):
+            item = item.strip()
+            if not item:
+                continue
+            er, el = parse_loc(item)
+            if not er or not os.path.exists(os.path.join(root, er)):
+                return "evidence %r does not resolve to an existing FILE:LINE" % item
+            n = sum(1 for _ in open(os.path.join(root, er), encoding="utf-8", errors="replace"))
+            if el < 1 or el > n:
+                return "evidence %s: line %d is outside the file (%d lines)" % (er, el, n)
+            ev.append("%s:%d" % (er, el))
+    return ev
+
+
+def cmd_improve(a):
+    root = os.path.abspath(a.path)
+    if a.hook:
+        try:
+            json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            pass
+    led = load_ledger(root)
+    if led is None:
+        return err(a.json, "no ledger", "run `router-migrate run .` (and `finish`) first")
+    if getattr(a, "agent", None):
+        return _improve_phase(root, a)
+    res = do_improve(root)
+    r, todo = res["recommendations"], res["features_to_judge"]
+    led = load_ledger(root)
+    imp_state = led.setdefault("improve", {})
+    if a.hook:
+        imp_state["hook_blocks"] = imp_state.get("hook_blocks", 0) + (1 if todo else 0)
+        save_ledger(root, led)
+        if todo and imp_state["hook_blocks"] <= 3:
+            print(json.dumps({"decision": "block", "reason": "router-migrate improve: %d feature(s) still need latency and task judgments: %s. "
+                              "Run `router-migrate judge FILE:LINE latency|task|cacheable VALUE --why ... --evidence FILE:LINE` for each." % (
+                                  len(todo), ", ".join("%s (%s:%s)" % (f["feature"], f["file"], f["line"]) for f in todo[:10]))}))
+        else:
+            print(json.dumps({"systemMessage": "router-migrate improve: %d cards" % len(r["cards"])}))
+        return 0
+    lines = ["improve: %d migrated feature(s); %d card(s) across levers; %d considered and not recommended" % (
+        len(res["features"]), len(r["cards"]), len(r["considered_not_recommended"]))]
+    if todo:
+        lines.append("features that need your judgments (latency and task always; model when the tool can't resolve it; cacheable when "
+                     "there is a long static prompt):")
+        for f in todo:
+            lines.append("  %s  at %s:%s  model %s%s" % (f["feature"], f["file"], f["line"],
+                                                        f["model"] or "UNKNOWN to the tool: judge `model` from the config/env default",
+                                                        "  (heuristic latency: %s)" % f["latency_heuristic"] if f["latency_heuristic"] else ""))
+        lines.append("next: read each feature's callers and prompt, then `router-migrate judge FILE:LINE latency VALUE --why ... --evidence FILE:LINE`"
+                     " (and task, and cacheable); keys: " + "; ".join("%s = %s" % kv for kv in JUDGE_KEYS.items()))
+    for c in r["cards"]:
+        lines.append("  card %-32s %s" % (c["rule"], c["title"][:120]))
+    return out({"ok": not todo, "features": res["features"], "features_to_judge": todo, "cards": len(r["cards"])}, a.json, "\n".join(lines))
 
 
 def argparse_ns(**kw):
@@ -662,7 +897,8 @@ def gate(root, led, quick=False):
     for x in sx["failed"]:
         fails.append({"gate": "parse", "detail": "%s: %s" % (x["file"], x["error"][-300:]), "next": "fix the syntax error in %s" % x["file"]})
     # 2 scope: no tests, lockfiles or CI edited; no deletions; every edited file holds a claimed site or an agent wrap
-    linked = {c["file"] for c in led["claims"].values()} | {e.get("file") for e in led["edits"] if e.get("by") == "agent-wrap"}
+    linked = {c["file"] for c in led["claims"].values()} | {e.get("file") for e in led["edits"] if e.get("by") == "agent-wrap"} | \
+        {f for e in led["edits"] if e.get("by") == "decisions" for f in e.get("files") or []} | {"router.policy.json"}
     runtime_like = RUNTIME_FILES
     for st, path in changes:
         if st == "D":
@@ -847,7 +1083,26 @@ def add_parsers(sub):
     s.add_argument("--hook", action="store_true", help="Claude Code Stop hook mode (JSON decision on stdout)")
     s.add_argument("--max-attempts", type=int, default=3)
     s.add_argument("--json", action="store_true")
+    s = sub.add_parser("judge", help="v3 improve: record a judgment for the feature at FILE:LINE (latency | task | cacheable) with evidence")
+    s.add_argument("loc", help="FILE:LINE of the feature's call site")
+    s.add_argument("key", choices=sorted(JUDGE_KEYS))
+    s.add_argument("value")
+    s.add_argument("--why")
+    s.add_argument("--evidence", action="append")
+    s.add_argument("--path", default=".")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("improve", help="v3 improve: cards across every Router lever from the migrated code + your judgments; "
+                                       "lists features still to judge (--hook: Stop-hook gate for the improve session)")
+    s.add_argument("path", nargs="?", default=".")
+    s.add_argument("--hook", action="store_true")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--agent", choices=["claude"], help="run the Improve phase with the agent: judgments, cards, REPORT.html, dashboard")
+    s.add_argument("--model")
+    s.add_argument("--agent-timeout", type=int, default=1500)
+    s.add_argument("--no-dashboard", action="store_true")
+    s.add_argument("--no-browser", action="store_true")
 
 
 def dispatch(a):
-    return {"check": cmd_check, "wrap": cmd_wrap, "claim": cmd_claim, "finish": cmd_finish, "run": cmd_run}[a.cmd](a)
+    return {"check": cmd_check, "wrap": cmd_wrap, "claim": cmd_claim, "finish": cmd_finish, "run": cmd_run,
+            "judge": cmd_judge, "improve": cmd_improve}[a.cmd](a)

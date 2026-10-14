@@ -1,0 +1,740 @@
+{
+ "totals": {
+  "repos": 10,
+  "features": 9,
+  "judged": 9,
+  "cards": 15,
+  "cards_before_judgments": 4,
+  "usd": 2.32,
+  "cards_with_agent_rationale": 11,
+  "cards_by_lever": {
+   "tags": 4,
+   "cache": 2,
+   "fallback": 7,
+   "model": 2
+  },
+  "latency_disagreements": 8
+ },
+ "repos": [
+  {
+   "repo": "AI-Scientist",
+   "commit": "1de1dbc1f4ee2c5f61e9c94348d55eb51d7fa2eb",
+   "features": 2,
+   "judged": 2,
+   "judgments": {
+    "ai_scientist/llm.py:get_batch_responses_from_llm": {
+     "cacheable": {
+      "at": "2026-10-13T23:12:52",
+      "evidence": [
+       "ai_scientist/perform_review.py:27",
+       "ai_scientist/perform_review.py:65",
+       "ai_scientist/perform_review.py:139",
+       "ai_scientist/perform_review.py:323"
+      ],
+      "value": "18200",
+      "why": "Every perform_review call builds base_prompt = neurips_form+template_instructions (fixed review-form text) plus one fixed fewshot example pair (132_automated_relational.txt paper + its .json review), all identical across every paper/idea reviewed and every ensemble member; only the actual paper-under-review text appended after is dynamic. ~8990 chars instructions + ~61327 chars fewshot paper + ~2786 chars fewshot review =~73000 chars =~18200 tokens at 4 chars/token"
+     },
+     "latency": {
+      "at": "2026-10-13T23:12:15",
+      "evidence": [
+       "ai_scientist/perform_review.py:152",
+       "launch_scientist.py:142",
+       "launch_scientist.py:275"
+      ],
+      "value": "background",
+      "why": "get_batch_responses_from_llm is only called from perform_review.py's ensemble path, which launch_scientist.py invokes as part of a multi-hour unattended research pipeline (idea gen -> aider experiments -> writeup -> review); in --parallel mode worker() is a literal multiprocessing.Queue consumer, no human waits on a single call"
+     },
+     "model": {
+      "at": "2026-10-13T23:12:39",
+      "evidence": [
+       "launch_scientist.py:277",
+       "launch_scientist.py:303",
+       "ai_scientist/perform_review.py:152"
+      ],
+      "value": "gpt-4o-2024-05-13",
+      "why": "get_batch_responses_from_llm's only caller, perform_review(), is invoked from launch_scientist.py with a hardcoded model='gpt-4o-2024-05-13' (not the --model CLI flag), used for both the initial review and the post-improvement re-review"
+     },
+     "task": {
+      "at": "2026-10-13T23:12:29",
+      "evidence": [
+       "ai_scientist/perform_review.py:27",
+       "ai_scientist/perform_review.py:43",
+       "ai_scientist/perform_review.py:152"
+      ],
+      "value": "reasoning",
+      "why": "Only caller is perform_review's ensemble path: produces structured paper-review JSON (strengths/weaknesses, Soundness/Presentation/Contribution ratings, Accept/Reject decision) that requires critical evaluation of the paper text, not a short fixed-label classification"
+     }
+    },
+    "ai_scientist/llm.py:get_response_from_llm": {
+     "cacheable": {
+      "at": "2026-10-13T23:13:34",
+      "evidence": [
+       "ai_scientist/generate_ideas.py:14",
+       "ai_scientist/generate_ideas.py:104",
+       "ai_scientist/generate_ideas.py:120",
+       "templates/nanoGPT/experiment.py:1"
+      ],
+      "value": "7150",
+      "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+     },
+     "latency": {
+      "at": "2026-10-13T23:13:02",
+      "evidence": [
+       "launch_scientist.py:328",
+       "launch_scientist.py:350",
+       "ai_scientist/generate_ideas.py:495"
+      ],
+      "value": "background",
+      "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+     },
+     "model": {
+      "at": "2026-10-13T23:13:24",
+      "evidence": [
+       "launch_scientist.py:55",
+       "launch_scientist.py:346",
+       "launch_scientist.py:350",
+       "ai_scientist/generate_ideas.py:120"
+      ],
+      "value": "claude-3-5-sonnet-20240620",
+      "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+     },
+     "task": {
+      "at": "2026-10-13T23:13:12",
+      "evidence": [
+       "ai_scientist/generate_ideas.py:14",
+       "ai_scientist/generate_ideas.py:25",
+       "ai_scientist/generate_ideas.py:120",
+       "launch_scientist.py:89"
+      ],
+      "value": "generation",
+      "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+     }
+    }
+   },
+   "latency_heuristic_vs_agent": [
+    {
+     "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+     "heuristic": "background",
+     "agent": "background",
+     "why": "get_batch_responses_from_llm is only called from perform_review.py's ensemble path, which launch_scientist.py invokes as part of a multi-hour unattended research pipeline (idea gen -> aider experiment"
+    },
+    {
+     "feature": "ai_scientist/llm.py:get_response_from_llm",
+     "heuristic": "user_waiting",
+     "agent": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea gene"
+    }
+   ],
+   "cards": 3,
+   "cards_by_lever": {
+    "tags": 1,
+    "cache": 2
+   },
+   "considered_by_lever": {
+    "tier": [
+     "model chosen at runtime (gpt-4o-2024-05-13); flex eligibility unknown",
+     "model chosen at runtime (claude-3-5-sonnet-20240620); flex eligibility unknown"
+    ],
+    "fallback": [
+     "model chosen at runtime; candidates need a known model",
+     "model chosen at runtime; candidates need a known model"
+    ],
+    "model": [
+     "model owner is library_param: model changes are the library caller's choice",
+     "model owner is library_param: model changes are the library caller's choice"
+    ]
+   },
+   "cards_before_judgments": 1,
+   "cards_added_by_judgments": [
+    "rec_cache_key_1a83644e",
+    "rec_cache_key_cf5cc6f8"
+   ],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 2,
+   "usd": 0.8819074,
+   "agent_minutes": 5.7,
+   "turns": 26,
+   "minutes": 5.9,
+   "exit": 0,
+   "card_titles": [
+    "Tag Router spend for 2 feature(s) with product=AI-Scientist",
+    "Cache the ~18,200-token static prompt in ai_scientist/llm.py:get_batch_responses_from_llm",
+    "Cache the ~7,150-token static prompt in ai_scientist/llm.py:get_response_from_llm"
+   ]
+  },
+  {
+   "repo": "OpenManus",
+   "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {},
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.1,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "chatgpt-telegram-bot",
+   "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+   "features": 4,
+   "judged": 4,
+   "judgments": {
+    "bot/openai_helper.py:__common_get_chat_response": {
+     "cacheable": {
+      "at": "2026-10-13T23:10:43",
+      "evidence": [
+       "bot/main.py:40",
+       "bot/main.py:106"
+      ],
+      "value": "0",
+      "why": "The only fixed prefix is the system/assistant prompt (config['assistant_prompt']), whose documented default 'You are a helpful assistant.' is ~8 tokens -- far below the ~1024 token caching threshold. Function specs are also sent when enabled, but PLUGINS defaults to empty so none are added by default."
+     },
+     "latency": {
+      "at": "2026-10-13T23:10:21",
+      "evidence": [
+       "bot/main.py:36",
+       "bot/telegram_bot.py:684",
+       "bot/telegram_bot.py:690"
+      ],
+      "value": "interactive",
+      "why": "Called by get_chat_response_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's prompt handler streams message edits to the chat as tokens arrive (line 690)."
+     },
+     "model": {
+      "at": "2026-10-13T23:10:32",
+      "evidence": [
+       "bot/openai_helper.py:253",
+       "bot/main.py:30"
+      ],
+      "value": "gpt-4o",
+      "why": "model comes from self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+     },
+     "task": {
+      "at": "2026-10-13T23:10:29",
+      "evidence": [
+       "bot/openai_helper.py:218",
+       "bot/openai_helper.py:252"
+      ],
+      "value": "chat",
+      "why": "Builds the conversation history and requests a normal chat completion for a Telegram conversational reply; not a short structured classification/extraction output."
+     }
+    },
+    "bot/openai_helper.py:__common_get_chat_response_vision": {
+     "cacheable": {
+      "at": "2026-10-13T23:11:14",
+      "evidence": [
+       "bot/main.py:58"
+      ],
+      "value": "0",
+      "why": "The only fixed prefix is config['vision_prompt'], whose documented default 'What is in this image' is ~6 tokens -- far below the ~1024 token caching threshold."
+     },
+     "latency": {
+      "at": "2026-10-13T23:11:08",
+      "evidence": [
+       "bot/main.py:36",
+       "bot/telegram_bot.py:521",
+       "bot/telegram_bot.py:523"
+      ],
+      "value": "interactive",
+      "why": "Called by interpret_image_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's image handler streams message edits to the chat as tokens arrive when config['stream'] is true."
+     },
+     "model": {
+      "at": "2026-10-13T23:11:12",
+      "evidence": [
+       "bot/openai_helper.py:447",
+       "bot/main.py:56"
+      ],
+      "value": "gpt-4o",
+      "why": "model=self.config['vision_model'], which main.py sets to VISION_MODEL with default 'gpt-4o'."
+     },
+     "task": {
+      "at": "2026-10-13T23:11:10",
+      "evidence": [
+       "bot/openai_helper.py:415",
+       "bot/openai_helper.py:446"
+      ],
+      "value": "chat",
+      "why": "Answers a user's question about an uploaded image as a normal chat completion, with optional multi-turn follow-up questions (enable_vision_follow_up_questions) -- conversational vision chat, not structured extraction/classification."
+     }
+    },
+    "bot/openai_helper.py:__handle_function_call": {
+     "latency": {
+      "at": "2026-10-13T23:10:52",
+      "evidence": [
+       "bot/main.py:36",
+       "bot/telegram_bot.py:690",
+       "bot/openai_helper.py:141"
+      ],
+      "value": "interactive",
+      "why": "Reached from __common_get_chat_response's caller chain (get_chat_response_stream), the default path since STREAM defaults to true; the chat-handler recurses through this function while the user watches message edits arrive in Telegram."
+     },
+     "model": {
+      "at": "2026-10-13T23:10:56",
+      "evidence": [
+       "bot/openai_helper.py:324",
+       "bot/main.py:30"
+      ],
+      "value": "gpt-4o",
+      "why": "model=self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+     },
+     "task": {
+      "at": "2026-10-13T23:10:54",
+      "evidence": [
+       "bot/openai_helper.py:310",
+       "bot/openai_helper.py:327",
+       "bot/openai_helper.py:330"
+      ],
+      "value": "agentic",
+      "why": "Recursively calls plugin functions (plugin_manager.call_function) and feeds results back to the model, looping up to functions_max_consecutive_calls -- a tool-using loop, not a single-shot chat reply."
+     }
+    },
+    "bot/openai_helper.py:__summarise": {
+     "cacheable": {
+      "at": "2026-10-13T23:11:31",
+      "evidence": [
+       "bot/openai_helper.py:616"
+      ],
+      "value": "0",
+      "why": "The only fixed text is the one-line instruction 'Summarize this conversation in 700 characters or less' (~10 tokens); the bulk of the prompt is the dynamic conversation dump, which changes every call."
+     },
+     "latency": {
+      "at": "2026-10-13T23:11:24",
+      "evidence": [
+       "bot/openai_helper.py:242",
+       "bot/openai_helper.py:435",
+       "bot/main.py:36"
+      ],
+      "value": "interactive",
+      "why": "Called synchronously from __common_get_chat_response/__common_get_chat_response_vision while handling a Telegram message, before the (by-default streamed) reply is sent; the user is mid-conversation waiting on this message's reply, not a background job."
+     },
+     "model": {
+      "at": "2026-10-13T23:11:29",
+      "evidence": [
+       "bot/openai_helper.py:620",
+       "bot/main.py:30"
+      ],
+      "value": "gpt-4o",
+      "why": "model=self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+     },
+     "task": {
+      "at": "2026-10-13T23:11:26",
+      "evidence": [
+       "bot/openai_helper.py:616",
+       "bot/openai_helper.py:617"
+      ],
+      "value": "summarization",
+      "why": "Explicit instruction 'Summarize this conversation in 700 characters or less' sent with the full conversation history as input."
+     }
+    }
+   },
+   "latency_heuristic_vs_agent": [
+    {
+     "feature": "bot/openai_helper.py:__common_get_chat_response",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "Called by get_chat_response_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's prompt handler streams message edits to the chat as tokens arrive (line 690)."
+    },
+    {
+     "feature": "bot/openai_helper.py:__common_get_chat_response_vision",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "Called by interpret_image_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's image handler streams message edits to the chat as tokens arrive when config['strea"
+    },
+    {
+     "feature": "bot/openai_helper.py:__handle_function_call",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "Reached from __common_get_chat_response's caller chain (get_chat_response_stream), the default path since STREAM defaults to true; the chat-handler recurses through this function while the user watche"
+    },
+    {
+     "feature": "bot/openai_helper.py:__summarise",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "Called synchronously from __common_get_chat_response/__common_get_chat_response_vision while handling a Telegram message, before the (by-default streamed) reply is sent; the user is mid-conversation w"
+    }
+   ],
+   "cards": 5,
+   "cards_by_lever": {
+    "tags": 1,
+    "fallback": 4
+   },
+   "considered_by_lever": {
+    "cache": [
+     "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed prefix is the system/assistant prompt (config['assistant_prompt']), whose ",
+     "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed prefix is config['vision_prompt'], whose documented default 'What is in th",
+     "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)",
+     "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed text is the one-line instruction 'Summarize this conversation in 700 chara"
+    ],
+    "tier": [
+     "gpt-4o has no flex tier",
+     "gpt-4o has no flex tier",
+     "gpt-4o has no flex tier",
+     "gpt-4o has no flex tier"
+    ],
+    "model": [
+     "model owner is library_param: model changes are the library caller's choice",
+     "model owner is library_param: model changes are the library caller's choice",
+     "model owner is library_param: model changes are the library caller's choice",
+     "model owner is library_param: model changes are the library caller's choice"
+    ]
+   },
+   "cards_before_judgments": 1,
+   "cards_added_by_judgments": [
+    "rec_fallback_candidates_9c886284",
+    "rec_fallback_candidates_c03f9256",
+    "rec_fallback_candidates_f4a19ee8",
+    "rec_fallback_candidates_f8cdede2"
+   ],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 4,
+   "usd": 0.5881116000000001,
+   "agent_minutes": 3.3,
+   "turns": 23,
+   "minutes": 3.4,
+   "exit": 0,
+   "card_titles": [
+    "Tag Router spend for 4 feature(s) with product=chatgpt-telegram-bot",
+    "Fail over bot/openai_helper.py:__common_get_chat_response from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+    "Fail over bot/openai_helper.py:__common_get_chat_response_vision from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+    "Fail over bot/openai_helper.py:__handle_function_call from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+    "Fail over bot/openai_helper.py:__summarise from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages"
+   ]
+  },
+  {
+   "repo": "computer_use_ootb",
+   "commit": "21b05ae06de89700b998dc85d8ef64454f0d0291",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {
+    "unlock": [
+     "beta flags computer-use-2024-10-22 are required by the request's tools or params"
+    ]
+   },
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.1,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "llmcord",
+   "commit": "a99de6da1639f36972e6f57a4331e8d8b63b74bb",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {},
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.0,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "obsidian-copilot",
+   "commit": "acee1930f833babfe53233a96f3e9e42d98a032a",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {},
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.1,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "obsidian-textgenerator-plugin",
+   "commit": "2a11031d15c4af8be477d35a5c2de17672e946eb",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {},
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.0,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "openui",
+   "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+   "features": 1,
+   "judged": 1,
+   "judgments": {
+    "backend/openui/server.py:chat_completions": {
+     "cacheable": {
+      "at": "2026-10-13T23:10:02",
+      "evidence": [
+       "frontend/src/api/openai.ts:32",
+       "frontend/src/api/openai.ts:77",
+       "frontend/src/api/openai.ts:90"
+      ],
+      "value": "490",
+      "why": "Static prefix is the fixed systemPrompt constant (~1668 chars) plus the frontmatter instructions appended on 'create' actions (~303 chars) = ~1971 chars, ~490 tokens at 4 chars/token. This is below the ~1024-token threshold where caching typically pays off, so caching is not expected to be worthwhile despite the prefix being literally static text reused on every call."
+     },
+     "latency": {
+      "at": "2026-10-13T23:09:29",
+      "evidence": [
+       "backend/openui/server.py:152",
+       "backend/openui/server.py:159",
+       "frontend/src/api/openai.ts:184",
+       "frontend/src/api/openai.ts:192"
+      ],
+      "value": "interactive",
+      "why": "Response is a StreamingResponse over an SSE event-stream; the frontend reads chunks in a for-await loop and invokes a callback per chunk to update the UI live as the HTML/component is generated, so a person is watching output arrive."
+     },
+     "model": {
+      "at": "2026-10-13T23:09:54",
+      "evidence": [
+       "frontend/src/state/atoms/prompts.ts:9",
+       "backend/openui/server.py:149",
+       "frontend/src/api/openai.ts:117"
+      ],
+      "value": "gpt-3.5-turbo",
+      "why": "The model is chosen client-side and sent in the request body (server.py:149 branches on data['model'] starting with 'gpt'); the frontend's persisted default for that selector is 'gpt-3.5-turbo' (modelAtom), which is what a user gets without changing settings. The frontend overrides to gpt-4o-mini only when an image is attached."
+     },
+     "task": {
+      "at": "2026-10-13T23:09:36",
+      "evidence": [
+       "frontend/src/api/openai.ts:32",
+       "frontend/src/api/openai.ts:90",
+       "frontend/src/api/openai.ts:154"
+      ],
+      "value": "generation",
+      "why": "The call takes a system prompt instructing the model to act as a 'TailwindCSS Virtuoso' and generate HTML/UI components from a text description or screenshot (create) or revise existing HTML (refine); output is HTML markup rendered as a UI component, not a classification/extraction label or open-ended chat reply."
+     }
+    }
+   },
+   "latency_heuristic_vs_agent": [
+    {
+     "feature": "backend/openui/server.py:chat_completions",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "Response is a StreamingResponse over an SSE event-stream; the frontend reads chunks in a for-await loop and invokes a callback per chunk to update the UI live as the HTML/component is generated, so a "
+    }
+   ],
+   "cards": 2,
+   "cards_by_lever": {
+    "tags": 1,
+    "fallback": 1
+   },
+   "considered_by_lever": {
+    "cache": [
+     "agent: static prompt prefix ~490 tokens, below the ~1,024 a cache needs (Static prefix is the fixed systemPrompt constant (~1668 chars) plus the frontmatter ins"
+    ],
+    "tier": [
+     "gpt-3.5-turbo has no flex tier"
+    ],
+    "model": [
+     "model owner is library_param: model changes are the library caller's choice"
+    ]
+   },
+   "cards_before_judgments": 1,
+   "cards_added_by_judgments": [
+    "rec_fallback_candidates_826f53aa"
+   ],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 1,
+   "usd": 0.3668346,
+   "agent_minutes": 2.2,
+   "turns": 17,
+   "minutes": 2.3,
+   "exit": 0,
+   "card_titles": [
+    "Tag Router spend for 1 feature(s) with product=openui",
+    "Fail over backend/openui/server.py:chat_completions from gpt-3.5-turbo to gpt-4.1-mini on outages"
+   ]
+  },
+  {
+   "repo": "page-assist",
+   "commit": "70215d882fc670a85ac28c30661c16472172d06c",
+   "features": 0,
+   "judged": 0,
+   "judgments": {},
+   "latency_heuristic_vs_agent": [],
+   "cards": 0,
+   "cards_by_lever": {},
+   "considered_by_lever": {},
+   "cards_before_judgments": 0,
+   "cards_added_by_judgments": [],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 0,
+   "usd": 0.0,
+   "agent_minutes": null,
+   "turns": null,
+   "minutes": 0.0,
+   "exit": 0,
+   "card_titles": []
+  },
+  {
+   "repo": "sec-insights",
+   "commit": "a9b6da0f5c4bff52437a5285954ff17bc713f14f",
+   "features": 2,
+   "judged": 2,
+   "judgments": {
+    "backend/app/chat/engine.py:get_chat_engine": {
+     "latency": {
+      "at": "2026-10-13T23:10:33",
+      "evidence": [
+       "backend/app/chat/engine.py:305",
+       "backend/app/chat/messaging.py:134",
+       "backend/app/chat/messaging.py:150",
+       "backend/app/api/endpoints/conversation.py:70",
+       "backend/app/api/endpoints/conversation.py:77"
+      ],
+      "value": "interactive",
+      "why": "This chat_llm builds the top-level OpenAIAgent returned by get_chat_engine, which is created in handle_chat_message and streamed (astream_chat) back through an SSE endpoint (/{conversation_id}/message) to a chat UI \u2014 a person is watching the reply stream in token by token."
+     },
+     "model": {
+      "at": "2026-10-13T23:10:26",
+      "evidence": [
+       "backend/app/chat/engine.py:289",
+       "backend/app/core/config.py:68"
+      ],
+      "value": "gpt-4o-mini",
+      "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+     },
+     "task": {
+      "at": "2026-10-13T23:10:39",
+      "evidence": [
+       "backend/app/chat/engine.py:264",
+       "backend/app/chat/engine.py:305",
+       "backend/app/chat/engine.py:312"
+      ],
+      "value": "agentic",
+      "why": "chat_llm drives an OpenAIAgent.from_tools with max_function_calls=3 over two QueryEngineTools (qualitative and quantitative sub-question engines), which themselves route to document-level tools and the polygon.io SEC tool \u2014 a multi-step, tool-using function-calling loop, not a plain chat completion."
+     }
+    },
+    "backend/app/llama_index_settings.py:_setup_llama_index_settings": {
+     "latency": {
+      "at": "2026-10-13T23:10:13",
+      "evidence": [
+       "backend/app/chat/tools.py:152",
+       "backend/app/chat/engine.py:252",
+       "backend/app/chat/messaging.py:134",
+       "backend/app/api/endpoints/conversation.py:75"
+      ],
+      "value": "interactive",
+      "why": "This sets the global Settings.llm, which tools.py:152 copies into an OpenAIAgent used as the quantitative-question sub-tool inside get_chat_engine. That agent is built per-request inside handle_chat_message, invoked synchronously from the SSE streaming endpoint /{conversation_id}/message, so a person is watching the reply stream in."
+     },
+     "model": {
+      "at": "2026-10-13T23:10:06",
+      "evidence": [
+       "backend/app/llama_index_settings.py:29",
+       "backend/app/core/config.py:68"
+      ],
+      "value": "gpt-4o-mini",
+      "why": "settings.OPENAI_CHAT_LLM_NAME is passed as the model; its default is gpt-4o-mini in config.py and no override is set elsewhere"
+     },
+     "task": {
+      "at": "2026-10-13T23:10:20",
+      "evidence": [
+       "backend/app/chat/tools.py:146",
+       "backend/app/chat/tools.py:156",
+       "backend/app/chat/tools.py:160"
+      ],
+      "value": "agentic",
+      "why": "The LLM configured here is used by tools.py's get_api_query_engine_tool, which wraps it in OpenAIAgent.from_tools with the polygon_io_tool so it can call the polygon.io API to extract SEC financial data and answer quantitative questions \u2014 a tool-using function-calling loop, not a single-shot completion."
+     }
+    }
+   },
+   "latency_heuristic_vs_agent": [
+    {
+     "feature": "backend/app/chat/engine.py:get_chat_engine",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "This chat_llm builds the top-level OpenAIAgent returned by get_chat_engine, which is created in handle_chat_message and streamed (astream_chat) back through an SSE endpoint (/{conversation_id}/message"
+    },
+    {
+     "feature": "backend/app/llama_index_settings.py:_setup_llama_index_settings",
+     "heuristic": "user_waiting",
+     "agent": "interactive",
+     "why": "This sets the global Settings.llm, which tools.py:152 copies into an OpenAIAgent used as the quantitative-question sub-tool inside get_chat_engine. That agent is built per-request inside handle_chat_m"
+    }
+   ],
+   "cards": 5,
+   "cards_by_lever": {
+    "tags": 1,
+    "fallback": 2,
+    "model": 2
+   },
+   "considered_by_lever": {
+    "cache": [
+     "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)",
+     "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)"
+    ],
+    "tier": [
+     "gpt-4o-mini has no flex tier",
+     "gpt-4o-mini has no flex tier"
+    ],
+    "model": [
+     "agent judged the task 'agentic': not a short, well-specified output",
+     "agent judged the task 'agentic': not a short, well-specified output"
+    ]
+   },
+   "cards_before_judgments": 1,
+   "cards_added_by_judgments": [
+    "rec_fallback_candidates_02cfb028",
+    "rec_fallback_candidates_5b4e69d8",
+    "rec_model_newer_cheaper_same_family_1a5da4fa",
+    "rec_model_newer_cheaper_same_family_2c8671e0"
+   ],
+   "cards_removed_by_judgments": [],
+   "cards_with_agent_rationale": 4,
+   "usd": 0.48796439999999996,
+   "agent_minutes": 2.7,
+   "turns": 22,
+   "minutes": 2.8,
+   "exit": 0,
+   "card_titles": [
+    "Tag Router spend for 2 feature(s) with product=sec-insights",
+    "Fail over backend/app/chat/engine.py:get_chat_engine from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+    "Fail over backend/app/llama_index_settings.py:_setup_llama_index_settings from gpt-4o-mini to gpt-6-luna then claude-haiku-5-5 on outages",
+    "Try gpt-6-luna for backend/app/chat/engine.py:get_chat_engine (newer, -20% list price)",
+    "Try gpt-6-luna for backend/app/llama_index_settings.py:_setup_llama_index_settings (newer, -20% list price)"
+   ]
+  }
+ ]
+}

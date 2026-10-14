@@ -1,0 +1,226 @@
+{
+ "repo": "chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "features": 4,
+ "judged": 4,
+ "judgments": {
+  "bot/openai_helper.py:__common_get_chat_response": {
+   "cacheable": {
+    "at": "2026-10-13T23:10:43",
+    "evidence": [
+     "bot/main.py:40",
+     "bot/main.py:106"
+    ],
+    "value": "0",
+    "why": "The only fixed prefix is the system/assistant prompt (config['assistant_prompt']), whose documented default 'You are a helpful assistant.' is ~8 tokens -- far below the ~1024 token caching threshold. Function specs are also sent when enabled, but PLUGINS defaults to empty so none are added by default."
+   },
+   "latency": {
+    "at": "2026-10-13T23:10:21",
+    "evidence": [
+     "bot/main.py:36",
+     "bot/telegram_bot.py:684",
+     "bot/telegram_bot.py:690"
+    ],
+    "value": "interactive",
+    "why": "Called by get_chat_response_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's prompt handler streams message edits to the chat as tokens arrive (line 690)."
+   },
+   "model": {
+    "at": "2026-10-13T23:10:32",
+    "evidence": [
+     "bot/openai_helper.py:253",
+     "bot/main.py:30"
+    ],
+    "value": "gpt-4o",
+    "why": "model comes from self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+   },
+   "task": {
+    "at": "2026-10-13T23:10:29",
+    "evidence": [
+     "bot/openai_helper.py:218",
+     "bot/openai_helper.py:252"
+    ],
+    "value": "chat",
+    "why": "Builds the conversation history and requests a normal chat completion for a Telegram conversational reply; not a short structured classification/extraction output."
+   }
+  },
+  "bot/openai_helper.py:__common_get_chat_response_vision": {
+   "cacheable": {
+    "at": "2026-10-13T23:11:14",
+    "evidence": [
+     "bot/main.py:58"
+    ],
+    "value": "0",
+    "why": "The only fixed prefix is config['vision_prompt'], whose documented default 'What is in this image' is ~6 tokens -- far below the ~1024 token caching threshold."
+   },
+   "latency": {
+    "at": "2026-10-13T23:11:08",
+    "evidence": [
+     "bot/main.py:36",
+     "bot/telegram_bot.py:521",
+     "bot/telegram_bot.py:523"
+    ],
+    "value": "interactive",
+    "why": "Called by interpret_image_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's image handler streams message edits to the chat as tokens arrive when config['stream'] is true."
+   },
+   "model": {
+    "at": "2026-10-13T23:11:12",
+    "evidence": [
+     "bot/openai_helper.py:447",
+     "bot/main.py:56"
+    ],
+    "value": "gpt-4o",
+    "why": "model=self.config['vision_model'], which main.py sets to VISION_MODEL with default 'gpt-4o'."
+   },
+   "task": {
+    "at": "2026-10-13T23:11:10",
+    "evidence": [
+     "bot/openai_helper.py:415",
+     "bot/openai_helper.py:446"
+    ],
+    "value": "chat",
+    "why": "Answers a user's question about an uploaded image as a normal chat completion, with optional multi-turn follow-up questions (enable_vision_follow_up_questions) -- conversational vision chat, not structured extraction/classification."
+   }
+  },
+  "bot/openai_helper.py:__handle_function_call": {
+   "latency": {
+    "at": "2026-10-13T23:10:52",
+    "evidence": [
+     "bot/main.py:36",
+     "bot/telegram_bot.py:690",
+     "bot/openai_helper.py:141"
+    ],
+    "value": "interactive",
+    "why": "Reached from __common_get_chat_response's caller chain (get_chat_response_stream), the default path since STREAM defaults to true; the chat-handler recurses through this function while the user watches message edits arrive in Telegram."
+   },
+   "model": {
+    "at": "2026-10-13T23:10:56",
+    "evidence": [
+     "bot/openai_helper.py:324",
+     "bot/main.py:30"
+    ],
+    "value": "gpt-4o",
+    "why": "model=self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+   },
+   "task": {
+    "at": "2026-10-13T23:10:54",
+    "evidence": [
+     "bot/openai_helper.py:310",
+     "bot/openai_helper.py:327",
+     "bot/openai_helper.py:330"
+    ],
+    "value": "agentic",
+    "why": "Recursively calls plugin functions (plugin_manager.call_function) and feeds results back to the model, looping up to functions_max_consecutive_calls -- a tool-using loop, not a single-shot chat reply."
+   }
+  },
+  "bot/openai_helper.py:__summarise": {
+   "cacheable": {
+    "at": "2026-10-13T23:11:31",
+    "evidence": [
+     "bot/openai_helper.py:616"
+    ],
+    "value": "0",
+    "why": "The only fixed text is the one-line instruction 'Summarize this conversation in 700 characters or less' (~10 tokens); the bulk of the prompt is the dynamic conversation dump, which changes every call."
+   },
+   "latency": {
+    "at": "2026-10-13T23:11:24",
+    "evidence": [
+     "bot/openai_helper.py:242",
+     "bot/openai_helper.py:435",
+     "bot/main.py:36"
+    ],
+    "value": "interactive",
+    "why": "Called synchronously from __common_get_chat_response/__common_get_chat_response_vision while handling a Telegram message, before the (by-default streamed) reply is sent; the user is mid-conversation waiting on this message's reply, not a background job."
+   },
+   "model": {
+    "at": "2026-10-13T23:11:29",
+    "evidence": [
+     "bot/openai_helper.py:620",
+     "bot/main.py:30"
+    ],
+    "value": "gpt-4o",
+    "why": "model=self.config['model'], which main.py sets to OPENAI_MODEL with default 'gpt-4o'."
+   },
+   "task": {
+    "at": "2026-10-13T23:11:26",
+    "evidence": [
+     "bot/openai_helper.py:616",
+     "bot/openai_helper.py:617"
+    ],
+    "value": "summarization",
+    "why": "Explicit instruction 'Summarize this conversation in 700 characters or less' sent with the full conversation history as input."
+   }
+  }
+ },
+ "latency_heuristic_vs_agent": [
+  {
+   "feature": "bot/openai_helper.py:__common_get_chat_response",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "Called by get_chat_response_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's prompt handler streams message edits to the chat as tokens arrive (line 690)."
+  },
+  {
+   "feature": "bot/openai_helper.py:__common_get_chat_response_vision",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "Called by interpret_image_stream, the default path since STREAM defaults to true (bot/main.py:36); telegram_bot.py's image handler streams message edits to the chat as tokens arrive when config['strea"
+  },
+  {
+   "feature": "bot/openai_helper.py:__handle_function_call",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "Reached from __common_get_chat_response's caller chain (get_chat_response_stream), the default path since STREAM defaults to true; the chat-handler recurses through this function while the user watche"
+  },
+  {
+   "feature": "bot/openai_helper.py:__summarise",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "Called synchronously from __common_get_chat_response/__common_get_chat_response_vision while handling a Telegram message, before the (by-default streamed) reply is sent; the user is mid-conversation w"
+  }
+ ],
+ "cards": 5,
+ "cards_by_lever": {
+  "tags": 1,
+  "fallback": 4
+ },
+ "considered_by_lever": {
+  "cache": [
+   "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed prefix is the system/assistant prompt (config['assistant_prompt']), whose ",
+   "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed prefix is config['vision_prompt'], whose documented default 'What is in th",
+   "no static system prompt >= ~1,024 tokens found (longest ~0 tokens)",
+   "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only fixed text is the one-line instruction 'Summarize this conversation in 700 chara"
+  ],
+  "tier": [
+   "gpt-4o has no flex tier",
+   "gpt-4o has no flex tier",
+   "gpt-4o has no flex tier",
+   "gpt-4o has no flex tier"
+  ],
+  "model": [
+   "model owner is library_param: model changes are the library caller's choice",
+   "model owner is library_param: model changes are the library caller's choice",
+   "model owner is library_param: model changes are the library caller's choice",
+   "model owner is library_param: model changes are the library caller's choice"
+  ]
+ },
+ "cards_before_judgments": 1,
+ "cards_added_by_judgments": [
+  "rec_fallback_candidates_9c886284",
+  "rec_fallback_candidates_c03f9256",
+  "rec_fallback_candidates_f4a19ee8",
+  "rec_fallback_candidates_f8cdede2"
+ ],
+ "cards_removed_by_judgments": [],
+ "cards_with_agent_rationale": 4,
+ "usd": 0.5881116000000001,
+ "agent_minutes": 3.3,
+ "turns": 23,
+ "minutes": 3.4,
+ "exit": 0,
+ "card_titles": [
+  "Tag Router spend for 4 feature(s) with product=chatgpt-telegram-bot",
+  "Fail over bot/openai_helper.py:__common_get_chat_response from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+  "Fail over bot/openai_helper.py:__common_get_chat_response_vision from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+  "Fail over bot/openai_helper.py:__handle_function_call from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages",
+  "Fail over bot/openai_helper.py:__summarise from gpt-4o to gpt-6.1-sol then claude-sonnet-5-5 on outages"
+ ]
+}

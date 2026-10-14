@@ -1,0 +1,90 @@
+{
+ "repo": "openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "features": 1,
+ "judged": 1,
+ "judgments": {
+  "backend/openui/server.py:chat_completions": {
+   "cacheable": {
+    "at": "2026-10-13T23:10:02",
+    "evidence": [
+     "frontend/src/api/openai.ts:32",
+     "frontend/src/api/openai.ts:77",
+     "frontend/src/api/openai.ts:90"
+    ],
+    "value": "490",
+    "why": "Static prefix is the fixed systemPrompt constant (~1668 chars) plus the frontmatter instructions appended on 'create' actions (~303 chars) = ~1971 chars, ~490 tokens at 4 chars/token. This is below the ~1024-token threshold where caching typically pays off, so caching is not expected to be worthwhile despite the prefix being literally static text reused on every call."
+   },
+   "latency": {
+    "at": "2026-10-13T23:09:29",
+    "evidence": [
+     "backend/openui/server.py:152",
+     "backend/openui/server.py:159",
+     "frontend/src/api/openai.ts:184",
+     "frontend/src/api/openai.ts:192"
+    ],
+    "value": "interactive",
+    "why": "Response is a StreamingResponse over an SSE event-stream; the frontend reads chunks in a for-await loop and invokes a callback per chunk to update the UI live as the HTML/component is generated, so a person is watching output arrive."
+   },
+   "model": {
+    "at": "2026-10-13T23:09:54",
+    "evidence": [
+     "frontend/src/state/atoms/prompts.ts:9",
+     "backend/openui/server.py:149",
+     "frontend/src/api/openai.ts:117"
+    ],
+    "value": "gpt-3.5-turbo",
+    "why": "The model is chosen client-side and sent in the request body (server.py:149 branches on data['model'] starting with 'gpt'); the frontend's persisted default for that selector is 'gpt-3.5-turbo' (modelAtom), which is what a user gets without changing settings. The frontend overrides to gpt-4o-mini only when an image is attached."
+   },
+   "task": {
+    "at": "2026-10-13T23:09:36",
+    "evidence": [
+     "frontend/src/api/openai.ts:32",
+     "frontend/src/api/openai.ts:90",
+     "frontend/src/api/openai.ts:154"
+    ],
+    "value": "generation",
+    "why": "The call takes a system prompt instructing the model to act as a 'TailwindCSS Virtuoso' and generate HTML/UI components from a text description or screenshot (create) or revise existing HTML (refine); output is HTML markup rendered as a UI component, not a classification/extraction label or open-ended chat reply."
+   }
+  }
+ },
+ "latency_heuristic_vs_agent": [
+  {
+   "feature": "backend/openui/server.py:chat_completions",
+   "heuristic": "user_waiting",
+   "agent": "interactive",
+   "why": "Response is a StreamingResponse over an SSE event-stream; the frontend reads chunks in a for-await loop and invokes a callback per chunk to update the UI live as the HTML/component is generated, so a "
+  }
+ ],
+ "cards": 2,
+ "cards_by_lever": {
+  "tags": 1,
+  "fallback": 1
+ },
+ "considered_by_lever": {
+  "cache": [
+   "agent: static prompt prefix ~490 tokens, below the ~1,024 a cache needs (Static prefix is the fixed systemPrompt constant (~1668 chars) plus the frontmatter ins"
+  ],
+  "tier": [
+   "gpt-3.5-turbo has no flex tier"
+  ],
+  "model": [
+   "model owner is library_param: model changes are the library caller's choice"
+  ]
+ },
+ "cards_before_judgments": 1,
+ "cards_added_by_judgments": [
+  "rec_fallback_candidates_826f53aa"
+ ],
+ "cards_removed_by_judgments": [],
+ "cards_with_agent_rationale": 1,
+ "usd": 0.3668346,
+ "agent_minutes": 2.2,
+ "turns": 17,
+ "minutes": 2.3,
+ "exit": 0,
+ "card_titles": [
+  "Tag Router spend for 1 feature(s) with product=openui",
+  "Fail over backend/openui/server.py:chat_completions from gpt-3.5-turbo to gpt-4.1-mini on outages"
+ ]
+}

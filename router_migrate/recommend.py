@@ -22,7 +22,7 @@ import os
 import re
 import time
 
-RULES_VERSION = "v2-mvp-1"
+RULES_VERSION = "v3-improve-1"
 _MAPS = {}
 MODEL_OWNERS_FOR_MODEL_CARDS = ("app_literal", "operator_config")
 
@@ -209,6 +209,15 @@ def _card(rule, group, title, sites, sig, change, loses, inputs, evidence, impac
             "effort": effort, "options": (options or [])[:3], "etag": etag, "state": "new", "applies": applies}
 
 
+def _cache_detail(row, toks):
+    pr = (row or {}).get("pricing") or {}
+    try:
+        cut = 100 * (1 - float(pr["cache_read_input"]) / float(pr["input"]))
+        return "-%d%% on the ~%s cached input tokens of every cache hit" % (round(cut), "{:,}".format(toks))
+    except (KeyError, ValueError, ZeroDivisionError, TypeError):
+        return None
+
+
 def _price(row):
     p = (row or {}).get("pricing") or {}
     try:
@@ -284,11 +293,20 @@ def policy_patch(feature, entry):
     return {kind: {name: entry}}
 
 
-def build(root, plan, catalog, repo=None, scan=None):
-    """recommendations.json for a repo whose plan.json (v1) and scan.json are given (scan supplies client constructions)."""
+LATENCY = ("interactive", "user_waiting", "background")
+TASKS = ("classification", "extraction", "routing", "summarization", "chat", "generation", "agentic", "reasoning", "other")
+SMALL_TASKS = ("classification", "extraction", "routing")  # short, well-specified outputs: the right-size candidates
+
+
+def build(root, plan, catalog, repo=None, scan=None, judgments=None, current_lines=False):
+    """recommendations.json for a repo whose plan.json (v1) and scan.json are given (scan supplies client constructions).
+    v3: `judgments` = {feature: {"latency"|"task"|"cacheable": {"value", "why", "evidence"}}} recorded by the agent with
+    `router-migrate judge`; they replace the filename heuristics. `current_lines`: plan lines already refer to the current
+    files (the v3 measure-only plan), so no apply.diff mapping."""
+    judgments = judgments or {}
     kind = repo_kind(root)
     diff_p = os.path.join(root, ".router-migrate", "apply.diff")
-    maps = line_maps(open(diff_p).read()) if os.path.exists(diff_p) else {}
+    maps = line_maps(open(diff_p).read()) if os.path.exists(diff_p) and not current_lines else {}
     _MAPS[root] = maps
     sites = [s for s in plan["sites"] if s.get("prod")]
     files = sorted({s["file"] for s in plan["sites"]} | set(_source_files(root)))
@@ -298,8 +316,30 @@ def build(root, plan, catalog, repo=None, scan=None):
         owner, mval = model_signal(root, s, kind, files, catalog)
         rid = catalog.resolve(mval)[0] if mval else None
         sig[s["id"]] = {"feature": "%s:%s" % (s["file"], fn), "function": fn, "latency_class": latency_class(s, kind, fn),
-                        "model_owner": owner, "model_value": mval, "resolved_model": rid}
+                        "model_owner": owner, "model_value": mval, "resolved_model": rid, "sources": {"latency_class": "heuristic"}}
+        j = judgments.get(sig[s["id"]]["feature"]) or {}
+        if j:
+            sig[s["id"]]["agent"] = j
+        if (j.get("latency") or {}).get("value") in LATENCY:
+            sig[s["id"]]["latency_class"] = j["latency"]["value"]
+            sig[s["id"]]["sources"]["latency_class"] = "agent"
+        if (j.get("task") or {}).get("value") in TASKS:
+            sig[s["id"]]["task"] = j["task"]["value"]
+        if not rid and (j.get("model") or {}).get("value"):
+            arid = catalog.resolve(j["model"]["value"])[0]
+            sig[s["id"]]["model_value"] = j["model"]["value"]
+            if arid:
+                sig[s["id"]]["resolved_model"] = arid
+                sig[s["id"]]["sources"]["resolved_model"] = "agent"
     cards, considered = [], []
+
+    def agent_ev(feat, key, label):
+        """An evidence item for an agent judgment (L1, source agent), or None."""
+        jj = (judgments.get(feat) or {}).get(key)
+        if not jj:
+            return None
+        return {"level": "L1", "fact": "%s: %s (%s)" % (label, jj["value"], jj.get("why", "")[:240]), "source": "agent",
+                "evidence": jj.get("evidence") or []}
 
     def consider(rule, ss, reason):
         considered.append({"rule": rule, "scope": {"sites": [x["id"] for x in ss], "features": sorted({sig[x["id"]]["feature"] for x in ss})}, "reason": reason})
@@ -389,15 +429,33 @@ def build(root, plan, catalog, repo=None, scan=None):
         owner_vendor = (row or {}).get("owned_by")
         # ---- cache.key
         toks = max(static_system_prompt_tokens(root, s, sg["function"]) for s in ss)  # whole-file signal: line mapping not needed
+        jc = (judgments.get(feat) or {}).get("cacheable")
+        agent_toks = None
+        if jc is not None:
+            try:
+                agent_toks = int(str(jc["value"]).replace(",", "")) if str(jc["value"]).lower() not in ("no", "false", "0") else 0
+            except ValueError:
+                agent_toks = None
+        if agent_toks is not None:
+            toks = agent_toks
         if owner_vendor == "anthropic":
             consider("cache.key", ss, "Claude model: v1 already sends prompt_cache_key = the feature id")
         elif toks >= 1024:
+            cache_ev = [agent_ev(feat, "cacheable", "agent: static prompt prefix ~tokens")] if agent_toks is not None else \
+                [{"level": "L1", "fact": "string literal of ~%d tokens assigned to a prompt/system name in %s" % (toks, ss[0]["file"]), "source": "static"}]
+            pr = (row or {}).get("pricing") or {}
+            if pr.get("cache_read_input") and pr.get("input"):
+                cache_ev.insert(0, {"level": "L0", "fact": "%s bills cached input at $%s vs $%s per M tokens" % (rid, pr["cache_read_input"], pr["input"]),
+                                    "source": "catalog"})
             cards.append(_card("cache.key", "same_model", "Cache the ~%s-token static prompt in %s" % ("{:,}".format(toks), feat), ss, sig,
                                {"kind": "policy", "diff": json.dumps(policy_patch(feat, {"prompt_cache_key": "$feature"}))}, [],
                                {"static_prompt_tokens": toks, "model": rid},
-                               {"level": "L1", "results": [{"level": "L1", "fact": "string literal of ~%d tokens assigned to a prompt/system name in %s" % (toks, ss[0]["file"]), "source": "static"}]},
-                               {"per_call_pct": None, "monthly_usd": None, "ignores": "cache hit rate (unmeasured); cached input is billed at the catalog cache_read price"},
+                               {"level": "L1", "results": cache_ev},
+                               {"per_call_pct": None, "monthly_usd": None, "detail": _cache_detail(row, toks),
+                                "ignores": "cache hit rate (unmeasured); cached input is billed at the catalog cache_read price"},
                                0, "none", etag=_etag(root, ss[0], row)))
+        elif agent_toks is not None:
+            consider("cache.key", ss, "agent: static prompt prefix ~%d tokens, below the ~1,024 a cache needs (%s)" % (toks, jc.get("why", "")[:120]))
         else:
             consider("cache.key", ss, "no static system prompt >= ~1,024 tokens found (longest ~%d tokens)" % toks)
         # ---- tier.flex_background
@@ -408,11 +466,13 @@ def build(root, plan, catalog, repo=None, scan=None):
                                ["latency: Flex requests can take much longer (61 s measured on gpt-5-nano)"],
                                {"latency_class": "background", "model": rid},
                                {"level": "L1", "results": [{"level": "L0", "fact": "%s has a measured flex tier" % rid, "source": "measured"},
+                                                           agent_ev(feat, "latency", "agent: latency class") or
                                                            {"level": "L1", "fact": "background markers in %s" % feat, "source": "static"}]},
                                {"per_call_pct": -50, "monthly_usd": None, "ignores": "measured on gpt-5.4-mini only; unmeasured for %s" % rid if rid != "gpt-5.4-mini" else "monthly volume (no observe-mode data)"},
                                1, "none", etag=_etag(root, ss[0], row)))
         elif flexable:
-            consider("tier.flex_background", ss, "latency class %s: Flex adds up to ~61 s (measured)" % sg["latency_class"])
+            consider("tier.flex_background", ss, "latency class %s%s: Flex adds up to ~61 s (measured)" % (
+                sg["latency_class"], " (agent judgment)" if sg["sources"]["latency_class"] == "agent" else ""))
         elif rid:
             consider("tier.flex_background", ss, "%s has no flex tier" % rid)
         else:
@@ -467,6 +527,23 @@ def build(root, plan, catalog, repo=None, scan=None):
                                {"per_call_pct": _pct(catalog, rid, nc), "monthly_usd": None, "ignores": "list prices only; output length and quality differ by model"},
                                2, "low", **common))
         small = max(int(((s.get("static_kwargs") or {}).get("max_tokens") or (s.get("static_kwargs") or {}).get("max_output_tokens") or 0)) if str(((s.get("static_kwargs") or {}).get("max_tokens") or 0)).isdigit() else 0 for s in ss)
+        task = sg.get("task")
+        if task in SMALL_TASKS and _price(row) >= 2.0 and not (0 < small <= 256):
+            cheaper = sorted([m for m in catalog.models if m.get("owned_by") == row.get("owned_by") and _caps_ok(m, row) and 0 < _price(m) <= _price(row) / 4
+                              and m.get("status", "active") == "active" and not re.match(r"^o\d", m["id"])],
+                             key=lambda m: (-_created(m["id"]), _price(m)))  # newest capable model; o-series reasoning models think (and bill) per call
+            if cheaper:
+                cand = cheaper[0]["id"]
+                cards.append(_card("model.right_size", "model", "Right-size %s: a %s task on %s" % (feat, task, rid), ss, sig,
+                                   {"kind": "code" if sg["model_owner"] == "app_literal" else "config", "diff": "change the %s to %s" % (where, cand)},
+                                   ["a smaller model answers every request: shadow it first (Router setup) and compare outputs"],
+                                   {"model": rid, "task": task, "candidate": cand},
+                                   {"level": "L1", "results": [{"level": "L0", "fact": "%s: same vendor, same capabilities, <= 1/4 the list price" % cand, "source": "catalog"},
+                                                               agent_ev(feat, "task", "agent: task")]},
+                                   {"per_call_pct": _pct(catalog, rid, cand), "monthly_usd": None, "ignores": "list prices only; quality unmeasured (needs shadow or L2)"},
+                                   3, "low", **common))
+        elif task and task not in SMALL_TASKS:
+            consider("model.right_size", ss, "agent judged the task %r: not a short, well-specified output" % task)
         if 0 < small <= 256 and _price(row) >= 2.0:
             cheaper = sorted([m for m in catalog.models if m.get("owned_by") == row.get("owned_by") and _caps_ok(m, row) and 0 < _price(m) <= _price(row) / 4], key=_price)
             if cheaper:
@@ -477,9 +554,21 @@ def build(root, plan, catalog, repo=None, scan=None):
                                    {"level": "L1", "results": [{"level": "L1", "fact": "max output tokens %d at the call site" % small, "source": "static"}]},
                                    {"per_call_pct": _pct(catalog, rid, cheaper[-1]["id"]), "monthly_usd": None, "ignores": "list prices only"},
                                    3, "low", **common))
+    MODEL_RULES = ("tier.flex_background", "fallback.candidates", "cache.key", "model.deprecated", "model.newer_cheaper_same_family", "model.right_size")
     for c in cards:
         if c["lever_group"] == "model":
             assert c["model_owner"] in MODEL_OWNERS_FOR_MODEL_CARDS
+        if c["rule"] in MODEL_RULES:  # the model itself came from the agent's reading of config: say so on the card
+            for f in c["scope"]["features"]:
+                if any(sig[sid]["feature"] == f and sig[sid]["sources"].get("resolved_model") == "agent" for sid in sig):
+                    e = agent_ev(f, "model", "agent: production model")
+                    if e:
+                        c["evidence"]["results"].append(e)
+                    break
+        res = [r for r in (c.get("evidence") or {}).get("results") or [] if r]
+        c["evidence"]["results"] = res
+        c["tool_facts"] = [r["fact"] for r in res if r.get("source") != "agent"]
+        c["agent_rationale"] = [{"fact": r["fact"], "evidence": r.get("evidence") or []} for r in res if r.get("source") == "agent"]
     return {"catalog_version": getattr(catalog, "source", "snapshot"), "rules_version": RULES_VERSION, "repo": repo,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "repo_kind": kind, "signals": sig, "cards": cards,
             "considered_not_recommended": considered}

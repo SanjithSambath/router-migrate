@@ -186,6 +186,32 @@ see Router requests inside their mocks under the deterministic floor too; only a
 | T4 | 10 fresh repos, blind inventories, test recipes; independent breakage check | pinned and inventoried before any arm C run | committed 488677a, before the first arm C commit |
 | T5 | Eval harness, arms A/B/B'/C, blind adjudication, REPORT.html ledger table | RESULTS.md with per-repo table, $ and minutes | eval/v3/RESULTS.md (section 6) |
 | T6 | WRITEUP v3 section, email draft, DEMO_V3.md (2-minute demo on a fresh repo), "What Router should build" | every number traces to a file | WRITEUP.md, EMAIL_TO_KEDAR.md (draft, not sent), DEMO_V3.md |
+| Improve | `judge`, `improve`, the improve session, cards from judgments, specific setup, the whole-run dashboard (5.5) | REPORT.html + recommendations.json for all 10 fresh repos; >= 4 screenshots | eval/v3/IMPROVE_RESULTS.md: 9 features judged, 4 -> 15 cards, $2.32; showcase repo: all 6 levers |
+
+### 5.5 The Improve phase (after the gate)
+
+Same split, applied to optimization. After `finish` passes, `run --agent claude` continues (or `router-migrate improve .
+--agent claude` runs it alone):
+1. **Tool:** `improve` builds the post-agent plan (the code as it stands, the agent's claims overriding the floor's
+   outcomes) and lists the migrated features that need judgments.
+2. **Agent (second, short, read-only session):** `judge FILE:LINE latency|task|model|cacheable VALUE --why --evidence` per
+   feature: who waits on the call (background / interactive / user_waiting), what it does (classification ... agentic),
+   the production model behind a config value when the tool can't resolve it (validated against the catalog), and the
+   static prompt prefix size. Gate: `improve --hook` blocks the session while any feature is unjudged (cap: 3 blocks). No
+   Edit tools: judgments change no code.
+3. **Tool:** v2's rules (attr.metadata, cache.key, tier.flex_background, fallback.candidates, unlock.vendor_endpoint,
+   unlock.stated_loss, model.deprecated / newer_cheaper_same_family / right_size) run on judgments instead of filename
+   heuristics; `model.right_size` gains an agent-task trigger (classification / extraction / routing on an expensive model).
+   Every card carries `tool_facts` and `agent_rationale` (with evidence) separately.
+4. **Setup checklist** made specific: features the Flex default and Jev apply to, Switchyard marked not applicable unless a
+   feature is an agentic coding task, shadow pairs taken from the model cards, budgets.
+5. **Dashboard:** the whole run (floor → migrate → gate → improve → cards, with cost and time per phase), a grid of the six
+   levers (cards, best impact, or why none), cards with facts vs rationale. Apply runs `apply --decisions` plus a quick
+   scope gate and records `applied_at`; edits from approved decisions are in scope for `finish`.
+
+Why a second session instead of continuing the first: the migration session's context is full of call sites and claims;
+the improve judgments need callers, decorators and prompts. A fresh, read-only, separately gated session keeps each
+context small and makes "judgments change no code" enforceable by tool permissions rather than instructions.
 
 ## 6. Evaluation and results
 

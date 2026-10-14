@@ -18,6 +18,12 @@ v3: you are the judgment layer; the CLI gives you facts and a gate. The full pro
    `{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "router-migrate finish <repo> --hook", "timeout": 1800}]}]}}`
    (in `.claude/settings.json`, or pass it with `claude --settings`). After 3 failed runs it reverts your edits to the floor.
 
+## v3 improve (after finish passes)
+4b. `router-migrate improve .` lists the migrated features to judge; record `latency`, `task` (and `model` when it says
+    UNKNOWN, `cacheable` for long fixed prompts) with `router-migrate judge FILE:LINE KEY VALUE --why ... --evidence FILE:LINE`
+    until it lists none (prompt: `router_migrate/prompts/improve.md`). Don't edit code. Then the human approves cards in the
+    dashboard (`router-migrate run . --agent claude` opens it at the end).
+
 ## v2: improve (after finish passes)
 5. `router-migrate up . --agent` prints the undecided Improve cards. Approve risk 0–1 same-model cards whose evidence bar is
    met; ask the user before approving unlock, fallback or model cards (`router-migrate decide <id> ... --by agent`).

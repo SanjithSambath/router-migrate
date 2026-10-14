@@ -1,0 +1,781 @@
+{
+ "catalog_version": "bundled snapshot (GET https://api.router.com/v1/models (live, 2026-10-12/13))",
+ "rules_version": "v2-mvp-1",
+ "repo": "AI-Scientist",
+ "generated": "2026-10-13T23:14:07",
+ "repo_kind": "library",
+ "signals": {
+  "py:ai_scientist/llm.py:96:19:call": {
+   "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+   "function": "get_batch_responses_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "gpt-4o-2024-05-13",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:12:52",
+     "evidence": [
+      "ai_scientist/perform_review.py:27",
+      "ai_scientist/perform_review.py:65",
+      "ai_scientist/perform_review.py:139",
+      "ai_scientist/perform_review.py:323"
+     ],
+     "value": "18200",
+     "why": "Every perform_review call builds base_prompt = neurips_form+template_instructions (fixed review-form text) plus one fixed fewshot example pair (132_automated_relational.txt paper + its .json review), all identical across every paper/idea reviewed and every ensemble member; only the actual paper-under-review text appended after is dynamic. ~8990 chars instructions + ~61327 chars fewshot paper + ~2786 chars fewshot review =~73000 chars =~18200 tokens at 4 chars/token"
+    },
+    "latency": {
+     "at": "2026-10-13T23:12:15",
+     "evidence": [
+      "ai_scientist/perform_review.py:152",
+      "launch_scientist.py:142",
+      "launch_scientist.py:275"
+     ],
+     "value": "background",
+     "why": "get_batch_responses_from_llm is only called from perform_review.py's ensemble path, which launch_scientist.py invokes as part of a multi-hour unattended research pipeline (idea gen -> aider experiments -> writeup -> review); in --parallel mode worker() is a literal multiprocessing.Queue consumer, no human waits on a single call"
+    },
+    "model": {
+     "at": "2026-10-13T23:12:39",
+     "evidence": [
+      "launch_scientist.py:277",
+      "launch_scientist.py:303",
+      "ai_scientist/perform_review.py:152"
+     ],
+     "value": "gpt-4o-2024-05-13",
+     "why": "get_batch_responses_from_llm's only caller, perform_review(), is invoked from launch_scientist.py with a hardcoded model='gpt-4o-2024-05-13' (not the --model CLI flag), used for both the initial review and the post-improvement re-review"
+    },
+    "task": {
+     "at": "2026-10-13T23:12:29",
+     "evidence": [
+      "ai_scientist/perform_review.py:27",
+      "ai_scientist/perform_review.py:43",
+      "ai_scientist/perform_review.py:152"
+     ],
+     "value": "reasoning",
+     "why": "Only caller is perform_review's ensemble path: produces structured paper-review JSON (strengths/weaknesses, Soundness/Presentation/Contribution ratings, Accept/Reject decision) that requires critical evaluation of the paper text, not a short fixed-label classification"
+    }
+   },
+   "task": "reasoning"
+  },
+  "py:ai_scientist/llm.py:114:19:call": {
+   "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+   "function": "get_batch_responses_from_llm",
+   "latency_class": "background",
+   "model_owner": "app_literal",
+   "model_value": "gpt-4o-2024-05-13",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:12:52",
+     "evidence": [
+      "ai_scientist/perform_review.py:27",
+      "ai_scientist/perform_review.py:65",
+      "ai_scientist/perform_review.py:139",
+      "ai_scientist/perform_review.py:323"
+     ],
+     "value": "18200",
+     "why": "Every perform_review call builds base_prompt = neurips_form+template_instructions (fixed review-form text) plus one fixed fewshot example pair (132_automated_relational.txt paper + its .json review), all identical across every paper/idea reviewed and every ensemble member; only the actual paper-under-review text appended after is dynamic. ~8990 chars instructions + ~61327 chars fewshot paper + ~2786 chars fewshot review =~73000 chars =~18200 tokens at 4 chars/token"
+    },
+    "latency": {
+     "at": "2026-10-13T23:12:15",
+     "evidence": [
+      "ai_scientist/perform_review.py:152",
+      "launch_scientist.py:142",
+      "launch_scientist.py:275"
+     ],
+     "value": "background",
+     "why": "get_batch_responses_from_llm is only called from perform_review.py's ensemble path, which launch_scientist.py invokes as part of a multi-hour unattended research pipeline (idea gen -> aider experiments -> writeup -> review); in --parallel mode worker() is a literal multiprocessing.Queue consumer, no human waits on a single call"
+    },
+    "model": {
+     "at": "2026-10-13T23:12:39",
+     "evidence": [
+      "launch_scientist.py:277",
+      "launch_scientist.py:303",
+      "ai_scientist/perform_review.py:152"
+     ],
+     "value": "gpt-4o-2024-05-13",
+     "why": "get_batch_responses_from_llm's only caller, perform_review(), is invoked from launch_scientist.py with a hardcoded model='gpt-4o-2024-05-13' (not the --model CLI flag), used for both the initial review and the post-improvement re-review"
+    },
+    "task": {
+     "at": "2026-10-13T23:12:29",
+     "evidence": [
+      "ai_scientist/perform_review.py:27",
+      "ai_scientist/perform_review.py:43",
+      "ai_scientist/perform_review.py:152"
+     ],
+     "value": "reasoning",
+     "why": "Only caller is perform_review's ensemble path: produces structured paper-review JSON (strengths/weaknesses, Soundness/Presentation/Contribution ratings, Accept/Reject decision) that requires critical evaluation of the paper text, not a short fixed-label classification"
+    }
+   },
+   "task": "reasoning"
+  },
+  "py:ai_scientist/llm.py:181:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:202:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:218:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:233:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "app_literal",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:248:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:263:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  },
+  "py:ai_scientist/llm.py:276:19:call": {
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "function": "get_response_from_llm",
+   "latency_class": "background",
+   "model_owner": "library_param",
+   "model_value": "claude-3-5-sonnet-20240620",
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T23:13:34",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ],
+     "value": "7150",
+     "why": "generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for the default nanoGPT template that file is 28536 chars (~7134 tokens), identical across every idea generated for that experiment in a run"
+    },
+    "latency": {
+     "at": "2026-10-13T23:13:02",
+     "evidence": [
+      "launch_scientist.py:328",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:495"
+     ],
+     "value": "background",
+     "why": "get_response_from_llm is only called from generate_ideas.py, perform_writeup.py, and perform_review.py, all of which run inside launch_scientist.py's unattended multi-hour research pipeline (idea generation loop -> aider-driven experiments -> writeup -> review), or as standalone __main__ batch scripts; --parallel mode consumes ideas off a multiprocessing.Queue with no human watching individual calls"
+    },
+    "model": {
+     "at": "2026-10-13T23:13:24",
+     "evidence": [
+      "launch_scientist.py:55",
+      "launch_scientist.py:346",
+      "launch_scientist.py:350",
+      "ai_scientist/generate_ideas.py:120"
+     ],
+     "value": "claude-3-5-sonnet-20240620",
+     "why": "Primary production entry point launch_scientist.py exposes --model with default 'claude-3-5-sonnet-20240620', passed through create_client() to generate_ideas() and perform_writeup(), both of which call get_response_from_llm; perform_review.py's calls instead receive a hardcoded 'gpt-4o-2024-05-13' from launch_scientist.py regardless of this flag (recorded separately on get_batch_responses_from_llm, its main caller)"
+    },
+    "task": {
+     "at": "2026-10-13T23:13:12",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:25",
+      "ai_scientist/generate_ideas.py:120",
+      "launch_scientist.py:89"
+     ],
+     "value": "generation",
+     "why": "Highest-volume caller is generate_ideas.py's idea generation/reflection loop (up to num_ideas x num_reflections calls per run), which asks the model to freely produce a novel research idea (THOUGHT + creative NEW IDEA JSON); other callers (novelty search-query loop, citation search/selection, review reflection, meta-review) layer agentic tool-use and reasoning on the same function but are lower volume"
+    }
+   },
+   "task": "generation"
+  }
+ },
+ "cards": [
+  {
+   "id": "rec_attr_metadata_d5ecfbf1",
+   "rule": "attr.metadata",
+   "lever_group": "same_model",
+   "title": "Tag Router spend for 2 feature(s) with product=AI-Scientist",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:96:19:call",
+     "py:ai_scientist/llm.py:202:19:call",
+     "py:ai_scientist/llm.py:218:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_batch_responses_from_llm",
+     "ai_scientist/llm.py:get_response_from_llm"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "library_param",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"defaults\": {\"metadata\": {\"product\": \"AI-Scientist\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "product": "AI-Scientist",
+    "features": 3
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "Router stores metadata as request tags; metadata.product attributes spend in Ramp",
+      "source": "docs"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "attribution only, no price change"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "82e41863402fc6ee",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "Router stores metadata as request tags; metadata.product attributes spend in Ramp"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_cache_key_cf5cc6f8",
+   "rule": "cache.key",
+   "lever_group": "same_model",
+   "title": "Cache the ~18,200-token static prompt in ai_scientist/llm.py:get_batch_responses_from_llm",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:96:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_batch_responses_from_llm"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "library_param",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"ai_scientist/llm.py:get_batch_responses_from_llm\": {\"prompt_cache_key\": \"$feature\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "static_prompt_tokens": 18200,
+    "model": null
+   },
+   "evidence": {
+    "level": "L1",
+    "results": [
+     {
+      "level": "L1",
+      "fact": "agent: static prompt prefix ~tokens: 18200 (Every perform_review call builds base_prompt = neurips_form+template_instructions (fixed review-form text) plus one fixed fewshot example pair (132_automated_relational.txt paper + its .json review), all identical across every paper/idea re)",
+      "source": "agent",
+      "evidence": [
+       "ai_scientist/perform_review.py:27",
+       "ai_scientist/perform_review.py:65",
+       "ai_scientist/perform_review.py:139",
+       "ai_scientist/perform_review.py:323"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": null,
+    "monthly_usd": null,
+    "detail": null,
+    "ignores": "cache hit rate (unmeasured); cached input is billed at the catalog cache_read price"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "b05595bbdc47ef02",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [],
+   "agent_rationale": [
+    {
+     "fact": "agent: static prompt prefix ~tokens: 18200 (Every perform_review call builds base_prompt = neurips_form+template_instructions (fixed review-form text) plus one fixed fewshot example pair (132_automated_relational.txt paper + its .json review), all identical across every paper/idea re)",
+     "evidence": [
+      "ai_scientist/perform_review.py:27",
+      "ai_scientist/perform_review.py:65",
+      "ai_scientist/perform_review.py:139",
+      "ai_scientist/perform_review.py:323"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_cache_key_1a83644e",
+   "rule": "cache.key",
+   "lever_group": "same_model",
+   "title": "Cache the ~7,150-token static prompt in ai_scientist/llm.py:get_response_from_llm",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:202:19:call",
+     "py:ai_scientist/llm.py:218:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_response_from_llm"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "library_param",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"ai_scientist/llm.py:get_response_from_llm\": {\"prompt_cache_key\": \"$feature\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "static_prompt_tokens": 7150,
+    "model": null
+   },
+   "evidence": {
+    "level": "L1",
+    "results": [
+     {
+      "level": "L1",
+      "fact": "agent: static prompt prefix ~tokens: 7150 (generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for t)",
+      "source": "agent",
+      "evidence": [
+       "ai_scientist/generate_ideas.py:14",
+       "ai_scientist/generate_ideas.py:104",
+       "ai_scientist/generate_ideas.py:120",
+       "templates/nanoGPT/experiment.py:1"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": null,
+    "monthly_usd": null,
+    "detail": null,
+    "ignores": "cache hit rate (unmeasured); cached input is billed at the catalog cache_read price"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "87e063bb7159128a",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [],
+   "agent_rationale": [
+    {
+     "fact": "agent: static prompt prefix ~tokens: 7150 (generate_ideas.py's idea_first_prompt (the first message of every new idea-generation conversation, run up to num_ideas times per --experiment) embeds the full experiment.py template code verbatim before the dynamic prev_ideas_string; for t)",
+     "evidence": [
+      "ai_scientist/generate_ideas.py:14",
+      "ai_scientist/generate_ideas.py:104",
+      "ai_scientist/generate_ideas.py:120",
+      "templates/nanoGPT/experiment.py:1"
+     ]
+    }
+   ]
+  }
+ ],
+ "considered_not_recommended": [
+  {
+   "rule": "tier.flex_background",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:96:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_batch_responses_from_llm"
+    ]
+   },
+   "reason": "model chosen at runtime (gpt-4o-2024-05-13); flex eligibility unknown"
+  },
+  {
+   "rule": "fallback.candidates",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:96:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_batch_responses_from_llm"
+    ]
+   },
+   "reason": "model chosen at runtime; candidates need a known model"
+  },
+  {
+   "rule": "tier.flex_background",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:202:19:call",
+     "py:ai_scientist/llm.py:218:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_response_from_llm"
+    ]
+   },
+   "reason": "model chosen at runtime (claude-3-5-sonnet-20240620); flex eligibility unknown"
+  },
+  {
+   "rule": "fallback.candidates",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:202:19:call",
+     "py:ai_scientist/llm.py:218:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_response_from_llm"
+    ]
+   },
+   "reason": "model chosen at runtime; candidates need a known model"
+  },
+  {
+   "rule": "model.*",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:96:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_batch_responses_from_llm"
+    ]
+   },
+   "reason": "model owner is library_param: model changes are the library caller's choice"
+  },
+  {
+   "rule": "model.*",
+   "scope": {
+    "sites": [
+     "py:ai_scientist/llm.py:202:19:call",
+     "py:ai_scientist/llm.py:218:19:call"
+    ],
+    "features": [
+     "ai_scientist/llm.py:get_response_from_llm"
+    ]
+   },
+   "reason": "model owner is library_param: model changes are the library caller's choice"
+  }
+ ]
+}

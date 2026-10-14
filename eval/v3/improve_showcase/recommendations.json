@@ -1,0 +1,775 @@
+{
+ "catalog_version": "bundled snapshot (GET https://api.router.com/v1/models (live, 2026-10-12/13))",
+ "rules_version": "v3-improve-1",
+ "repo": "showcase2",
+ "generated": "2026-10-13T23:15:57",
+ "repo_kind": "app",
+ "signals": {
+  "py:svc/agent.py:15:11:call": {
+   "feature": "svc/agent.py:run",
+   "function": "run",
+   "latency_class": "interactive",
+   "model_owner": "app_literal",
+   "model_value": "claude-haiku-4-5",
+   "resolved_model": "claude-haiku-4-5",
+   "sources": {
+    "latency_class": "heuristic"
+   },
+   "unlock": {
+    "rule": "unlock.stated_loss",
+    "drop_betas": [
+     "prompt-caching-2024-07-31"
+    ],
+    "client": "py:svc/agent.py:4:9:client"
+   }
+  },
+  "py:svc/api/chat.py:14:11:call": {
+   "feature": "svc/api/chat.py:answer",
+   "function": "answer",
+   "latency_class": "interactive",
+   "model_owner": "app_literal",
+   "model_value": "gpt-4-turbo",
+   "resolved_model": "gpt-4-turbo",
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T22:46:59",
+     "evidence": [
+      "svc/api/chat.py:14"
+     ],
+     "value": "0",
+     "why": "The only message is {'role': 'user', 'content': q}; q is the per-call question with no fixed system/instruction block, so there is no static prefix to cache."
+    },
+    "latency": {
+     "at": "2026-10-13T22:46:57",
+     "evidence": [
+      "svc/api/chat.py:14"
+     ],
+     "value": "interactive",
+     "why": "answer() streams the completion (stream=True) back to a caller named answer() in the api/chat module \u2014 a person is watching tokens arrive, not waiting for one batch result or running on a schedule."
+    },
+    "task": {
+     "at": "2026-10-13T22:46:58",
+     "evidence": [
+      "svc/api/chat.py:14"
+     ],
+     "value": "chat",
+     "why": "Single dynamic user message with no system prompt or output schema, streamed back as prose \u2014 a conversational answer to an arbitrary question, not classification/extraction/routing."
+    }
+   },
+   "task": "chat"
+  },
+  "py:svc/vendors/xai.py:11:15:call": {
+   "feature": "svc/vendors/xai.py:generate",
+   "function": "generate",
+   "latency_class": "interactive",
+   "model_owner": "unknown",
+   "model_value": null,
+   "resolved_model": null,
+   "sources": {
+    "latency_class": "heuristic"
+   },
+   "unlock": {
+    "rule": "unlock.vendor_endpoint",
+    "host": "api.x.ai",
+    "client": "py:svc/vendors/xai.py:8:22:client"
+   }
+  },
+  "py:svc/workers/nightly_summaries.py:16:12:call": {
+   "feature": "svc/workers/nightly_summaries.py:summarize_all",
+   "function": "summarize_all",
+   "latency_class": "background",
+   "model_owner": "app_literal",
+   "model_value": "gpt-5.4-mini",
+   "resolved_model": "gpt-5.4-mini",
+   "sources": {
+    "latency_class": "agent"
+   },
+   "agent": {
+    "cacheable": {
+     "at": "2026-10-13T22:47:08",
+     "evidence": [
+      "svc/workers/nightly_summaries.py:11",
+      "svc/workers/nightly_summaries.py:16"
+     ],
+     "value": "1501",
+     "why": "SYSTEM_PROMPT (line 11) is an identical ~6,000-character fixed string sent as the system message on every single call in the summarize_all loop (line 16); at ~4 chars/token that's roughly 1,501 static tokens repeated per doc, well above the ~1,024-token caching threshold."
+    },
+    "latency": {
+     "at": "2026-10-13T22:47:05",
+     "evidence": [
+      "svc/workers/nightly_summaries.py:15",
+      "svc/workers/nightly_summaries.py:16"
+     ],
+     "value": "background",
+     "why": "Module is named nightly_summaries.py and summarize_all() iterates over a batch of docs with no streaming and no request/response caller in the repo \u2014 this is an offline nightly batch job, not something a person is waiting on."
+    },
+    "task": {
+     "at": "2026-10-13T22:47:06",
+     "evidence": [
+      "svc/workers/nightly_summaries.py:11",
+      "svc/workers/nightly_summaries.py:15"
+     ],
+     "value": "summarization",
+     "why": "SYSTEM_PROMPT instructs the model it is 'a careful summarizer', and summarize_all() feeds each doc through that system prompt to produce one output per document \u2014 a straightforward summarization task."
+    }
+   },
+   "task": "summarization"
+  }
+ },
+ "cards": [
+  {
+   "id": "rec_unlock_vendor_endpoint_8ab9985d",
+   "rule": "unlock.vendor_endpoint",
+   "lever_group": "unlock",
+   "title": "Serve grok-4.3 through Router instead of api.x.ai (same model)",
+   "scope": {
+    "sites": [
+     "py:svc/vendors/xai.py:11:15:call"
+    ],
+    "features": [
+     "svc/vendors/xai.py:generate"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "unknown",
+   "change": {
+    "kind": "code",
+    "diff": "wrap the client with unlock_hosts=['api.x.ai']; requests whose model is a Router catalog id go to Router, every other request still goes to api.x.ai"
+   },
+   "loses": [
+    "api.x.ai's own serving (its rate limits, regions and any vendor-only features)",
+    "requests are billed by Router instead of api.x.ai"
+   ],
+   "rule_inputs": {
+    "host": "api.x.ai",
+    "model": "grok-4.3",
+    "model_source": "the file's default model"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "grok-4.3 is a Router catalog id (exact match)",
+      "source": "catalog"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": null,
+    "monthly_usd": null,
+    "ignores": "price differences between api.x.ai and Router for this model (unmeasured)"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "94dab4ee4892e77a",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "grok-4.3 is a Router catalog id (exact match)"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_unlock_stated_loss_9519a4f7",
+   "rule": "unlock.stated_loss",
+   "lever_group": "unlock",
+   "title": "Move svc/agent.py:run to Router by dropping the prompt-caching-2024-07-31 beta header",
+   "scope": {
+    "sites": [
+     "py:svc/agent.py:15:11:call"
+    ],
+    "features": [
+     "svc/agent.py:run"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "code",
+    "diff": "wrap the client with drop_betas=['prompt-caching-2024-07-31']; a request that carries any other beta stays on Anthropic"
+   },
+   "loses": [
+    "nothing functional: prompt caching is generally available without the beta header"
+   ],
+   "rule_inputs": {
+    "betas": [
+     "prompt-caching-2024-07-31"
+    ]
+   },
+   "evidence": {
+    "level": "L1",
+    "results": [
+     {
+      "level": "L1",
+      "fact": "only beta flags in the file: prompt-caching-2024-07-31",
+      "source": "static"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": null,
+    "monthly_usd": null,
+    "ignores": "no price change (same model)"
+   },
+   "risk": 1,
+   "effort": "low",
+   "options": [],
+   "etag": "71bc60f6a0149281",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "only beta flags in the file: prompt-caching-2024-07-31"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_attr_metadata_3683e53c",
+   "rule": "attr.metadata",
+   "lever_group": "same_model",
+   "title": "Tag Router spend for 2 feature(s) with product=showcase2",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call",
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer",
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"defaults\": {\"metadata\": {\"product\": \"showcase2\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "product": "showcase2",
+    "features": 2
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "Router stores metadata as request tags; metadata.product attributes spend in Ramp",
+      "source": "docs"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "attribution only, no price change"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "13eeef210346eac2",
+   "state": "approved",
+   "applies": true,
+   "tool_facts": [
+    "Router stores metadata as request tags; metadata.product attributes spend in Ramp"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_fallback_candidates_860f93ac",
+   "rule": "fallback.candidates",
+   "lever_group": "same_model",
+   "title": "Fail over svc/api/chat.py:answer from gpt-4-turbo to gpt-5.5 then claude-opus-5 on outages",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"svc/api/chat.py:answer\": {\"fallbacks\": [\"gpt-5.5\", \"claude-opus-5\"]}}}"
+   },
+   "loses": [
+    "on a pre-stream failure (429/5xx/no permission) a different model answers that request"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4-turbo",
+    "candidates": [
+     "gpt-5.5",
+     "claude-opus-5"
+    ]
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "candidates match gpt-4-turbo's tools/structured-output/modality support and are within 0.5-2x its list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L0",
+      "fact": "Router's models list advances on 403/unknown model (measured)",
+      "source": "measured"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "price of the fallback model on the requests that fail over"
+   },
+   "risk": 2,
+   "effort": "none",
+   "options": [
+    {
+     "fallbacks": [
+      "gpt-5.5"
+     ]
+    },
+    {
+     "fallbacks": [
+      "gpt-5.5",
+      "claude-opus-5"
+     ]
+    }
+   ],
+   "etag": "4dd367f70feadbdb",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "candidates match gpt-4-turbo's tools/structured-output/modality support and are within 0.5-2x its list price",
+    "Router's models list advances on 403/unknown model (measured)"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_cache_key_e47b8d4c",
+   "rule": "cache.key",
+   "lever_group": "same_model",
+   "title": "Cache the ~1,501-token static prompt in svc/workers/nightly_summaries.py:summarize_all",
+   "scope": {
+    "sites": [
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"svc/workers/nightly_summaries.py:summarize_all\": {\"prompt_cache_key\": \"$feature\"}}}"
+   },
+   "loses": [],
+   "rule_inputs": {
+    "static_prompt_tokens": 1501,
+    "model": "gpt-5.4-mini"
+   },
+   "evidence": {
+    "level": "L1",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-5.4-mini bills cached input at $0.075 vs $0.75 per M tokens",
+      "source": "catalog"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: static prompt prefix ~tokens: 1501 (SYSTEM_PROMPT (line 11) is an identical ~6,000-character fixed string sent as the system message on every single call in the summarize_all loop (line 16); at ~4 chars/token that's roughly 1,501 static tokens repeated per doc, well above the)",
+      "source": "agent",
+      "evidence": [
+       "svc/workers/nightly_summaries.py:11",
+       "svc/workers/nightly_summaries.py:16"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": null,
+    "monthly_usd": null,
+    "detail": "-90% on the ~1,501 cached input tokens of every cache hit",
+    "ignores": "cache hit rate (unmeasured); cached input is billed at the catalog cache_read price"
+   },
+   "risk": 0,
+   "effort": "none",
+   "options": [],
+   "etag": "e9a8d6326b15dae9",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "gpt-5.4-mini bills cached input at $0.075 vs $0.75 per M tokens"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: static prompt prefix ~tokens: 1501 (SYSTEM_PROMPT (line 11) is an identical ~6,000-character fixed string sent as the system message on every single call in the summarize_all loop (line 16); at ~4 chars/token that's roughly 1,501 static tokens repeated per doc, well above the)",
+     "evidence": [
+      "svc/workers/nightly_summaries.py:11",
+      "svc/workers/nightly_summaries.py:16"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_tier_flex_background_f9074047",
+   "rule": "tier.flex_background",
+   "lever_group": "same_model",
+   "title": "Run svc/workers/nightly_summaries.py:summarize_all on Flex (-50% per call, background job)",
+   "scope": {
+    "sites": [
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"svc/workers/nightly_summaries.py:summarize_all\": {\"allow_flex_tier\": true}}}"
+   },
+   "loses": [
+    "latency: Flex requests can take much longer (61 s measured on gpt-5-nano)",
+    "cancelled if the fallback card for svc/workers/nightly_summaries.py:summarize_all is also approved (Router ignores Flex with a models list, measured)"
+   ],
+   "rule_inputs": {
+    "latency_class": "background",
+    "model": "gpt-5.4-mini"
+   },
+   "evidence": {
+    "level": "L1",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-5.4-mini has a measured flex tier",
+      "source": "measured"
+     },
+     {
+      "level": "L1",
+      "fact": "agent: latency class: background (Module is named nightly_summaries.py and summarize_all() iterates over a batch of docs with no streaming and no request/response caller in the repo \u2014 this is an offline nightly batch job, not something a person is waiting on.)",
+      "source": "agent",
+      "evidence": [
+       "svc/workers/nightly_summaries.py:15",
+       "svc/workers/nightly_summaries.py:16"
+      ]
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -50,
+    "monthly_usd": null,
+    "ignores": "monthly volume (no observe-mode data)"
+   },
+   "risk": 1,
+   "effort": "none",
+   "options": [],
+   "etag": "e9a8d6326b15dae9",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "gpt-5.4-mini has a measured flex tier"
+   ],
+   "agent_rationale": [
+    {
+     "fact": "agent: latency class: background (Module is named nightly_summaries.py and summarize_all() iterates over a batch of docs with no streaming and no request/response caller in the repo \u2014 this is an offline nightly batch job, not something a person is waiting on.)",
+     "evidence": [
+      "svc/workers/nightly_summaries.py:15",
+      "svc/workers/nightly_summaries.py:16"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rec_fallback_candidates_81865ce1",
+   "rule": "fallback.candidates",
+   "lever_group": "same_model",
+   "title": "Fail over svc/workers/nightly_summaries.py:summarize_all from gpt-5.4-mini to gpt-4.1 then claude-haiku-4-5 on outages",
+   "scope": {
+    "sites": [
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "policy",
+    "diff": "{\"features\": {\"svc/workers/nightly_summaries.py:summarize_all\": {\"fallbacks\": [\"gpt-4.1\", \"claude-haiku-4-5\"]}}}"
+   },
+   "loses": [
+    "on a pre-stream failure (429/5xx/no permission) a different model answers that request",
+    "Flex: Router ignores allow_flex_tier when a models list is sent (measured), so this cancels the Flex card for svc/workers/nightly_summaries.py:summarize_all"
+   ],
+   "rule_inputs": {
+    "model": "gpt-5.4-mini",
+    "candidates": [
+     "gpt-4.1",
+     "claude-haiku-4-5"
+    ]
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "candidates match gpt-5.4-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+      "source": "catalog"
+     },
+     {
+      "level": "L0",
+      "fact": "Router's models list advances on 403/unknown model (measured)",
+      "source": "measured"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": 0,
+    "monthly_usd": null,
+    "ignores": "price of the fallback model on the requests that fail over"
+   },
+   "risk": 2,
+   "effort": "none",
+   "options": [
+    {
+     "fallbacks": [
+      "gpt-4.1"
+     ]
+    },
+    {
+     "fallbacks": [
+      "gpt-4.1",
+      "claude-haiku-4-5"
+     ]
+    }
+   ],
+   "etag": "e9a8d6326b15dae9",
+   "state": "new",
+   "applies": true,
+   "tool_facts": [
+    "candidates match gpt-5.4-mini's tools/structured-output/modality support and are within 0.5-2x its list price",
+    "Router's models list advances on 403/unknown model (measured)"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_model_deprecated_2224c8f5",
+   "rule": "model.deprecated",
+   "lever_group": "model",
+   "title": "gpt-4-turbo is deprecated in Router's catalog: move svc/api/chat.py:answer to gpt-5-nano",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "code",
+    "diff": "change the literal gpt-4-turbo to gpt-5-nano"
+   },
+   "loses": [
+    "a different model answers every request: quality must be checked (L2 replay, not in the MVP)"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4-turbo",
+    "status": "deprecated",
+    "replacement": "gpt-5-nano"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "catalog status of gpt-4-turbo is deprecated",
+      "source": "catalog"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -99,
+    "monthly_usd": null,
+    "ignores": "list prices only; token counts differ by model"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "4dd367f70feadbdb",
+   "state": "new",
+   "applies": false,
+   "tool_facts": [
+    "catalog status of gpt-4-turbo is deprecated"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_model_newer_cheaper_same_family_eebb9fd9",
+   "rule": "model.newer_cheaper_same_family",
+   "lever_group": "model",
+   "title": "Try gpt-6.1-sol for svc/api/chat.py:answer (newer, -70% list price)",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ],
+    "latency_class": "interactive"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "code",
+    "diff": "change the literal gpt-4-turbo to gpt-6.1-sol"
+   },
+   "loses": [
+    "a different model answers every request: needs L2 evidence before applying"
+   ],
+   "rule_inputs": {
+    "model": "gpt-4-turbo",
+    "candidate": "gpt-6.1-sol"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-6.1-sol: same vendor, same capabilities, lower list price",
+      "source": "catalog"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -70,
+    "monthly_usd": null,
+    "ignores": "list prices only; output length and quality differ by model"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "4dd367f70feadbdb",
+   "state": "new",
+   "applies": false,
+   "tool_facts": [
+    "gpt-6.1-sol: same vendor, same capabilities, lower list price"
+   ],
+   "agent_rationale": []
+  },
+  {
+   "id": "rec_model_newer_cheaper_same_family_de08cfaf",
+   "rule": "model.newer_cheaper_same_family",
+   "lever_group": "model",
+   "title": "Try gpt-6-luna for svc/workers/nightly_summaries.py:summarize_all (newer, -89% list price)",
+   "scope": {
+    "sites": [
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ],
+    "latency_class": "background"
+   },
+   "model_owner": "app_literal",
+   "change": {
+    "kind": "code",
+    "diff": "change the literal gpt-5.4-mini to gpt-6-luna"
+   },
+   "loses": [
+    "a different model answers every request: needs L2 evidence before applying"
+   ],
+   "rule_inputs": {
+    "model": "gpt-5.4-mini",
+    "candidate": "gpt-6-luna"
+   },
+   "evidence": {
+    "level": "L0",
+    "results": [
+     {
+      "level": "L0",
+      "fact": "gpt-6-luna: same vendor, same capabilities, lower list price",
+      "source": "catalog"
+     }
+    ]
+   },
+   "impact": {
+    "per_call_pct": -89,
+    "monthly_usd": null,
+    "ignores": "list prices only; output length and quality differ by model"
+   },
+   "risk": 2,
+   "effort": "low",
+   "options": [],
+   "etag": "e9a8d6326b15dae9",
+   "state": "new",
+   "applies": false,
+   "tool_facts": [
+    "gpt-6-luna: same vendor, same capabilities, lower list price"
+   ],
+   "agent_rationale": []
+  }
+ ],
+ "considered_not_recommended": [
+  {
+   "rule": "cache.key",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ]
+   },
+   "reason": "agent: static prompt prefix ~0 tokens, below the ~1,024 a cache needs (The only message is {'role': 'user', 'content': q}; q is the per-call question with no fixed system/instruction block, s)"
+  },
+  {
+   "rule": "tier.flex_background",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ]
+   },
+   "reason": "gpt-4-turbo has no flex tier"
+  },
+  {
+   "rule": "model.right_size",
+   "scope": {
+    "sites": [
+     "py:svc/api/chat.py:14:11:call"
+    ],
+    "features": [
+     "svc/api/chat.py:answer"
+    ]
+   },
+   "reason": "agent judged the task 'chat': not a short, well-specified output"
+  },
+  {
+   "rule": "model.right_size",
+   "scope": {
+    "sites": [
+     "py:svc/workers/nightly_summaries.py:16:12:call"
+    ],
+    "features": [
+     "svc/workers/nightly_summaries.py:summarize_all"
+    ]
+   },
+   "reason": "agent judged the task 'summarization': not a short, well-specified output"
+  }
+ ]
+}

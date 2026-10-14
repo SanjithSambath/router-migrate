@@ -292,3 +292,23 @@ frozen toolkit (commit 5eec746).
   inserted import block left worklist items pointing 7 lines above their calls, so agents claimed the call at its new line
   (tool-confirmed) and again at the stale line to clear the worklist check (recorded unconfirmed, never credited).
 
+## D14. v3 Improve phase
+
+- **Same split as migration.** Facts (Flex eligibility, prices, capability-matched fallbacks, policy keys, droppable betas,
+  catalog ids) stay with the tools; the agent records judgments with cited lines: `latency`, `task`, `model` (the production
+  default behind a config value, validated against the catalog) and `cacheable` (static prompt prefix tokens). They replace
+  v2's filename heuristics; every card shows tool facts and agent rationale separately.
+- **A second, read-only agent session**, gated by `improve --hook` (blocks while a migrated feature is unjudged; cap 3).
+  Separate context, no Edit tools: judgments can't change code by construction.
+- **`model` was added after the first real run** (sec-insights): with the model unknown, only a spend-tag card could fire.
+  The production model behind a config value has no oracle, so it is a judgment; the tool still checks it against the catalog.
+- **The post-agent plan keeps the tool's reason when the agent agrees with its outcome** (an agent "kept" on another vendor's
+  host must not erase the "another vendor's endpoint" reason the unlock rule reads; found on the showcase run).
+- **Applying from the dashboard** records `applied_at`, runs a quick scope gate, and points at `finish`; edits from approved
+  decisions (router.policy.json, compiled policy, unlock codemods) are in scope for the v3 gate.
+- **Results** (eval/v3/IMPROVE_RESULTS.md): 9 features on 4 of the 10 fresh repos judged for $2.32; 4 -> 15 cards; latency
+  judgments disagreed with the heuristic on 8 of 9 features. No Flex or unlock card fired on the fresh repos (no
+  Flex-eligible background workload; the only beta needs to stay); all six levers fire on the showcase repo.
+- **Not done:** model ownership is still v2's heuristic (it withholds model cards on 7 config-chosen features); judgments
+  were not adjudicated against a blind reading (Track 2).
+

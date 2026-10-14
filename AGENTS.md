@@ -68,3 +68,7 @@ prints your worklist; for each item read the code, `router-migrate check FILE:LI
 client construction was missed, then `router-migrate claim FILE:LINE --outcome O [--reason CODE] --why ... --evidence
 FILE:LINE`. Without hooks, `router-migrate finish .` is the gate: **you are not done until it exits 0**; after 3 failed runs
 it reverts your edits to the floor.
+Improve (after `finish` passes): `router-migrate improve .` lists migrated features to judge; for each, `router-migrate
+judge FILE:LINE latency|task|model|cacheable VALUE --why ... --evidence FILE:LINE` (see `router_migrate/prompts/improve.md`).
+Change no code; a human approves the resulting cards in the dashboard.
+
