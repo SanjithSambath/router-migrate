@@ -18,8 +18,7 @@ old locations (`eval/`, `scripts/`, `tests/`). To re-run one, `git mv` it back f
 | **v4: migrate by default** | `run` applies nothing up front. It records a baseline and a proposal per site. The agent migrates by default and records trade-offs. Evidence is produced by the agent and checked by tools, and the eval is weighted by traffic. | [docs/METHODOLOGY.md](docs/METHODOLOGY.md) (the v4 methodology; a new one is being written under `docs/`), `router_migrate/agent.py` |
 | **D3 / v5: facts + tools + outside check** | `router_migrate/harness.py`: the agent gets the facts (`check --all`) and a few optional tools, and picks its own method. One outside check then re-derives "moved", runs the tests and typecheck against the baseline, and does a Router-on run and a required report. One resume with the failure facts follows, and anything that still fails is reverted. | current `README.md`, `WRITEUP.md`, `docs/` (not archived) |
 
-Other material archived here: [docs/EMAIL_TO_KEDAR.md](docs/EMAIL_TO_KEDAR.md) (an unsent status email draft from v3) and
-the background research in [research/](research/), which covers Router docs, SDK surfaces, hand-made inventories of the 15
+Other material archived here: the background research in [research/](research/), which covers Router docs, SDK surfaces, hand-made inventories of the 15
 dev repos, M0 live measurements and the v1 adversarial review with its repro scripts.
 
 ## Index of moved items
@@ -34,7 +33,6 @@ dev repos, M0 live measurements and the v1 adversarial review with its repro scr
 | `DEMO_V3.md` | `archive/docs/DEMO_V3.md` | 2-minute v3 demo script on chatgpt-telegram-bot. |
 | `SYSTEM_DESIGN.md` | `archive/docs/SYSTEM_DESIGN.md` | System walk-through built around `router-migrate up` (v2/v3). |
 | `ARCHITECTURE.md` | `archive/docs/ARCHITECTURE.md` | v1 scan/plan/apply/verify architecture diagram. |
-| `EMAIL_TO_KEDAR.md` | `archive/docs/EMAIL_TO_KEDAR.md` | Unsent status email draft (v1/v2/v3 results). |
 | `METHODOLOGY.md` | `archive/docs/METHODOLOGY.md` | v4 methodology. A new METHODOLOGY is being written under `docs/`. |
 | `eval/README.md` | `archive/eval-v1-v2/README.md` | Describes reproducing the v1 scoreboard (`make eval` → `eval/run_eval.py`, `eval/baseline.py`). |
 | `eval/run_eval_v2.py` | `archive/eval-v1-v2/run_eval_v2.py` | v2 eval runner (15 dev repos → `scoreboard_v2.json`, per-repo REPORT.html). |

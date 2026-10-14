@@ -3,7 +3,7 @@
 cd "$(dirname "$0")/.."
 fail=0; f(){ echo "FAIL: $*"; fail=1; }
 [ -d .git ] || f "not a git repo"
-for p in README.md ARCHITECTURE.md DECISIONS.md PROGRESS.md WRITEUP.md EMAIL_TO_KEDAR.md AGENTS.md Makefile \
+for p in README.md ARCHITECTURE.md DECISIONS.md PROGRESS.md WRITEUP.md AGENTS.md Makefile \
          .claude/skills/router-migrate/SKILL.md eval/SCOREBOARD.md eval/scoreboard.json eval/scoreboard.html; do
   [ -s "$p" ] || f "missing or empty: $p"; done
 make -s cli-help >/tmp/rm_help.txt 2>&1 && grep -qiE "scan|plan|apply|verify|report" /tmp/rm_help.txt || f "make cli-help failed or help lacks subcommands"

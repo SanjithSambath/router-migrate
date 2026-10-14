@@ -8,6 +8,10 @@ this request?), exact edits, and one check at the end it can't influence. A vend
 Router when Router can serve it exactly, the original provider otherwise. Without `RAMP_ROUTER_API_KEY` it does nothing.
 Every cost is written down, and every trade-off has an Undo.
 
+> **Status:** working MVP, under active development. Python and TS/JS; OpenAI, Anthropic, LangChain, Vercel AI SDK,
+> LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be published here
+> once it is.
+
 ## Quickstart
 
 ### Install
@@ -143,29 +147,6 @@ moderation, model lists) and provider-side state the code actually uses.
 - **Everything reversible.** Trade-offs have Undo. Model changes are never applied without you.
 - **Offline during migration.** The agent never holds a Router key. Self-tests run against router-sim, with provider keys
   replaced by dummies.
-
-## Results
-
-Dev set: 10 open-source repos, 64 movable production LLM calls, one run per arm. Moved = reported migrated **and** sends a
-valid Router request. Details and method: [docs/EVAL.md](docs/EVAL.md).
-
-Dev set: 10 open-source repos, 64 movable production LLM calls, one run per approach (scorer v5, `eval/RESULTS.md`).
-"Moved" = the call sends a valid Router request; "one approval away" adds the calls the agent surfaced for a human.
-
-| Approach | Moved / movable | One approval away | Wrong moves | Destructive edits | Broken repos | Agent $ | Minutes |
-|---|---|---|---|---|---|---|---|
-| Router's public docs prompt | 13 / 64 | 13 | 0 | 54 (6 runs) | 1 / 10 | 35.27 | 122 |
-| Docs prompt, from our deterministic floor | 18 / 64 | 18 | 1 | 9 (3 runs) | 0 / 10 | 25.05 | 96 |
-| v3 (agent + toolkit, keeps anything lossy) | 7 / 64 | 14 | 0 | 0 | 0 / 10 | 23.13 | 108 |
-| v4 (migrate by default, per-item proof) | 21 / 51 | 21 | 0 | 0 | 0 / 9 (+1 timeout) | 24.69 | 229 |
-| **D3 = v5's migrate step** | **18 / 64** | **28** | **0** | **0** | **0 / 10** | **9.87** | **71** |
-
-Held-out repos (partial: the runs that finished): D3 moved 23 / 45 with 0 wrong, 0 destructive, 0 broken; the docs prompt
-moved 4 / 8 on its one finished repo and deleted the Azure provider and the key config while tests still passed.
-
-v5 runs D3's migration unchanged and adds judging + improvement proposals to the same session, then Improve, the dashboard
-and Apply; it was exercised end to end (toy repo and langchain-nextjs-template: 8 of 8 chat calls verified on Router, the 3
-embeddings calls left on OpenAI), not re-run over the eval sets. Method, per-repo audits and limits: [docs/EVAL.md](docs/EVAL.md).
 
 ## Limits
 
