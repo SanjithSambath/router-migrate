@@ -329,6 +329,18 @@ provenance, patch state; and a header line with floor vs agent counts, time and 
 | T5 | Arms A, B′, C at k=1; results table; REPORT.html ledger table | `eval/v3/RESULTS.md` with the per-repo table, $ and minutes |
 | T6 | WRITEUP, email draft, 2-minute demo script on one fresh repo, "What Router should build" | every number traces to a file |
 
+**Built: the milestones as they ran** (each has a PROGRESS.md line and a commit):
+
+| M | Result |
+|---|---|
+| T0 | `claude -p` works with a long-lived OAuth token (the old session had expired). eval/v3/smoke/t0_headless.json. |
+| T1 | `check` agrees with plan.py on **170/170** dev sites; the dev set still migrates **48** (eval/v3/check_agreement.json). Getting there found three oracle bugs (D13). |
+| T2 | `wrap`, `claim`, `finish` with floor snapshot and revert; tests/test_agent_v3.py (10 tests: evidence, facts beat claims, reason codes, scope, revert, hook, measure-through-wrap). |
+| T3 | `run --agent claude` on swarm, shell_gpt, aicommits: `finish` exit 0 and tests not worse on all three ($0.79-1.19 each). |
+| T4 | 10 fresh repos pinned, inventoried blind and committed before any arm C run; independent breakage check (import smoke + held-back replay) in the harness. |
+| T5 | Arms A, B, B', C at k=1 plus blind adjudication of 25 disputed sites: eval/v3/RESULTS.md. C: 10 correct moves, 0 wrong, 0/10 broken, $23.13 total (adjudicated). |
+| T6 | WRITEUP v3 section, EMAIL draft, DECISIONS D13; REPORT.html renders the agent ledger. |
+
 ## 6. Track 2: the full v3 (after Wednesday, in priority order)
 
 1. **k=3 trials, pass^3 for breakage, exact CIs, paired tests** (Clopper-Pearson; exact McNemar on repo-level breakage;
@@ -432,3 +444,19 @@ From our measurements, these would make migrations simpler for every customer:
   https://metr.org/notes/2026-03-10-many-swe-bench-passing-prs-would-not-be-merged-into-main/
 - Our data: eval/SCOREBOARD.md, eval/SCOREBOARD_V2.md, eval/heldout/AUDIT.md, eval/heldout/audit.json, DECISIONS.md D1-D12,
   router_migrate/recommend.py, router_migrate/runtime/*.
+
+## 13. What building and measuring Track 1 changed (revision 2)
+
+| Spec said | Built | Why |
+|---|---|---|
+| `up` writes the ledger and commits "floor" | `run` does, with a git tree snapshot in a private index | No commit or index change in the customer's repo; `up` stays the v2 dashboard flow. |
+| Patch stack keyed by edit target, 2 repairs then drop | One floor snapshot; after 3 failed `finish` runs, all agent edits revert | Same "never below the floor" guarantee; C made 11 edits across 10 repos, so per-patch granularity bought nothing yet. |
+| `routes_if` conditions include "model in catalog" | Base URL / dispatch conditions only | The runtime decides the model per request and falls back; only routing-target conditions make a report wrong. |
+| Per-tenant key is a tool fact (`wont_route`) | A heuristic: the floor never wraps such clients, but a client the agent deliberately wraps routes | Tenancy has no oracle. chatgpt-telegram-bot: the heuristic said per-tenant, the key was an env var; only C moved its 4 calls. |
+| Router-on gate vs the Router-off baseline | Router-on vs the floor's own Router-on run | Suites that mock HTTP transports see Router requests inside their mocks under the deterministic floor too. |
+| Agent may run the repo's test command | It may not; `finish` runs tests | B and B' ran test suites 66 and 55 times; C once. |
+| Hotspots = every unexplained LLM-looking line | Test/story files excluded, model literals one per file (after the eval) | On obsidian-copilot 590 of 659 items were test-file noise and cost $9 of agent time. |
+| Arm B' only | Arms B (docs prompt from the source) and B' (from the floor) | B is what pasting Router's docs prompt gets a customer today; B' isolates the toolkit. |
+| Unmatched sites adjudicated blind | All 25 disagreements adjudicated blind, readings anonymized | The raw inventory was wrong on OpenManus (5 sites) and chatgpt-telegram-bot (4); results are shown both ways. |
+| "C breaks less" could be true by construction | Independent check the agent never sees (import smoke vs pristine, held-back replay) | In this run it flagged no real breakage (the one broken repo, B on obsidian-textgenerator, was caught by typecheck); building it surfaced two false positives in the check itself, now fixed (a request correctly kept on the provider is not a failure; modules import from the repo root). |
+

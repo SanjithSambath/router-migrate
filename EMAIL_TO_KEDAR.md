@@ -1,7 +1,7 @@
 # Draft: not sent
 
 **To:** Kedar Thakkar
-**Subject:** router-migrate: v1 results, the v2 Improve MVP, and an honest overfitting check
+**Subject:** router-migrate: v1 results, the v2 Improve MVP, v3 agent-native results on fresh repos
 
 Hi Kedar,
 
@@ -24,6 +24,16 @@ typecheck unchanged in all 15. Every migrated site replayed cleanly against live
 - **Small gain, on purpose:** the rules only move traffic when the model is exactly one Router serves.
 - **Live measurement:** for under a tenth of a cent, Flex is exactly half price on gpt-5.4-mini, and one Flex call on
   gpt-5-nano took 61 s, so it's offered for background jobs only.
+
+**v3, agent-native.** The held-out check showed rules can't judge config, tenancy or dead code, so v3 lets a coding agent
+make those calls, with tools that decide the facts and a gate it can't skip: `router-migrate run . --agent claude`
+applies the deterministic floor, the agent works only what's left with five commands (`run`, `check`, `wrap`, `claim`,
+`finish`), and anything that fails the gate is reverted to the floor.
+- On 10 repos neither v1 nor v2 ever saw, against blind inventories committed before any agent run, it was the only
+  approach whose report had no wrong moves: 10 correct, 0 wrong, 0 of 10 repos broken, $1.27 median agent cost per repo.
+- An agent given Router's docs prompt from the same starting point moved the same 10 correct sites plus 16 that should
+  have stayed put; from the raw source it moved fewer and broke one repo.
+- It's k=1 on 10 repos, so indicative. k=3 on a larger fresh set is the first next step. Details in eval/v3/RESULTS.md.
 
 **The overfitting check.** I also ran the frozen tool on 30 repos it had never seen, judged against blind inventories.
 - Only 53% of its "migrated" claims held up, against roughly 89% on the dev set. It misses LLM calls written in unfamiliar

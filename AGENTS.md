@@ -61,3 +61,10 @@ part; you do the judgment calls it hands you. Never print, log, or commit `RAMP_
 4. `router-migrate status .` must exit 0. That means the compiled hash is current and no policy entry is orphaned. Then re-run
    the tests.
 5. Kill switches: `ROUTER_MIGRATE_POLICY=off` returns to v1 behaviour. `ROUTER_MIGRATE_DISABLE=1` turns off Router entirely.
+
+## v3 loop (any coding agent; Claude Code can also run `router-migrate run . --agent claude`)
+Follow `router_migrate/prompts/migrate.md`. In short: `router-migrate run . --test-cmd "<tests>"` applies the floor and
+prints your worklist; for each item read the code, `router-migrate check FILE:LINE`, `router-migrate wrap FILE:LINE` if a
+client construction was missed, then `router-migrate claim FILE:LINE --outcome O [--reason CODE] --why ... --evidence
+FILE:LINE`. Without hooks, `router-migrate finish .` is the gate: **you are not done until it exits 0**; after 3 failed runs
+it reverts your edits to the floor.

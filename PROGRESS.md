@@ -173,3 +173,7 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   A 6 / 14 / 0 / $0; B 6 / 7 / 1 broken / $35.27. Raw inventory: B' 15 / 11, C 10 / 0, A 11 / 9, B 11 / 2.
   Done when: results.json covers 10 repos x 4 arms with repo, commit, arm, sites_moved, broken, usd, minutes; inventories
   were committed before any arm C run.
+- **T7 write-up**: SPEC_V3.md revision 2 (thesis in section 1, "Built:" notes, milestone results, section 13: what the
+  build changed and why); WRITEUP.md v3 section with results and Track 2 next steps; EMAIL_TO_KEDAR.md (draft, not sent);
+  README and AGENTS.md v3 loop; DECISIONS D13; REPORT.html renders the agent ledger (eval/v3/reports/ for 3 repos,
+  eval/v3/screenshots/). Done when: `bash scripts/done_check_v3.sh` prints DONE_CHECK_V3: PASS.
