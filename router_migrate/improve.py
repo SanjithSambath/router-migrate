@@ -89,7 +89,8 @@ AGENT_CARD_TITLE = {"model_swap": "Swap the model for %s", "vendor_endpoint": "S
 
 def agent_cards(led):
     """v4: the migrate agent's proposals for lossy or business moves (ledger "cards"), in the recommendation card schema, so
-    the dashboard, `decide` and `apply --decisions` handle them like every other card. Nothing applies until approved."""
+    the dashboard, `decide` and `apply --decisions` handle them like every other card. Nothing applies until approved.
+    The agent's "needs your decision" calls are not cards: the dashboard lists them from the ledger's claims."""
     import hashlib as _h
     out = []
     for ac in led.get("cards") or []:
@@ -102,19 +103,7 @@ def agent_cards(led):
                     "evidence": {"level": "agent", "results": [{"level": "agent", "fact": ac["why"], "source": ", ".join(ac["evidence"])}]},
                     "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "proposed by the migration agent from the code; unmeasured"},
                     "risk": 3 if ac["kind"] in ("model_swap", "per_user_key") else 2, "effort": "low", "options": [], "etag": etag,
-                    "state": "new", "applies": True})
-    for key, c in sorted((led.get("claims") or {}).items()):  # D3: the agent's "needs your decision" report entries
-        if c.get("origin") != "report" or c.get("reason_code") != "needs_decision":
-            continue
-        why = c.get("why") or ""
-        etag = _h.sha1(json.dumps([key, why], sort_keys=True).encode()).hexdigest()[:12]
-        out.append({"id": "rec_decision_%s" % _h.sha1(key.encode()).hexdigest()[:8], "rule": "decision.needs_human",
-                    "lever_group": "decision", "title": "Your call: %s" % key, "scope": {"sites": ["agent:" + key], "features": [], "latency_class": None},
-                    "model_owner": None, "change": {"kind": "note", "diff": "; ".join(str(x) for x in c.get("levers") or []) or "see why"},
-                    "loses": [c["loses"]] if c.get("loses") else [], "rule_inputs": {"site": key},
-                    "evidence": {"level": "agent", "results": [{"level": "agent", "fact": why, "source": key}]},
-                    "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "the migration agent judged this a product decision"},
-                    "risk": 2, "effort": "low", "options": [], "etag": etag, "state": "new", "applies": False})
+                    "state": "new", "applies": True, "origin": "agent", "rationale": ac["why"], "validated": True})
     return out
 
 
@@ -632,6 +621,32 @@ def run_summary(root):
             "judgments": led.get("judgments") or {}, "worklist": len(led.get("worklist") or []), "claims": len(led.get("claims") or {})}
 
 
+TEST_STATES = ("running", "passed", "failed", "skipped")
+
+
+def tests_state(led):
+    """The outside check's test runs (ledger result.tests): baseline, the affected tests, and the full suite, whose status
+    gates Apply. None for runs without it (older ledgers)."""
+    t = (((led or {}).get("result") or {}).get("tests")) or {}
+    full = t.get("full") if isinstance(t.get("full"), dict) else {}
+    st = full.get("status") if full.get("status") in TEST_STATES else None
+    return {"baseline": t.get("baseline"), "affected": t.get("affected"), "full": {"status": st, "counts": full.get("counts") or {}},
+            "status": st}
+
+
+def apply_blocked(ts):
+    """Why Apply is off, or None. Nothing is written on top of a migration whose full test suite is still running or failed;
+    the dashboard server refuses /api/apply with this message too."""
+    if ts.get("status") == "running":
+        return "The full test suite is still running. Apply turns on when it passes, so nothing is written on top of an unchecked migration."
+    if ts.get("status") == "failed":
+        c = (ts.get("full") or {}).get("counts") or {}
+        n = (c.get("failed") or 0) + (c.get("errors") or 0)
+        return ("The full test suite failed%s. Apply stays off until it passes: fix the failure, then re-run "
+                "`router-migrate finish`." % (" (%d failing)" % n if n else ""))
+    return None
+
+
 def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     # v3: once the agent has run, the whole-run view shows the code as it stands (plan_v3.json: measure-only plan with the
     # agent's claims applied) and the full diff (the floor plus the agent's edits)
@@ -675,24 +690,16 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
         hist = (led.get("finish") or {}).get("history") or []
         last = (hist[-1].get("info") or {}).get("tests") if hist else None
         tests = {"before": (led.get("baseline") or {}).get("before"), "after": last}  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
-    ledger, moved = None, None
+    ledger = None
     tradeoffs = (led or {}).get("tradeoffs") or []
-    if led and led.get("version") == 5 and led.get("result"):  # D3: the outside check's verified result plus the agent's report
-        res, rep = led["result"], [c for c in (led.get("claims") or {}).values() if c.get("origin") == "report"]
-        lossy = {t.get("site") for t in tradeoffs if not t.get("undone")} | {"%s:%s" % (c["file"], c["line"]) for c in rep if c.get("levers") and c.get("outcome") == "migrated"}
-        moved = {"moved": res.get("moved") or 0, "with_tradeoffs": len(lossy), "unverified": len(res.get("claimed_unverified") or []),
-                 "needs_decision": sum(1 for c in rep if c.get("reason_code") == "needs_decision"),
-                 "stay": sum(1 for c in rep if c.get("outcome") == "kept")}
-    elif led:  # v4 headline: production calls on Router (plan_v3 carries the agent's claims), how many at a stated cost, how many stay
-        n = sum(1 for s in prod if s["outcome"] == "migrated" or s["id"] in unlocks["sites"])
-        moved = {"moved": n, "with_tradeoffs": len({t.get("site") for t in tradeoffs if not t.get("undone")}), "stay": len(prod) - n}
     if led:
         ledger = {"claims": [dict(c, key=k) for k, c in sorted((led.get("claims") or {}).items())], "worklist": led.get("worklist") or [],
                   "result": led.get("result"), "cost": led.get("cost") or {},
                   "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
+    ts = tests_state(led)
     b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
-         "tradeoffs": tradeoffs, "moved": moved,
+         "tradeoffs": tradeoffs, "moved": None, "tests": ts, "tests_status": ts["status"], "apply_blocked": apply_blocked(ts),
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),
@@ -709,7 +716,10 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     try:
         from .dashboard import view as view_mod
         floor_sites = (load(root, "plan.json") or {}).get("sites") if v3 else None  # the floor's plan, before any agent ran
+        if v3 and (led.get("floor") or {}).get("applied") is False:  # v5: no floor was applied, the agent moved every call
+            floor_sites = []
         b["view"] = view_mod.build(b, root, floor_diff, post_diff, prod, unlocks["sites"], floor_sites)
+        b["moved"] = b["view"]["headline"] if led else None  # the overview's numbers: the same calls the Migrate page lists
     except Exception as e:  # pragma: no cover - surfaced in the page and in tests
         b["view"], b["view_error"] = None, "%s: %s" % (type(e).__name__, e)
     return b
