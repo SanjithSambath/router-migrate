@@ -74,9 +74,9 @@ class _Patcher(cst.CSTTransformer):
         kws = []
         if opts.get("responses") is False and kind != "wrap_anthropic":
             kws.append(("responses", "False"))
-        if opts.get("unlock_hosts") and kind == "wrap_openai":
+        if opts.get("unlock_hosts") and kind in ("wrap_openai", "wrap_langchain"):
             kws.append(("unlock_hosts", repr(sorted(opts["unlock_hosts"]))))
-        if opts.get("drop_betas") and kind == "wrap_anthropic":
+        if opts.get("drop_betas") and kind in ("wrap_anthropic", "wrap_langchain"):
             kws.append(("drop_betas", repr(sorted(opts["drop_betas"]))))
         if opts.get("operator_key_only"):
             kws.append(("operator_key_only", "True"))

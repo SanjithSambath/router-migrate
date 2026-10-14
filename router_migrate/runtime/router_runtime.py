@@ -1366,9 +1366,10 @@ def wrap_anthropic(client, drop_betas=None, operator_key_only=False):
     return _with_client(client, opts or None)
 
 
-def wrap_langchain(llm, responses=True, operator_key_only=False):
+def wrap_langchain(llm, responses=True, operator_key_only=False, unlock_hosts=None, drop_betas=None):
     """LangChain ChatOpenAI / ChatAnthropic (or LlamaIndex-style objects holding SDK clients): wrap the SDK clients they built.
-    Every request still goes through per-request planning and provider fallback, like a wrapped SDK client."""
+    Every request still goes through per-request planning and provider fallback, like a wrapped SDK client. unlock_hosts and
+    drop_betas pass through to wrap_openai / wrap_anthropic (e.g. ChatOpenAI(base_url=<another vendor>))."""
     if not active():
         return llm
     seen = []
@@ -1382,9 +1383,9 @@ def wrap_langchain(llm, responses=True, operator_key_only=False):
                 continue
             seen.append(cand)
             if _is_openai(cand):
-                wrap_openai(cand, responses=responses, operator_key_only=operator_key_only)
+                wrap_openai(cand, responses=responses, unlock_hosts=unlock_hosts, operator_key_only=operator_key_only)
             elif _is(cand, "anthropic", ("Anthropic", "AsyncAnthropic")):
-                wrap_anthropic(cand, operator_key_only=operator_key_only)
+                wrap_anthropic(cand, operator_key_only=operator_key_only, **({"drop_betas": drop_betas} if drop_betas else {}))
     return llm
 
 

@@ -41,13 +41,28 @@ when Router physically can't serve it, or when the loss would be the product its
   in by hand.
 - `router-migrate adapt FILE:LINE[,...] [--drop seed] [--model-map OLD=NEW] [--unlock-host H] [--operator-key-only]
   [--drop-betas F] --loses "..." --why "..."` → take a trade-off; it is recorded and shown with an undo.
-- `router-migrate check --final` → the final check, as a dry run.
+- `router-migrate check --final [--tests]` → the final check as a dry run (tests only with `--tests`).
+- `router-migrate levers [FILE:LINE,...]` → for migrated calls: model, whether it has a Flex tier, price, and the
+  improvements the rules would suggest or reject, with reasons.
 - Use sub-agents to investigate in parallel on large repositories; make the edits yourself.
 
+## Judge and propose improvements
+Once calls are on Router, more is available: Flex (cheaper, slower; Router's default for the account), fallbacks to
+another catalog model, a prompt cache key, a different model. You know what each call is for. For each migrated call say
+how a user experiences its latency and what the task is, and propose the improvements that fit this repository, with what
+each gains and loses. Proposals are not applied: a human approves each one on the dashboard. Taking none is a valid answer.
+
 ## When you are done
-Write `.router-migrate/MIGRATION.json`: `{"sites": [{"site": "FILE:LINE", "outcome": "migrated|kept|cannot_route|needs_decision",
-"levers": [...], "loses": "...", "why": "..."}]}` for the production LLM calls you decided ("cannot_route" and
-"needs_decision" are valid outcomes: say what a human would need). Then stop. A final check runs after you: parse, scope,
-tests and typecheck against the baseline, a Router-on test run against the simulator, and its own `check --all`.
+Write `.router-migrate/MIGRATION.json`:
+```
+{"sites": [{"site": "FILE:LINE", "outcome": "migrated|kept|cannot_route|needs_decision", "levers": [...], "loses": "...",
+            "why": "...", "latency": "background|interactive|user_waiting", "task": "...", "cacheable": 0,
+            "improvements": [{"lever": "flex|fallbacks|cache_key|model|vendor_port|other", "change": {...},
+                              "gains": "...", "loses": "...", "why": "..."}]}]}
+```
+one entry per production LLM call you decided ("cannot_route" and "needs_decision" are valid outcomes: say what a human
+would need; `cacheable` is the number of leading prompt tokens that are the same on every call, roughly). Then stop.
+A final check runs after you: parse, scope, typecheck and the full test suite against the baseline with Router on (the
+simulator), and its own `check --all`. Its result, your trade-offs and your proposals go to the dashboard.
 
 {CONTEXT}

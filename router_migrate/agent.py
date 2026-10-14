@@ -476,7 +476,9 @@ def compile_guardrails(root, led):
         e = {}
         if c.get("latency") == "user_waiting" and not c.get("stream"):
             e["provider_timeout"] = GUARD_TIMEOUT
-        if c.get("latency_critical"):
+        if c.get("latency_critical") or c.get("latency") in ("interactive", "user_waiting"):
+            # latency is behaviour: user-facing calls keep the standard tier (Flex there is a card a human can approve);
+            # Router's account default (Flex) stays for background work
             e["service_tier"] = "default"
         if e:
             want.setdefault(glob_for(c["feature"]), {}).update(e)
@@ -577,8 +579,9 @@ def cmd_run(a):
     """v4: record the baseline and hand the agent a proposal for every site. Nothing is applied to the code."""
     from . import cli
     root = os.path.abspath(a.path)
-    if getattr(a, "arm", None):
+    if getattr(a, "arm", None) or getattr(a, "agent", None):
         from . import harness
+        a.arm = getattr(a, "arm", None) or "min"
         return harness.run_d3(root, a)
     if _git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return err(a.json, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first (the baseline is snapshotted with git)")
@@ -1209,6 +1212,16 @@ def cmd_card(a):
     led = load_ledger(root)
     if led is None:
         return err(a.json, "no ledger", "run `router-migrate run .` first")
+    if getattr(a, "undo", None):
+        t = next((x for x in led.get("tradeoffs") or [] if x["id"] == a.undo), None)
+        if t is None or t.get("undone"):
+            return err(a.json, "no live trade-off %s" % a.undo, "live: %s" % (", ".join(x["id"] for x in led.get("tradeoffs") or [] if not x.get("undone")) or "none"))
+        files = undo_tradeoff(root, a.undo)
+        if not next(x for x in load_ledger(root)["tradeoffs"] if x["id"] == a.undo).get("undone"):
+            return err(a.json, "%s was a hand edit" % a.undo, "revert that hunk yourself; the dashboard shows it")
+        return out({"ok": True, "undone": a.undo, "files": files}, a.json, "undid %s (%s)" % (a.undo, ", ".join(files) or "policy only"))
+    if not a.loc:
+        return err(a.json, "expected FILE:LINE (or --undo T<n>)", "the call site (or client construction) the trade-off moves")
     rel, line = parse_loc(a.loc)
     if not rel or not os.path.exists(os.path.join(root, rel)):
         return err(a.json, "expected an existing FILE:LINE, got %r" % a.loc, "the call site the card is about")
@@ -1776,6 +1789,16 @@ def cmd_adapt(a):
     led = load_ledger(root)
     if led is None:
         return err(a.json, "no ledger", "run `router-migrate run .` first")
+    if getattr(a, "undo", None):
+        t = next((x for x in led.get("tradeoffs") or [] if x["id"] == a.undo), None)
+        if t is None or t.get("undone"):
+            return err(a.json, "no live trade-off %s" % a.undo, "live: %s" % (", ".join(x["id"] for x in led.get("tradeoffs") or [] if not x.get("undone")) or "none"))
+        files = undo_tradeoff(root, a.undo)
+        if not next(x for x in load_ledger(root)["tradeoffs"] if x["id"] == a.undo).get("undone"):
+            return err(a.json, "%s was a hand edit" % a.undo, "revert that hunk yourself; the dashboard shows it")
+        return out({"ok": True, "undone": a.undo, "files": files}, a.json, "undid %s (%s)" % (a.undo, ", ".join(files) or "policy only"))
+    if not a.loc:
+        return err(a.json, "expected FILE:LINE (or --undo T<n>)", "the call site (or client construction) the trade-off moves")
     rel, line = parse_loc(a.loc)
     if not rel or not os.path.exists(os.path.join(root, rel)):
         return err(a.json, "expected an existing FILE:LINE, got %r" % a.loc, "the call site (or client construction) the trade-off moves")
@@ -1892,7 +1915,8 @@ def add_parsers(sub):
     s.add_argument("loc", nargs="?", help="FILE:LINE[,FILE:LINE...] (relative to the repo root)")
     s.add_argument("--all", action="store_true", help="every LLM call the scanner sees")
     s.add_argument("--run", help="shell command to run with the runtime pointed at router-sim (provider keys dummied, offline)")
-    s.add_argument("--final", action="store_true", help="dry run of the final check that runs after the agent")
+    s.add_argument("--final", action="store_true", help="dry run of the final check that runs after the agent (tests skipped unless --tests)")
+    s.add_argument("--tests", action="store_true", help="with --final: also run the test suite Router-on against the baseline")
     s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT)
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
@@ -1923,8 +1947,26 @@ def add_parsers(sub):
     s.add_argument("--latency-critical", action="store_true", help="this call needs the default tier, not Flex (cite why in --why)")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
+    s = sub.add_parser("start", help="Claude Code: set up (map every LLM call, baseline in the background) and print the instructions")
+    s.add_argument("path", nargs="?", default=".")
+    s.add_argument("--test-cmd")
+    s.add_argument("--typecheck-cmd")
+    s = sub.add_parser("levers", help="improvement facts for migrated calls (Flex tier, price, suggested cards, why not)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE[,...] (default: every migrated call)")
+    s.add_argument("--path", default=".")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("dashboard", help="write REPORT.html and open the live dashboard (detached; prints its URL)")
+    s.add_argument("path", nargs="?", default=".")
+    s.add_argument("--serve", action="store_true", help=argparse_suppress())
+    s.add_argument("--no-browser", action="store_true")
+    for hidden in ("_baseline", "_fulltest"):
+        s = sub.add_parser(hidden)
+        s.add_argument("path")
+        s.add_argument("--test-cmd")
+        s.add_argument("--typecheck-cmd")
     s = sub.add_parser("adapt", help="v4: take a trade-off so a site moves to Router, and record what it costs (shown on the dashboard with an undo)")
-    s.add_argument("loc", help="FILE:LINE of the call site (or its client construction)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE of the call site (or its client construction)")
+    s.add_argument("--undo", metavar="T<n>", help="reverse trade-off T<n> (policy keys and client options; a hand edit you revert yourself)")
     s.add_argument("--drop", help="request parameters to drop on Router-bound requests (comma-separated); max_tokens is raised to 16, name folded into the text")
     s.add_argument("--model-map", action="append", help="OLD=NEW: serve OLD with Router catalog model NEW (repeatable)")
     s.add_argument("--unlock-host", action="append", help="another vendor's OpenAI-compatible host whose traffic goes through Router")
@@ -1951,6 +1993,10 @@ def add_parsers(sub):
     s.add_argument("--hook", action="store_true", help="Claude Code Stop hook mode (JSON decision on stdout)")
     s.add_argument("--max-attempts", type=int, default=3)
     s.add_argument("--json", action="store_true")
+    s.add_argument("--skip-improve", action="store_true", help="v5: stop after the outside check (no cards, no dashboard)")
+    s.add_argument("--no-dashboard", action="store_true", help="v5: write REPORT.html but don't serve the live dashboard")
+    s.add_argument("--no-browser", action="store_true", help="v5: serve the dashboard without opening a browser")
+    s.add_argument("--foreground-tests", action="store_true", help="v5: run a slow suite before returning instead of in the background")
     s = sub.add_parser("judge", help="v3 improve: record a judgment for the feature at FILE:LINE (latency | task | cacheable) with evidence")
     s.add_argument("loc", help="FILE:LINE of the feature's call site")
     s.add_argument("key", choices=sorted(JUDGE_KEYS))
@@ -1982,8 +2028,19 @@ def _each(fn, a):
     return rc
 
 
+def argparse_suppress():
+    import argparse
+    return argparse.SUPPRESS
+
+
 def dispatch(a):
     from . import harness
+    v5 = {"start": harness.cmd_start, "levers": harness.cmd_levers, "dashboard": harness.cmd_dashboard,
+          "_baseline": harness.cmd_baseline, "_fulltest": harness.cmd_fulltest}
+    if a.cmd in v5:
+        return v5[a.cmd](a)
+    if a.cmd == "finish" and (load_ledger(ledger_root(a.path)) or {}).get("version") == 5:
+        return harness.cmd_finish(a)
     if a.cmd == "check" and (getattr(a, "final", False)):
         return harness.cmd_verify(a)
     if a.cmd == "check" and (getattr(a, "all", False) or getattr(a, "run", None) or not a.loc or "," in a.loc

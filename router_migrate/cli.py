@@ -321,7 +321,7 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
-    if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve"):
+    if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve", "start", "levers", "dashboard", "_baseline", "_fulltest"):
         from . import agent as agentmod
         if a.cmd != "run" or not getattr(a, "dry_run", False):
             return agentmod.dispatch(a)

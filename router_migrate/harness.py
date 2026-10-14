@@ -112,7 +112,31 @@ def _runtime_edited(root, path):
         return False
 
 
-def final_check(root, led, require_report=True):
+def run_tests(root, base):
+    """(failures, info) for the suite: ONE run with Router on (the runtime pointed at router-sim). Without the key the runtime
+    is inert, so a Router-on run no worse than the baseline also covers Router-off; only when it is worse does a Router-off
+    run follow, to say whether the change or Router is the cause."""
+    from .verify import sim_test_run
+    cmd, before, fails, info = base.get("test_cmd"), base.get("before"), [], {}
+    if not cmd:
+        return fails, {"status": "skipped", "why": "no test command"}
+    on = sim_test_run(root, cmd, 3600)
+    info = {"status": "passed", "counts": {k: on.get(k) for k in ("passed", "failed", "errors", "exit", "seconds")},
+            "requests": on.get("requests"), "valid": on.get("valid")}
+    if on.get("invalid"):
+        fails.append({"gate": "router", "files": None, "detail": "router-sim rejected %d request(s): %s" % (
+            len(on["invalid"]), "; ".join("%s %s" % (x.get("feature"), x.get("error")) for x in on["invalid"][:3]))})
+    elif AG._worse(before, on):
+        off = AG.run_cmd(root, cmd)
+        cause = "the change itself (Router off is worse too)" if AG._worse(before, off) else "Router-specific (Router off matches the baseline)"
+        fails.append({"gate": "tests", "files": None, "detail": "tests with Router on are %s vs baseline %s; cause: %s: %s" % (
+            AG._tc(on), AG._tc(before), cause, AG._last_error(on.get("tail")))})
+    if fails:
+        info["status"] = "failed"
+    return fails, info
+
+
+def final_check(root, led, require_report=True, tests=True):
     """(ok, failures, info). Everything is re-derived from the tree; nothing the agent wrote is trusted."""
     from .verify import syntax_check, sim_test_run
     fails, info = [], {}
@@ -146,20 +170,13 @@ def final_check(root, led, require_report=True):
         info["typecheck"] = {"exit": tc["exit"], "errors": tc["ts_errors"]}
         if tc["ts_errors"] > (tb.get("errors") or 0) or (tc["exit"] and not tb.get("exit")):
             fails.append({"gate": "typecheck", "files": None, "detail": "%d type errors (baseline %s)\n%s" % (tc["ts_errors"], tb.get("errors"), tc["tail"][-600:])})
-    cmd = base.get("test_cmd")
-    if cmd:
-        t = AG.run_cmd(root, cmd)
-        info["tests"] = {k: t.get(k) for k in ("passed", "failed", "errors", "exit", "seconds")}
-        if AG._worse(base.get("before"), t):
-            fails.append({"gate": "tests", "files": None, "detail": "tests now %s, baseline %s\n%s" % (AG._tc(t), AG._tc(base.get("before")), t["tail"][-800:])})
-        on = sim_test_run(root, cmd, 1800)
-        info["tests_router_on"] = {k: on.get(k) for k in ("passed", "failed", "errors", "exit", "requests", "valid")}
-        if on.get("invalid"):
-            fails.append({"gate": "router", "files": None, "detail": "router-sim rejected %d request(s): %s" % (
-                len(on["invalid"]), "; ".join("%s %s" % (x.get("feature"), x.get("error")) for x in on["invalid"][:3]))})
-        elif AG._worse(base.get("before"), on):
-            fails.append({"gate": "router", "files": None, "detail": "with Router on, tests are %s (Router off baseline %s): %s" % (
-                AG._tc(on), AG._tc(base.get("before")), AG._last_error(on.get("tail")))})
+    if tests == "background":
+        info["tests"] = {"status": "running"}
+    elif tests:
+        tf, info["tests"] = run_tests(root, base)
+        fails += tf
+    else:
+        info["tests"] = {"status": "skipped", "why": "dry run (pass --tests to run the suite)"}
     try:
         rows = check_sites(root)
         info["moved"] = [r for r in rows if r.get("routes")]
@@ -174,14 +191,15 @@ def cmd_verify(a):
     led = AG.load_ledger(root)
     if led is None:
         return AG.err(a.json, "no ledger", "this runs inside `router-migrate run --arm min`")
-    ok, fails, info = final_check(root, led, require_report=led.get("arm") != "free")
-    lines = ["verify: %s; %d call(s) route now" % ("OK" if ok else "would FAIL", len(info.get("moved") or []))]
+    ok, fails, info = final_check(root, led, require_report=led.get("arm") != "free", tests=bool(getattr(a, "tests", False)))
+    lines = ["check --final: %s; %d call(s) route now; tests: %s" % ("OK" if ok else "would FAIL", len(info.get("moved") or []),
+                                                                     (info.get("tests") or {}).get("status"))]
     lines += ["  [%s] %s" % (f["gate"], f["detail"][:400]) for f in fails]
     return AG.out({"ok": ok, "failures": fails, "info": {k: v for k, v in info.items() if k != "moved"}}, a.json, "\n".join(lines))
 
 
 # ------------------------------------------------------------------------------------------------ the agent
-AGENT_COMMANDS = ("check", "wrap", "unwrap", "adapt")
+AGENT_COMMANDS = ("check", "levers", "wrap", "unwrap", "adapt")
 
 
 def _shim(real):
@@ -229,81 +247,341 @@ def _launch(root, prompt, model, timeout, resume=None):
             "final": (res.get("result") or "")[:2000], "session": session, "api_error": str(res.get("result") or "").startswith("API Error")}
 
 
-def run_d3(root, a):
-    from .verify import detect_test_cmd
-    if AG._git(root, "rev-parse", "--is-inside-work-tree").returncode:
-        return AG.err(False, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first")
-    arm = a.arm
-    t0 = time.time()
-    test_cmd = getattr(a, "test_cmd", None) or detect_test_cmd(root)
-    base = {"test_cmd": test_cmd, "typecheck_cmd": getattr(a, "typecheck_cmd", None)}
+BACKGROUND_TESTS_SECS = 90  # a suite slower than this runs in the background after finish; Apply waits for it
+
+
+def _tree(root):
+    return AG.snapshot_tree(root)
+
+
+def baseline_path(root):
+    return AG.sp(root, "baseline.json")
+
+
+def run_baseline(root, test_cmd, typecheck_cmd):
+    """The "before" picture (tests + typecheck on the untouched code), cached by git tree so re-runs never repeat it."""
+    tree = _tree(root)
+    p = baseline_path(root)
+    if os.path.exists(p):
+        b = json.load(open(p))
+        if b.get("tree") == tree and b.get("test_cmd") == test_cmd and b.get("status") == "done":
+            return b
+    b = {"tree": tree, "test_cmd": test_cmd, "typecheck_cmd": typecheck_cmd, "status": "running", "started": time.time()}
+    json.dump(b, open(p, "w"))
     if test_cmd:
-        b = AG.run_cmd(root, test_cmd)
-        base["before"] = {k: b.get(k) for k in ("passed", "failed", "errors", "exit", "seconds")}
-    if base["typecheck_cmd"]:
-        tb = AG.run_cmd(root, base["typecheck_cmd"])
-        base["typecheck_before"] = {"exit": tb["exit"], "errors": tb["ts_errors"]}
+        r = AG.run_cmd(root, test_cmd)
+        b["before"] = {k: r.get(k) for k in ("passed", "failed", "errors", "exit", "seconds")}
+    if typecheck_cmd:
+        r = AG.run_cmd(root, typecheck_cmd)
+        b["typecheck_before"] = {"exit": r["exit"], "errors": r["ts_errors"]}
+    b["status"] = "done"
+    json.dump(b, open(p, "w"))
+    return b
+
+
+def _detach(root, args, log):
+    """Start `router-migrate <args>` as a detached process (survives the caller; output to .router-migrate/<log>)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    rm = os.path.join(os.path.dirname(here), "bin", "router-migrate")
+    out = open(AG.sp(root, log), "w")
+    return subprocess.Popen([rm] + args, cwd=root, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
+
+
+def _wait_baseline(root, timeout=3600):
+    t = time.time()
+    while time.time() - t < timeout:
+        p = baseline_path(root)
+        if os.path.exists(p):
+            b = json.load(open(p))
+            if b.get("status") == "done":
+                return b
+        time.sleep(2)
+    return None
+
+
+def setup(root, a, arm="min"):
+    """Step 1 (code, seconds): ledger, the map of every LLM call (does it route now, and why not), and the baseline started in
+    the background (the agent only needs the map). Returns (ledger, prompt)."""
+    from .verify import detect_test_cmd
+    test_cmd = getattr(a, "test_cmd", None) or detect_test_cmd(root)
+    tc_cmd = getattr(a, "typecheck_cmd", None)
+    base = {"test_cmd": test_cmd, "typecheck_cmd": tc_cmd}
     py = re.search(r"(\S+/bin/python[\d.]*)\b", test_cmd or "")
     base["python"] = py.group(1) if py else None
+    old = AG.load_ledger(root) or {}
     led = _new_ledger(root, arm, base)
+    if old.get("version") == 5 and old.get("floor"):  # a re-run keeps the original "before" tree
+        led["floor"] = old["floor"]
     AG.save_ledger(root, led)
+    cached = os.path.exists(baseline_path(root)) and json.load(open(baseline_path(root))).get("tree") == led["floor"]["tree"]
+    if not cached or json.load(open(baseline_path(root))).get("status") != "done":
+        _detach(root, ["_baseline", root] + (["--test-cmd", test_cmd] if test_cmd else []) + (["--typecheck-cmd", tc_cmd] if tc_cmd else []),
+                "baseline.log")
     try:
         rows = check_sites(root)
     except Exception as e:
         rows, led["check_error"] = [], str(e)[:300]
+    secs = (json.load(open(baseline_path(root))).get("before") or {}).get("seconds") if cached else None
     ctx = ["## This repository",
-           "Test command (the final check runs it; you may too): %s" % (test_cmd or "none found"),
+           "Test command: %s%s. The final check runs the full suite after you; how you test along the way is up to you." % (
+               test_cmd or "none found", " (about %ds per full run)" % secs if secs else ""),
            "Python with the repo's dependencies: %s" % base["python"] if base["python"] else "",
-           "LLM calls the scanner sees (%d; it misses dynamically built clients), as the code stands:" % len(rows),
-           _fmt(rows)]
+           "LLM calls the scanner sees (%d; it misses dynamically built clients), as the code stands:" % len(rows), _fmt(rows)]
     here = os.path.dirname(os.path.abspath(__file__))
     prompt = open(os.path.join(here, "prompts", "migrate_d3.md")).read().replace("{CONTEXT}", "\n".join(x for x in ctx if x))
     if arm == "free":
         prompt = prompt.replace("Then stop. A final check runs after you", "Then stop. (A report helps the reviewer; nothing checks it.) For reference, a full check would be")
-    AG._event(root, "agent_migrate", "running", msg="arm %s; %d calls seen; setup %.0fs" % (arm, len(rows), time.time() - t0))
-    info = _launch(root, prompt, getattr(a, "model", None), getattr(a, "agent_timeout", 2700))
-    runs = [info]
+    AG._event(root, "setup", "done", msg="%d calls seen" % len(rows))
+    return led, prompt
+
+
+def cmd_start(a):
+    """Claude Code (any model): set up, then print the instructions + context for the session that is already running."""
+    root = os.path.abspath(a.path)
+    if AG._git(root, "rev-parse", "--is-inside-work-tree").returncode:
+        return AG.err(False, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first")
+    _, prompt = setup(root, a, "min")
+    print(prompt)
+    print("\n## When you are done\nRun `router-migrate finish .` from the repository root. It runs the outside check, builds the "
+          "improvement cards and opens the dashboard. If it reports failures, fix exactly those and run it again.")
+    return 0
+
+
+def cmd_baseline(a):
+    root = os.path.abspath(a.path)
+    run_baseline(root, getattr(a, "test_cmd", None), getattr(a, "typecheck_cmd", None))
+    return 0
+
+
+def _site_feature(root, loc, plan):
+    f, ln = AG.parse_loc(loc)
+    return AG._feature(root, f, ln), AG.site_at(plan["sites"], f, ln)
+
+
+def record_report(root, led, sites):
+    """The agent's report into the ledger: claims (dashboard), judgments (latency/task/cacheable → Improve's rules and the
+    guardrails), and improvement proposals (→ cards after validation)."""
+    _report_to_claims(led, sites)
+    plan = AG.current_plan(root)
+    led.setdefault("judgments", {})
+    props = []
+    try:  # proposals may also come as a top-level list, each naming its site
+        top = json.load(open(AG.sp(root, REPORT))).get("proposals") or []
+    except (OSError, ValueError, AttributeError):
+        top = []
+    for p in top:
+        if isinstance(p, dict) and p.get("site") and p.get("lever") and AG.parse_loc(str(p["site"]))[0]:
+            props.append(dict(p, feature=_site_feature(root, p["site"], plan)[0]))
+    for s in sites or []:
+        feat, site = _site_feature(root, s["site"], plan)
+        f, ln = AG.parse_loc(s["site"])
+        c = led["claims"].get("%s:%d" % (f, ln))
+        if c is not None:
+            c["feature"], c["stream"] = feat, bool((site or {}).get("stream"))
+            for k in ("latency", "task"):
+                if s.get(k):
+                    c[k] = s[k]
+        if s["outcome"] == "migrated":
+            for k in ("latency", "task", "cacheable"):
+                if s.get(k) not in (None, ""):
+                    led["judgments"].setdefault(feat, {})[k] = {"value": str(s[k]), "why": s.get("why") or "", "evidence": [s["site"]], "by": "migrate agent"}
+        for imp_ in s.get("improvements") or []:
+            if isinstance(imp_, dict) and imp_.get("lever"):
+                props.append(dict(imp_, site=s["site"], feature=feat))
+    led["proposals"] = props
+
+
+def route_truth(root, led, sites, cinfo):
+    moved = cinfo.get("moved") or []
+    verified = sorted({"%s:%s" % (r["file"], r["line"]) for r in moved} | set(led.get("confirmations") or {}))
+    near = lambda loc, pool: any(v.rsplit(":", 1)[0] == loc.rsplit(":", 1)[0] and abs(int(v.rsplit(":", 1)[1]) - int(loc.rsplit(":", 1)[1])) <= 3 for v in pool)
+    seen = cinfo.get("seen") or []
+    claimed = [s["site"] for s in sites or [] if s["outcome"] == "migrated" and not near(s["site"], verified)]
+    not_routing = [x for x in claimed if near(x, seen)]
+    unverified = [x for x in claimed if x not in not_routing]
+    stays = [{"site": "%s:%s" % (r["file"], r["line"]), "reason": r.get("reason")} for r in cinfo.get("rows") or [] if not r.get("routes")]
+    return {"moved_verified": verified, "moved_unverified": unverified, "claimed_not_routing": not_routing, "stays": stays,
+            # older names, kept for the eval scorer and older dashboards
+            "moved": len(verified), "moved_sites": verified, "claimed_unverified": unverified}
+
+
+def finish(root, a, arm="min", resume=None, runs=None):
+    """Steps 3-6 (code): the outside check, route truth, the report into judgments/proposals, guardrails, Improve's cards,
+    REPORT.html and the dashboard. `resume(facts)` (headless) gets one fix pass; in Claude Code the session runs finish again
+    after fixing (the second failing finish reverts only the offending files)."""
     led = AG.load_ledger(root)
-    ok, fails, cinfo = final_check(root, led, require_report=arm != "free")
-    if not ok and arm == "min" and info.get("session"):
+    if led is None or led.get("version") != 5:
+        return AG.err(False, "no v5 ledger here", "start with `router-migrate start .` (Claude Code) or `router-migrate run <repo> --agent claude`")
+    b = _wait_baseline(root)
+    if b:
+        led["baseline"].update({k: b.get(k) for k in ("before", "typecheck_before") if b.get(k) is not None})
+        AG.save_ledger(root, led)
+    slow = ((led["baseline"].get("before") or {}).get("seconds") or 0) > BACKGROUND_TESTS_SECS
+    mode = "background" if slow and not getattr(a, "foreground_tests", False) else True
+    ok, fails, cinfo = final_check(root, led, require_report=arm != "free", tests=mode)
+    attempts = led.setdefault("finish", {"attempts": 0, "history": []}).get("attempts", 0) + (0 if ok else 1)
+    led["finish"]["attempts"] = attempts
+    AG.save_ledger(root, led)
+    if not ok and arm == "min" and attempts < 2:
         facts = "The final check failed. Fix exactly these, then stop:\n" + "\n".join("- [%s] %s" % (f["gate"], f["detail"][:600]) for f in fails)
-        runs.append(_launch(root, facts, getattr(a, "model", None), 900, resume=info["session"]))
-        led = AG.load_ledger(root)
-        ok, fails, cinfo = final_check(root, led, require_report=True)
+        if resume is None:  # Claude Code: hand the facts back to the session
+            print(facts + "\n\nThen run `router-migrate finish .` again.")
+            return 1
+        runs.append(resume(facts))
+        return finish(root, a, arm, resume=None if attempts >= 1 else resume, runs=runs)
     reverted = []
     if not ok and arm == "min":
         files = {f for x in fails for f in (x.get("files") or [])}
         whole = any(x.get("files") is None for x in fails)
         changes = AG.changed_since(root, led["floor"]["tree"])
-        undo = changes if whole else [(st, p) for st, p in changes if p in files]
+        undo = changes if whole else [(st, pth) for st, pth in changes if pth in files]
         AG.restore(root, led["floor"]["tree"], undo)
-        reverted = [p for _, p in undo]
-        ok2, fails2, cinfo = final_check(root, AG.load_ledger(root), require_report=False)
+        reverted = [pth for _, pth in undo]
+        _, _, cinfo = final_check(root, AG.load_ledger(root), require_report=False, tests=False)
     sites, _ = read_report(root)
     led = AG.load_ledger(root)
-    _report_to_claims(led, sites)
-    moved = cinfo.get("moved") or []
-    verified = ["%s:%s" % (r["file"], r["line"]) for r in moved] + sorted(led.get("confirmations") or {})
-    near = lambda loc: any(v.rsplit(":", 1)[0] == loc.rsplit(":", 1)[0] and abs(int(v.rsplit(":", 1)[1]) - int(loc.rsplit(":", 1)[1])) <= 3
-                           for v in verified)
-    unverified = [s["site"] for s in sites or [] if s["outcome"] == "migrated" and not near(s["site"])]
-    led["result"] = {"arm": arm, "ok": ok, "moved": len(set(verified)), "sites_seen": cinfo.get("sites"),
-                     "moved_sites": sorted(set(verified)), "claimed_unverified": unverified, "tradeoffs": len(led.get("tradeoffs") or []),
-                     "failures": [f["gate"] for f in fails], "reverted": reverted, "report_sites": len(sites or [])}
-    led["cost"] = {"agent_usd": sum(r.get("usd") or 0 for r in runs), "agent_minutes": sum(r["minutes"] for r in runs),
-                   "agent_turns": sum(r.get("turns") or 0 for r in runs), "resumed": len(runs) > 1,
-                   "api_error": any(r.get("api_error") for r in runs), "agent_exit": runs[-1]["exit"]}
-    led["finish"]["history"].append({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": ok, "gates": [f["gate"] for f in fails], "info":
-                                     {k: v for k, v in cinfo.items() if k != "moved"}})
+    try:
+        rows = check_sites(root)
+        cinfo["rows"], cinfo["seen"] = rows, ["%s:%s" % (r["file"], r["line"]) for r in rows]
+    except Exception:
+        pass
+    record_report(root, led, sites)
+    res = route_truth(root, led, sites, cinfo)
+    res.update({"arm": arm, "ok": ok, "sites_seen": cinfo.get("sites"), "tradeoffs": len(led.get("tradeoffs") or []),
+                "failures": [f["gate"] for f in fails], "reverted": reverted, "report_sites": len(sites or []),
+                "tests": {"baseline": led["baseline"].get("before"), "full": cinfo.get("tests") or {}}})
+    led["result"] = res
+    if runs:
+        led["cost"] = {"agent_usd": sum(r.get("usd") or 0 for r in runs), "agent_minutes": sum(r["minutes"] for r in runs),
+                       "agent_turns": sum(r.get("turns") or 0 for r in runs), "resumed": len(runs) > 1,
+                       "api_error": any(r.get("api_error") for r in runs), "agent_exit": runs[-1]["exit"]}
+    led["finish"]["history"].append({"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "ok": ok, "gates": [f["gate"] for f in fails],
+                                     "info": {k: v for k, v in cinfo.items() if k not in ("moved", "rows", "seen")}})
+    files = AG.compile_guardrails(root, led)
+    if files:
+        led["edits"].append({"by": "guardrails", "files": files, "guardrails": led.get("guardrails"), "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     AG.save_ledger(root, led)
-    AG._event(root, "gate", "done" if ok else "error", {"moved": len(moved), "tradeoffs": len(led.get("tradeoffs") or [])},
-              msg="reverted %d file(s)" % len(reverted) if reverted else "")
-    print("D3 %s: %s; %d call(s) route; %d trade-off(s); %.1f min, $%.2f%s" % (
-        arm, "check passed" if ok else "check FAILED (%s)" % ", ".join(sorted({f["gate"] for f in fails})), len(moved),
-        len(led.get("tradeoffs") or []), (time.time() - t0) / 60, led["cost"]["agent_usd"],
-        "; reverted %s" % ", ".join(reverted[:5]) if reverted else ""))
-    rc = 0 if ok or arm == "free" else 1
-    if arm == "min" and not getattr(a, "skip_improve", False):
-        # step 5-6: Improve on what actually routes (cards, an agent judging latency/task), then REPORT.html + the dashboard
-        rc = AG._improve_phase(root, a) or rc
+    if mode == "background" and ok:
+        _detach(root, ["_fulltest", root], "fulltest.log")
+    AG._event(root, "check", "done" if ok else "error", {"moved": len(res["moved_verified"]), "unverified": len(res["moved_unverified"]),
+                                                       "tradeoffs": res["tradeoffs"]}, msg="reverted %d file(s)" % len(reverted) if reverted else "")
+    print("finish: %s; %d call(s) on Router (verified), %d moved but not verifiable statically, %d claimed but not routing; "
+          "%d trade-off(s); tests: %s%s" % (
+              "check passed" if ok else "check FAILED (%s)" % ", ".join(sorted({f["gate"] for f in fails})), len(res["moved_verified"]),
+              len(res["moved_unverified"]), len(res["claimed_not_routing"]), res["tradeoffs"], (cinfo.get("tests") or {}).get("status"),
+              "; reverted %s" % ", ".join(reverted[:5]) if reverted else ""))
+    if getattr(a, "skip_improve", False):
+        return 0 if ok or arm == "free" else 1
+    imp = AG.do_improve(root)
+    r = imp["recommendations"]
+    print("improve: %d card(s); %d lever(s) considered and not recommended (with reasons)" % (len(r["cards"]), len(r["considered_not_recommended"])))
+    return dashboard(root, a) if not getattr(a, "no_dashboard", False) else _report_only(root)
+
+
+def _report_only(root):
+    from . import improve as imp
+    from .dashboard import render as dash_render
+    open(AG.sp(root, "REPORT.html"), "w").write(dash_render.render_report(imp.bundle(root, repo=os.path.basename(root))))
+    print("report: %s" % AG.sp(root, "REPORT.html"))
+    return 0
+
+
+def dashboard(root, a):
+    """REPORT.html, then the live dashboard in a detached process (so Claude Code / a terminal isn't blocked); prints its URL."""
+    _report_only(root)
+    p = _detach(root, ["dashboard", root, "--serve"] + (["--no-browser"] if getattr(a, "no_browser", False) else []), "dashboard.log")
+    t = time.time()
+    while time.time() - t < 15:
+        txt = open(AG.sp(root, "dashboard.log")).read() if os.path.exists(AG.sp(root, "dashboard.log")) else ""
+        m = re.search(r"(http://127\.0\.0\.1:\d+\S*)", txt)
+        if m:
+            print("dashboard: %s  (pid %d; stop with `kill %d`)" % (m.group(1), p.pid, p.pid))
+            return 0
+        time.sleep(0.3)
+    print("dashboard: starting (see %s)" % AG.sp(root, "dashboard.log"))
+    return 0
+
+
+def cmd_dashboard(a):
+    root = AG.ledger_root(a.path)
+    if getattr(a, "serve", False):
+        return AG.open_dashboard(root, a)
+    return dashboard(root, a)
+
+
+def cmd_fulltest(a):
+    """Background worker: the full suite once, Router on; the result lands in ledger.result.tests.full (Apply waits for it)."""
+    root = os.path.abspath(a.path)
+    led = AG.load_ledger(root)
+    fails, info = run_tests(root, led["baseline"])
+    led = AG.load_ledger(root)
+    led.setdefault("result", {}).setdefault("tests", {})["full"] = dict(info, failures=fails)
+    AG.save_ledger(root, led)
+    AG._event(root, "tests", "done" if not fails else "error", msg=info.get("status"))
+    return 0
+
+
+def cmd_finish(a):
+    root = AG.ledger_root(a.path)
+    return finish(root, a, (AG.load_ledger(root) or {}).get("arm") or "min")
+
+
+def run_d3(root, a):
+    """Headless (CI, evals): setup, a headless Claude Code session with the same prompt, then finish."""
+    if AG._git(root, "rev-parse", "--is-inside-work-tree").returncode:
+        return AG.err(False, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first")
+    arm = a.arm or "min"
+    t0 = time.time()
+    _, prompt = setup(root, a, arm)
+    AG._event(root, "agent_migrate", "running", msg="arm %s" % arm)
+    info = _launch(root, prompt, getattr(a, "model", None), getattr(a, "agent_timeout", 2700))
+    runs = [info]
+    resume = (lambda facts: _launch(root, facts, getattr(a, "model", None), 900, resume=info["session"])) if info.get("session") and arm == "min" else None
+    if resume is None:
+        resume = lambda facts: {"minutes": 0, "exit": "no-session"}
+    rc = finish(root, a, arm, resume=resume, runs=runs)
+    print("total %.1f min" % ((time.time() - t0) / 60))
     return rc
+
+
+def cmd_levers(a):
+    """Improvement facts for migrated calls: model, Flex tier, price, what the rules would suggest (cards) and what they
+    considered and why not. The agent uses these facts to propose improvements in its report; the human approves cards."""
+    from . import recommend as R
+    from .catalog import Catalog
+    root = AG.ledger_root(a.path)
+    led = AG.load_ledger(root) or {}
+    if led.get("version") != 5:
+        return AG.err(a.json, "no v5 ledger here", "start with `router-migrate start .`")
+    imp = AG.do_improve(root)
+    r = imp["recommendations"]
+    cat = Catalog.load()
+    locs = AG._locs(a.loc) if getattr(a, "loc", None) else None
+    by_feat = {}
+    for sid, sg in r["signals"].items():
+        by_feat.setdefault(sg["feature"], sg)
+    rows = []
+    for f in imp["features"]:
+        if locs and not any(f["file"] == x and abs(int(f["line"]) - int(y)) <= 5 for x, y in locs):
+            continue
+        sg = by_feat.get(f["feature"]) or {}
+        mid = sg.get("resolved_model")
+        row = cat.info(mid) if mid else None
+        pr = (row or {}).get("pricing") or {}
+        price = ("$%s in / $%s out per 1M tokens" % (pr.get("input"), pr.get("output"))) if pr.get("input") is not None else "price unknown"
+        cards = [c for c in r["cards"] if f["feature"] in (c.get("scope") or {}).get("features", [])]
+        cons = [c for c in r["considered_not_recommended"] if f["feature"] in (c.get("scope") or {}).get("features", [])]
+        rows.append({"feature": f["feature"], "site": "%s:%s" % (f["file"], f["line"]), "model": mid, "flex_tier": bool(mid and R._has_flex(mid)),
+                     "price": price, "latency": sg.get("latency_class"), "latency_source": (sg.get("sources") or {}).get("latency_class"),
+                     "suggested": [{"rule": c["rule"], "title": c["title"], "loses": c.get("loses")} for c in cards],
+                     "considered": [{"rule": c["rule"], "reason": c["reason"]} for c in cons]})
+    lines = []
+    for x in rows:
+        lines.append("%s  (%s)\n  model %s · Flex tier %s · %s · latency %s (%s)" % (
+            x["feature"], x["site"], x["model"] or "unknown", "yes" if x["flex_tier"] else "no", x["price"], x["latency"], x["latency_source"]))
+        lines += ["  suggest %-26s %s%s" % (c["rule"], c["title"][:90], (" — loses: %s" % "; ".join(c["loses"])[:120]) if c.get("loses") else "") for c in x["suggested"]]
+        lines += ["  not     %-26s %s" % (c["rule"], c["reason"][:120]) for c in x["considered"]]
+    if not rows:
+        lines.append("no migrated calls yet (levers apply to calls that route to Router)")
+    lines.append("propose what fits this repo in MIGRATION.json `improvements` (lever, change, gains, loses, why); a human approves each card")
+    return AG.out({"ok": True, "features": rows}, a.json, "\n".join(lines))
