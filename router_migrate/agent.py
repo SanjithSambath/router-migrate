@@ -158,6 +158,8 @@ def snapshot_tree(root):
         # naming an ignored path in a pathspec (even as an exclusion) makes `git add` fail, e.g. repos whose .gitignore is `*`
         # plus an allowlist, or that ignore the state dir: then `add -A` skips it anyway and no exclusion is needed
         ignored = _git(root, "check-ignore", "-q", STATE).returncode == 0
+        # start from HEAD so files that are tracked but also match .gitignore (e.g. .env.example) aren't read as deleted
+        _git(root, "read-tree", "HEAD", env=env)
         r = _git(root, "add", "-A", "--", ".", *([] if ignored else [":(exclude)%s" % STATE]), env=env)
         if r.returncode:
             raise RuntimeError("git add failed: %s" % r.stderr.strip()[-300:])
