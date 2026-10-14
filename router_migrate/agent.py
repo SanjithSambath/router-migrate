@@ -47,6 +47,7 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", ".ne
              ".tox", ".mypy_cache", ".pytest_cache", "site-packages", ".turbo", ".cache"}
 LOCKFILES = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "uv.lock", "Pipfile.lock", "bun.lockb")
 MAX_LINES = 200
+TEST_FILES = re.compile(r"\.(test|spec|stories|story|e2e)\.[cm]?[jt]sx?$|(^|/)(__tests__|__mocks__|__fixtures__|cypress|playwright|e2e|storybook)(/|$)")
 RUNTIME_FILES = re.compile(r"(^|/)(router_runtime\.py|routerRuntime\.ts|router_policy\.py|routerPolicy\.ts)$")
 
 # Hotspots: text the scanner did not explain. Over-inclusive on purpose; the agent resolves each one.
@@ -251,7 +252,7 @@ def hotspots(root, sites):
         by_file.setdefault(s["file"], []).append(int(s["line"]))
     found = []
     for rel in _source_files(root):
-        if not scan_py.is_prod(rel) or RUNTIME_FILES.search(rel):
+        if not scan_py.is_prod(rel) or RUNTIME_FILES.search(rel) or TEST_FILES.search(rel):
             continue
         try:
             lines = open(os.path.join(root, rel), encoding="utf-8", errors="replace").read().splitlines()
@@ -269,13 +270,19 @@ def hotspots(root, sites):
             if kind != "llm-import" and any(abs(i - n) <= 15 for n in near):
                 continue
             found.append({"kind": kind, "file": rel, "line": i, "text": l.strip()[:120]})
-    # one import hotspot per file is enough
-    seen, outl = set(), []
+    # one import hotspot per file, and one model-literal hotspot per file (with the count): model-name lists are data far more
+    # often than calls, and resolving them one by one cost agents most of their time (eval/v3/tool_usage.json)
+    seen, outl, lit_count = set(), [], {}
     for h in found:
-        k = (h["file"], h["kind"]) if h["kind"] == "llm-import" else (h["file"], h["kind"], h["line"])
+        if h["kind"] == "model-literal":
+            lit_count[h["file"]] = lit_count.get(h["file"], 0) + 1
+        k = (h["file"], h["kind"]) if h["kind"] in ("llm-import", "model-literal") else (h["file"], h["kind"], h["line"])
         if k not in seen:
             seen.add(k)
             outl.append(h)
+    for h in outl:
+        if h["kind"] == "model-literal" and lit_count.get(h["file"], 0) > 1:
+            h["text"] = "%s  (+%d more model-name literals in this file)" % (h["text"], lit_count[h["file"]] - 1)
     return outl
 
 

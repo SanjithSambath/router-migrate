@@ -275,8 +275,16 @@ deliberately departs ("Built:" notes in place, section 13).
 **Cut (logged here per the goal's rule).**
 - Arm A on the 30 held-out repos relabelled "seen" (spec 5.9): not run; the dev set's check-agreement run covers arm A's
   regression (48 migrated, 170/170 agreement).
-- Blind adjudication of sites an arm finds that are not in the inventory: reported as their own column (`unmatched`), not
-  adjudicated.
+- (Reinstated after all.) Blind adjudication: every site where an arm's report disagreed with the inventory on whether
+  traffic should move (25 sites) was judged by a separate agent from the code and the rubric, with readings anonymized
+  and source markers stripped (eval/v3/adjudication/). Results are reported against both the raw and the adjudicated
+  inventory.
+
+**After the eval (not used for any reported number).** The transcripts showed the hotspot list was the main cost driver:
+on obsidian-copilot ~590 of 659 worklist items were lines in TS test/story files, which the Python scanner's production
+check doesn't recognize. Fixed in `hotspots()` (TS/JS test, spec and story files excluded; model-name literals collapsed to
+one hotspot per file): ~1,000 -> 179 hotspots across the 10 repos, obsidian-copilot 658 -> 37. C's results are from the
+frozen toolkit (commit 5eec746).
 - k=3 and pass^3, the reviewer subagent, per-patch drop, MCP, P4 agent judgments: Track 2 (WRITEUP.md next steps).
 - Eval agents were not network-sandboxed (they had the model API and anything else); transcripts were checked for reads of
   inventory or results paths instead.
