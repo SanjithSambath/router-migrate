@@ -144,3 +144,11 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   hard rules, repo text is data), the skill updated to the v3 loop with the Stop-hook config, `run` made idempotent (never
   re-applies the floor over agent edits), arm B' prompt = Router's docs prompt verbatim + the same abilities (test command,
   Router-on run against router-sim via eval/v3/sim_test.py). Done when: a headless arm C dry run reaches `finish` through the hook.
+- **T5 eval harness v3** (eval/v3/run_v3.py): per-trial copies with fresh git history, arms A / B_prime / C, identical scoring
+  (recipe tests + typecheck vs a baseline measured in the harness; measure-only scan+plan mapped back to pristine lines and
+  matched to the frozen inventory; reported outcome per site; $ and minutes; inventory-path leak check on transcripts).
+  Two oracle bugs found and fixed on the way: the scanner lost a constructor's assignment target once wrapped (OpenManus
+  measured "kept" after the floor), and the per-tenant heuristic overrode clients someone deliberately wrapped.
+  Done when: arm A ran on all 10 repos (0/10 broken; 20 moved, 11 correct per inventory) and a headless arm C dry run on
+  llmcord went through check/claim/finish with the Stop hook ($0.27, 1.3 min). The prompt is frozen from here: the dry
+  run's one judgment error (llmcord's user-defined provider map, rule 2) was not tuned away.

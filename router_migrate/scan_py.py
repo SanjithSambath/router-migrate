@@ -552,6 +552,10 @@ _TENANT_CALL = re.compile(r"(_for_|_by_|_of_)(user|tenant|org|organization|accou
 def _value_calls(v):
     """Calls an assignment's value can evaluate to: the value itself, operands of `or`/`and`, both arms of `x if c else y`."""
     if isinstance(v, cst.Call):
+        f = v.func
+        name = f.value if isinstance(f, cst.Name) else f.attr.value if isinstance(f, cst.Attribute) else ""
+        if (name.startswith("_router_wrap_") or name in ("wrap_openai", "wrap_anthropic", "wrap_langchain")) and v.args:
+            return [v] + _value_calls(v.args[0].value)  # x = _router_wrap_openai(OpenAI()): the target belongs to the constructor too
         return [v]
     if isinstance(v, cst.BooleanOperation):
         return _value_calls(v.left) + _value_calls(v.right)

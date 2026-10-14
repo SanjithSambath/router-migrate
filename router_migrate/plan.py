@@ -125,7 +125,9 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
     sites = link_same_file([dict(x) for x in scan["sites"]])
     clients = {s["id"]: s for s in sites if s["kind"] == "client"}
     patches, plan_sites = [], []
-    tenant = {cid for cid, c in clients.items() if (c.get("api_key") or {}).get("per_tenant")}
+    # per-tenant keys are a heuristic judgment, not a fact: when measuring code as it stands, a client someone deliberately
+    # wrapped (the floor never wraps these) routes, so the heuristic only applies to unwrapped clients
+    tenant = {cid for cid, c in clients.items() if (c.get("api_key") or {}).get("per_tenant") and not (measure_only and c.get("wrapped"))}
     stateful = _stateful_clients(sites)
     lits = _model_literals(scan, catalog)
 

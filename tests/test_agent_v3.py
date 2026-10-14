@@ -137,3 +137,20 @@ def test_finish_passes_and_confirms_static_claims(repo):
     led = ledger(repo)
     assert led["claims"][loc]["confirmed"] == "static"
     assert led["result"]["migrated_confirmed_claims"] == 1
+
+
+def test_measure_sees_through_wrap_and_tenancy_is_a_judgment(tmp_path):
+    """After the floor, `self.client = _router_wrap_openai(AsyncOpenAI(...))` must still link to its calls (it measured as
+    Azure/kept before), and a client someone deliberately wrapped routes even if the per-tenant heuristic fires."""
+    from router_migrate import plan, scan_py
+    from router_migrate.catalog import Catalog
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg/__init__.py").write_text("")
+    (tmp_path / "pkg/llm.py").write_text(
+        "from openai import AsyncOpenAI, AsyncAzureOpenAI\nfrom .router_runtime import wrap_openai as _router_wrap_openai\n\n\n"
+        "class LLM:\n    def __init__(self, cfg):\n        if cfg.api_type == 'azure':\n            self.client = AsyncAzureOpenAI(api_key=cfg.key)\n"
+        "        else:\n            self.client = _router_wrap_openai(AsyncOpenAI(api_key=cfg.api_key))\n\n"
+        "    async def ask(self, m):\n        return await self.client.chat.completions.create(model='gpt-4o-mini', messages=m)\n")
+    p = plan.build(scan_py.scan(str(tmp_path)), Catalog.load(), measure_only=True)
+    site = [s for s in p["sites"] if s["kind"] == "call"][0]
+    assert site["outcome"] == "migrated", site["reason"]
