@@ -48,7 +48,7 @@ from router_migrate.catalog import Catalog  # noqa: E402
 RUNS = os.path.join(HERE, "runs")
 TRIALS = os.path.join(RE.WORK, "trials")
 RM = os.path.join(ROOT, "bin", "router-migrate")
-ARMS = ("A", "B_prime", "C")
+ARMS = ("A", "B", "B_prime", "C")
 AGENT_TIMEOUT = int(os.environ.get("RM_AGENT_TIMEOUT", 2700))
 MODEL = os.environ.get("RM_AGENT_MODEL", "")  # empty: the CLI's default model (recorded per trial)
 TOKEN_FILE = os.path.expanduser("~/.config/claude/oauth_token")
@@ -101,7 +101,7 @@ def test_cmd(rec, src):
     cmd = RE.subst(rec["test_cmd"], rec, src)
     env = {k: RE.subst(str(v), rec, src) for k, v in (rec.get("test_env") or {}).items()}
     pre = " ".join("%s=%s" % (k, shlex.quote(v)) for k, v in env.items())
-    return ("env %s %s" % (pre, cmd)) if pre else cmd
+    return ("export %s; %s" % (pre, cmd)) if pre else cmd  # `env K=V cd x && ...` would fail: env can't run a shell builtin
 
 
 def typecheck_cmd(rec, src):
@@ -279,6 +279,7 @@ def trial(arm, name):
         shutil.rmtree(dst, ignore_errors=True)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         sh("cp -cR %s %s 2>/dev/null || cp -R %s %s" % ((shlex.quote(a_dir), shlex.quote(dst)) * 2))
+        retarget(dst, a_dir)
         _reinstall(rec, dst)
         # the product path: `router-migrate run --agent claude` (floor already in place, so run only launches the agent + gate)
         cmd = [RM, "run", dst, "--agent", "claude", "--agent-timeout", str(AGENT_TIMEOUT)] + (["--model", MODEL] if MODEL else [])
@@ -299,26 +300,54 @@ def trial(arm, name):
             shutil.move(tr, os.path.join(out_dir, "transcript.jsonl"))
         agent = {"exit": cost.get("agent_exit"), "usd": cost.get("agent_usd"), "turns": cost.get("agent_turns"), "model": cost.get("agent_model"),
                  "final": final, "finish_exit": p.returncode}
+    elif arm == "B_prime":
+        # the spec's B': same starting point as C (A's floor), Router's docs prompt, same abilities; no toolkit
+        a_dir = os.path.join(TRIALS, "A", name)
+        if not os.path.exists(os.path.join(a_dir, ".router-migrate", "ledger.json")):
+            trial("A", name)
+        dst = os.path.join(TRIALS, "B_prime", name)
+        shutil.rmtree(dst, ignore_errors=True)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        sh("cp -cR %s %s 2>/dev/null || cp -R %s %s" % ((shlex.quote(a_dir), shlex.quote(dst)) * 2))
+        shutil.rmtree(os.path.join(dst, ".router-migrate"), ignore_errors=True)  # no ledger, worklist or gate: those are the toolkit
+        agent, wall = run_agent(dst, docs_prompt(rec, dst, floor=True), None, out_dir)
     else:
         dst, rec = fresh_copy(name, arm)
         if arm == "A":
             cmd = "%s run %s --test-cmd %s" % (RM, shlex.quote(dst), shlex.quote(test_cmd(rec, dst)))
             if typecheck_cmd(rec, dst):
-                cmd += " --typecheck-cmd %s" % shlex.quote("cd %s && %s" % (shlex.quote(dst), typecheck_cmd(rec, dst)))
+                cmd += " --typecheck-cmd %s" % shlex.quote(typecheck_cmd(rec, dst))  # run_cmd already runs from the repo root
             code, o = sh(cmd, timeout=3600)
             open(os.path.join(out_dir, "run.log"), "w").write(o[-20000:])
             sh("git add -A && git -c user.email=eval@rm -c user.name=eval commit -qm floor", cwd=dst)
             # the floor commit keeps the ledger's snapshot tree reachable for arm C's copy
-        else:
-            docs = open(os.path.join(ROOT, "research", "baseline_prompt.txt")).read().strip()
-            tc = typecheck_cmd(rec, dst)
-            prompt = open(os.path.join(HERE, "prompt_B_prime.md")).read().replace("{DOCS_PROMPT}", docs).replace(
-                "{TEST_CMD}", test_cmd(rec, dst)).replace("{TYPECHECK_LINE}", ("- Typecheck command: %s\n" % tc) if tc else "").replace(
-                "{SIM_CMD}", "%s %s %s %s" % (os.path.join(ROOT, ".venv", "bin", "python"), os.path.join(HERE, "sim_test.py"), shlex.quote(dst),
-                                             shlex.quote(test_cmd(rec, dst))))
-            agent, wall = run_agent(dst, prompt, None, out_dir)
+        else:  # B: Router's docs prompt + equal abilities, from the untouched source (what pasting the docs prompt gets you)
+            agent, wall = run_agent(dst, docs_prompt(rec, dst, floor=False), None, out_dir)
     json.dump({"agent": agent, "minutes": round((time.time() - t0) / 60, 1)}, open(os.path.join(out_dir, "agent.json"), "w"), indent=1, default=str)
     return score_trial(arm, name)
+
+
+def retarget(dst, src_dir):
+    """A copied trial dir still names the directory it was copied from in its ledger/state (absolute paths in the baseline
+    commands); point them at the copy."""
+    for f in glob.glob(os.path.join(dst, ".router-migrate", "*.json")):
+        t = open(f).read()
+        if src_dir in t:
+            open(f, "w").write(t.replace(src_dir, dst))
+
+
+def docs_prompt(rec, dst, floor):
+    docs = open(os.path.join(ROOT, "research", "baseline_prompt.txt")).read().strip()
+    tc = typecheck_cmd(rec, dst)
+    prompt = open(os.path.join(HERE, "prompt_B_prime.md")).read().replace("{DOCS_PROMPT}", docs).replace(
+        "{TEST_CMD}", test_cmd(rec, dst)).replace("{TYPECHECK_LINE}", ("- Typecheck command: %s\n" % tc) if tc else "").replace(
+        "{SIM_CMD}", "%s %s %s %s" % (os.path.join(ROOT, ".venv", "bin", "python"), os.path.join(HERE, "sim_test.py"), shlex.quote(dst),
+                                     shlex.quote(test_cmd(rec, dst))))
+    if floor:
+        prompt += ("\n- A deterministic codemod has already been applied here: some OpenAI/Anthropic client constructions are wrapped so "
+                   "their requests go through a vendored runtime (router_runtime.py / routerRuntime.ts) that sends what Router can serve "
+                   "to Router when RAMP_ROUTER_API_KEY is set and everything else to the provider. Build on it to finish the migration.\n")
+    return prompt
 
 
 def independent_check(name, dst, rec):
@@ -369,10 +398,14 @@ def independent_check(name, dst, rec):
             replay = V.replay(p, base, V.SIM_KEY, Catalog.load())
         finally:
             srv.shutdown()
-        replay = {"unique_requests": replay.get("unique_requests"), "ok": replay.get("ok"), "invalid": (replay.get("invalid") or [])[:5]}
+        res = [x for x in replay.get("results") or [] if not x.get("reused") and x.get("ok") is not None]
+        stays = [x for x in res if not x["ok"] and "would stay on provider" in str(x.get("detail"))]  # lossless fallback: correct
+        bad = [x for x in res if not x["ok"] and x not in stays]
+        replay = {"unique_requests": len(res), "ok": sum(1 for x in res if x["ok"]), "stay_on_provider": len(stays),
+                  "failed": len(bad), "failures": [{"site": x.get("site_id"), "detail": str(x.get("detail"))[:200]} for x in bad[:5]]}
     except Exception as e:
         replay = {"error": str(e)[:300]}
-    bad_replay = bool(replay and replay.get("unique_requests") and (replay.get("ok") or 0) < replay["unique_requests"])
+    bad_replay = bool(replay and replay.get("failed"))
     return {"import_smoke": {"checked": checked, "regressed": regressed}, "replay": replay, "broken": bool(regressed) or bad_replay}
 
 
@@ -392,6 +425,9 @@ def score_trial(arm, name):
     dst = os.path.join(TRIALS, arm, name)
     meta = json.load(open(os.path.join(out_dir, "agent.json"))) if os.path.exists(os.path.join(out_dir, "agent.json")) else {}
     agent, minutes = meta.get("agent"), meta.get("minutes")
+    prev = os.path.join(out_dir, "result.json")
+    if minutes is None and os.path.exists(prev):
+        minutes = json.load(open(prev)).get("minutes")
     t = RE.tests(rec, dst, "v3_%s_after" % arm)
     tc = RE.typecheck(rec, dst, "v3_%s_tc_after" % arm)
     after = RE.count(t, rec.get("test_kind", "unit")) or {"exit": t.get("exit"), "ts_errors": t.get("ts_errors")}
@@ -543,13 +579,13 @@ def aggregate():
 
 
 def write_md(d):
-    L = ["# v3 results: rules only (A) vs agent + docs prompt (B') vs agent + toolkit (C)", "",
+    L = ["# v3 results: rules only (A), agent + docs prompt (B from the source, B' from the floor), agent + toolkit (C)", "",
          "Generated by `eval/v3/run_v3.py aggregate` from eval/v3/runs/*/*/result.json. Set: 10 fresh repos (eval/v3/REPOS.json),",
          "never used to build or tune v1/v2. Ground truth: blind rubric inventories committed before any arm C run",
          "(eval/v3/inventory/). One trial per arm per repo (k=1).", "",
          "| arm | repos | broken (95% CI) | sites moved | correct | wrong | moved precision | reported migrated precision | diff lines | $ | minutes |",
          "|---|---|---|---|---|---|---|---|---|---|---|"]
-    for arm in ("A", "B_prime", "C"):
+    for arm in ARMS:
         a = d["arms"].get(arm)
         if not a:
             continue

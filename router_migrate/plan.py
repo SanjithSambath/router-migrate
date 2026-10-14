@@ -64,6 +64,8 @@ def client_target(c):
     if c["sdk"] in ("bedrock",) or c["surface"] in ("AnthropicVertex", "AsyncAnthropicVertex"):
         return "cloud"
     bu = c.get("base_url")
+    if c.get("router_native"):
+        return "router"  # measure-only: the base URL is assigned elsewhere in the file from a Router default / RAMP_ROUTER_* env
     if not bu or not bu.get("value"):
         return "provider"
     if "router.com" in str(bu.get("value")) or "RAMP_ROUTER" in str(bu.get("value")):
@@ -95,6 +97,31 @@ def client_target(c):
     return "other:" + (h or bu["value"][:40])
 
 
+ROUTER_TEXT = re.compile(r"router\.com|RAMP_ROUTER")
+
+
+def _router_by_assignment(root, c):
+    """Measure-only (scoring migrations someone else wrote): is a non-literal base URL like `self.base_url` or `base_url`
+    assigned in the same file from a Router default or a RAMP_ROUTER_* env var (following one constant)?"""
+    bu = c.get("base_url") or {}
+    v = str(bu.get("value") or "")
+    if not v or bu.get("static") or ROUTER_TEXT.search(v) or not re.fullmatch(r"[A-Za-z_][\w.]*", v):
+        return False
+    try:
+        text = open(os.path.join(root, c["file"]), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return False
+    name = re.escape(v.split(".")[-1])
+    for m in re.finditer(r"(?m)\b%s\s*(?::[^=\n]+)?=\s*([^\n]+)" % name, text):
+        rhs = m.group(1)
+        if ROUTER_TEXT.search(rhs):
+            return True
+        for const in re.findall(r"\b([A-Z][A-Z0-9_]{2,})\b", rhs):
+            if re.search(r"(?m)^\s*%s\s*(?::[^=\n]+)?=\s*[^\n]*(router\.com|RAMP_ROUTER)" % re.escape(const), text):
+                return True
+    return False
+
+
 def link_same_file(sites):
     """Calls with no resolved client: link to the only client of the same SDK family constructed in the same file."""
     by_file = {}
@@ -124,6 +151,10 @@ def build(scan, catalog, include_nonprod=False, measure_only=False):
     """measure_only: score the repo as it is (no router-migrate patches assumed); used to score other migrations."""
     sites = link_same_file([dict(x) for x in scan["sites"]])
     clients = {s["id"]: s for s in sites if s["kind"] == "client"}
+    if measure_only and scan.get("root"):
+        for c in clients.values():
+            if _router_by_assignment(scan["root"], c):
+                c["router_native"] = True
     patches, plan_sites = [], []
     # per-tenant keys are a heuristic judgment, not a fact: when measuring code as it stands, a client someone deliberately
     # wrapped (the floor never wraps these) routes, so the heuristic only applies to unwrapped clients

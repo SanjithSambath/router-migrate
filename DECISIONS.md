@@ -232,3 +232,51 @@ Measured on 2026-10-13 for $0.0004; details are in `research/m0_measurements.md`
   anthropic-quickstarts test skip ("~/.ssh empty"), so the sandbox now applies to the held-out set only; dev-set baselines were
   measured with the real HOME. anthropic-quickstarts was re-run under the dev-set settings: 189/189. The other 14 rows ran
   with the stricter sandbox and still matched their v1 baselines exactly.
+
+## D13. v3 Track 1: what was built, where it departs from SPEC_V3, and what was cut
+
+**Read order.** I started from an older revision of SPEC_V3.md (the file changed on disk minutes before the goal began, and
+the newer revision was what got committed as "as given"). T0-T5 were built against the older text; once I read section 5 of
+the committed spec I aligned the build with it (commit "spec section 5 alignment") and revised the spec where the build
+deliberately departs ("Built:" notes in place, section 13).
+
+**Design choices (first principles: tools for facts, the agent for judgments, the codemod for safe edits).**
+- **Five commands, not eight.** `run` (floor + ledger + worklist), `check`, `wrap`, `claim`, `finish`. Discovery tools
+  (`find`/`graph`/`config`) duplicate what a coding agent already does well; `find` became the hotspot list in `run`.
+- **The oracle is the measure-only planner on the code as it stands**, made wrap-aware. One oracle serves `check`, `claim`,
+  `finish` and every eval arm. Building it found three real bugs, each of which made correct code measure as not routed or
+  the reverse: (1) the scanner lost a constructor's assignment target once wrapped; (2) the vendored runtime's embedded
+  catalog counted as the repo's model names; (3) the per-tenant heuristic overrode clients someone deliberately wrapped.
+  After the fixes `check` agrees with plan.py on 170/170 dev sites (eval/v3/check_agreement.json).
+- **Tenancy is a judgment.** The floor still never wraps a client whose key looks per-tenant; but if the agent reads the code,
+  decides the key is the operator's and wraps it, the tool reports that the code routes.
+- **Three-valued trace, conditions on base URL / dispatch only.** "Model in catalog" is not a condition: the runtime decides
+  it per request and falls back, so it never makes the report wrong.
+- **Floor snapshot instead of a patch stack.** A git tree in a private index (no commit, no index change in the customer's
+  repo); after 3 failed `finish` runs every agent-changed file is restored to the floor. Same guarantee (never below the
+  floor), much less machinery. Per-patch drop is Track 2.
+- **Router-on gate compares with the floor's own Router-on run**, not with Router off: suites that mock HTTP transports see
+  Router requests inside their mocks under the deterministic floor too (found on the first synthetic repo).
+- **The agent doesn't get the test command.** `finish` runs tests; agents re-running slow suites is wasted time.
+- **Scoring credits a site as moved only when the code routes it AND the arm reports it migrated** (report precision is the
+  product). The measure-only planner also recognizes migrations an agent writes by hand (a base URL assigned from a Router
+  default or `RAMP_ROUTER_*` env, followed one constant deep), so arm B is not under-credited.
+
+**Eval choices.**
+- 10 fresh repos (held-out candidates never used, inventoried or tuned on), blind inventories committed before any arm C run.
+- Arms: A (floor), **B (added)** Router's docs prompt + equal abilities from the untouched source, **B'** the same from A's
+  floor (the spec's arm, which isolates the toolkit), C (`run --agent claude`). k=1, model = the CLI default
+  (claude-sonnet-5) for every agent arm. The first B run was launched from the source by mistake; it is kept as arm B and
+  B' was run from the floor as the spec says.
+- The migrate prompt was frozen before arm C ran on the set. One C dry run (llmcord) happened first and showed a judgment
+  error; the prompt was not tuned on it. The prompt was later revised to the spec's section 5.5-5.6 content (recipes, reason
+  codes, Router facts), which was written before any v3 run.
+
+**Cut (logged here per the goal's rule).**
+- Arm A on the 30 held-out repos relabelled "seen" (spec 5.9): not run; the dev set's check-agreement run covers arm A's
+  regression (48 migrated, 170/170 agreement).
+- Blind adjudication of sites an arm finds that are not in the inventory: reported as their own column (`unmatched`), not
+  adjudicated.
+- k=3 and pass^3, the reviewer subagent, per-patch drop, MCP, P4 agent judgments: Track 2 (WRITEUP.md next steps).
+- Eval agents were not network-sandboxed (they had the model API and anything else); transcripts were checked for reads of
+  inventory or results paths instead.
