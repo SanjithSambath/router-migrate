@@ -53,6 +53,7 @@ dev repos, M0 live measurements and the v1 adversarial review with its repro scr
 | `tests/test_cli_e2e.py` | `archive/tests/test_cli_e2e.py` | Exercises the v1 pipeline `apply -> verify -> report` and `scan --json` (plus a no-agent `run`, which `tests/test_agent_v4.py` also covers). |
 | `tests/test_rules_registry.py` | `archive/tests/test_rules_registry.py` | Checks that every rule in `router_migrate/rules.py` (the v1/v2 rule registry, `make rules`) names an existing test. It scans its own directory for tests, so from here it would only see `archive/tests/`. |
 | `scripts/done_check.sh`, `done_check_v2.sh`, `done_check_v3.sh`, `done_check_v3_improve.sh` | `archive/scripts/` | Per-version definitions of done. Each chains to the v1 check, which requires the archived top-level docs and v1 scoreboard, so none can pass any more. |
+| Makefile targets `eval`, `eval-quick` (v1) | removed from `Makefile` (not moved) | They ran `eval/run_eval.py` to rebuild the v1 scoreboard. `make eval` now runs the agent eval (`eval/run.py`). To rebuild the v1 scoreboard, run `.venv/bin/python eval/run_eval.py [--no-tests]` directly. |
 
 ## Deliberately left in place
 
