@@ -340,3 +340,34 @@ defects that unit tests had not, each now fixed with a test:
 migrated the 4 per-tenant-credential sites, the second claimed them `flagged` (all tenants would share one Router key).
 Both passed the gate and both are defensible; the ledger says why each time. That decision belongs to the user, not to
 either agent: Track 2 turns "per-tenant provider credentials" into a question the run asks before migrating.
+
+## D16. The dashboard, rebuilt for interpretability
+
+**Goal.** A person who did not watch the run, technical or not, should see in one screen where the repo stands, what changed
+and why, what the agent assumed, and what waits on them, and should see each change as code rather than as a rule id.
+
+**Design.** The page now uses the Router console's own frame (left nav, light-weight page titles, bordered stat tiles, the
+yellow-green primary action, olive icon squares, dashed green connectors) so it reads as a Router page:
+- **Information architecture.** Overview (a headline sentence, five tiles, a provider -> Router flow diagram, the two
+  steps as numbered cards with cost and time, what waits on you, what the agent assumed), Migrate (every call by status),
+  Improve (six lever cards, then improvements grouped Live / Approved / Waiting / Model changes / Not chosen / Decided),
+  Decisions (the to-do: approve-to-apply with "approve all", pick-one pairs, unlocks, models to test, calls that need
+  judgment). Router setup and the Audit trail (claims, judgments, cost, every file diff) moved to the bottom of the nav.
+- **One status vocabulary**, each with one color: lossless (green: moved by the rules), by the agent (lilac), unlocked
+  (yellow-green: moved in Improve after a stated trade-off), needs your decision (amber), left in place (gray outline).
+- **Changes as code.** Calls show the changed line as a word-level diff (the shim imports filtered out); improvements show
+  the code or router.policy.json line they write beside their effect on the request body, key by key. Pending unlocks and
+  model changes show a preview of the line they would write ("preview", "you edit").
+- **Plain language from facts, computed in Python** (dashboard/view.py, part of the bundle) so the page stays a renderer:
+  reason codes become sentences, judgments become "Nobody waits on it: it runs as a background job", and every assumption
+  lists the changes it drives.
+- **Either/or resolved in the UI**: once one side of a pair is approved or live, the other leaves the to-do list ("Not
+  chosen").
+
+**Kept:** the same stdlib server, session token, endpoints, frozen/live modes, no external assets but Google Fonts.
+
+**Defects found while building it** (each with a test): (1) an unlock on a client the floor had already wrapped wrapped it
+again (`_router_wrap_anthropic(_router_wrap_anthropic(Anthropic(), ...), ...)`), because the already-patched check compared
+exact columns while unlock targets use (line, any column); (2) calls the agent moved were credited to the rules, because the
+agent's claim keeps the line from before its own edit and the tool's re-check of the edited line says "migrated". The view
+now credits a move to the rules only if the floor plan (made before any agent ran) moved that feature.

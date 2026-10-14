@@ -2,7 +2,7 @@
  "catalog_version": "bundled snapshot (GET https://api.router.com/v1/models (live, 2026-10-12/13))",
  "rules_version": "v3-improve-1",
  "repo": "showcase",
- "generated": "2026-10-14T00:17:49",
+ "generated": "2026-10-14T08:12:04",
  "repo_kind": "app",
  "signals": {
   "py:svc/agent.py:15:11:call": {
@@ -35,21 +35,20 @@
    },
    "agent": {
     "latency": {
-     "at": "2026-10-14T00:16:34",
+     "at": "2026-10-14T08:11:24",
      "evidence": [
       "svc/api/chat.py:14"
      ],
      "value": "interactive",
-     "why": "stream=True on chat.completions.create means a client reads tokens as they arrive; the module is svc/api/chat.py, an API chat endpoint, and answer() takes a single query and streams the reply back to whoever called it"
+     "why": "answer() streams the completion (stream=True) back to the caller; chat.py lives in svc/api and is named 'answer', matching a chat endpoint where a person watches tokens arrive, not a background job"
     },
     "task": {
-     "at": "2026-10-14T00:16:36",
+     "at": "2026-10-14T08:11:26",
      "evidence": [
-      "svc/api/chat.py:13",
       "svc/api/chat.py:14"
      ],
      "value": "chat",
-     "why": "answer(q) sends a single user-role message with no system prompt or output schema and streams the raw completion back \u2014 a one-shot chat reply, not extraction/classification/routing"
+     "why": "Single user-role message with no system prompt or structured output constraints; the function is a generic conversational 'answer a question' call, matching chat rather than classification/extraction/routing"
     }
    },
    "task": "chat"
@@ -82,31 +81,31 @@
    },
    "agent": {
     "cacheable": {
-     "at": "2026-10-14T00:17:09",
+     "at": "2026-10-14T08:11:38",
      "evidence": [
       "svc/workers/nightly_summaries.py:11",
       "svc/workers/nightly_summaries.py:16"
      ],
      "value": "1500",
-     "why": "SYSTEM_PROMPT (line 11) is a fixed string sent unchanged as the system message on every call in the loop; ~193 repetitions of 'You are a careful summarizer. ' (31 chars each) is ~5983 chars, ~1500 tokens at 4 chars/token, well above the ~1024-token caching threshold"
+     "why": "SYSTEM_PROMPT (line 11) is the literal phrase 'You are a careful summarizer. ' repeated 200 times, identical on every call; ~6000 chars at ~4 chars/token is ~1500 tokens, well above the ~1024 caching threshold"
     },
     "latency": {
-     "at": "2026-10-14T00:16:49",
+     "at": "2026-10-14T08:11:31",
      "evidence": [
       "svc/workers/nightly_summaries.py:15",
       "svc/workers/nightly_summaries.py:16"
      ],
      "value": "background",
-     "why": "summarize_all() lives in svc/workers/nightly_summaries.py and loops over a list of docs, issuing one completion per doc with no caller waiting on an individual result; the module name 'nightly_summaries' and the workers/ location indicate a scheduled batch job, not a request/response path"
+     "why": "summarize_all() lives in svc/workers/nightly_summaries.py, processing a batch list of docs with no streaming and no route/handler caller; filename and module path indicate a scheduled nightly batch job nobody waits on synchronously"
     },
     "task": {
-     "at": "2026-10-14T00:16:56",
+     "at": "2026-10-14T08:11:33",
      "evidence": [
       "svc/workers/nightly_summaries.py:11",
-      "svc/workers/nightly_summaries.py:15"
+      "svc/workers/nightly_summaries.py:16"
      ],
      "value": "summarization",
-     "why": "the system prompt instructs the model 'You are a careful summarizer' and the function name summarize_all applies this to each doc, condensing document content into a summary"
+     "why": "SYSTEM_PROMPT instructs 'You are a careful summarizer.' and the function iterates over docs producing one completion per doc, matching summarization of each document"
     }
    },
    "task": "summarization"
@@ -380,7 +379,7 @@
      },
      {
       "level": "L1",
-      "fact": "agent: static prompt prefix ~tokens: 1500 (SYSTEM_PROMPT (line 11) is a fixed string sent unchanged as the system message on every call in the loop; ~193 repetitions of 'You are a careful summarizer. ' (31 chars each) is ~5983 chars, ~1500 tokens at 4 chars/token, well above the ~10)",
+      "fact": "agent: static prompt prefix ~tokens: 1500 (SYSTEM_PROMPT (line 11) is the literal phrase 'You are a careful summarizer. ' repeated 200 times, identical on every call; ~6000 chars at ~4 chars/token is ~1500 tokens, well above the ~1024 caching threshold)",
       "source": "agent",
       "evidence": [
        "svc/workers/nightly_summaries.py:11",
@@ -406,7 +405,7 @@
    ],
    "agent_rationale": [
     {
-     "fact": "agent: static prompt prefix ~tokens: 1500 (SYSTEM_PROMPT (line 11) is a fixed string sent unchanged as the system message on every call in the loop; ~193 repetitions of 'You are a careful summarizer. ' (31 chars each) is ~5983 chars, ~1500 tokens at 4 chars/token, well above the ~10)",
+     "fact": "agent: static prompt prefix ~tokens: 1500 (SYSTEM_PROMPT (line 11) is the literal phrase 'You are a careful summarizer. ' repeated 200 times, identical on every call; ~6000 chars at ~4 chars/token is ~1500 tokens, well above the ~1024 caching threshold)",
      "evidence": [
       "svc/workers/nightly_summaries.py:11",
       "svc/workers/nightly_summaries.py:16"
@@ -451,7 +450,7 @@
      },
      {
       "level": "L1",
-      "fact": "agent: latency class: background (summarize_all() lives in svc/workers/nightly_summaries.py and loops over a list of docs, issuing one completion per doc with no caller waiting on an individual result; the module name 'nightly_summaries' and the workers/ location indicate a)",
+      "fact": "agent: latency class: background (summarize_all() lives in svc/workers/nightly_summaries.py, processing a batch list of docs with no streaming and no route/handler caller; filename and module path indicate a scheduled nightly batch job nobody waits on synchronously)",
       "source": "agent",
       "evidence": [
        "svc/workers/nightly_summaries.py:15",
@@ -476,7 +475,7 @@
    ],
    "agent_rationale": [
     {
-     "fact": "agent: latency class: background (summarize_all() lives in svc/workers/nightly_summaries.py and loops over a list of docs, issuing one completion per doc with no caller waiting on an individual result; the module name 'nightly_summaries' and the workers/ location indicate a)",
+     "fact": "agent: latency class: background (summarize_all() lives in svc/workers/nightly_summaries.py, processing a batch list of docs with no streaming and no route/handler caller; filename and module path indicate a scheduled nightly batch job nobody waits on synchronously)",
      "evidence": [
       "svc/workers/nightly_summaries.py:15",
       "svc/workers/nightly_summaries.py:16"

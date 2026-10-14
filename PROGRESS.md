@@ -198,3 +198,8 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   (DECISIONS D15: snapshot race, Flex/fallback either/or, applied unlock re-id, re-apply count, repo-specific budget,
   audited policy applies); per-card button now says Approve. Done when: both e2e summaries report quick gate ok and
   `finish` OK after Apply; tests/test_improve_v3.py (8); `bash scripts/done_check_v3_improve.sh` PASS.
+- **Dashboard rebuilt for interpretability** (router_migrate/dashboard/view.py, page.html; DECISIONS D16): Router-console
+  frame, Overview / Migrate / Improve / Decisions with setup and audit secondary, one status vocabulary, word-level code diffs
+  for every call and change, request-body diffs for every improvement, agent assumptions with the lines read, either/or as
+  one choice. Fixed the unlock double wrap and agent-move attribution. Done when: tests/test_dashboard_view.py (4) and the
+  full suite pass, live approve + Apply work in a browser, all reports re-rendered, `bash scripts/done_check_v3_improve.sh` PASS.

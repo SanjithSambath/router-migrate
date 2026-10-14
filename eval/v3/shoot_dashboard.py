@@ -3,8 +3,9 @@
 
   .venv/bin/python eval/v3/shoot_dashboard.py <REPORT.html> <outdir> <prefix> [--width 1440 --height 1100]
 
-Writes <prefix>-overview.png, -improve.png (scrolled to the lever grid), -improve-card.png (the first card with agent
-rationale), -improve-conflict.png (an either/or card, when there is one), -setup.png, -migration.png (scrolled to the agent ledger). Network blocked except Google Fonts."""
+Writes <prefix>-overview.png, -overview-steps.png, -migrate.png, -improve.png, -improve-card.png (the first improvement
+resting on an agent judgment), -decisions.png, -decisions-choice.png (an either/or pair, when there is one), -setup.png and
+-audit.png. Network blocked except Google Fonts."""
 import os
 import sys
 
@@ -29,25 +30,28 @@ with sync_playwright() as p:
 
     def tab(t):
         page.evaluate("t => { location.hash = t; }", t)
-        page.wait_for_selector('.tab[data-tab="%s"][aria-selected="true"]' % t)
+        page.wait_for_selector('.nav-item[data-tab="%s"][aria-current="page"]' % t)
         page.evaluate("() => window.scrollTo(0, 0)")
-        page.wait_for_timeout(200)
+        page.wait_for_timeout(250)
 
-    def shot(name, selector=None, offset=-90):
+    def shot(name, selector=None, offset=-40, full=False):
         if selector and page.query_selector(selector):
             page.evaluate("([s, o]) => { const e = document.querySelector(s); window.scrollTo(0, e.getBoundingClientRect().top + window.scrollY + o); }", [selector, offset])
-            page.wait_for_timeout(150)
+            page.wait_for_timeout(200)
         out = os.path.join(outdir, "%s-%s.png" % (prefix, name))
-        page.screenshot(path=out)
+        page.screenshot(path=out, full_page=full)
         print(out)
 
-    tab("overview"); shot("overview")
-    tab("improve"); shot("improve", ".levers", -230)
-    shot("improve-card", ".why2", -420)
-    if page.query_selector(".card .banner.warn"):  # an either/or pair (Flex vs fallbacks on one feature)
-        shot("improve-conflict", ".card .banner.warn", -520)
+    tab("overview"); shot("overview"); shot("overview-steps", ".steps", -120)
+    tab("migrate"); shot("migrate")
+    tab("improve"); shot("improve")
+    if page.query_selector(".imp .note.agent"):
+        shot("improve-card", ".imp:has(.note.agent)", -24)
+    tab("decisions"); shot("decisions")
+    if page.query_selector(".choice-pair"):
+        shot("decisions-choice", ".choice-pair", -60)
     tab("setup"); shot("setup")
-    tab("migration"); shot("migration", "h2", -40) if page.query_selector("h2") else shot("migration")
+    tab("audit"); shot("audit")
     b.close()
 if errors:
     sys.exit("page errors: %s" % errors)

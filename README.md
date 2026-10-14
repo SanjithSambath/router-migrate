@@ -46,8 +46,11 @@ router-migrate finish .               # the gate; reverts agent edits to the flo
 router-migrate improve . [--agent claude]   # Improve: cards for every Router lever from your judgments; --agent runs the judging session
 router-migrate judge FILE:LINE latency background --why "..." --evidence app/tasks.py:30   # latency | task | model | cacheable
 ```
-After the gate, `run --agent claude` continues into Improve and opens the dashboard (the whole run, a lever grid, cards
-with tool facts vs agent rationale, a repo-specific Router setup checklist). Approve cards there and click "Apply N
+After the gate, `run --agent claude` continues into Improve and opens the dashboard, a page in Router's console style:
+where the repo stands in one sentence, how each call reached Router (lossless, by the agent, unlocked, needs you, left in
+place) with the exact line that changed, every improvement as its code change beside its effect on the request body, what
+the agent assumed with the lines it read, and a Decisions page for what waits on you (Router setup and the audit trail sit
+below). Approve cards there and click "Apply N
 changes"; then run `finish` again. Results: [eval/v3/IMPROVE_RESULTS.md](eval/v3/IMPROVE_RESULTS.md); the whole loop end to
 end (run, approve and Apply in the browser, `finish`, the request each feature now sends): [eval/v3/e2e/](eval/v3/e2e/).
 On 10 fresh repos the agent + toolkit arm made 10 correct moves, 0 wrong, broke 0 repos ([eval/v3/RESULTS.md](eval/v3/RESULTS.md)).

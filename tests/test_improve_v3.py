@@ -199,3 +199,29 @@ def test_applied_unlock_stays_applied_after_its_call_moves(tmp_path):
     budget = next(i for i in improve.bundle(str(tmp_path))["setup"] if i["id"] == "setup.budget")["values"]
     assert "grok-4.3" in budget["list prices"] and "xai.py:generate" in budget["list prices"]
     assert int(budget["features behind this key"]) >= 3
+
+
+def test_unlock_on_an_already_wrapped_client_adds_its_option_once(tmp_path):
+    """In v3 the floor wraps every client; the stated-loss unlock must add drop_betas to that wrap, not wrap it again."""
+    sys.path.insert(0, os.path.join(ROOT, "tests"))
+    from test_v2 import FILES as V2
+    for rel, src in list(V2.items()) + [("tests/test_smoke.py", "def test_ok():\n    assert True\n")]:
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(src)
+    g = lambda *a: subprocess.run(["git"] + list(a), cwd=tmp_path, capture_output=True, check=True)
+    g("init", "-q")
+    g("add", "-A")
+    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    assert rm("run", str(tmp_path), "--skip-verify", cwd=tmp_path).returncode == 0
+    assert "_router_wrap_anthropic(Anthropic())" in (tmp_path / "svc/agent.py").read_text()  # the floor wrapped it
+    rm("improve", ".", cwd=tmp_path)
+    sys.path.insert(0, ROOT)
+    from router_migrate import improve
+    from router_migrate.catalog import Catalog
+    r = json.load(open(tmp_path / ".router-migrate" / "recommendations.json"))
+    card = next(c for c in r["cards"] if c["rule"] == "unlock.stated_loss")
+    improve.decide(str(tmp_path), card["id"], "approve", by="ui")
+    improve.apply_decisions(str(tmp_path), Catalog.load())
+    line = next(l for l in (tmp_path / "svc/agent.py").read_text().splitlines() if l.startswith("client ="))
+    assert line == "client = _router_wrap_anthropic(Anthropic(), drop_betas=['prompt-caching-2024-07-31'])", line

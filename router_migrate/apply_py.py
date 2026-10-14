@@ -115,8 +115,10 @@ class _Patcher(cst.CSTTransformer):
             return updated
         kind, opts = self.targets[key]
         kind = KIND_ALIAS.get(kind, kind)
-        if key in self.already:
-            self.done[key] = kind  # patched by an earlier run: counts as patched, nothing to do
+        pos = self.get_metadata(PositionProvider, original).start
+        if key in self.already or (pos.line, pos.column) in self.already:
+            # patched by an earlier run: counts as patched (an unlock adds its option to that wrap, above), nothing to do
+            self.done[key] = kind
             return updated
         if kind in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
             kws = self._wrap_kwargs(kind, opts)

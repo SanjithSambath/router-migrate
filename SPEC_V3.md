@@ -205,7 +205,7 @@ Same split, applied to optimization. After `finish` passes, `run --agent claude`
    Every card carries `tool_facts` and `agent_rationale` (with evidence) separately.
 4. **Setup checklist** made specific: features the Flex default and Jev apply to, Switchyard marked not applicable unless a
    feature is an agentic coding task, shadow pairs taken from the model cards, budgets.
-5. **Dashboard:** the whole run (floor → migrate → gate → improve → cards, with cost and time per phase), a grid of the six
+5. **Dashboard** (rebuilt for interpretability; D16): the whole run (floor → migrate → gate → improve → cards, with cost and time per phase), a grid of the six
    levers (cards, best impact, or why none), cards with facts vs rationale. Apply runs `apply --decisions` plus a quick
    scope gate and records `applied_at`; edits from approved decisions are in scope for `finish` and audited in the ledger.
 6. **Either/or cards.** Flex and fallbacks on one feature are one choice, not two: Router serves a request carrying a

@@ -107,12 +107,12 @@ def drive(root, outdir, approve=None, prefix="e2e", log=print):
             page = ctx.new_page()
             page.on("pageerror", lambda e: errors.append(str(e)))
             page.goto(url + "#improve", wait_until="load")
-            page.wait_for_selector('.tab[data-tab="improve"][aria-selected="true"]')
+            page.wait_for_selector('.nav-item[data-tab="improve"][aria-current="page"]')
             for c in cards:
                 sel = 'button[data-act="decide"][data-a="approve"][data-id="%s"]' % c["id"]
                 page.locator(sel).scroll_into_view_if_needed()
                 page.locator(sel).click()
-                page.wait_for_selector(sel + ':has-text("Approved")')
+                page.wait_for_selector('#imp-%s .pill.solar' % c["id"])  # "Approved · apply to go live"
                 log("approved in the UI: %s  %s" % (c["id"], c["title"][:100]))
             page.evaluate("() => window.scrollTo(0, 0)")
             if not cards:  # nothing migrated, or nothing applicable: the page says so; Apply stays disabled
@@ -120,9 +120,9 @@ def drive(root, outdir, approve=None, prefix="e2e", log=print):
                 b.close()
                 raise _Nothing()
             page.screenshot(path=os.path.join(shots, "%s-approved.png" % prefix))
-            page.locator('button[data-act="apply"]').click()
-            page.wait_for_selector(".pane.result", timeout=300000)
-            panel = page.locator(".pane.result")
+            page.locator('.sticky button[data-act="apply"]').click()
+            page.wait_for_selector(".panel.result", timeout=300000)
+            panel = page.locator(".panel.result")
             panel.scroll_into_view_if_needed()
             page.evaluate("() => window.scrollBy(0, -120)")
             page.wait_for_timeout(2500)  # let the toast fade

@@ -469,14 +469,16 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     r = load(root, "recommendations.json", {"cards": [], "considered_not_recommended": [], "signals": {}})
     dec = load(root, "decisions.json", {"cards": {}})
     unlocks = load(root, "unlocks.json", {"sites": {}})
-    diff = open(sp(root, "apply.diff")).read() if os.path.exists(sp(root, "apply.diff")) else ""
+    floor_diff = open(sp(root, "apply.diff")).read() if os.path.exists(sp(root, "apply.diff")) else ""
+    post_diff = ""
     if v3:
         try:
             from . import agent as agent_mod
             led0 = load(root, "ledger.json")
-            diff += agent_mod.diff_since(root, led0["floor"]["tree"])  # the agent's edits on top of the floor
+            post_diff = agent_mod.diff_since(root, led0["floor"]["tree"])  # the agent's edits (and applied decisions) on the floor
         except Exception:
             pass
+    diff = floor_diff + post_diff
     prod = [s for s in plan["sites"] if s.get("prod")]
     sm = plan.get("summary") or {}
     unsupported_surfaces = ("embeddings", "images", "audio", "files", "batches", "vector_stores", "assistants", "moderations", "completions.legacy", "models")
@@ -508,7 +510,7 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
                   "result": led.get("result"), "cost": led.get("cost") or {},
                   "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
-    return {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
+    b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),
@@ -520,3 +522,12 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
             "run": run_summary(root),
             "policy": {"exists": status_report["policy_file"], "hash": status_report["policy_hash"],
                        "compiled_hash": (status_report["compiled"][0]["hash"] if status_report["compiled"] else None), "orphans": status_report["orphans"]}}
+    # the dashboard's plain-language view: every call and how it reached Router, every improvement with its code change and
+    # its effect on a request, every agent assumption; a failure here must not take the dashboard down, so it is reported
+    try:
+        from .dashboard import view as view_mod
+        floor_sites = (load(root, "plan.json") or {}).get("sites") if v3 else None  # the floor's plan, before any agent ran
+        b["view"] = view_mod.build(b, root, floor_diff, post_diff, prod, unlocks["sites"], floor_sites)
+    except Exception as e:  # pragma: no cover - surfaced in the page and in tests
+        b["view"], b["view_error"] = None, "%s: %s" % (type(e).__name__, e)
+    return b

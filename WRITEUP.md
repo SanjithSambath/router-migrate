@@ -101,6 +101,18 @@ feature are either/or** (Router serves a models list without Flex), which the ca
 (DECISIONS D15). It also showed agent variance plainly: the same command on chatgpt-telegram-bot migrated its 4
 per-tenant-credential sites once and flagged them once; both passed the gate, and that call should be the user's.
 
+**The dashboard, rebuilt for interpretability** (router_migrate/dashboard/view.py + page.html; screenshots in
+eval/v3/screenshots/). It now reads like a page of Router's console: a sidebar (Overview, Migrate, Improve, Decisions; Router
+setup and the Audit trail below), one headline sentence ("All 4 LLM calls now go through Router."), five stat tiles, and a
+"How your traffic moved" diagram from each provider to Router where the line's color says how each call got there. Every
+call has one status from a fixed vocabulary: moved lossless (by the rules, before any agent ran), moved by the agent,
+unlocked (in Improve, after you accepted a trade-off), needs your decision, or left in place, with the reason in a plain
+sentence and the exact line that changed as a word-level diff. Every improvement shows the code or router.policy.json line
+it writes next to its effect on the request body (`- model` / `+ models: [...]`, `+ allow_flex_tier: true`), the agent
+judgment it rests on with the lines the agent read, and its trade-off; either/or pairs are presented as one choice. Building
+it surfaced two more defects, both fixed with tests: an unlock on a client the floor had already wrapped wrapped it twice,
+and agent moves were credited to the rules when the agent's claim kept the line from before its own edit (DECISIONS D16).
+
 ## Results on the 15 pinned repos (9 Python, 6 TS)
 
 | | v1 (automatic) | v2 MVP (every unlock and same-model card approved) |
@@ -194,7 +206,8 @@ per-tenant-credential sites once and flagged them once; both passed the gate, an
 5. **(Fixed after the eval) stale lines after `wrap`.** `wrap` inserts an import block, which moved the calls below it while
    the worklist kept the old line numbers, so agents claimed some calls twice (once at the stale line, recorded
    "unconfirmed"); `wrap` now remaps the ledger's lines in the file it edits. Harmless to scoring, noisy in the ledger
-   (eval/v3/screenshots/chatgpt-telegram-bot-migration-ledger.png).
+   (the Audit trail page, eval/v3/screenshots/chatgpt-telegram-bot-audit.png). The dashboard now credits such moves from
+   the floor plan, not the stale claim line.
 6. **Per-patch drop** instead of whole revert, if runs show agents mixing good and bad edits in one session (Track 1 did not).
 7. **Earlier v1/v2 items still open**: fix the held-out findings (aliased imports, wrappers, config defaults, the TS
    import-suffix rule, templates); the v2 evidence ladder (L2 replay with a judge, shadow configs, observe mode) and P4

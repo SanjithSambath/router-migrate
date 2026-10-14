@@ -104,7 +104,7 @@ each feature now sends, built offline by the repo's own vendored runtime (nothin
 | repo | floor -> routes now | migrate agent | gate | improve agent | cards (levers) | approved in the UI -> applied | quick gate | `finish` after Apply |
 |---|---|---|---|---|---|---|---|---|
 | sec-insights (fresh) | 2 -> 2 | $0.69, 5.9 min | 15/15 tests | 2 judged, $0.32, 1.5 min | 5 (3) | 3 -> 3 | ok | OK, 15/15 |
-| showcase | 2 -> 2, 4 with unlocks | $0.27, 1.5 min | 1/1 | 2 judged, $0.38, 3.6 min | 10 (6) | 6 -> 6 | ok | OK, 1/1 |
+| showcase | 2 -> 2, 4 with unlocks | $0.41, 1.3 min | 1/1 | 2 judged, $0.37, 1.8 min | 10 (6) | 6 -> 6 | ok | OK, 1/1 |
 
 What each routed feature sends after Apply (eval/v3/e2e/<repo>/policy_probe.json):
 - **showcase** `nightly_summaries.py:summarize_all` (background): `gpt-5.4-mini` with `allow_flex_tier: true` and its
