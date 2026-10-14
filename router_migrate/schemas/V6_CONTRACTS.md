@@ -82,7 +82,8 @@ Rules (enforced by `validate_report`):
 - `apply` is valid for `improvement` items; `undo` for any item already in the code (migration items, applied
   improvements); `dismiss`/`postpone` for improvements and needs-decision items.
 - `etag` = `report_v6.item_etag(item)`; a request whose etag no longer matches is shown as stale.
-- `session` is set to the apply session id once a session has taken the request.
+- `session` is set to the apply session id when a session takes the request, with `state: "running"`; when the
+  session's `apply --done` passes, `state` becomes `"done"`. A request with a session is no longer pending.
 
 ## `APPLY.json` (written by the agent at the end of an apply session) and `apply_log.json`
 
@@ -109,6 +110,7 @@ and appends a session to `apply_log.json`:
 | `undo requested` | request `undo` not yet taken by a finished session |
 | `undone` | an apply session result `done` for `undo` |
 | `dismissed` / `postponed` | request of that action |
+| `in session` | its request was taken by an apply session that hasn't finished |
 | `declined` | the latest session result for it is `declined` or `failed` (the note says why) |
 | `check failed` | an improvement whose branch failed validation |
 | `info` | `stays`, `needs-decision`, `note` with no request |

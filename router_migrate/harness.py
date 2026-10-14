@@ -810,7 +810,21 @@ def cmd_apply(a):
         return AG.err(False, "no v6 migration here", "start with `router-migrate start .`")
     if getattr(a, "done", False):
         return apply_done(root, a)
+    if led.get("apply"):  # a session is open (started, or its check failed): carry on with the same requests
+        pend = led["apply"]
+        rq = (R.load(root, "requests.json", {"requests": {}}) or {}).get("requests") or {}
+        pending = {i: rq[i] for i in pend["requests"] if i in rq}
+        prompt = _prompt("apply.md", REQUESTS=_requests_text(root, pending), CONTEXT=_apply_context(root, led))
+        print("(apply session %s is still open: finish it, then run `router-migrate apply --done`)\n" % pend["id"])
+        if getattr(a, "agent", None):
+            info = _launch(root, prompt, getattr(a, "model", None), getattr(a, "agent_timeout", None) or 2700)
+            return apply_done(root, a, runs=[info])
+        print(prompt)
+        return 0
     pending = R.pending_requests(root)
+    if getattr(a, "session", None):  # launched by the dashboard: its requests are already marked for this session
+        rq = (R.load(root, "requests.json", {"requests": {}}) or {}).get("requests") or {}
+        pending.update({i: r for i, r in rq.items() if r.get("session") == a.session and r.get("state") == "running"})
     if not pending:
         print("apply: nothing to do (approve or mark items for undo on the dashboard, or `router-migrate request ITEM ACTION`)")
         return 0
@@ -826,10 +840,11 @@ def cmd_apply(a):
         print("apply: needs %s checked out with no uncommitted changes" % MIGRATION_BRANCH)
         return 1
     log = R.load(root, "apply_log.json", {"sessions": []})
-    sid = "A%d" % (len(log.get("sessions") or []) + 1)
+    sid = getattr(a, "session", None) or "A%d" % (len(log.get("sessions") or []) + 1)
     led["apply"] = {"id": sid, "requests": sorted(pending), "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "head": _g(root, "rev-parse", "HEAD")}
     AG.save_ledger(root, led)
+    R.take_requests(root, sorted(pending), sid)
     if os.path.exists(AG.sp(root, "APPLY.json")):
         os.remove(AG.sp(root, "APPLY.json"))
     prompt = _prompt("apply.md", REQUESTS=_requests_text(root, pending), CONTEXT=_apply_context(root, led))
@@ -891,11 +906,7 @@ def apply_done(root, a, runs=None):
                  "then run `router-migrate apply --done` again:" % pend["id"]]
         lines += ["  [%s] %s" % (f["gate"], f["detail"][:500]) for f in m["failures"]]
         return fail(lines)
-    rq = R.load(root, "requests.json", {"requests": {}})
-    for r in doc.get("results") or []:
-        if r.get("item") in rq["requests"] and r.get("item") in pend["requests"]:
-            rq["requests"][r["item"]]["session"] = pend["id"]
-    R.save(root, "requests.json", rq)
+    R.finish_requests(root, pend["requests"], pend["id"])
     led = _ledger(root)
     led.pop("apply", None)
     led.setdefault("sessions", []).append({"kind": "apply", "id": sess["id"], "at": sess["finished"], "ok": m["ok"]})
@@ -925,7 +936,11 @@ def launch_apply(root):
     if _claude_logged_in():
         log = R.load(root, "apply_log.json", {"sessions": []})
         sid = "A%d" % (len(log.get("sessions") or []) + 1)
-        _detach(root, ["apply", root, "--agent", "claude"], "apply_session.log")
+        R.take_requests(root, sorted(R.pending_requests(root)), sid)  # in session from now; a second Apply is refused
+        led = _ledger(root)
+        led["apply_launch"] = {"id": sid, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        AG.save_ledger(root, led)
+        _detach(root, ["apply", root, "--agent", "claude", "--session", sid], "apply_session.log")
         return {"mode": "headless", "session": sid, "log": AG.sp(root, "apply_session.log")}
     return {"mode": "command", "command": "/router-migrate apply"}
 

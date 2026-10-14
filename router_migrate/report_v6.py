@@ -231,8 +231,26 @@ def clear_request(root, item_id):
     save(root, "requests.json", rq)
 
 
+def take_requests(root, ids, session):
+    """Mark requests as taken by an apply session that is starting (the dashboard then shows them "in session")."""
+    rq = load(root, "requests.json", {"requests": {}})
+    for i in ids:
+        if i in rq["requests"]:
+            rq["requests"][i].update(session=session, state="running")
+    save(root, "requests.json", rq)
+
+
+def finish_requests(root, ids, session, state="done"):
+    rq = load(root, "requests.json", {"requests": {}})
+    for i in ids:
+        r = rq["requests"].get(i)
+        if r and r.get("session") == session:
+            r["state"] = state
+    save(root, "requests.json", rq)
+
+
 def pending_requests(root):
-    """Requests an apply session should act on: apply and undo not yet taken by a finished session."""
+    """Requests an apply session should act on: apply and undo not yet taken by a session."""
     rq = (load(root, "requests.json", {"requests": {}}) or {}).get("requests") or {}
     return {i: r for i, r in rq.items() if r.get("action") in ("apply", "undo") and not r.get("session")}
 
@@ -256,6 +274,8 @@ def item_status(item, requests, apply_log, validation):
     undone = bool(done) and done[-1].get("action") == "undo"
     if req and not req.get("session"):
         return {"apply": "approved", "undo": "undo requested", "dismiss": "dismissed", "postpone": "postponed"}[req["action"]]
+    if req and req.get("state") == "running":
+        return "in session"
     if last and last.get("status") in ("declined", "failed"):
         return "declined"
     if undone:

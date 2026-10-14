@@ -306,6 +306,7 @@ def main(argv=None):
             sp.add_argument("--agent", choices=["claude"], help="run the apply session headless instead of printing it")
             sp.add_argument("--model")
             sp.add_argument("--agent-timeout", type=int, default=2700)
+            sp.add_argument("--session", help=argparse.SUPPRESS)
         if name == "run":
             sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
             sp.add_argument("--typecheck-cmd", help="typecheck command; its error count is the baseline finish compares against")
