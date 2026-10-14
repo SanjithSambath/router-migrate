@@ -1,0 +1,158 @@
+{
+  "sites": [
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:301",
+      "outcome": "migrated",
+      "levers": ["wrap_openai"],
+      "loses": "none",
+      "why": "ChatOpenAI.prepare_client (async branch) now returns _router_wrap_openai(AsyncOpenAI(**params)). Verified with check --run: ChatOpenAI.invoke and StructuredOutputChatOpenAI.invoke (which share this prepare_client) both send valid /v1/responses requests to the router simulator. Falls back to the real OpenAI client untouched for anything Router can't serve (n>1, logprobs, unknown models, etc.), so no behavior is lost."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:312",
+      "outcome": "migrated",
+      "levers": ["wrap_openai"],
+      "loses": "none",
+      "why": "ChatOpenAI.prepare_client (sync branch) now returns _router_wrap_openai(OpenAI(**params)). Same verification as line 301. This client is shared by ChatOpenAI.openai_response/aopenai_response (scanner lines 334/338) and StructuredOutputChatOpenAI.openai_response/aopenai_response (scanner lines 414/420), both of which now route."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:451",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "AzureChatOpenAI.prepare_client builds AzureOpenAI/AsyncAzureOpenAI. `router-migrate wrap` refused this site ('AzureOpenAI has no deterministic wrap') and router_runtime.wrap_openai() explicitly no-ops on Azure client instances ('Azure deployments ... stay on their configured endpoint'). Confirmed with check --run against a live AzureChatOpenAI instance: 0 requests reached the router simulator, all 3 went to the configured azure host. Azure deployments are tied to a specific enterprise Azure tenant/resource (data residency, private networking, compliance terms) and addressed by an arbitrary per-tenant deployment name, not a Router catalog model id -- rerouting would silently move inference off that tenant's Azure boundary. needs_decision: a human who knows this deployment's compliance requirements should decide whether it may leave Azure at all, and if so provide the azure_deployment -> Router catalog model id mapping."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:26",
+      "outcome": "migrated",
+      "levers": ["wrap_langchain"],
+      "loses": "none",
+      "why": "LCChatMixin.__init__ (and the __setattr__ rebuild path) now wraps the constructed langchain object with router_runtime.wrap_langchain(), which inspects root_client/_client attributes and calls wrap_openai/wrap_anthropic on whichever SDK client it finds inside. This is a single shared mixin used by 6 subclasses with different outcomes per vendor (see below); the wrap itself is a safe no-op for vendors it doesn't recognize. Verified with check --run: LCChatOpenAI.invoke sent a valid /v1/responses request (model=gpt-4o-mini) and LCAnthropicChat.invoke sent a valid /v1/messages request (model=claude-sonnet-4-5) to the router simulator."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:191 (LCChatOpenAI)",
+      "outcome": "migrated",
+      "levers": ["wrap_langchain"],
+      "loses": "none",
+      "why": "langchain_openai.ChatOpenAI built via the mixin above; wrap_langchain finds its internal openai.OpenAI client and routes it. Reachable from production via libs/ktem (selectable LLM vendor)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:219 (LCAzureChatOpenAI)",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "langchain_openai.AzureChatOpenAI built via the same mixin; wrap_langchain's wrap_openai step explicitly excludes AzureOpenAI/AsyncAzureOpenAI instances, so this stays on its configured Azure endpoint -- same reasoning as the direct AzureChatOpenAI class above (needs_decision for a human with Azure tenant/compliance context)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:249 (LCAnthropicChat)",
+      "outcome": "migrated",
+      "levers": ["wrap_langchain"],
+      "loses": "none",
+      "why": "langchain_anthropic.ChatAnthropic built via the mixin; wrap_langchain finds its internal anthropic.Anthropic/AsyncAnthropic client and routes it. Confirmed by check --run (see site :26). Reachable from production via libs/ktem/ktem/llms/manager.py (registered LLM vendor)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:287 (LCGeminiChat)",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "langchain_google_genai.ChatGoogleGenerativeAI talks to Google's Gemini API, a different request/response shape than OpenAI Chat Completions/Responses or Anthropic Messages. Router serves only /v1/responses and /v1/messages; wrap_langchain's client-sniffing only recognizes openai.* and anthropic.* SDK client instances, so this is architecturally out of reach without Google shipping (and this app using) an OpenAI-compatible endpoint. Registered as a production LLM vendor in libs/ktem."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:331 (LCCohereChat)",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "langchain_cohere.ChatCohere talks to Cohere's native chat API, not an OpenAI/Anthropic-shaped endpoint Router can translate. Same reasoning as Gemini above. Registered as a production LLM vendor in libs/ktem."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:363 (LCOllamaChat)",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "langchain_ollama.ChatOllama talks to a local Ollama server (base_url defaults to localhost). This is exactly the local/self-hosted-model case the migration should not force onto a cloud router -- the feature is running your own model locally."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/completions/langchain_based.py:19",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "LCCompletionMixin builds langchain_openai.OpenAI / AzureOpenAI, which call the legacy /v1/completions endpoint (default model text-davinci-003). Router's facts explicitly list legacy completions as unserved -- no endpoint exists to route to regardless of client wrapping. Exported as kotaemon.llms.OpenAI/AzureOpenAI but not wired into the shipped ktem app's vendor list."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/openai.py:194",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "openai.embeddings.create -- hard limit, Router has no embeddings endpoint."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/openai.py:257",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Azure OpenAI embeddings.create -- hard limit (embeddings), also Azure-hosted."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/langchain_based.py:16",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "LCEmbeddingMixin builds OpenAIEmbeddings/AzureOpenAIEmbeddings/CohereEmbeddings/GoogleGenerativeAIEmbeddings/MistralAIEmbeddings (plus local HuggingFaceBgeEmbeddings) via langchain. All are embeddings calls -- hard limit regardless of vendor or wrapping. Several (Cohere/Google/Mistral) are registered production vendors in libs/ktem/ktem/embeddings/manager.py."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/voyageai.py:51",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "voyageai.Client/AsyncClient embeddings call -- hard limit (embeddings)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/endpoint_based.py:34",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Raw requests.post to a user-configured, unauthenticated 'OpenAI-compatible' embeddings endpoint -- hard limit (embeddings) independent of which backend endpoint_url actually points at."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/rerankings/cohere.py:49",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "cohere.Client rerank call -- Router has no reranking endpoint. Registered as a production reranking vendor in libs/ktem."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/indices/rankings/cohere.py:45",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Duplicate/legacy cohere.Client rerank call; not imported by the shipped ktem app (which only reuses LLMReranking/LLMTrulensScoring, backed by the already-covered ChatLLM classes). Even if reachable, Router has no reranking endpoint."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/rerankings/voyageai.py:43",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "voyageai.Client rerank call -- Router has no reranking endpoint. Registered as a production reranking vendor in libs/ktem."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/loaders/utils/gpt4v.py:48",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "generate_gpt4v posts raw JSON straight to an Azure-OpenAI-style vision endpoint (api-key header, AZURE_OPENAI_API_KEY env var, caller-supplied full Azure resource URL) -- same Azure-tenant situation as AzureChatOpenAI above, just via requests instead of the SDK. Used in production by the Adobe PDF loader to caption figures. needs_decision: same as the Azure chat clients -- a human with the Azure tenant's compliance context would need to approve moving this off Azure, plus a mapping from the caller's deployment to a Router catalog model id, since there's no SDK client here for the runtime to patch."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/loaders/utils/gpt4v.py:99",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "stream_gpt4v -- same endpoint/auth pattern and reasoning as line 48 (streaming variant)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/endpoint_based.py:59",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "EndpointChatLLM posts to an arbitrary, user-supplied endpoint_url with no API key at all -- this class exists specifically so the app can point at any OpenAI-API-compatible server, most commonly a local/self-hosted one (vLLM, TGI, LM Studio, etc.). There's no SDK client to patch and no reliable way to tell at migration time whether a given deployment's endpoint_url is actually OpenAI's hosted API; forcing this through Router by URL-sniffing would risk breaking the self-hosted case this class is for. Kept as-is -- the flexibility to hit any compatible endpoint is the point of this class."
+    }
+  ]
+}

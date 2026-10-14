@@ -1,0 +1,11 @@
+{
+  "sites": [
+    {
+      "site": "llmcord.py:287",
+      "outcome": "migrated",
+      "levers": ["wrap llmcord.py:156"],
+      "loses": "nothing observable: the wrap is fully transparent per-request — any configured model/provider that matches Router's catalog (e.g. openai/gpt-5.5) routes through Router, and every other request (local providers like ollama/lmstudio/vllm, azure-openai deployments, openrouter's non-catalog model ids, and any future provider added to config.yaml) still goes to its original base_url/api_key unchanged.",
+      "why": "the OpenAI client here is constructed dynamically inside on_message (llmcord.py:156) using whichever provider/model the server admin has selected via config.yaml or the /model command, so there is no single static client to migrate — wrapping the construction point lets every request attempt Router first and fall back per-request based on whether its model is a Router catalog id, without hardcoding any one provider's behavior."
+    }
+  ]
+}

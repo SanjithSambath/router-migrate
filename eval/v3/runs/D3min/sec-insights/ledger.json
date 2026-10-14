@@ -1,0 +1,132 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 15,
+   "seconds": 9.9
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/bin/python",
+  "test_cmd": "export OPENAI_API_KEY=sk-dummy AWS_KEY=dummy AWS_SECRET=dummy POLYGON_IO_API_KEY=dummy DATABASE_URL=postgresql://user:password@127.0.0.1:5432/llama_app_db S3_BUCKET_NAME=dummy-bucket S3_ASSET_BUCKET_NAME=dummy-assets CDN_BASE_URL=http://localhost:4566 RENDER=False LOG_LEVEL=INFO; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/tmp\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/pycache\" && cd backend && export HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/tmp\" PYTHONPYCACHEPREFIX=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/pycache\" OPENAI_API_KEY=sk-dummy AWS_KEY=dummy AWS_SECRET=dummy POLYGON_IO_API_KEY=dummy DATABASE_URL=postgresql://user:password@127.0.0.1:5432/llama_app_db S3_BUCKET_NAME=dummy-bucket S3_ASSET_BUCKET_NAME=dummy-assets CDN_BASE_URL=http://localhost:4566 RENDER=False LOG_LEVEL=INFO && unset OPENAI_BASE_URL OPENAI_API_BASE IS_PULL_REQUEST IS_PREVIEW_ENV && /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/bin/python -c \"import time,compileall,asyncio;t=time.time();n=0;assert all(compileall.compile_dir(x,quiet=1) for x in ('app','scripts','alembic','tests'));n+=1;import app.llama_index_settings as s;n+=1;import app.chat.engine as e;n+=1;import app.chat.tools as tl;n+=1;import app.main;n+=1;st=s._setup_llama_index_settings();assert st.llm.metadata.model_name and st.embed_model;n+=1;from uuid import uuid4;from llama_index.core.callbacks import CallbackManager,LlamaDebugHandler;from app.schema import Document,Conversation;d=Document(id=uuid4(),url='http://localhost/x.pdf',metadata_map={'sec_document':{'company_name':'Acme','company_ticker':'ACME','doc_type':'10-K','year':2023}});tl.get_api_query_engine_tool(d,CallbackManager([]));n+=1;e.get_s3_fs=lambda: None;e.build_doc_id_to_index_map=lambda *a,**k: asyncio.sleep(0,{});ce=asyncio.run(e.get_chat_engine(LlamaDebugHandler(),Conversation(id=uuid4(),messages=[],documents=[d])));assert ce is not None;n+=1;print('%d passed in %.2fs'%(n,time.time()-t))\" && /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/sec-insights/bin/python -c \"import sys,llama_index.llms as m;from llama_index.core.llms import ChatMessage;m.ChatMessage=ChatMessage;import pytest;sys.exit(pytest.main(['-q','-p','no:cacheprovider','tests/']))\"",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "backend/app/chat/engine.py:273": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/app/chat/engine.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 273,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Chat-facing OpenAIAgent's streaming chat LLM (llama_index.llms.openai.OpenAI), used for the main conversational agent with function-calling tools over SEC documents. Model is gpt-4o-mini, a standard catalog model. Wrapped the client's http_client/async_http_client with the Router runtime; check --all confirms it now routes. Streaming and function-calling both pass through Router's /v1/responses translation unchanged, so no functionality is given up."
+  },
+  "backend/app/llama_index_settings.py:14": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/app/llama_index_settings.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 14,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Global llama-index Settings.llm (llama_index.llms.openai.OpenAI) used for sub-question generation and default LLM calls across query engines. Model is gpt-4o-mini, a standard catalog model, so no model-map was needed. Wrapped the client's http_client/async_http_client with the Router runtime; check --all confirms it now routes. No functionality is given up."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 2.2,
+  "agent_turns": 17,
+  "agent_usd": 0.36313840000000003,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:49:51",
+ "edits": [
+  {
+   "at": "2026-10-14T13:50:22",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "backend/app/llama_index_settings.py",
+   "line": 14,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:50:24",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "backend/app/chat/engine.py",
+   "line": 273,
+   "native": false
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:52:21",
+    "gates": [],
+    "info": {
+     "report_sites": 2,
+     "sites": 2,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 15,
+      "seconds": 8.4
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 15,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "a835dd856180700ec094a2ffc2239551113f05fe"
+ },
+ "probes": {},
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "backend/app/llama_index_settings.py:14",
+   "backend/app/chat/engine.py:273"
+  ],
+  "failures": [],
+  "moved": 2,
+  "moved_sites": [
+   "backend/app/chat/engine.py:287",
+   "backend/app/llama_index_settings.py:28"
+  ],
+  "ok": true,
+  "report_sites": 2,
+  "reverted": [],
+  "sites_seen": 2,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/sec-insights",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

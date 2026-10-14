@@ -1,0 +1,118 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 7867,
+   "seconds": 134.4
+  },
+  "python": null,
+  "test_cmd": "unset OPENAI_API_KEY ANTHROPIC_API_KEY OPENAI_BASE_URL ANTHROPIC_BASE_URL; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-copilot/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-copilot/tmp\" && printf '{\"type\":\"commonjs\"}\\n' > \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-copilot/package.json\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-copilot/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-copilot/tmp\" HUSKY=0 ./node_modules/.bin/jest --ci --maxWorkers=50% --testTimeout=30000",
+  "typecheck_before": {
+   "errors": 0,
+   "exit": 0
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc -noEmit -skipLibCheck"
+ },
+ "cards": [],
+ "claims": {
+  "src/LLMProviders/ChatOpenRouter.ts:110": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/ChatOpenRouter.ts",
+   "levers": [],
+   "line": 110,
+   "loses": "Wrapping the `OpenAI` client built at ChatOpenRouter.ts:59 (via `router-migrate wrap src/LLMProviders/ChatOpenRouter.ts:59`) would, for OPENROUTERAI, intercept the user's own OpenRouter-key traffic to openrouter.ai and reroute catalog-matching models through the operator's Router key/account instead of the user's OpenRouter account; for COPILOT_PLUS it would bypass Brevilabs' own model gateway (BREVILABS_MODELS_BASE_URL), which the user reaches with their Copilot Plus license key and which the operator (Brevilabs) runs and bills independently of any Router relationship; for the LM_STUDIO fallback branch it would try to reach a local LM Studio server Router cannot physically serve.",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "`ChatOpenRouter` (constructed from chatModelManager.ts:455 via `CHAT_PROVIDER_CONSTRUCTORS`) is shared by three providers: OPENROUTERAI (user's own OpenRouter API key, direct to https://openrouter.ai), COPILOT_PLUS (the user's Plus license key against Brevilabs' own proxy at BREVILABS_MODELS_BASE_URL \u2014 the app's own operator-run proxy), and LM_STUDIO when `useResponsesApi === false` (a local LM Studio server). None of these is an operator-held direct-provider key with no proxy in front: OpenRouterAI is pure BYOK to a third party, Copilot Plus is already the app's own proxy (explicitly called out as a case to leave alone), and LM Studio is a local model Router can't reach. Taking the wrap here carries the same risk as chatModelManager.ts:455 \u2014 it would move user-owned-key or operator-proxy traffic onto the operator's Router key without the user choosing that, which the task's own guidance lists as something not to default into."
+  },
+  "src/LLMProviders/chatModelManager.ts:455": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/chatModelManager.ts",
+   "levers": [],
+   "line": 455,
+   "loses": "Routing through Ramp Router would mean replacing, for any requested model that happens to match Router's catalog, the credential and destination the user explicitly configured (their own OpenAI/Anthropic/Google/Cohere/XAI/Groq/Mistral/DeepSeek/SiliconFlow/custom-OpenAI-format key and endpoint, entered in plugin settings) with the operator's single RAMP_ROUTER_API_KEY and Router's endpoint. For the Ollama branch of the same dispatch, Router cannot reach a user's localhost model server at all.",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "This is the dynamic multi-provider dispatch (`new AIConstructor(constructorConfig)`) the scanner cannot see statically: `CHAT_PROVIDER_CONSTRUCTORS` picks a LangChain client class per `CustomModel.provider`, and every one of OPENAI, ANTHROPIC, GOOGLE, COHEREAI, XAI, GROQ, MISTRAL, DEEPSEEK, SILICONFLOW, and OPENAI_FORMAT is constructed with `apiKey: customModel.apiKey || providerApiKeyMap[provider]()` \u2014 i.e. a key the end user pasted into Obsidian Copilot's settings for their own account with that provider (see `providerApiKeyMap` at chatModelManager.ts:82-97). There is no operator-held key for any of these providers anywhere in this repository; the plugin's entire value proposition for cloud providers is BYOK, direct from the user's device to the provider they chose, billed to their own account. Silently intercepting matching requests and re-sending them to Ramp's Router under the operator's own Router key (which only activates when the plugin maintainer sets RAMP_ROUTER_API_KEY in their build) would move the user's note content to a third party they never chose and move billing/liability from the user's provider account to the operator's Router account without the user's knowledge or consent \u2014 this is exactly the 'end user's own key where the app has no operator key' exclusion, and the loss (BYOK trust and direct-to-provider data flow) would be the product itself. Ollama in the same dispatch is additionally a local/self-hosted model Router cannot physically reach."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 7.2,
+  "agent_turns": 29,
+  "agent_usd": 0.920717,
+  "api_error": false,
+  "resumed": true
+ },
+ "created": "2026-10-14T13:38:24",
+ "edits": [],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:48:59",
+    "gates": [
+     "scope"
+    ],
+    "info": {
+     "sites": 1,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 7867,
+      "seconds": 22.4
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 7867,
+      "requests": 0,
+      "valid": 0
+     },
+     "typecheck": {
+      "errors": 0,
+      "exit": 0
+     }
+    },
+    "ok": false
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "f53614876d13c222a55f1bbbbebb7997f996f32c"
+ },
+ "probes": {},
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [
+   "scope"
+  ],
+  "moved": 0,
+  "moved_sites": [],
+  "ok": false,
+  "report_sites": 2,
+  "reverted": [
+   "src/agentMode/backends/shared/cliSignIn.test.ts"
+  ],
+  "sites_seen": 1,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/obsidian-copilot",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

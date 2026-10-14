@@ -1,0 +1,32 @@
+{
+  "name": "zillion",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --project \"$SRC\" --frozen --all-extras --no-hashes --no-emit-project --no-header -o \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -e \"$SRC\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && cd tests && env -u OPENAI_API_KEY -u ZILLION_OPENAI_API_KEY -u OPENAI_BASE_URL HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" ZILLION_CONFIG=test_config.yaml ZILLION_DB_URL=\"sqlite:///$ENV/tmp/zillion.db\" ZILLION_ADHOC_DATASOURCE_DIRECTORY=\"$ENV/tmp\" $PY -m pytest -q -p no:cacheprovider -n 4 --ignore=test_mysql.py --ignore=test_postgresql.py --deselect test_core.py::test_datasource_apply_config_table_data_url --deselect test_core.py::test_datasource_config_data_url --deselect test_core.py::test_datasource_config_data_url_replace_after --deselect test_core.py::test_datasource_config_table_data_url --deselect test_core.py::test_datasource_from_db_file --deselect test_core.py::test_datasource_metadata_and_table_data_url --deselect test_core.py::test_load_remote_wh_config --deselect test_core.py::test_load_wh_config_from_env --deselect test_core.py::test_reuse_existing_remote_table --deselect test_core.py::test_warehouse_from_data_file --deselect test_core.py::test_warehouse_from_db_file --deselect test_core.py::test_warehouse_remote_csv_table --deselect test_core.py::test_warehouse_remote_datasource_config --deselect test_core.py::test_warehouse_remote_google_sheet --deselect test_core.py::test_warehouse_remote_html_table --deselect test_core.py::test_warehouse_remote_json_table --deselect test_core.py::test_warehouse_remote_xlsx_table --deselect test_core.py::test_wh_load_allows_known_legacy_params --deselect test_core.py::test_wh_save_and_load --deselect test_example_wh_config.py::test_example_wh_init --deselect test_example_wh_config.py::test_example_wh_report1 --deselect test_example_wh_config.py::test_example_wh_report2 --deselect test_example_wh_config.py::test_example_wh_report3 --deselect test_reports.py::test_report_adhoc_metric_save_and_load --deselect test_reports.py::test_report_load_invalid_id --deselect test_reports.py::test_report_missing_adhoc_datasource_save_and_load --deselect test_reports.py::test_report_save_and_load --deselect test_reports.py::test_report_save_and_load_adhoc_datasource --deselect test_reports.py::test_report_save_with_meta --deselect test_reports.py::test_report_sub_report_by_id --deselect test_reports.py::test_report_sub_report_with_params --deselect test_scripts.py::test_bootstrap_datasource_config",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "notes": "Python 3.12.15 (requires-python >=3.10; uv.lock committed). Setup exports uv.lock with --all-extras (mysql, postgres, duckdb, agent = openai~=2.36 + openai-agents~=0.17.7, dev = pytest 7.1.2 + pytest-xdist) and installs the package editable --no-deps. No CI workflow in the repo; tests are run from tests/ (pytest.ini + test_config.yaml live there; paths in tests are relative to tests/). test_cmd: pytest -n 4 from tests/ with ZILLION_CONFIG=test_config.yaml and the DB_URL / adhoc datasource dir redirected into $ENV/tmp via ZILLION_* env overrides (the config's default is /tmp). Excluded: test_mysql.py and test_postgresql.py (need live MySQL/Postgres servers); 32 tests that fetch remote configs/data files from GitHub raw / Google Sheets (found by running under sandbox-exec with outbound network denied: all 32 failed with URLError/ConnectionError and nothing else did), deselected by id; the conftest itself deselects the 11 @agent tests that hit the live OpenAI Agents stack (and @longrun). OPENAI_API_KEY is unset because test_require_agent_test_environment_raises_when_api_key_missing expects it to be absent. Result: 237 passed, identical over 2 runs; also 237 passed with network blocked.",
+  "baseline": {
+    "passed": 237,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 9.4,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      9.4,
+      9.3
+    ]
+  }
+}

@@ -27,6 +27,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -299,12 +300,52 @@ def trial_d(label, name, out_dir):
             "cards": [{"kind": c["kind"], "site": c["site"]} for c in L.get("cards") or []], "result": L.get("result")}
 
 
+D3_ARMS = {"D3min": "min", "D3free": "free"}  # labels D3min / D3free (optionally _r<k>) -> `router-migrate run --arm`
+MIGRATION = os.path.join(".router-migrate", "MIGRATION.json")
+
+
+def trial_d3(label, name, out_dir):
+    """D3 harness: the agent picks its own method from facts + optional tools, from the untouched source, in one command:
+    `router-migrate run <dst> --agent claude --arm min|free` (baseline, `check --all` facts in the prompt, the agent, then for
+    `min` one final outside check + one resume + revert of what still fails). Its report is .router-migrate/MIGRATION.json."""
+    dst, rec = R.fresh_copy(name, label)
+    cmd = [R.RM, "run", dst, "--agent", "claude", "--arm", D3_ARMS[base(label)], "--agent-timeout", str(R.AGENT_TIMEOUT),
+           "--model", MODEL, "--test-cmd", R.test_cmd(rec, dst)] + \
+        (["--typecheck-cmd", R.typecheck_cmd(rec, dst)] if R.typecheck_cmd(rec, dst) else [])
+    try:
+        p = subprocess.run(cmd, env=R.agent_env(), capture_output=True, text=True, timeout=R.AGENT_TIMEOUT + 3600)
+        code, so, se = p.returncode, p.stdout or "", p.stderr or ""
+    except subprocess.TimeoutExpired as e:
+        code, so, se = "timeout", (e.stdout or b"").decode("utf-8", "replace") if isinstance(e.stdout, bytes) else (e.stdout or ""), ""
+    open(os.path.join(out_dir, "run_agent.log"), "w").write(so[-20000:] + se[-5000:])
+    led_p = os.path.join(dst, ".router-migrate", "ledger.json")
+    L = json.load(open(led_p)) if os.path.exists(led_p) else {}
+    cost = L.get("cost") or {}
+    for src, to in ((os.path.join(dst, ".router-migrate", "agent_transcript.jsonl"), "transcript.jsonl"), (os.path.join(dst, MIGRATION), "MIGRATION.json")):
+        if os.path.exists(src):
+            (shutil.move if to.startswith("transcript") else shutil.copy)(src, os.path.join(out_dir, to))
+    return {"exit": cost.get("agent_exit"), "usd": cost.get("agent_usd"), "turns": cost.get("agent_turns"), "model": MODEL,
+            "run_exit": code, "resumed": cost.get("resumed"), "api_error": cost.get("api_error"), "result": L.get("result"),
+            "claims": len(L.get("claims") or {}), "tradeoffs": len(L.get("tradeoffs") or [])}
+
+
+REVERIFY_TIMEOUT = int(os.environ.get("RM_REVERIFY_TIMEOUT", 120))  # per probe command: one slow probe can't stall scoring
+
+
+def _reverify_key(dst, led, cmds):
+    """What a reverify result depends on: the probe commands, the claims, the final code (the trial's diff vs its base),
+    and the per-probe timeout. Saved runs never change, so the same key means the same answer."""
+    import hashlib
+    diff = subprocess.run(R._PATCH_CMD, cwd=dst, shell=True, capture_output=True, text=True).stdout if os.path.isdir(os.path.join(dst, ".git")) else ""
+    blob = json.dumps({"cmds": cmds, "claims": led.get("claims") or {}, "diff": diff, "timeout": REVERIFY_TIMEOUT}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
 def reverify(dst, name):
     """The harness's own check of v4's dynamic evidence: re-run every probe command the agent recorded, on the final code,
     against a fresh router-sim, and return the migrated claims whose feature sent a valid request (pristine-mapped lines).
-    A claim the agent says was probed but that doesn't reproduce here earns nothing."""
-    from router_migrate import agent as AGv4
-    from router_migrate.sim.server import serve
+    A claim the agent says was probed but that doesn't reproduce here earns nothing. Cached per run in
+    <runs>/<label>/<repo>/reverify.json (keyed by probes + claims + final diff); RM_REVERIFY_CACHE=0 re-runs."""
     led_p = os.path.join(dst, ".router-migrate", "ledger.json")
     if not os.path.exists(led_p):
         return []
@@ -312,30 +353,56 @@ def reverify(dst, name):
     cmds = sorted({pr["cmd"] for pr in (led.get("probes") or {}).values() if pr.get("cmd")})
     if not cmds:
         return []
+    cache_p = os.path.join(R.RUNS, os.path.basename(os.path.dirname(os.path.abspath(dst))), name, "reverify.json")
+    key = _reverify_key(dst, led, cmds)
+    use_cache = os.environ.get("RM_REVERIFY_CACHE", "1") != "0"
+    if use_cache and os.path.exists(cache_p):
+        try:
+            c = json.load(open(cache_p))
+            if c.get("key") == key:
+                return c["sites"]
+        except (ValueError, KeyError):
+            pass
+    out = _reverify(dst, name, led, cmds)
+    if os.path.isdir(os.path.dirname(cache_p)):
+        json.dump({"key": key, "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "probes": len(cmds), "timeout_s": REVERIFY_TIMEOUT, "sites": out},
+                  open(cache_p, "w"), indent=1)
+    return out
+
+
+def _reverify(dst, name, led, cmds):
+    from router_migrate import agent as AGv4
+    from router_migrate.sim.server import serve
     srv, sim, base = serve()
     try:
         env = AGv4.probe_env(dst, led, base)
         pin = "export RAMP_ROUTER_API_KEY=%s RAMP_ROUTER_BASE_URL=%s OPENAI_API_KEY=%s ANTHROPIC_API_KEY=%s; " % (
             env["RAMP_ROUTER_API_KEY"], env["RAMP_ROUTER_BASE_URL"], env["OPENAI_API_KEY"], env["ANTHROPIC_API_KEY"])
         for c in cmds:
+            # own process group, killed whole on timeout: a hung probe (e.g. jest waiting on an open handle) must not
+            # outlive the check
+            pr = subprocess.Popen(AGv4.test_env_prefix(led) + pin + c, shell=True, cwd=dst, env=env, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, start_new_session=True)
             try:
-                subprocess.run(AGv4.test_env_prefix(led) + pin + c, shell=True, cwd=dst, env=env, capture_output=True, text=True, timeout=300)
+                pr.wait(timeout=REVERIFY_TIMEOUT)
             except subprocess.TimeoutExpired:
-                pass
+                try:
+                    os.killpg(pr.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                pr.wait()
         recs = [x for x in sim.records if x.get("path", "").startswith("/v1/")]
     finally:
         srv.shutdown()
     probe_led = {"claims": led.get("claims") or {}, "worklist": [], "proposals": []}
     hits = set(AGv4.confirm_from_records(dst, probe_led, recs, "harness", p=AGv4.current_plan(dst)))
-    pristine = os.path.join(R.RE.WORK, "pristine", name)
-    out, maps = [], {}
+    pm = R.PristineMap(dst, name)
+    out = []
     for c in (led.get("claims") or {}).values():
         k = "%s:%d" % (c["file"], int(c["line"]))
         if c.get("outcome") != "migrated" or k not in hits:
             continue
-        if c["file"] not in maps:
-            maps[c["file"]] = R.line_map(os.path.join(pristine, c["file"]), os.path.join(dst, c["file"]))
-        ln = maps[c["file"]](int(c["line"])) if maps[c["file"]] else int(c["line"])
+        ln = pm(c["file"], int(c["line"]))
         out.append({"file": c["file"], "line": ln, "line_now": int(c["line"]), "prod": True, "outcome": "migrated", "surface": "chat",
                     "kind": "call", "reason": "dynamic: the harness re-ran the agent's probe on the final code and saw a valid request"})
     return out
@@ -349,7 +416,7 @@ def measure(dst, name):
     in the trial's agent.json as `static_only` so both numbers are reported."""
     static = _orig_measure(dst, name)
     label = os.path.basename(os.path.dirname(dst))
-    if base(label) != "D":
+    if base(label) not in ("D",) + tuple(D3_ARMS):
         return static
     dyn = [d for d in reverify(dst, name) if not any(s["file"] == d["file"] and abs(int(s["line"]) - int(d["line"])) <= 3
                                                    and s.get("outcome") == "migrated" for s in static)]
@@ -372,8 +439,8 @@ def dry_run(label, name):
     install is pointed back at the prepared clone (where RE.prepare leaves it)."""
     rp, rec = R.repos()[name], R.recipe(name)
     b = base(label)
-    if b not in ("B2", "C", "Cnf", "D"):
-        raise SystemExit("unknown arm %r (labels are B2_r<k>, C_r<k>, Cnf_r<k>, D_r<k>)" % label)
+    if b not in ("B2", "C", "Cnf", "D") + tuple(D3_ARMS):
+        raise SystemExit("unknown arm %r (labels are B2_r<k>, C_r<k>, Cnf_r<k>, D_r<k>, D3min[_r<k>], D3free[_r<k>])" % label)
     info = {"set": R.EVAL_SET, "repo": rp.get("repo") or rp.get("url"), "commit": rp["commit"], "lang": rec.get("lang"),
             "runs_dir": os.path.join(R.RUNS, label, name), "trial_dir": os.path.join(R.TRIALS, label, name),
             "pristine": os.path.isdir(os.path.join(R.RE.WORK, "pristine", name)), "env": os.path.isdir(os.path.join(R.RE.WORK, "envs", name)),
@@ -392,6 +459,10 @@ def dry_run(label, name):
             info["agent"] = "claude -p <prompt_B2.md> + Stop hook gate (model %s)" % MODEL
         elif b == "C":
             info["agent"] = "%s run <dst> --agent claude --skip-improve --model %s" % (R.RM, MODEL)
+        elif b in D3_ARMS:
+            info["agent"] = "%s run <dst> --agent claude --arm %s --model %s --test-cmd %s%s" % (
+                R.RM, D3_ARMS[b], MODEL, shlex.quote(info["test_cmd"]),
+                (" --typecheck-cmd %s" % shlex.quote(info["typecheck_cmd"])) if info["typecheck_cmd"] else "")
         else:
             info["setup"] = "%s run <dst> %s--test-cmd %s%s" % (R.RM, "--no-floor " if b == "Cnf" else "", shlex.quote(info["test_cmd"]),
                                                              (" --typecheck-cmd %s" % shlex.quote(info["typecheck_cmd"])) if info["typecheck_cmd"] else "")
@@ -410,10 +481,9 @@ def trial(label, name):
         print("skip %s %s (done)" % (label, name), flush=True)
         return json.load(open(os.path.join(out_dir, "result.json")))
     R.baseline(name)
-    shutil.rmtree(out_dir, ignore_errors=True)
-    os.makedirs(out_dir, exist_ok=True)
+    R.clear_run_dir(out_dir)
     t0 = time.time()
-    agent = {"B2": trial_b2, "C": trial_c, "Cnf": trial_cnf, "D": trial_d}[base(label)](label, name, out_dir)
+    agent = dict({"B2": trial_b2, "C": trial_c, "Cnf": trial_cnf, "D": trial_d}, **{k: trial_d3 for k in D3_ARMS})[base(label)](label, name, out_dir)
     json.dump({"agent": agent, "minutes": round((time.time() - t0) / 60, 1)}, open(os.path.join(out_dir, "agent.json"), "w"),
               indent=1, default=str)
     return R.score_trial(label, name)
@@ -423,12 +493,66 @@ def trial(label, name):
 _orig_reported = R.reported_outcomes
 
 
+D3_OUTCOME = {"migrated": "migrated", "kept": "kept", "cannot_route": "kept", "needs_decision": "flagged"}
+
+
+def migration_entries(dst, out_dir=None):
+    """A D3 arm's report (.router-migrate/MIGRATION.json: {site, outcome, levers, loses, why}) as per-site judgments, or None
+    when there is no readable report (the copy saved beside the run is used when the tree is gone)."""
+    for p in (os.path.join(dst or "", MIGRATION), os.path.join(out_dir or "", "MIGRATION.json")):
+        if not os.path.exists(p):
+            continue
+        try:
+            d = json.load(open(p))
+        except ValueError:
+            return None
+        sites = d.get("sites") if isinstance(d, dict) else d
+        out = []
+        for s in sites if isinstance(sites, list) else []:
+            f, _, ln = str((s or {}).get("site") or "").strip("`").rpartition(":") if isinstance(s, dict) else ("", "", "")
+            if f and ln.isdigit() and s.get("outcome") in D3_OUTCOME:
+                out.append({"file": f, "line": int(ln), "outcome": D3_OUTCOME[s["outcome"]], "reason_code": s["outcome"],
+                            "why": s.get("why") or "", "levers": s.get("levers"), "loses": s.get("loses")})
+        return out
+    return None
+
+
+def decisions(arm, dst, name, out_dir=None):
+    """How many per-site decisions the arm's agent reported: MIGRATION.json entries (D3; ledger claims when there is no
+    report), MIGRATION_REPORT.json entries (B2), ledger claims (C/Cnf/D). None for arms with no decision channel (A, B,
+    B_prime: their code is their report). 0 means the agent decided nothing: the run is not scored from the rules' proposals."""
+    b = base(arm)
+    led_p = os.path.join(dst or "", ".router-migrate", "ledger.json")
+    if not os.path.exists(led_p) and out_dir:
+        led_p = os.path.join(out_dir, "ledger.json")
+    claims = lambda: len((json.load(open(led_p)).get("claims") or {})) if os.path.exists(led_p) else 0
+    if b in D3_ARMS:
+        e = migration_entries(dst, out_dir)
+        return len(e) if e else claims()
+    if b == "B2":
+        if not dst or not os.path.isdir(dst):
+            return None  # tree gone: the report can't be read, so this can't be judged
+        sites, _ = _report_entries(dst)
+        return len(sites) if sites is not None else 0
+    if b in ("C", "Cnf", "D"):
+        return claims()
+    return None
+
+
 def reported_outcomes(arm, dst, name, measured):
     """B2: the floor's plan overridden by MIGRATION_REPORT.json entries (exactly how C's plan is overridden by its claims).
-    C_r<k>: run_v3's C logic. Anything else: unchanged."""
+    C_r<k>: run_v3's C logic. D3: the code as it stands overridden by MIGRATION.json (ledger claims for a run without one).
+    Anything else: unchanged."""
     b = base(arm)
     if b == "C":
         return _orig_reported("C", dst, name, measured)
+    if b in D3_ARMS:
+        rep = [dict(s) for s in measured]
+        entries = migration_entries(dst, os.path.join(R.RUNS, arm, name))
+        if entries is None:
+            led_p = os.path.join(dst, ".router-migrate", "ledger.json")
+            entries = list((json.load(open(led_p)).get("claims") or {}).values()) if os.path.exists(led_p) else []
+        return _override(rep, [dict(c, _pristine=False) for c in entries], dst, name)
     if b in ("Cnf", "D"):  # no floor plan to start from: the code as it stands (measure-only), overridden by the ledger's claims
         rep = [dict(s) for s in measured]
         led_p = os.path.join(dst, ".router-migrate", "ledger.json")
@@ -445,8 +569,7 @@ def reported_outcomes(arm, dst, name, measured):
 def _override(rep, entries, dst, name):
     """Apply an arm's per-site judgments to a base report, exactly as run_v3 applies C's claims: lines mapped back to the
     pristine source, nearest site within 3 lines overridden, judged sites the base lacks appended (not_a_site never is)."""
-    pristine = os.path.join(R.RE.WORK, "pristine", name)
-    maps = {}
+    pm = R.PristineMap(dst, name)
     for c in entries:
         if not isinstance(c, dict) or not c.get("file") or not isinstance(c.get("line"), int) or c.get("outcome") not in AG.OUTCOMES:
             continue
@@ -454,9 +577,7 @@ def _override(rep, entries, dst, name):
         if c.get("_pristine"):  # floor_site from an old-convention FLOOR_REPORT: already a pristine line, as plan.json has it
             ln = int(c["line"])
         else:
-            if f not in maps:
-                maps[f] = R.line_map(os.path.join(pristine, f), os.path.join(dst, f))
-            ln = maps[f](int(c["line"])) if maps[f] else int(c["line"])
+            ln = pm(f, int(c["line"]))
         hit = [s for s in rep if s["file"] == f and abs(int(s["line"]) - ln) <= 3]
         outcome = "kept" if c["outcome"] == "not_a_site" else c["outcome"]
         why = "%s %s: %s" % (c["outcome"], c.get("reason_code") or "", c.get("why") or "")
@@ -498,12 +619,18 @@ def _rows(label_glob):
 
 
 def report():
-    by_label = {}
+    by_label, invalid = {}, {}
     for f in sorted(glob.glob(os.path.join(R.RUNS, "*", "*", "result.json"))):
         lab = f.split(os.sep)[-3]
         if lab == "baseline":
             continue
-        by_label.setdefault(lab, []).append(json.load(open(f)))
+        r = json.load(open(f))
+        sm = os.path.join(os.path.dirname(f), "sites_moved.json")
+        why = r.get("invalid") or (json.load(open(sm)).get("invalid") if os.path.exists(sm) else None)
+        if why:  # infrastructure failure or no agent decisions: not a measurement of the arm (counted separately)
+            invalid.setdefault(lab, []).append("%s: %s" % (r.get("repo"), why))
+            continue
+        by_label.setdefault(lab, []).append(r)
     keys = ("broken", "sites_moved", "sites_moved_correct", "sites_moved_wrong", "sites_moved_correct_adj", "sites_moved_wrong_adj",
             "reported_migrated", "reported_migrated_correct", "diff_lines", "usd", "minutes")
 
@@ -531,7 +658,7 @@ def report():
                       "correct_adj": r.get("sites_moved_correct_adj") or 0, "wrong_adj": r.get("sites_moved_wrong_adj") or 0,
                       "usd": r.get("usd") or 0, "minutes": r.get("minutes") or 0, "diff": r.get("diff_lines") or 0,
                       "agreement": r.get("reported_outcome_agreement")})
-    out = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": MODEL, "labels": labels, "per_repo": per_repo}
+    out = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "model": MODEL, "labels": labels, "per_repo": per_repo, "invalid": invalid}
     json.dump(out, open(os.path.join(HERE, "ablation_b2.json" if R.EVAL_SET == "v3" else "ablation_b2_%s.json" % R.EVAL_SET), "w"), indent=1, default=str)
 
     def fmt_arm(name):
@@ -564,6 +691,9 @@ def report():
             L.append("| %s (old, k=1) | %d | %d | %d | %d | %d | %s | %d | %.2f | %.0f | %d | %d |" % (
                 lab, t["broken"], t["sites_moved_correct"], t["sites_moved_wrong"], t["sites_moved_correct_adj"], t["sites_moved_wrong_adj"],
                 t["agreement_mean"], t["diff_lines"], t["usd"], t["minutes"], t["turns"], t["reverted"]))
+    if invalid:
+        L += ["", "Invalid runs excluded from every table (infrastructure failure, or the agent made no decisions): " +
+              "; ".join("%s %d (%s)" % (lab, len(v), ", ".join(v)[:300]) for lab, v in sorted(invalid.items()))]
     L += ["", "## Per repo (mean over replicates; B2 vs C)", "",
           "| repo | B2 correct | C correct | B2 wrong | C wrong | B2 broken runs | C broken runs | B2 $ | C $ | B2 min | C min |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]

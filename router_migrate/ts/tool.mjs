@@ -3,10 +3,12 @@
 //
 //   node router_migrate/ts/tool.mjs scan  <root>
 //   node router_migrate/ts/tool.mjs apply <root> --runtime <rendered routerRuntime.ts> --sites <json array of site ids>
+//   (an entry may be { id, opts } instead: approved runtime levers, e.g. { unlockHosts: ["api.x.ai"] }, passed as the
+//   second argument of routerOptions()/routerFetch() at that site)
 //
 // scan prints the site JSON described in router_migrate/SCHEMA.md (lang "ts").
 // apply patches only client construction sites so they take the vendored runtime's fetch
-// (routerOptions()/routerFetch()); call sites are never touched. See SCHEMA.md and research/sdk_surfaces.md (E, F).
+// (routerOptions()/routerFetch()); call sites are never touched. See SCHEMA.md and archive/research/sdk_surfaces.md (E, F).
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -920,14 +922,37 @@ function anyFetch(exprText, isJs) {
   return isJs ? `${exprText}?.fetch` : `(${exprText} as any)?.fetch`;
 }
 
+// RouterOpts a sites-file entry may carry (approved levers; see routerRuntime.ts RouterOpts)
+const SITE_OPTS = { operatorKeyOnly: "boolean", unlockHosts: "strings", dropBetas: "strings" };
+
+// The opts literal for a site ("" when none), or { error }.
+function optsText(opts) {
+  if (opts == null) return "";
+  if (typeof opts !== "object" || Array.isArray(opts)) return { error: "opts must be an object" };
+  const parts = [];
+  for (const [k, v] of Object.entries(opts)) {
+    const t = SITE_OPTS[k];
+    if (!t) return { error: `unknown opts key ${k}` };
+    if (t === "boolean" ? typeof v !== "boolean" : !Array.isArray(v) || !v.every((x) => typeof x === "string" && x)) return { error: `opts.${k} must be ${t === "boolean" ? "a boolean" : "an array of strings"}` };
+    if (v === false || (Array.isArray(v) && !v.length)) continue;
+    parts.push(`${k}: ${t === "boolean" ? v : `[${v.map((x) => JSON.stringify(x)).join(", ")}]`}`);
+  }
+  return parts.length ? `{ ${parts.join(", ")} }` : "";
+}
+
+// routerOptions()/routerFetch() argument list: the base fetch, then the site's opts literal if any.
+function rargs(base, o) {
+  return o ? `${base || "undefined"}, ${o}` : base;
+}
+
 // Inject router fetch into an options object literal. Returns action name.
-function patchObjectLiteral(sf, obj, isJs, edits, needs) {
+function patchObjectLiteral(sf, obj, isJs, edits, needs, o = "") {
   const fp = getProp(obj, "fetch");
   if (fp) {
     if (ts.isPropertyAssignment(fp)) {
-      edits.push({ start: fp.initializer.getStart(sf), end: fp.initializer.end, text: `routerFetch(${fp.initializer.getText(sf)})` });
+      edits.push({ start: fp.initializer.getStart(sf), end: fp.initializer.end, text: `routerFetch(${rargs(fp.initializer.getText(sf), o)})` });
     } else if (ts.isShorthandPropertyAssignment(fp)) {
-      edits.push({ start: fp.getStart(sf), end: fp.end, text: "fetch: routerFetch(fetch)" });
+      edits.push({ start: fp.getStart(sf), end: fp.end, text: `fetch: routerFetch(${rargs("fetch", o)})` });
     } else return { error: "fetch is declared as a method; not patched" };
     needs.add("routerFetch");
     return { action: "wrap_fetch" };
@@ -938,46 +963,46 @@ function patchObjectLiteral(sf, obj, isJs, edits, needs) {
     const s = skipOuter(spreads[spreads.length - 1].expression);
     if (isSimpleExpr(s)) arg = anyFetch(s.getText(sf), isJs);
   }
-  insertProperty(sf, obj, `...routerOptions(${arg})`, edits);
+  insertProperty(sf, obj, `...routerOptions(${rargs(arg, o)})`, edits);
   needs.add("routerOptions");
   return { action: "append_router_options" };
 }
 
-function wrapExpression(sf, e, isJs, edits, needs) {
+function wrapExpression(sf, e, isJs, edits, needs, o = "") {
   const t = e.getText(sf);
   const inner = skipOuter(e);
   const text = isSimpleExpr(inner)
-    ? `{ ...${t}, ...routerOptions(${anyFetch(t, isJs)}) }`
-    : `((o${isJs ? "" : ": any"}) => ({ ...o, ...routerOptions(o?.fetch) }))(${t})`;
+    ? `{ ...${t}, ...routerOptions(${rargs(anyFetch(t, isJs), o)}) }`
+    : `((o${isJs ? "" : ": any"}) => ({ ...o, ...routerOptions(${rargs("o?.fetch", o)}) }))(${t})`;
   edits.push({ start: e.getStart(sf), end: e.end, text });
   needs.add("routerOptions");
   return { action: "wrap_options_expression" };
 }
 
-function patchOptionsCall(sf, node, isJs, edits, needs) {
+function patchOptionsCall(sf, node, isJs, edits, needs, o = "") {
   const args = node.arguments;
   if (!args) {
     // `new OpenAI` without parentheses
-    edits.push({ start: node.end, end: node.end, text: "({ ...routerOptions() })" });
+    edits.push({ start: node.end, end: node.end, text: `({ ...routerOptions(${rargs("", o)}) })` });
     needs.add("routerOptions");
     return { action: "add_options" };
   }
   if (args.length === 0) {
-    edits.push({ start: args.pos, end: args.pos, text: "{ ...routerOptions() }" });
+    edits.push({ start: args.pos, end: args.pos, text: `{ ...routerOptions(${rargs("", o)}) }` });
     needs.add("routerOptions");
     return { action: "add_options" };
   }
   const a0 = args[0];
   if (ts.isSpreadElement(a0)) return { error: "options are passed as a spread argument list; not patched" };
   const inner = skipOuter(a0);
-  if (ts.isObjectLiteralExpression(inner)) return patchObjectLiteral(sf, inner, isJs, edits, needs);
-  return wrapExpression(sf, a0, isJs, edits, needs);
+  if (ts.isObjectLiteralExpression(inner)) return patchObjectLiteral(sf, inner, isJs, edits, needs, o);
+  return wrapExpression(sf, a0, isJs, edits, needs, o);
 }
 
-function patchLangChain(sf, node, key, isJs, edits, needs) {
+function patchLangChain(sf, node, key, isJs, edits, needs, o = "") {
   const args = node.arguments;
   if (!args || args.length === 0) {
-    const text = `{ ${key}: { ...routerOptions() } }`;
+    const text = `{ ${key}: { ...routerOptions(${rargs("", o)}) } }`;
     if (!args) edits.push({ start: node.end, end: node.end, text: `(${text})` });
     else edits.push({ start: args.pos, end: args.pos, text });
     needs.add("routerOptions");
@@ -990,30 +1015,30 @@ function patchLangChain(sf, node, key, isJs, edits, needs) {
   if (ts.isObjectLiteralExpression(obj)) {
     const cp = getProp(obj, key);
     if (!cp) {
-      insertProperty(sf, obj, `${key}: { ...routerOptions() }`, edits);
+      insertProperty(sf, obj, `${key}: { ...routerOptions(${rargs("", o)}) }`, edits);
       needs.add("routerOptions");
       return { action: `add_${key}` };
     }
     if (ts.isShorthandPropertyAssignment(cp)) {
-      edits.push({ start: cp.getStart(sf), end: cp.end, text: `${key}: { ...${key}, ...routerOptions(${anyFetch(key, isJs)}) }` });
+      edits.push({ start: cp.getStart(sf), end: cp.end, text: `${key}: { ...${key}, ...routerOptions(${rargs(anyFetch(key, isJs), o)}) }` });
       needs.add("routerOptions");
       return { action: `wrap_${key}` };
     }
     if (!ts.isPropertyAssignment(cp)) return { error: `${key} is not a plain property; not patched` };
     const c = skipOuter(cp.initializer);
     if (ts.isObjectLiteralExpression(c)) {
-      const r = patchObjectLiteral(sf, c, isJs, edits, needs);
+      const r = patchObjectLiteral(sf, c, isJs, edits, needs, o);
       return r.error ? r : { action: `${r.action}_in_${key}` };
     }
-    wrapExpression(sf, cp.initializer, isJs, edits, needs);
+    wrapExpression(sf, cp.initializer, isJs, edits, needs, o);
     return { action: `wrap_${key}` };
   }
   const t = a0.getText(sf);
   const text = isSimpleExpr(obj)
     ? (isJs
-      ? `{ ...${t}, ${key}: { ...${t}?.${key}, ...routerOptions(${t}?.${key}?.fetch) } }`
-      : `{ ...${t}, ${key}: { ...(${t} as any)?.${key}, ...routerOptions((${t} as any)?.${key}?.fetch) } }`)
-    : `((o${isJs ? "" : ": any"}) => ({ ...o, ${key}: { ...o?.${key}, ...routerOptions(o?.${key}?.fetch) } }))(${t})`;
+      ? `{ ...${t}, ${key}: { ...${t}?.${key}, ...routerOptions(${rargs(`${t}?.${key}?.fetch`, o)}) } }`
+      : `{ ...${t}, ${key}: { ...(${t} as any)?.${key}, ...routerOptions(${rargs(`(${t} as any)?.${key}?.fetch`, o)}) } }`)
+    : `((o${isJs ? "" : ": any"}) => ({ ...o, ${key}: { ...o?.${key}, ...routerOptions(${rargs(`o?.${key}?.fetch`, o)}) } }))(${t})`;
   edits.push({ start: a0.getStart(sf), end: a0.end, text });
   needs.add("routerOptions");
   return { action: `wrap_options_expression_${key}` };
@@ -1039,7 +1064,7 @@ function aiSdkOpenAIMajor(fileAbs) {
 }
 
 // Replace a default provider import specifier (openai / anthropic) with its factory.
-function patchDefaultProvider(sf, f, bindings, edits, needs, consts) {
+function patchDefaultProvider(sf, f, bindings, edits, needs, consts, o = "") {
   const b = f.info.binding;
   if (b.require || !ts.isImportSpecifier(b.node)) return { error: "default provider loaded via require/dynamic import; not patched" };
   const decl = b.decl;
@@ -1067,7 +1092,7 @@ function patchDefaultProvider(sf, f, bindings, edits, needs, consts) {
   }
   // @ai-sdk/openai < 2: the default instance is compatibility "strict" while createOpenAI() defaults to "compatible"
   const strict = factoryName === "createOpenAI" && aiSdkOpenAIMajor(sf.fileName) !== null && aiSdkOpenAIMajor(sf.fileName) < 2;
-  consts.push(`const ${f.info.local} = ${factoryLocal}({ ${strict ? 'compatibility: "strict", ' : ""}...routerOptions() })`);
+  consts.push(`const ${f.info.local} = ${factoryLocal}({ ${strict ? 'compatibility: "strict", ' : ""}...routerOptions(${rargs("", o)}) })`);
   needs.add("routerOptions");
   return { action: "default_provider_to_factory" };
 }
@@ -1162,7 +1187,12 @@ function apply(root, runtimePath, siteIds) {
   const runtimeSrc = fs.readFileSync(runtimePath, "utf8");
   const result = { edits: [], runtime_files: [], files_changed: [] };
   const byFile = new Map();
-  for (const id of siteIds) {
+  const siteOpts = new Map(); // id -> opts from a { id, opts } entry
+  for (let id of siteIds) {
+    if (id && typeof id === "object") {
+      siteOpts.set(String(id.id), id.opts);
+      id = id.id;
+    }
     const p = parseId(String(id));
     if (!p || p.lang !== "ts") {
       result.edits.push({ site_id: id, file: p ? p.rel : null, action: "none", ok: false, reason: "not a TypeScript/JavaScript site id" });
@@ -1214,14 +1244,19 @@ function apply(root, runtimePath, siteIds) {
         rec.reason = "already patched";
         continue;
       }
+      const o = optsText(siteOpts.get(id));
+      if (o.error) {
+        rec.reason = o.error;
+        continue;
+      }
       const local = [];
       const localNeeds = new Set();
       const localConsts = [];
       let r;
-      if (f.info.patch === "options") r = patchOptionsCall(sf, f.node, isJs, local, localNeeds);
-      else if (f.info.patch === "langchain") r = patchLangChain(sf, f.node, "configuration", isJs, local, localNeeds);
-      else if (f.info.patch === "langchain-anthropic") r = patchLangChain(sf, f.node, "clientOptions", isJs, local, localNeeds);
-      else if (f.info.patch === "default-provider") r = patchDefaultProvider(sf, f, bindings, local, localNeeds, localConsts);
+      if (f.info.patch === "options") r = patchOptionsCall(sf, f.node, isJs, local, localNeeds, o);
+      else if (f.info.patch === "langchain") r = patchLangChain(sf, f.node, "configuration", isJs, local, localNeeds, o);
+      else if (f.info.patch === "langchain-anthropic") r = patchLangChain(sf, f.node, "clientOptions", isJs, local, localNeeds, o);
+      else if (f.info.patch === "default-provider") r = patchDefaultProvider(sf, f, bindings, local, localNeeds, localConsts, o);
       else r = { error: "unknown patch kind" };
       if (r.error) {
         rec.reason = r.error;
@@ -1277,7 +1312,7 @@ function usage(code) {
   const msg = [
     "usage:",
     "  node router_migrate/ts/tool.mjs scan <root>",
-    "  node router_migrate/ts/tool.mjs apply <root> --runtime <rendered routerRuntime.ts> --sites <json file: array of site ids>",
+    "  node router_migrate/ts/tool.mjs apply <root> --runtime <rendered routerRuntime.ts> --sites <json file: array of site ids or { id, opts }>",
   ].join("\n");
   (code ? process.stderr : process.stdout).write(msg + "\n");
   process.exit(code);
@@ -1298,7 +1333,7 @@ function main(argv) {
   } else if (cmd === "apply") {
     if (pos.length !== 1 || !flags.runtime || !flags.sites) usage(2);
     const ids = JSON.parse(fs.readFileSync(flags.sites, "utf8"));
-    if (!Array.isArray(ids)) throw new Error("--sites must be a JSON array of site ids");
+    if (!Array.isArray(ids)) throw new Error("--sites must be a JSON array of site ids (or { id, opts } entries)");
     process.stdout.write(JSON.stringify(apply(pos[0], flags.runtime, ids), null, 1) + "\n");
   } else usage(2);
 }

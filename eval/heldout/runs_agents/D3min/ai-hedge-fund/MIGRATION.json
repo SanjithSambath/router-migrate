@@ -1,0 +1,53 @@
+{
+  "sites": [
+    {
+      "site": "hedge_fund/llm/client.py:277",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a — not moved",
+      "why": "TypeSafe/Jev (JevLLM) speaks a bespoke JSON contract over a plain requests.post to api.typesafe.ai/v1/systemone (contract.build_jev_request / normalize_jev_response). It is not Chat Completions, Responses, or Anthropic Messages shaped, so Router has no endpoint that can serve it."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:282",
+      "outcome": "migrated",
+      "levers": ["wrap_langchain"],
+      "loses": "none — claude-opus-5-5 and claude-fable-5-1 are exact Router catalog ids (anthropic-owned); no beta headers, store, or previous_response_id are used by this client.",
+      "why": "ChatAnthropic wrapped with router_runtime.wrap_langchain(); every /v1/messages request from this client now goes through Router when RAMP_ROUTER_API_KEY is set, with per-request fallback to Anthropic unchanged for anything Router can't serve."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:286",
+      "outcome": "migrated",
+      "levers": ["wrap_langchain"],
+      "loses": "none for the default OPENAI_API_BASE (unset) — gpt-6-sol and gpt-6-astra are exact Router catalog ids. A custom OPENAI_API_BASE (Azure, a proxy) is not touched: Router only intercepts requests to api.openai.com, so that deployment shape is unaffected either way.",
+      "why": "ChatOpenAI wrapped with router_runtime.wrap_langchain(); Router serves it when the host is api.openai.com (the default), with provider fallback for anything else."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:290",
+      "outcome": "migrated",
+      "levers": ["unlock_host:api.deepseek.com", "model_map:deepseek-flash=deepseek-v4.1-flash"],
+      "loses": "deepseek-flash now resolves, on Router-bound requests only, to Router's catalog id deepseek-v4.1-flash (same DeepSeek V4.1 Flash model, Router's spelling of it). The original request to DeepSeek is untouched on fallback, so DeepSeek's own API still sees 'deepseek-flash' if Router can't take the request.",
+      "why": "ChatDeepSeek/langchain-deepseek builds its own openai.OpenAI client pointed at api.deepseek.com (an OpenAI-compatible host); Router's catalog carries this exact model family under a different id (deepseek-v4.1-flash, with several DeepSeek-V4.1-Flash spellings already aliased to it), so api.deepseek.com was unlocked and the app's id mapped to Router's. Implemented by hand (router-migrate's wrap/adapt codemods don't recognize langchain-deepseek's constructor or inject unlock_hosts into a langchain call), using router_runtime.wrap_openai(..., unlock_hosts=[...]) directly on every SDK client langchain_deepseek builds (ChatDeepSeek keeps a second, separate OpenAI client under '.client' besides '.root_client' — both needed unlocking). Verified end-to-end with `check --run`: a deepseek-flash call now reaches the Router simulator as a valid /v1/responses request."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:294",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a — not moved",
+      "why": "ChatGoogleGenerativeAI talks to Google's native Gemini API, not an OpenAI/Anthropic-compatible wire format, and Router's catalog carries no Google/Gemini-owned models at all. There is no Router endpoint or catalog id this call could map to."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:299",
+      "outcome": "migrated",
+      "levers": ["unlock_host:api.x.ai"],
+      "loses": "none — grok-4.7 is an exact Router catalog id (xai-owned), so no model mapping was needed.",
+      "why": "ChatXAI/langchain-xai builds its own openai.OpenAI client pointed at api.x.ai; Router serves grok-4.7 itself, so that host was unlocked the same way as DeepSeek (hand-wired with router_runtime.wrap_openai(..., unlock_hosts=[...]) on every client the langchain object builds, since the wrap/adapt codemods don't support langchain-xai's constructor or unlock_hosts injection on a langchain call). Verified with `check --run`: a grok-4.7 call reaches the Router simulator as a valid /v1/responses request."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:308",
+      "outcome": "migrated",
+      "levers": ["unlock_host:api.moonshot.ai"],
+      "loses": "none for the default Moonshot host — kimi-k3 is an exact Router catalog id. A MOONSHOT_BASE_URL override (mainland users) is not unlocked, so that deployment shape stays on Moonshot exactly as before.",
+      "why": "This is a langchain-openai ChatOpenAI pointed at Moonshot's OpenAI-compatible endpoint (api.moonshot.ai), not at api.openai.com, so the wrap/adapt codemods wouldn't inject unlock_hosts here either (same constraint as DeepSeek/xAI — a langchain construction, not a raw SDK client literal). Hand-wired the same way: router_runtime.wrap_openai(..., unlock_hosts=['api.moonshot.ai']) on every SDK client the langchain object builds. Verified with `check --run`: a kimi-k3 call reaches the Router simulator as a valid /v1/responses request."
+    }
+  ]
+}

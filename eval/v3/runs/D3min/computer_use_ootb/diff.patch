@@ -1,0 +1,87 @@
+diff --git a/computer_use_demo/gui_agent/llm_utils/oai.py b/computer_use_demo/gui_agent/llm_utils/oai.py
+index a7359ff..e249c25 100644
+--- a/computer_use_demo/gui_agent/llm_utils/oai.py
++++ b/computer_use_demo/gui_agent/llm_utils/oai.py
+@@ -2,7 +2,15 @@ import os
+ import logging
+ import base64
+ import requests
++from openai import OpenAI
+ from computer_use_demo.gui_agent.llm_utils.llm_utils import is_image_path, encode_image
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ 
+@@ -11,9 +19,6 @@ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max
+     api_key = api_key or os.environ.get("OPENAI_API_KEY")
+     if not api_key:
+         raise ValueError("OPENAI_API_KEY is not set")
+-    
+-    headers = {"Content-Type": "application/json",
+-               "Authorization": f"Bearer {api_key}"}
+ 
+     final_messages = [{"role": "system", "content": system}]
+ 
+@@ -57,29 +62,24 @@ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max
+ 
+     print("[oai] sending messages:", [f"{k}: {v}, {k}" for k, v in final_messages])
+ 
+-    payload = {
+-        "model": llm,
+-        "messages": final_messages,
+-        "max_tokens": max_tokens,
+-        "temperature": temperature,
+-        # "stop": stop,
+-    }
+-
+-    # from IPython.core.debugger import Pdb; Pdb().set_trace()
++    client = _router_wrap_openai(OpenAI(api_key=api_key), operator_key_only=True)
+ 
+-    response = requests.post(
+-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
++    response = client.chat.completions.create(
++        model=llm,
++        messages=final_messages,
++        max_tokens=max_tokens,
++        temperature=temperature,
+     )
+ 
+     try:
+-        text = response.json()['choices'][0]['message']['content']
+-        token_usage = int(response.json()['usage']['total_tokens'])
++        text = response.choices[0].message.content
++        token_usage = int(response.usage.total_tokens)
+         return text, token_usage
+-        
++
+     # return error message if the response is not successful
+     except Exception as e:
+-        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY. Please check the response: {response.json()} ")
+-        return response.json()
++        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY. Please check the response: {response} ")
++        raise
+ 
+ def run_ssh_llm_interleaved(messages: list, system: str, llm: str, ssh_host: str, ssh_port: int, max_tokens=256, temperature=0.7, do_sample=True):
+     """Send chat completion request to SSH remote server"""
+diff --git a/router.policy.json b/router.policy.json
+new file mode 100644
+index 0000000..ef6ad37
+--- /dev/null
++++ b/router.policy.json
+@@ -0,0 +1,10 @@
++{
++ "globs": {
++  "**llm_utils/oai.py:run_oai_interleaved": {
++   "model_map": {
++    "gpt-4o-2024-11-20": "gpt-4o"
++   }
++  }
++ },
++ "version": 1
++}

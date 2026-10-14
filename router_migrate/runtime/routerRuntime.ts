@@ -657,11 +657,7 @@ function routerHeaders(orig: Headers, anthropic: boolean): Headers {
   h.set("content-type", "application/json");
   h.set("accept", orig.get("accept") || "application/json");
   h.set("user-agent", orig.get("user-agent") || "router-migrate-runtime/0.1");
-  if (anthropic) {
-    h.set("anthropic-version", orig.get("anthropic-version") || "2023-06-01");
-    const beta = orig.get("anthropic-beta");
-    if (beta) h.set("anthropic-beta", beta);
-  }
+  if (anthropic) h.set("anthropic-version", orig.get("anthropic-version") || "2023-06-01"); // anthropic-beta never: see dropBetas
   return h;
 }
 
@@ -1070,19 +1066,31 @@ function adapt(body: any, feat: string | undefined, origin?: string): any {
   return b;
 }
 
-export type RouterOpts = { operatorKeyOnly?: boolean; origin?: string };
+/** unlockHosts (v2 unlock.vendor_endpoint, customer-approved): another vendor's OpenAI-compatible hosts (e.g. "api.x.ai")
+ * whose chat/responses requests go to Router when their model is a Router catalog id; everything else stays on the vendor.
+ * dropBetas (v2 unlock.stated_loss, customer-approved): anthropic-beta flags that may be dropped (not forwarded) so the
+ * request can go to Router; a request carrying any other beta flag stays on Anthropic. */
+export type RouterOpts = { operatorKeyOnly?: boolean; origin?: string; unlockHosts?: string[]; dropBetas?: string[] };
+
+/** Every flag in an anthropic-beta header is in the approved dropBetas list. */
+function betasDroppable(beta: string, drop?: string[]): boolean {
+  const flags = beta.split(",").map((b) => b.trim()).filter(Boolean);
+  return !!drop?.length && flags.every((b) => drop.includes(b));
+}
 
 /** Decide where one request goes. null = the original provider, unchanged. Throws only on bugs (caller sends to provider). */
 function planRequest(input: any, init: any, opts?: RouterOpts): Plan | null {
   const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input?.url;
   const method = (init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
   const [host, path] = hostPath(url || "");
-  if (OPENAI_HOSTS.includes(host) && (method === "GET" || method === "DELETE")) {
+  const unlocked = !OPENAI_HOSTS.includes(host) && !!opts?.unlockHosts?.includes(host);
+  const openaiLike = OPENAI_HOSTS.includes(host) || unlocked;
+  if (openaiLike && (method === "GET" || method === "DELETE")) {
     const local = localResponse(method, path);
     return local ? { local } : null;
   }
-  const isChat = OPENAI_HOSTS.includes(host) && path.endsWith("/chat/completions");
-  const isResponses = OPENAI_HOSTS.includes(host) && path.endsWith("/responses");
+  const isChat = openaiLike && path.endsWith("/chat/completions");
+  const isResponses = openaiLike && path.endsWith("/responses");
   const isAnthropic = ANTHROPIC_HOSTS.includes(host) && (path.endsWith("/v1/messages") || path.endsWith("/v1/messages/count_tokens"));
   if (method !== "POST" || !(isChat || isResponses || isAnthropic) || typeof init?.body !== "string") return null;
   let body: any;
@@ -1092,7 +1100,7 @@ function planRequest(input: any, init: any, opts?: RouterOpts): Plan | null {
     return null;
   }
   if (!plainObject(body)) return null;
-  if (opts?.operatorKeyOnly && !operatorKeyOk(new Headers(init.headers || (typeof input === "object" ? input.headers : undefined)), isAnthropic)) return null;
+  if (opts?.operatorKeyOnly && !unlocked && !operatorKeyOk(new Headers(init.headers || (typeof input === "object" ? input.headers : undefined)), isAnthropic)) return null;
   const feat = featureTagOn() ? feature() : undefined;
   body = adapt(body, feat, opts?.origin);
   let items: any[] | undefined;
@@ -1117,7 +1125,8 @@ function planRequest(input: any, init: any, opts?: RouterOpts): Plan | null {
   const providerAuth = headers.has("authorization") || headers.has("x-api-key");
   const owned = CATALOG[rid]?.o;
   if (isAnthropic) {
-    if (headers.get("anthropic-beta")) return null; // beta features unmeasured on Router
+    const beta = headers.get("anthropic-beta");
+    if (beta && !betasDroppable(beta, opts?.dropBetas)) return null; // beta features unmeasured on Router (unless approved to drop)
     if (activePolicy()) policyLog("messages", "router-migrate policy: not applied on /v1/messages (Router-only fields are not supported there)");
     const p = path.endsWith("count_tokens") ? "/v1/messages/count_tokens" : "/v1/messages";
     return { kind: "anthropic", path: p, body: { ...body, model: rid }, anthropic: true, headers, providerAuth, feature: feat };
@@ -1210,7 +1219,8 @@ export function routerFetch(base?: AnyFetch, opts?: RouterOpts): AnyFetch | unde
 }
 
 /** Spread into client options: new OpenAI({ ...opts, ...routerOptions(opts.fetch) }); routerOptions(undefined,
- * { operatorKeyOnly: true }) routes only requests made with the operator's own provider key. */
+ * { operatorKeyOnly: true }) routes only requests made with the operator's own provider key; { unlockHosts: ["api.x.ai"] }
+ * / { dropBetas: [...] } carry approved unlocks (see RouterOpts). */
 export function routerOptions(base?: AnyFetch, opts?: RouterOpts): { fetch?: AnyFetch } {
   const f = routerFetch(base, opts);
   return f ? { fetch: f } : {};

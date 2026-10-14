@@ -50,7 +50,9 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
         raise SystemExit("no plan: run `router-migrate plan` (or `up`) first")
     r = rec_mod.build(root, plan, catalog, repo=repo, scan=scan, judgments=judgments, current_lines=current_lines)
     led = load(root, "ledger.json") or {}
-    r["cards"] += agent_cards(led) + tradeoff_cards(led)
+    from . import proposals
+    r = proposals.merge(r, led.get("proposals"), catalog)
+    r["cards"] += [dict(c, origin=c.get("origin") or "agent") for c in agent_cards(led) + tradeoff_cards(led)]
     dec = load(root, "decisions.json", {"cards": {}})
     # an applied unlock patches the client, which moves the call's line and so its site id and card id: match by feature
     unl = load(root, "unlocks.json", {"sites": {}})["sites"]
@@ -87,7 +89,8 @@ AGENT_CARD_TITLE = {"model_swap": "Swap the model for %s", "vendor_endpoint": "S
 
 def agent_cards(led):
     """v4: the migrate agent's proposals for lossy or business moves (ledger "cards"), in the recommendation card schema, so
-    the dashboard, `decide` and `apply --decisions` handle them like every other card. Nothing applies until approved."""
+    the dashboard, `decide` and `apply --decisions` handle them like every other card. Nothing applies until approved.
+    The agent's "needs your decision" calls are not cards: the dashboard lists them from the ledger's claims."""
     import hashlib as _h
     out = []
     for ac in led.get("cards") or []:
@@ -100,7 +103,7 @@ def agent_cards(led):
                     "evidence": {"level": "agent", "results": [{"level": "agent", "fact": ac["why"], "source": ", ".join(ac["evidence"])}]},
                     "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "proposed by the migration agent from the code; unmeasured"},
                     "risk": 3 if ac["kind"] in ("model_swap", "per_user_key") else 2, "effort": "low", "options": [], "etag": etag,
-                    "state": "new", "applies": True})
+                    "state": "new", "applies": True, "origin": "agent", "rationale": ac["why"], "validated": True})
     return out
 
 
@@ -234,8 +237,9 @@ def _compile_everywhere(root, p, runtime_files):
     return written
 
 
-def apply_decisions(root, catalog, dry_run=False):
-    """Apply approved, non-stale cards. Returns a log {applied:[...], skipped:[...], policy_hash, files:[...]}."""
+def apply_decisions(root, catalog, dry_run=False, undo_only=False):
+    """Apply approved, non-stale cards. Returns a log {applied:[...], skipped:[...], policy_hash, files:[...]}.
+    undo_only: only the trade-off undos (allowed while the full suite is failing; approvals wait for it to pass)."""
     r = load(root, "recommendations.json")
     dec = load(root, "decisions.json", {"cards": {}})
     if r is None:
@@ -278,11 +282,14 @@ def apply_decisions(root, catalog, dry_run=False):
         d = dec["cards"].get(c["id"])
         if not d or d["action"] != "approve" or c["rule"].startswith("tradeoff."):  # approving a trade-off keeps it: nothing to do
             continue
+        if undo_only:
+            skipped.append({"card": c["id"], "reason": "waits until the full test suite passes"})
+            continue
         if d.get("etag") != c["etag"]:
             skipped.append({"card": c["id"], "reason": "stale: the code or catalog changed since approval; re-confirm"})
             continue
         if not c.get("applies", True):
-            skipped.append({"card": c["id"], "reason": "model change: recommendation only, the tool never applies it"})
+            skipped.append({"card": c["id"], "reason": "recommendation only: the tool never applies model changes or code ports"})
             continue
         if d.get("applied_at"):  # applied earlier: policy entries are already in router.policy.json, code already patched
             already.append(c["id"])
@@ -618,6 +625,32 @@ def run_summary(root):
             "judgments": led.get("judgments") or {}, "worklist": len(led.get("worklist") or []), "claims": len(led.get("claims") or {})}
 
 
+TEST_STATES = ("running", "passed", "failed", "skipped")
+
+
+def tests_state(led):
+    """The outside check's test runs (ledger result.tests): baseline, the affected tests, and the full suite, whose status
+    gates Apply. None for runs without it (older ledgers)."""
+    t = (((led or {}).get("result") or {}).get("tests")) or {}
+    full = t.get("full") if isinstance(t.get("full"), dict) else {}
+    st = full.get("status") if full.get("status") in TEST_STATES else None
+    return {"baseline": t.get("baseline"), "affected": t.get("affected"), "status": st,
+            "full": {"status": st, "counts": full.get("counts") or {}, "failures": full.get("failures") or [], "why": full.get("why")}}
+
+
+def apply_blocked(ts):
+    """Why Apply is off, or None. Nothing is written on top of a migration whose full test suite is still running or failed;
+    the dashboard server refuses /api/apply with this message too."""
+    if ts.get("status") == "running":
+        return "The full test suite is still running. Apply turns on when it passes, so nothing is written on top of an unchecked migration."
+    if ts.get("status") == "failed":
+        c = (ts.get("full") or {}).get("counts") or {}
+        n = (c.get("failed") or 0) + (c.get("errors") or 0)
+        return ("The full test suite failed%s. Approved changes wait until it passes: fix the failure (undoing a trade-off "
+                "is still allowed), then re-run `router-migrate finish`." % (" (%d failing)" % n if n else ""))
+    return None
+
+
 def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     # v3: once the agent has run, the whole-run view shows the code as it stands (plan_v3.json: measure-only plan with the
     # agent's claims applied) and the full diff (the floor plus the agent's edits)
@@ -661,19 +694,17 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
         hist = (led.get("finish") or {}).get("history") or []
         last = (hist[-1].get("info") or {}).get("tests") if hist else None
         tests = {"before": (led.get("baseline") or {}).get("before"), "after": last}  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
-    ledger, moved = None, None
+    ledger = None
     tradeoffs = (led or {}).get("tradeoffs") or []
-    if led:  # v4 headline: production calls on Router (plan_v3 carries the agent's claims), how many at a stated cost, how many stay
-        n = sum(1 for s in prod if s["outcome"] == "migrated" or s["id"] in unlocks["sites"])
-        moved = {"moved": n, "with_tradeoffs": len({t.get("site") for t in tradeoffs if not t.get("undone")}), "stay": len(prod) - n}
     if led:
         ledger = {"claims": [dict(c, key=k) for k, c in sorted((led.get("claims") or {}).items())], "worklist": led.get("worklist") or [],
                   "result": led.get("result"), "cost": led.get("cost") or {},
                   "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
+    ts = tests_state(led)
     b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
-         "tradeoffs": tradeoffs, "moved": moved,
-            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
+         "tradeoffs": tradeoffs, "moved": None, "tests": ts, "tests_status": ts["status"], "apply_blocked": apply_blocked(ts), "undo_allowed": ts.get("status") == "failed",
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate %s" % __import__("router_migrate").__version__,
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),
                        "needs_review": sm.get("flagged", 0) + sm.get("handoff", 0), "kept": sm.get("kept", 0)},
@@ -689,7 +720,10 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
     try:
         from .dashboard import view as view_mod
         floor_sites = (load(root, "plan.json") or {}).get("sites") if v3 else None  # the floor's plan, before any agent ran
+        if v3 and led.get("version") == 5:  # v5: no rules pass ran first; the one agent session moved every call
+            floor_sites = []
         b["view"] = view_mod.build(b, root, floor_diff, post_diff, prod, unlocks["sites"], floor_sites)
+        b["moved"] = b["view"]["headline"] if led else None  # the overview's numbers: the same calls the Migrate page lists
     except Exception as e:  # pragma: no cover - surfaced in the page and in tests
         b["view"], b["view_error"] = None, "%s: %s" % (type(e).__name__, e)
     return b

@@ -29,7 +29,8 @@ WORK = os.path.join(EVAL, "work")
 LOGS = os.path.join(EVAL, "logs")
 SETS = {"dev": (EVAL, os.path.join(EVAL, "work")),
         "heldout": (os.path.join(EVAL, "heldout"), os.path.join(EVAL, "work", "heldout")),  # held-out: never used to tune the tool
-        "v3": (os.path.join(EVAL, "v3"), os.path.join(EVAL, "work", "v3"))}  # v3 fresh set: never seen by v1/v2 tuning
+        "v3": (os.path.join(EVAL, "v3"), os.path.join(EVAL, "work", "v3")),  # v3 fresh set: never seen by v1/v2 tuning
+        "heldout2": (os.path.join(EVAL, "heldout2"), os.path.join(EVAL, "work", "heldout2"))}  # second held-out set (D3)
 
 
 def repos_file():

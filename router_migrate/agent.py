@@ -460,7 +460,10 @@ def native_eligibility(root, p, client_id):
 def glob_for(feature):
     """Policy glob for a feature, robust to the process's working directory: '**<last two path parts>:<function>'."""
     path, _, fn = feature.rpartition(":")
-    return "**%s:%s" % ("/".join(path.split("/")[-2:]), fn)
+    tail = "/".join(path.split("/")[-2:])
+    if not tail.endswith(".py"):  # TS/JS runs as bundled .js (.next/server/.../route.js): match any extension
+        tail = re.sub(r"\.(m|c)?(t|j)sx?$", ".*", tail)
+    return "**%s:%s" % (tail, fn)
 
 
 def compile_guardrails(root, led):
@@ -476,7 +479,9 @@ def compile_guardrails(root, led):
         e = {}
         if c.get("latency") == "user_waiting" and not c.get("stream"):
             e["provider_timeout"] = GUARD_TIMEOUT
-        if c.get("latency_critical"):
+        if c.get("latency_critical") or c.get("latency") in ("interactive", "user_waiting"):
+            # latency is behaviour: user-facing calls keep the standard tier (Flex there is a card a human can approve);
+            # Router's account default (Flex) stays for background work
             e["service_tier"] = "default"
         if e:
             want.setdefault(glob_for(c["feature"]), {}).update(e)
@@ -577,6 +582,10 @@ def cmd_run(a):
     """v4: record the baseline and hand the agent a proposal for every site. Nothing is applied to the code."""
     from . import cli
     root = os.path.abspath(a.path)
+    if getattr(a, "arm", None) or getattr(a, "agent", None):
+        from . import harness
+        a.arm = getattr(a, "arm", None) or "min"
+        return harness.run_d3(root, a)
     if _git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return err(a.json, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first (the baseline is snapshotted with git)")
     prev = load_ledger(root)
@@ -774,7 +783,7 @@ def open_dashboard(root, a):
     print("report: %s" % sp(root, "REPORT.html"))
     if getattr(a, "no_dashboard", False):
         return 0
-    srv, url = serve_dashboard(root, open_browser=not getattr(a, "no_browser", False))
+    srv, url = serve_dashboard(root, open_browser=not (getattr(a, "no_browser", False) or os.environ.get("ROUTER_MIGRATE_NO_BROWSER")))
     _event(root, "dashboard", "done", msg=url.split("?")[0])
     print("router-migrate dashboard: %s  (Ctrl-C to stop)" % url, flush=True)
     import threading
@@ -795,8 +804,8 @@ def serve_dashboard(root, open_browser=False):
     def on_decide(payload):
         return imp.decide(root, payload["card_id"], payload["action"], reason=payload.get("reason"), until=payload.get("until"), by="ui")
 
-    def on_apply():
-        out = imp.apply_decisions(root, _Cat.load())
+    def on_apply(undo_only=False):
+        out = imp.apply_decisions(root, _Cat.load(), undo_only=undo_only)
         led = load_ledger(root)
         ok, fails, _ = gate(root, led, quick=True) if led else (True, [], {})
         do_improve(root)
@@ -807,7 +816,7 @@ def serve_dashboard(root, open_browser=False):
         lines += ["  skipped %s: %s" % (x["card"], x["reason"]) for x in out["skipped"]]
         lines += ["  warning %s" % w for w in out.get("warnings") or []]
         lines.append("quick gate (parse, scope): %s" % ("ok" if ok else "; ".join(f["detail"] for f in fails)))
-        lines.append("next: router-migrate finish %s  (full gate: tests vs baseline, Router-on run)" % root)
+        lines.append("next: router-migrate check --final --tests  (in %s: the outside check and the test suite, Router on, before you ship)" % root)
         return {"command": "router-migrate apply --decisions %s" % root, "output": "\n".join(lines)}
 
     return dash_server.serve(lambda: imp.bundle(root, repo=os.path.basename(root)), on_decide, on_apply, open_browser=open_browser)
@@ -833,10 +842,39 @@ def plan_for_improve(root):
             if out_ != s["outcome"]:  # the agent overrode the tool: its reason replaces the tool's
                 s["outcome"], s["reason"] = out_, "agent: " + s["agent_note"]
             # same outcome: keep the tool's reason (rules such as unlock.vendor_endpoint read it)
+    if led.get("version") == 5:  # one source of truth for "migrated": what actually routes, not what the code looks like
+        _apply_route_truth(root, led, p)
     v1 = json.load(open(sp(root, "plan.json"))) if os.path.exists(sp(root, "plan.json")) else {}
     p["patches"] = v1.get("patches") or []
     p["summary"] = planmod.summarize(p["sites"])
     return p
+
+
+def _apply_route_truth(root, led, p):
+    """Set each site's outcome from evidence: migrated when route_check sees it route or a probe / Router-on run confirmed
+    it, or when the agent reported it migrated and no check can see it (a dynamically built client, shown as unverified);
+    a wrapped site the check sees staying on its provider is kept, with the check's reason (e.g. an untranslatable field)."""
+    from .route_check import check_sites
+    try:
+        rows = check_sites(root)
+    except Exception:
+        return
+    conf = led.get("confirmations") or {}
+    claims = [c for c in (led.get("claims") or {}).values() if c.get("origin") == "report" and c.get("outcome") == "migrated"]
+    near = lambda f, l, items: any(x[0] == f and abs(int(x[1]) - int(l)) <= 3 for x in items)
+    seen = [(r["file"], r["line"]) for r in rows]
+    for s in p["sites"]:
+        if not s.get("prod") or s["kind"] not in ("call", "module_client", "client"):
+            continue
+        r = next((x for x in rows if x["file"] == s["file"] and abs(int(x["line"]) - int(s["line"])) <= 3), None)
+        confirmed = near(s["file"], s["line"], [k.rsplit(":", 1) for k in conf])
+        claimed = near(s["file"], s["line"], [(c["file"], c["line"]) for c in claims])
+        if (r and r.get("routes")) or confirmed:
+            s["outcome"], s["verified"] = "migrated", True
+        elif claimed and not near(s["file"], s["line"], seen):
+            s["outcome"], s["verified"] = "migrated", False
+        elif r and s["outcome"] == "migrated":
+            s["outcome"], s["reason"] = "kept", "stays on its provider: %s" % (r.get("reason") or "")[:200]
 
 
 def do_improve(root):
@@ -1094,7 +1132,7 @@ def cmd_unwrap(a):
     led["edits"].append({"by": "agent-unwrap", "file": rel, "line": line, "changed": True, "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     _remap_lines(led, rel, before, after)
     save_ledger(root, led)
-    return out({"ok": True, "file": rel, "undone": done, "diff": d}, a.json, d + "next: the calls this client serves no longer route; claim them")
+    return out({"ok": True, "file": rel, "undone": done, "diff": d}, a.json, d + "next: the calls this client serves no longer route (`check` to confirm)")
 
 
 def cmd_probe(a):
@@ -1177,6 +1215,16 @@ def cmd_card(a):
     led = load_ledger(root)
     if led is None:
         return err(a.json, "no ledger", "run `router-migrate run .` first")
+    if getattr(a, "undo", None):
+        t = next((x for x in led.get("tradeoffs") or [] if x["id"] == a.undo), None)
+        if t is None or t.get("undone"):
+            return err(a.json, "no live trade-off %s" % a.undo, "live: %s" % (", ".join(x["id"] for x in led.get("tradeoffs") or [] if not x.get("undone")) or "none"))
+        files = undo_tradeoff(root, a.undo)
+        if not next(x for x in load_ledger(root)["tradeoffs"] if x["id"] == a.undo).get("undone"):
+            return err(a.json, "%s was a hand edit" % a.undo, "revert that hunk yourself; the dashboard shows it")
+        return out({"ok": True, "undone": a.undo, "files": files}, a.json, "undid %s (%s)" % (a.undo, ", ".join(files) or "policy only"))
+    if not a.loc:
+        return err(a.json, "expected FILE:LINE (or --undo T<n>)", "the call site (or client construction) the trade-off moves")
     rel, line = parse_loc(a.loc)
     if not rel or not os.path.exists(os.path.join(root, rel)):
         return err(a.json, "expected an existing FILE:LINE, got %r" % a.loc, "the call site the card is about")
@@ -1303,7 +1351,7 @@ def cmd_wrap(a):
         _remap_lines(led, rel, before, after)
     save_ledger(root, led)
     msg = (d or "already wrapped: nothing to change\n") + ("next: native clients have no runtime fallback: `probe` every site it serves"
-                                                          if native else "next: `check` the calls this client serves, then claim them")
+                                                          if native else "next: `check` the calls this client serves (`check --run CMD` for ones the scanner can't see)")
     return out({"ok": True, "file": rel, "changed": before != after, "diff": d}, a.json, msg)
 
 
@@ -1689,9 +1737,10 @@ def _client_of(root, rel, line, p):
     """(client record, construction FILE:LINE) for the site at rel:line, or for a construction at that line."""
     f = facts_for(root, rel, line, p)
     c = (p.get("clients") or {}).get(f.get("client") or "") if f.get("found") else None
-    if c is None:
-        cs = [x for x in (p.get("clients") or {}).values() if x["file"] == rel and abs(int(x["line"]) - line) <= 2]
-        c = cs[0] if cs else None
+    if c is None:  # a wrap's import block moves constructors down: take the nearest one below, or the file's only one
+        cs = sorted((x for x in (p.get("clients") or {}).values() if x["file"] == rel), key=lambda x: abs(int(x["line"]) - line))
+        near = [x for x in cs if -2 <= int(x["line"]) - line <= 12]
+        c = near[0] if near else cs[0] if len(cs) == 1 else None
     return c
 
 
@@ -1700,7 +1749,9 @@ def _wrap_with(root, c, opts):
     from . import apply_py
     from .runtime import render
     kind = planmod.PATCHABLE.get(c["sdk"])
-    if c["lang"] != "py" or kind not in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
+    if c["lang"] != "py":
+        return _wrap_ts_with(root, c, opts)
+    if kind not in ("wrap_openai", "wrap_anthropic", "wrap_langchain"):
         return None, "client options need a Python OpenAI/Anthropic/LangChain constructor; edit by hand and record it with `adapt --loses`"
     if kind == "wrap_openai" and c["sdk"] == "anthropic":
         kind = "wrap_anthropic"
@@ -1712,6 +1763,28 @@ def _wrap_with(root, c, opts):
     return c["file"], None
 
 
+def _wrap_ts_with(root, c, opts):
+    """(Re-)wrap a TS/JS client with runtime options (routerOptions/routerFetch's second argument): unwrap, then re-apply."""
+    from . import cli
+    from .runtime import render
+    ts = {"unlockHosts": opts.get("unlock_hosts"), "dropBetas": opts.get("drop_betas"), "operatorKeyOnly": opts.get("operator_key_only")}
+    ts = {k: v for k, v in ts.items() if v}
+    ts_unwrap(root, c["file"], int(c["line"]))
+    cur = min((x for x in _scan(root)["sites"] if x["kind"] == "client" and x["file"] == c["file"]),
+              key=lambda x: abs(int(x["line"]) - int(c["line"])), default=None)
+    if cur is None:
+        return None, "the scanner no longer sees the client at %s:%s" % (c["file"], c["line"])
+    with tempfile.NamedTemporaryFile("w", suffix=".ts", delete=False) as rf:
+        rf.write(render("routerRuntime.ts", Catalog.load()))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as sf:
+        json.dump([{"id": cur["id"], "opts": ts} if ts else cur["id"]], sf)
+    r = cli.run_ts(["apply", root, "--runtime", rf.name, "--sites", sf.name])
+    bad = [e for e in r.get("edits", []) if not e.get("ok")]
+    if bad:
+        return None, bad[0].get("reason") or "TS wrap failed"
+    return c["file"], None
+
+
 def cmd_adapt(a):
     """Take a trade-off so a site can move to Router, and record what it costs. Policy levers (drop params, swap a model)
     leave the code untouched; client levers (unlock another vendor's host, route only the operator's key, drop beta flags)
@@ -1720,6 +1793,16 @@ def cmd_adapt(a):
     led = load_ledger(root)
     if led is None:
         return err(a.json, "no ledger", "run `router-migrate run .` first")
+    if getattr(a, "undo", None):
+        t = next((x for x in led.get("tradeoffs") or [] if x["id"] == a.undo), None)
+        if t is None or t.get("undone"):
+            return err(a.json, "no live trade-off %s" % a.undo, "live: %s" % (", ".join(x["id"] for x in led.get("tradeoffs") or [] if not x.get("undone")) or "none"))
+        files = undo_tradeoff(root, a.undo)
+        if not next(x for x in load_ledger(root)["tradeoffs"] if x["id"] == a.undo).get("undone"):
+            return err(a.json, "%s was a hand edit" % a.undo, "revert that hunk yourself; the dashboard shows it")
+        return out({"ok": True, "undone": a.undo, "files": files}, a.json, "undid %s (%s)" % (a.undo, ", ".join(files) or "policy only"))
+    if not a.loc:
+        return err(a.json, "expected FILE:LINE (or --undo T<n>)", "the call site (or client construction) the trade-off moves")
     rel, line = parse_loc(a.loc)
     if not rel or not os.path.exists(os.path.join(root, rel)):
         return err(a.json, "expected an existing FILE:LINE, got %r" % a.loc, "the call site (or client construction) the trade-off moves")
@@ -1754,7 +1837,7 @@ def cmd_adapt(a):
         before = open(os.path.join(root, c["file"]), encoding="utf-8").read()
         f, why = _wrap_with(root, c, opts)
         if f is None:
-            return err(a.json, why, "or edit by hand, prove it with `probe`, and record it with `adapt %s:%d --loses ...`" % (rel, line))
+            return err(a.json, why, "or edit by hand, verify it with `check --run`, and record it with `adapt %s:%d --loses ...`" % (rel, line))
         files.append(f)
         after = open(os.path.join(root, f), encoding="utf-8").read()
         led = load_ledger(root)
@@ -1766,6 +1849,8 @@ def cmd_adapt(a):
         now = min((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == f),
                   key=lambda x: abs(int(x["line"]) - _shift(before, after, int(c["line"]))), default=c)
         lv["client"] = "%s:%s" % (f, now["line"])
+        if f == rel and _feature(root, rel, line).endswith(":<module>"):  # pointed at a construction the wrap moved
+            line = int(now["line"])
     led = load_ledger(root)
     feat = _feature(root, rel, line)
     tid = "T%d" % (len(led.get("tradeoffs") or []) + 1)
@@ -1781,7 +1866,7 @@ def cmd_adapt(a):
     save_ledger(root, led)
     what = ", ".join("%s=%s" % (k, v) for k, v in lv.items() if k != "client") or "hand edit"
     return out({"ok": True, "tradeoff": t, "files": files}, a.json,
-               "%s recorded for %s (%s); loses: %s\nnext: prove the site now routes (`probe %s:%d --cmd ...` or `check`), then claim it migrated"
+               "%s recorded for %s (%s); loses: %s\nnext: `check %s:%d` (or `check --run CMD`) to see it route; `adapt --undo` reverses it"
                % (tid, feat, what, a.loses, rel, line))
 
 
@@ -1805,6 +1890,15 @@ def undo_tradeoff(root, tid):
                     if k in x["levers"]:
                         keep[k] = sorted(set(keep.get(k, [])) | set(x["levers"][k])) if isinstance(x["levers"][k], list) else x["levers"][k]
         before = open(os.path.join(root, cf), encoding="utf-8").read()
+        if not cf.endswith(".py"):  # TS/JS: unwrap and re-apply with only the options other trade-offs still need
+            cc = next((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == cf), None)
+            _wrap_ts_with(root, cc or {"file": cf, "line": int(cl), "lang": "ts"}, keep)
+            if open(os.path.join(root, cf), encoding="utf-8").read() != before:
+                files.append(cf)
+            files += compile_tradeoffs(root, led)
+            led["edits"].append({"by": "tradeoff-undo", "id": tid, "files": sorted(set(files)), "at": t["undone"]})
+            save_ledger(root, led)
+            return files
         near = lambda: min((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == cf),
                            key=lambda x: abs(int(x["line"]) - int(cl)), default=None)  # import blocks move constructors
         cc = near()
@@ -1822,8 +1916,14 @@ def undo_tradeoff(root, tid):
 
 
 def add_parsers(sub):
-    s = sub.add_parser("check", help="v4: facts for one site as the code stands: routes or not, hard limits, the proposal, evidence so far, native eligibility")
-    s.add_argument("loc", help="FILE:LINE (relative to the repo root)")
+    s = sub.add_parser("check", help="does each LLM call route to Router now, and why not (--all: every call the scanner sees; "
+                                     "--run CMD: run code against the local Router simulator; --final: dry run of the final check)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE[,FILE:LINE...] (relative to the repo root)")
+    s.add_argument("--all", action="store_true", help="every LLM call the scanner sees")
+    s.add_argument("--run", help="shell command to run with the runtime pointed at router-sim (provider keys dummied, offline)")
+    s.add_argument("--final", action="store_true", help="dry run of the final check that runs after the agent (tests skipped unless --tests)")
+    s.add_argument("--tests", action="store_true", help="with --final: also run the test suite Router-on against the baseline")
+    s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT)
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("wrap", help="v4: the deterministic wrap at a client construction (--native: point it straight at Router when provably safe)")
@@ -1853,8 +1953,26 @@ def add_parsers(sub):
     s.add_argument("--latency-critical", action="store_true", help="this call needs the default tier, not Flex (cite why in --why)")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
+    s = sub.add_parser("start", help="Claude Code: set up (map every LLM call, baseline in the background) and print the instructions")
+    s.add_argument("path", nargs="?", default=".")
+    s.add_argument("--test-cmd")
+    s.add_argument("--typecheck-cmd")
+    s = sub.add_parser("levers", help="improvement facts for migrated calls (Flex tier, price, suggested cards, why not)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE[,...] (default: every migrated call)")
+    s.add_argument("--path", default=".")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("dashboard", help="write REPORT.html and open the live dashboard (detached; prints its URL)")
+    s.add_argument("path", nargs="?", default=".")
+    s.add_argument("--serve", action="store_true", help=argparse_suppress())
+    s.add_argument("--no-browser", action="store_true")
+    for hidden in ("_baseline", "_fulltest"):
+        s = sub.add_parser(hidden)
+        s.add_argument("path")
+        s.add_argument("--test-cmd")
+        s.add_argument("--typecheck-cmd")
     s = sub.add_parser("adapt", help="v4: take a trade-off so a site moves to Router, and record what it costs (shown on the dashboard with an undo)")
-    s.add_argument("loc", help="FILE:LINE of the call site (or its client construction)")
+    s.add_argument("loc", nargs="?", help="FILE:LINE of the call site (or its client construction)")
+    s.add_argument("--undo", metavar="T<n>", help="reverse trade-off T<n> (policy keys and client options; a hand edit you revert yourself)")
     s.add_argument("--drop", help="request parameters to drop on Router-bound requests (comma-separated); max_tokens is raised to 16, name folded into the text")
     s.add_argument("--model-map", action="append", help="OLD=NEW: serve OLD with Router catalog model NEW (repeatable)")
     s.add_argument("--unlock-host", action="append", help="another vendor's OpenAI-compatible host whose traffic goes through Router")
@@ -1875,12 +1993,16 @@ def add_parsers(sub):
     s.add_argument("--evidence", action="append")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
-    s = sub.add_parser("finish", help="v4: the gate (parse, scope + invariants, guardrails, typecheck, tests vs baseline, Router-on run, evidence "
-                                      "for every migrated claim, a decision for every item); reverts after --max-attempts failures")
+    s = sub.add_parser("finish", help="the outside check (parse, scope, typecheck, tests with Router on vs the baseline, route truth), "
+                                      "then improvement cards, REPORT.html and the dashboard; a second failure reverts the offending files")
     s.add_argument("path", nargs="?", default=".")
     s.add_argument("--hook", action="store_true", help="Claude Code Stop hook mode (JSON decision on stdout)")
     s.add_argument("--max-attempts", type=int, default=3)
     s.add_argument("--json", action="store_true")
+    s.add_argument("--skip-improve", action="store_true", help="v5: stop after the outside check (no cards, no dashboard)")
+    s.add_argument("--no-dashboard", action="store_true", help="v5: write REPORT.html but don't serve the live dashboard")
+    s.add_argument("--no-browser", action="store_true", help="v5: serve the dashboard without opening a browser")
+    s.add_argument("--foreground-tests", action="store_true", help="v5: run a slow suite before returning instead of in the background")
     s = sub.add_parser("judge", help="v3 improve: record a judgment for the feature at FILE:LINE (latency | task | cacheable) with evidence")
     s.add_argument("loc", help="FILE:LINE of the feature's call site")
     s.add_argument("key", choices=sorted(JUDGE_KEYS))
@@ -1901,7 +2023,37 @@ def add_parsers(sub):
     s.add_argument("--no-browser", action="store_true")
 
 
+def _each(fn, a):
+    """Run a per-location command over comma-separated locations."""
+    import copy
+    rc = 0
+    for loc in [x.strip() for x in a.loc.split(",") if x.strip()]:
+        b = copy.copy(a)
+        b.loc = loc
+        rc = max(rc, fn(b) or 0)
+    return rc
+
+
+def argparse_suppress():
+    import argparse
+    return argparse.SUPPRESS
+
+
 def dispatch(a):
+    from . import harness
+    v5 = {"start": harness.cmd_start, "levers": harness.cmd_levers, "dashboard": harness.cmd_dashboard,
+          "_baseline": harness.cmd_baseline, "_fulltest": harness.cmd_fulltest}
+    if a.cmd in v5:
+        return v5[a.cmd](a)
+    if a.cmd == "finish" and (load_ledger(ledger_root(a.path)) or {}).get("version") == 5:
+        return harness.cmd_finish(a)
+    if a.cmd == "check" and (getattr(a, "final", False)):
+        return harness.cmd_verify(a)
+    if a.cmd == "check" and (getattr(a, "all", False) or getattr(a, "run", None) or not a.loc or "," in a.loc
+                             or (load_ledger(ledger_root(a.path)) or {}).get("version") == 5):
+        return harness.cmd_check(a)
+    if a.cmd in ("wrap", "unwrap", "adapt") and "," in (a.loc or ""):
+        return _each({"wrap": cmd_wrap, "unwrap": cmd_unwrap, "adapt": cmd_adapt}[a.cmd], a)
     return {"check": cmd_check, "wrap": cmd_wrap, "adapt": cmd_adapt, "unwrap": cmd_unwrap, "probe": cmd_probe, "claim": cmd_claim, "card": cmd_card,
             "finish": cmd_finish, "run": cmd_run, "judge": cmd_judge, "improve": cmd_improve}[a.cmd](a)
 

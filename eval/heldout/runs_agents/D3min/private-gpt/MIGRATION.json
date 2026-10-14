@@ -1,0 +1,32 @@
+{
+  "sites": [
+    {
+      "site": "private_gpt/components/llm/factories/responses/openai.py:28",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none measured: this app never sets track_previous_responses/store, so no provider-side Responses state is in play; sampling params, tools, and structured outputs pass through unchanged; a request Router can't serve (e.g. a future dated/retired model) falls back to OpenAI automatically.",
+      "why": "The OpenAIResponses client (llama_index.llms.openai.OpenAIResponses, subclassed as PatchedOpenAIResponsesLLM) builds its openai.OpenAI/AsyncOpenAI client lazily inside the third-party package, which is why the static scanner reports the call sites in private_gpt/components/llm/custom/openairesponses.py:337,458 as 'unresolved'. The class accepts http_client/async_http_client and threads them straight into the SDK client it lazily constructs, so vendoring router_runtime.py (via `router-migrate wrap`) and passing router_runtime.http_client()/async_http_client() at this construction site routes the traffic without touching the vendored runtime or the llama_index package. Verified with `router-migrate check --run` against the simulator: both the streaming and non-streaming paths send valid /v1/responses requests through Router. This factory only runs when settings.openai.api_base resolves to api.openai.com (the default), so only real-OpenAI traffic is affected."
+    },
+    {
+      "site": "private_gpt/components/llm/factories/completions/openai.py:40",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none measured: Chat Completions requests translate losslessly to Router's /v1/responses for the parameters this app sends (messages, tools, reasoning_effort, response_format, streaming with usage); unsupported knobs (seed, n>1, logprobs) aren't used by this codebase. Any request Router rejects before generating falls back to OpenAI automatically.",
+      "why": "Same situation as the Responses factory: PatchedOpenAILLM (llama_index.llms.openai.OpenAI) only builds its SDK client lazily inside the base class on first use, so there is no in-repo constructor call for the scanner to see. Passing router_runtime.http_client()/async_http_client() into the constructor (same mechanism `router-migrate wrap` uses) routes it through Router's chat_to_responses translation. Verified with `router-migrate check --run`: a real chat() call through this factory produced a valid Router request and reply. Only active when settings.openai.api_base is api.openai.com."
+    },
+    {
+      "site": "private_gpt/components/llm/factories/responses/openailike.py:41",
+      "outcome": "needs_decision",
+      "levers": ["unlock-host"],
+      "loses": "n/a (left unchanged)",
+      "why": "This factory only runs when the operator points settings.openai.api_base away from api.openai.com — its own docstring says it's for 'OpenAI-compatible endpoints (vLLM, Ollama, etc.)'. That is this app's deliberate local/self-hosted inference path (private-gpt's whole premise), which the task's own guidance lists as usually NOT worth moving. But the configured endpoint could equally be a legitimate third-party cloud vendor whose models are in Router's catalog, which usually IS worth moving. Static inspection of this repo can't tell which deployment this is: a human needs to say whether the deployed api_base is a local/self-hosted server (keep as-is) or a hosted vendor (then run `router-migrate adapt private_gpt/components/llm/factories/responses/openailike.py:41 --unlock-host <that host> --loses \"requests whose model name matches Router's catalog leave this host for Router instead\" --why \"<vendor name> is a cloud endpoint, not self-hosted\"`). Router's per-request model-name match already protects any self-hosted/unresolvable model names from being sent off-host even if the host is unlocked, but sending user data to a third party for a false-positive match is exactly the kind of loss this app exists to avoid, so it isn't a default-migrate case."
+    },
+    {
+      "site": "private_gpt/components/llm/factories/completions/openailike.py:46",
+      "outcome": "needs_decision",
+      "levers": ["unlock-host"],
+      "loses": "n/a (left unchanged)",
+      "why": "Same call as responses/openailike.py:41 but for the Chat Completions API: PatchedOpenAILikeLLM is only used when settings.openai.api_base is a custom OpenAI-compatible endpoint (vLLM, Ollama, or a third-party vendor), per its docstring. Whether that endpoint is the local/self-hosted deployment private-gpt exists to support (keep off Router) or a cloud vendor Router can serve (safe to unlock via `router-migrate adapt ... --unlock-host <host>`) depends on how this instance is deployed, which isn't knowable from the code alone."
+    }
+  ]
+}

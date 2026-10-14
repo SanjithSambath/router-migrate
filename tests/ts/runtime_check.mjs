@@ -473,6 +473,51 @@ await t("feature tag off: no metadata.feature, no automatic prompt_cache_key", a
   });
 });
 
+// ------------------------------------------------------------------ v2 unlocks: unlockHosts / dropBetas (RouterOpts)
+await t("unlockHosts routes another vendor's OpenAI-compatible host; without it the vendor serves", async () => {
+  const xai = (opts) => new OpenAI({ apiKey: "xai-key", baseURL: "https://api.x.ai/v1", maxRetries: 0, ...rt.routerOptions(base, opts) });
+  const r = await offProvider(() => xai({ unlockHosts: ["api.x.ai"] }).chat.completions.create({ model: "grok-4.7", messages: HI }));
+  assert.equal(r.choices[0].message.content, "pong");
+  const l = await lastReq();
+  assert.equal(l.path, "/v1/responses"); assert.ok(l.valid, JSON.stringify(l)); assert.equal(l.request.model, "grok-4.7");
+  const rr = await offProvider(() => xai({ unlockHosts: ["api.x.ai"] }).responses.create({ model: "grok-4.7", input: "hi" }));
+  assert.equal(rr.output_text, "pong");
+  // a Router-issued id from the unlocked host is answered locally, never sent to the vendor
+  assert.equal((await offProvider(() => xai({ unlockHosts: ["api.x.ai"] }).responses.retrieve(rr.id))).id, rr.id);
+  // not unlocked (or another host unlocked): the vendor gets the request unchanged
+  for (const o of [undefined, { unlockHosts: ["api.deepseek.com"] }]) {
+    const p = await onProvider(() => xai(o).chat.completions.create({ model: "grok-4.7", messages: HI }));
+    assert.equal(p.choices[0].message.content, "from-provider");
+    assert.equal(new URL(providerCalls[0].url).host, "api.x.ai");
+  }
+  // unlocked, but the model is not a Router catalog id: still the vendor
+  await onProvider(() => xai({ unlockHosts: ["api.x.ai"] }).chat.completions.create({ model: "grok-not-in-catalog", messages: HI }));
+  // operatorKeyOnly checks OPENAI_API_KEY, which is not the vendor's key: an unlocked host is not gated by it (Python parity)
+  await withEnv({ OPENAI_API_KEY: "sk-operator" }, () =>
+    offProvider(() => xai({ unlockHosts: ["api.x.ai"], operatorKeyOnly: true }).chat.completions.create({ model: "grok-4.7", messages: HI })));
+});
+await t("dropBetas routes an anthropic-beta request when every flag is approved (header not forwarded)", async () => {
+  const send = (f, beta) => f("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": "k", "anthropic-beta": beta }, body: JSON.stringify({ model: "claude-haiku-4-5", max_tokens: 16, messages: HI }) });
+  const CACHE = "prompt-caching-2024-07-31";
+  const r = await offProvider(() => send(rt.routerFetch(base, { dropBetas: [CACHE] }), CACHE));
+  assert.equal((await r.json()).content[0].text, "pong");
+  const l = await lastReq(); assert.equal(l.request.model, "claude-haiku-4-5"); assert.ok(l.valid, JSON.stringify(l));
+  // the approved flag is dropped: Router never sees the header
+  const routerCalls = [];
+  const rec = rt.routerFetch(async (input, init) => {
+    if (urlOf(input).startsWith(sim)) routerCalls.push(new Headers(init.headers));
+    return base(input, init);
+  }, { dropBetas: [CACHE, "token-efficient-tools-2025-02-19"] });
+  await offProvider(() => send(rec, ` ${CACHE} , token-efficient-tools-2025-02-19`));
+  assert.equal(routerCalls.length, 1); assert.equal(routerCalls[0].get("anthropic-beta"), null);
+  // no dropBetas, or any flag outside the list: Anthropic serves it, beta header intact
+  for (const [opts, beta] of [[undefined, CACHE], [{ dropBetas: [] }, CACHE], [{ dropBetas: [CACHE] }, `${CACHE},computer-use-2025-01-24`]]) {
+    const p = await onProvider(() => send(rt.routerFetch(base, opts), beta));
+    assert.equal((await p.json()).content[0].text, "from-provider");
+    assert.equal(providerCalls[0].headers.get("anthropic-beta"), beta);
+  }
+});
+
 // ------------------------------------------------------------------ H3: the SDK's http agent (proxy / keep-alive) is honoured
 // The runtime copy lives under the project so its lazy import("node-fetch") resolves like it would in a host app.
 await t("H3 init.agent is honoured (node-fetch) for provider and Router traffic", async () => {

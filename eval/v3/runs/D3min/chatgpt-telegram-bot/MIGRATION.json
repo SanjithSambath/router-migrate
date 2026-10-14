@@ -1,0 +1,53 @@
+{
+  "sites": [
+    {
+      "site": "bot/openai_helper.py:268",
+      "outcome": "migrated",
+      "levers": ["wrap:bot/openai_helper.py:107", "model_map:bot/openai_helper.py:107"],
+      "loses": "Legacy/retired model ids configured via OPENAI_MODEL (e.g. gpt-4-32k, gpt-3.5-turbo-0301, o1-preview) are served by Router's closest current catalog model (e.g. gpt-4, gpt-3.5-turbo, o1) instead of the exact literal id; sampling knobs Router rejects (seed, logprobs) and n>1 fall back transparently to the original OpenAI endpoint per-request via the vendored runtime, so no behavior changes there.",
+      "why": "Main chat-completion call (__common_get_chat_response). Default model gpt-4o is in the Router catalog and routes unchanged. Verified with check --run against the simulator (valid /v1/responses request)."
+    },
+    {
+      "site": "bot/openai_helper.py:329",
+      "outcome": "migrated",
+      "levers": ["wrap:bot/openai_helper.py:107", "model_map:bot/openai_helper.py:107"],
+      "loses": "Same model-id substitution as above for non-default OPENAI_MODEL configs.",
+      "why": "Plugin function-calling follow-up call (__handle_function_call). Initially failed against Router's Responses translation because the app never appended the assistant's function_call message to history before the function-result message, so Router's chat->responses translator had no function_call item to pair the function_call_output with (400: 'No tool call found for function call output'). This was a genuine spec-compliance gap in the app (OpenAI's own legacy-functions docs require including that assistant turn) that OpenAI's Chat Completions endpoint tolerated but Router's Responses-API translation does not. Fixed by appending the assistant function_call message to conversation history in __handle_function_call before invoking the plugin (bot/openai_helper.py, both the stream and non-stream branches converge on this before the `logging.info('Calling function...')` line). Re-verified with check --run (valid request, function executed, response returned) and the repo's own compileall/import smoke test."
+    },
+    {
+      "site": "bot/openai_helper.py:346",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "images.generate (DALL-E). Router has no image-generation endpoint (hard limit). Kept pointed at OpenAI directly; no change needed since this client is a different call surface than chat.completions and the images endpoint is untouched by the wrap."
+    },
+    {
+      "site": "bot/openai_helper.py:374",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "audio.speech.create (TTS). Router has no audio endpoint (hard limit). Stays on OpenAI directly."
+    },
+    {
+      "site": "bot/openai_helper.py:395",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "audio.transcriptions.create (Whisper). Router has no audio endpoint (hard limit). Stays on OpenAI directly."
+    },
+    {
+      "site": "bot/openai_helper.py:472",
+      "outcome": "migrated",
+      "levers": ["wrap:bot/openai_helper.py:107", "model_map:bot/openai_helper.py:107"],
+      "loses": "Same model-id substitution as above if VISION_MODEL is set to a non-catalog id (default gpt-4o is unaffected).",
+      "why": "Vision chat-completion call (__common_get_chat_response_vision). image_url content is supported by Router's chat->responses translation. Verified with check --run (valid /v1/responses request, image+text content, correct answer returned)."
+    },
+    {
+      "site": "bot/openai_helper.py:625",
+      "outcome": "migrated",
+      "levers": ["wrap:bot/openai_helper.py:107", "model_map:bot/openai_helper.py:107"],
+      "loses": "Same model-id substitution as above for non-default OPENAI_MODEL configs.",
+      "why": "History-summarization call (__summarise), a small non-user-facing housekeeping call on the same model. Verified with check --run (valid /v1/responses request)."
+    }
+  ]
+}

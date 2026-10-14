@@ -1,0 +1,237 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 4,
+   "seconds": 3.5
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/bin/python",
+  "test_cmd": "mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/tmp\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/tmp\" TIKTOKEN_CACHE_DIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/tiktoken\" PYTHONPATH=. /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/bin/python -m compileall -q app protocol main.py run_flow.py run_mcp.py run_mcp_server.py sandbox_main.py && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/tmp\" TIKTOKEN_CACHE_DIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/tiktoken\" PYTHONPATH=. /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/bin/python -m pytest -q -p no:cacheprovider -c /dev/null --rootdir . tests/ --ignore=tests/sandbox",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "app/bedrock.py:210": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/bedrock.py",
+   "levers": [],
+   "line": 210,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Amazon Bedrock Converse API call (boto3 bedrock-runtime client), not an OpenAI/Anthropic-shaped request. Router does not serve this vendor's endpoint with the shared key; kept on Bedrock."
+  },
+  "app/bedrock.py:235": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/bedrock.py",
+   "levers": [],
+   "line": 235,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Amazon Bedrock Converse (streaming) API call, same as app/bedrock.py:210. Router does not serve this vendor's endpoint with the shared key; kept on Bedrock."
+  },
+  "app/llm.py:217": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [],
+   "line": 217,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "AsyncAzureOpenAI client construction (api_type=='azure' branch). `router-migrate wrap` reported no deterministic wrap for azure-openai, and router_runtime.wrap_openai() itself declines to touch Azure clients (it checks _is_openai() and leaves Azure deployments on their configured endpoint). Azure addresses models by deployment name against a tenant-specific endpoint rather than a Router catalog model id, so there is no safe automatic mapping; a human would need to decide whether to re-point a specific Azure deployment at a Router catalog model (model-map) or leave Azure traffic on Azure."
+  },
+  "app/llm.py:421": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 421,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "self.client.chat.completions.create() on the AsyncOpenAI branch (app/llm.py:225, api_type not azure/aws) now routes through Router; wrapped the AsyncOpenAI construction with router_runtime.wrap_openai(). When this LLM instance is configured for api_type=='azure' or 'aws' instead, this same line runs against AsyncAzureOpenAI or BedrockClient, which stay on their original endpoints (see app/llm.py:217 and app/bedrock.py)."
+  },
+  "app/llm.py:438": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 438,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Same wrapped AsyncOpenAI client as app/llm.py:421 (streaming path of LLM.ask); routes through Router when api_type is the default/openai branch."
+  },
+  "app/llm.py:593": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 593,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Same wrapped AsyncOpenAI client (LLM.ask_with_images, non-streaming path); routes through Router when api_type is the default/openai branch."
+  },
+  "app/llm.py:603": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 603,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Same wrapped AsyncOpenAI client (LLM.ask_with_images, streaming path); routes through Router when api_type is the default/openai branch."
+  },
+  "app/llm.py:732": {
+   "by": "agent",
+   "evidence": [],
+   "file": "app/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 732,
+   "loses": "none",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Same wrapped AsyncOpenAI client (LLM.ask_tool); routes through Router when api_type is the default/openai branch. Verified live: a probe script constructing LLM with api_type='' and model='gpt-4o-mini' produced a valid /v1/responses request against the Router simulator (router-migrate check --run)."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 3.1,
+  "agent_turns": 28,
+  "agent_usd": 0.7039023999999999,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:41:52",
+ "edits": [
+  {
+   "at": "2026-10-14T13:42:22",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "app/llm.py",
+   "line": 225,
+   "native": false
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:45:14",
+    "gates": [],
+    "info": {
+     "report_sites": 8,
+     "sites": 7,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 4,
+      "seconds": 5.2
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 4,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "8df7f920f740beb1e7ec6d54e4d26da01e18994d"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:43:24",
+   "blocked": {},
+   "cmd": "PYTHONPATH=. /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-OpenManus/18b56058-52be-44d5-86de-9503c4d62691/scratchpad/probe_llm.py",
+   "exit": 1,
+   "kept": [],
+   "requests": [],
+   "seconds": 5.5,
+   "tail": " \"/private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-OpenManus/18b56058-52be-44d5-86de-9503c4d62691/scratchpad/probe_llm.py\", line 4, in <module>\n    from app.llm import LLM\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/OpenManus/app/llm.py\", line 22, in <module>\n    from app.config import LLMSettings, config\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/OpenManus/app/config.py\", line 372, in <module>\n    config = Config()\n             ^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/OpenManus/app/config.py\", line 214, in __init__\n    self._load_initial_config()\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/OpenManus/app/config.py\", line 297, in _load_initial_config\n    daytona_settings = DaytonaSettings()\n                       ^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/lib/python3.12/site-packages/pydantic/main.py\", line 214, in __init__\n    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npydantic_core._pydantic_core.ValidationError: 1 validation error for DaytonaSettings\ndaytona_api_key\n  Field required [type=missing, input_value={}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.10/v/missing\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:43:47",
+   "blocked": {},
+   "cmd": "PYTHONPATH=. /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/OpenManus/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-OpenManus/18b56058-52be-44d5-86de-9503c4d62691/scratchpad/probe_llm.py",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "app/llm.py:__init__",
+     "error": null,
+     "feature": "app/llm.py:ask",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 3.3,
+   "tail": "RESPONSE: pong\n2026-10-14 13:43:46.540 | INFO     | app.llm:update_token_count:250 - Token usage: Input=9, Completion=4, Cumulative Input=9, Cumulative Completion=4, Total=13, Cumulative Total=13\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "app/llm.py:421",
+   "app/llm.py:438",
+   "app/llm.py:593",
+   "app/llm.py:732"
+  ],
+  "failures": [],
+  "moved": 5,
+  "moved_sites": [
+   "app/llm.py:428",
+   "app/llm.py:445",
+   "app/llm.py:600",
+   "app/llm.py:610",
+   "app/llm.py:739"
+  ],
+  "ok": true,
+  "report_sites": 8,
+  "reverted": [],
+  "sites_seen": 7,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/OpenManus",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

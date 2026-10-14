@@ -1,0 +1,241 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 7,
+   "seconds": 6.4
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/bin/python",
+  "test_cmd": "export OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy QWEN_API_KEY=dummy GRADIO_ANALYTICS_ENABLED=False HF_HUB_OFFLINE=1; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/tmp\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/tmp\" PYTHONPYCACHEPREFIX=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/tmp/pycache\" PYTHONPATH=. OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy QWEN_API_KEY=dummy GRADIO_ANALYTICS_ENABLED=False HF_HUB_OFFLINE=1 /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/computer_use_ootb/bin/python -c 'import sys, time, importlib, compileall\nt = time.time()\nres = []\nok = [bool(compileall.compile_dir(d, quiet=1, force=True)) for d in (\"computer_use_demo\", \"install_tools\")] + [bool(compileall.compile_file(\"app.py\", quiet=1, force=True))]\nres.append((\"compileall computer_use_demo install_tools app.py\", all(ok)))\nfor m in (\"computer_use_demo.gui_agent.llm_utils.oai\", \"computer_use_demo.gui_agent.llm_utils.qwen\", \"computer_use_demo.gui_agent.planner.anthropic_agent\", \"computer_use_demo.gui_agent.actor.uitars_agent\", \"computer_use_demo.gui_agent.planner.api_vlm_planner\", \"computer_use_demo.loop\"):\n    try:\n        importlib.import_module(m)\n        res.append((\"import \" + m, True))\n    except BaseException as e:\n        print(\"ERROR importing\", m, \"->\", type(e).__name__, e)\n        res.append((\"import \" + m, False))\nfor name, good in res:\n    print((\"PASSED \" if good else \"FAILED \") + name)\np = sum(1 for _, g in res if g); f = len(res) - p\nprint((\"%d failed, \" % f if f else \"\") + \"%d passed in %.2fs\" % (p, time.time() - t))\nsys.exit(1 if f else 0)'",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "computer_use_demo/gui_agent/actor/uitars_agent.py:55": {
+   "by": "agent",
+   "evidence": [],
+   "file": "computer_use_demo/gui_agent/actor/uitars_agent.py",
+   "levers": [],
+   "line": 55,
+   "loses": "n/a - not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "This OpenAI-SDK client is pointed at a user-supplied, self-hosted UI-TARS GUI-grounding server (ui_tars_url, set from the app's UI, no default), not api.openai.com - it is one of this app's pluggable actor backends, not a hosted-vendor call. Even if wrapped, the model id 'ui-tars' is not in Router's catalog and the host would need an explicit --unlock-host, which only makes sense for other vendors' hosted OpenAI-compatible endpoints, not an arbitrary self-hosted inference server the product exists to let users point at. Matches the 'local/self-hosted model the app exists to use' exclusion. A human could decide to keep this unrouted permanently, or map specific self-hosted deployments that happen to also serve a catalog model via --unlock-host on a case-by-case basis."
+  },
+  "computer_use_demo/gui_agent/llm_utils/oai.py:174": {
+   "by": "agent",
+   "evidence": [],
+   "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
+   "levers": [],
+   "line": 174,
+   "loses": "n/a - not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "run_ssh_llm_interleaved (scanner misses it - raw `requests.post` to an operator/user-supplied ssh_host:ssh_port, not an OpenAI/Anthropic client) talks to a self-hosted Qwen VLM reachable over an SSH-tunnelled port the user configures in the UI. Same 'self-hosted model the app exists to use' exclusion as uitars_agent.py; Router has no endpoint for an arbitrary private inference server."
+  },
+  "computer_use_demo/gui_agent/llm_utils/oai.py:67": {
+   "by": "agent",
+   "evidence": [],
+   "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
+   "levers": [
+    "rewrote raw `requests.post` to api.openai.com/v1/chat/completions onto the OpenAI SDK so the runtime's httpx transport can see the call",
+    "wrap_openai(..., operator_key_only=True)",
+    "model_map gpt-4o-2024-11-20 -> gpt-4o (router.policy.json)"
+   ],
+   "line": 67,
+   "loses": "Dated gpt-4o snapshot pinning is dropped (served by Router's current gpt-4o alias instead, via model_map). When an end user pastes their own OpenAI key into the UI (this app is bring-your-own-key: the operator's OPENAI_API_KEY is just the textbox default), their calls are not routed and keep hitting OpenAI directly, so they are billed on their own key as before.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "run_oai_interleaved (used by APIVLMPlanner for the 'gpt-4o' planner option) was raw HTTP, invisible to the vendored runtime; rewriting it onto the OpenAI SDK is a small, low-risk change (same request/response shape) that lets routing apply. gpt-4o-2024-11-20 isn't an exact Router catalog id but gpt-4o is its closest active match. operator_key_only keeps the Router migration from silently redirecting and re-billing a user's own key through the operator's Router account. Verified end-to-end with `router-migrate check --run`: a call made with the operator's key reaches router-sim as a valid /v1/responses request (model=gpt-4o); the identical call made with a different ('end user') key is correctly kept on the provider."
+  },
+  "computer_use_demo/gui_agent/llm_utils/qwen.py:52": {
+   "by": "agent",
+   "evidence": [],
+   "file": "computer_use_demo/gui_agent/llm_utils/qwen.py",
+   "levers": [],
+   "line": 52,
+   "loses": "n/a - not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "run_qwen (scanner misses it - uses Alibaba's `dashscope` SDK, not an OpenAI/Anthropic client) calls `dashscope.MultiModalConversation.call` directly against Alibaba's native DashScope protocol. Router serves `/v1/responses` and `/v1/messages` (OpenAI/Anthropic-shaped request/response); it does not serve DashScope's native API, and this code path doesn't go through an OpenAI/Anthropic-compatible HTTP surface the vendored runtime (or a Router-direct call) could intercept or translate. Rewriting it onto DashScope's separate OpenAI-compatible compatible-mode endpoint would change the request/response/usage shape and auth entirely - out of scope for a reasonable move here; flagging for a human to decide if that rewrite is wanted."
+  },
+  "computer_use_demo/gui_agent/planner/anthropic_agent.py:118": {
+   "by": "agent",
+   "evidence": [],
+   "file": "computer_use_demo/gui_agent/planner/anthropic_agent.py",
+   "levers": [],
+   "line": 118,
+   "loses": "n/a - not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Every call from AnthropicActor carries betas=[\"computer-use-2024-10-22\"] and uses the beta-gated tool types computer_20241022/bash_20241022/text_editor_20241022 (see computer_use_demo/tools/computer.py, bash.py, edit.py) - this is literally the 'computer use' feature the app (computer_use_demo) is built around, not an incidental flag. Dropping the beta (as the scanner's hint suggests is mechanically possible via --drop-betas) would be exactly the 'beta that *is* the feature' case this migration should leave in place, so it was not attempted. The client was left unwrapped since every request it makes carries this beta and would stay on Anthropic regardless."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 7.2,
+  "agent_turns": 45,
+  "agent_usd": 1.4550066000000001,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:33:44",
+ "edits": [
+  {
+   "at": "2026-10-14T13:37:13",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
+   "line": 58,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:37:57",
+   "by": "tradeoff",
+   "files": [
+    "computer_use_demo/gui_agent/llm_utils/oai.py",
+    "computer_use_demo/gui_agent/llm_utils/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T1"
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:41:19",
+    "gates": [],
+    "info": {
+     "report_sites": 5,
+     "sites": 3,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 7,
+      "seconds": 9.3
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 7,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "10901100661106cead8aeb2a1d8da1d739ecf5c7"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:38:55",
+   "blocked": {},
+   "cmd": "python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-computer-use-ootb/60785d28-64e0-4787-bc78-3e256a4e991e/scratchpad/probe_oai.py",
+   "exit": 1,
+   "kept": [],
+   "requests": [],
+   "seconds": 0.5,
+   "tail": "Traceback (most recent call last):\n  File \"/private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-computer-use-ootb/60785d28-64e0-4787-bc78-3e256a4e991e/scratchpad/probe_oai.py\", line 3, in <module>\n    from computer_use_demo.gui_agent.llm_utils.oai import run_oai_interleaved\nModuleNotFoundError: No module named 'computer_use_demo'\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:39:02",
+   "blocked": {},
+   "cmd": "python -c \"import sys; sys.path.insert(0, '/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/computer_use_ootb'); exec(open('/private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-computer-use-ootb/60785d28-64e0-4787-bc78-3e256a4e991e/scratchpad/probe_oai.py').read())\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved",
+     "error": null,
+     "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 1.7,
+   "tail": "item: {'role': 'user', 'content': ['What is in the screenshot?']}\n[oai] sending messages: ['role: content, role', 'role: content, role']\nRESULT: pong 42\nrouter-migrate policy fc26f100\n"
+  },
+  "PR3": {
+   "at": "2026-10-14T13:39:13",
+   "blocked": {
+    "api.openai.com:443": 3
+   },
+   "cmd": "python -c \"import sys; sys.path.insert(0, '/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/computer_use_ootb'); exec(open('/private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-v3-trials-D3min-computer-use-ootb/60785d28-64e0-4787-bc78-3e256a4e991e/scratchpad/probe_oai_userkey.py').read())\"",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved",
+     "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved",
+     "model": "gpt-4o-2024-11-20",
+     "n": 3,
+     "reason": "not the operator's key (operator_key_only)"
+    }
+   ],
+   "requests": [],
+   "seconds": 2.6,
+   "tail": "item: {'role': 'user', 'content': ['hi']}\n[oai] sending messages: ['role: content, role', 'role: content, role']\nEXPECTED PROVIDER-SIDE ERROR (no live network in this probe): APIConnectionError Connection error.\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 1,
+  "moved_sites": [
+   "computer_use_demo/gui_agent/llm_utils/oai.py:67"
+  ],
+  "ok": true,
+  "report_sites": 5,
+  "reverted": [],
+  "sites_seen": 3,
+  "tradeoffs": 1
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/computer_use_ootb",
+ "tradeoff_policy": {
+  "**llm_utils/oai.py:run_oai_interleaved": [
+   "model_map"
+  ]
+ },
+ "tradeoffs": [
+  {
+   "at": "2026-10-14T13:37:57",
+   "evidence": [],
+   "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved",
+   "file": "computer_use_demo/gui_agent/llm_utils/oai.py",
+   "id": "T1",
+   "levers": {
+    "client": "computer_use_demo/gui_agent/llm_utils/oai.py:65",
+    "model_map": {
+     "gpt-4o-2024-11-20": "gpt-4o"
+    },
+    "operator_key_only": true
+   },
+   "line": 67,
+   "loses": "dated gpt-4o snapshot pinning is dropped (served by Router's current gpt-4o alias instead); if the end user supplied their own OpenAI key in the UI instead of the operator default, their calls are not routed and keep hitting OpenAI directly so they are billed correctly",
+   "site": "computer_use_demo/gui_agent/llm_utils/oai.py:67",
+   "undone": false,
+   "why": "gpt-4o-2024-11-20 is not a Router catalog id but gpt-4o is this model's closest active catalog match; this app lets a user override the operator's OPENAI_API_KEY with their own in the UI, so only operator-key traffic should route through Router's account/billing"
+  }
+ ],
+ "version": 5,
+ "worklist": []
+}

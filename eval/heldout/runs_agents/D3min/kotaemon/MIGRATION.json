@@ -1,0 +1,88 @@
+{
+  "sites": [
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:308",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "Calls using a param Router can't translate for Chat Completions (seed, n>1, logprobs/top_logprobs, a tool_choice of a non-function type, a message with a 'name' field, max_tokens<16, audio/modalities/prediction/web_search_options/logit_bias, or a dated/retired model id not in Router's catalog) fall back to OpenAI unchanged, so this wrap only changes behavior for calls Router can actually serve. Those calls get Router's account-default service tier (Flex pricing/latency where the model offers it, unless ROUTER_MIGRATE_SERVICE_TIER pins a tier) instead of OpenAI's own default tier, and any `stop` sequence is now cut out of the text client-side by the runtime instead of being truncated server-side by OpenAI.",
+      "why": "ChatOpenAI.prepare_client (async): wrapped the AsyncOpenAI client with router_runtime.wrap_openai() so its chat.completions.create traffic routes through Router when RAMP_ROUTER_API_KEY is set. wrap_openai falls back to OpenAI untouched for anything Router can't serve (dated models, seed, n>1, etc)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:312",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "Same trade-off as openai.py:308: calls with a param Router can't translate (seed, n>1, logprobs/top_logprobs, a tool_choice of a non-function type, a message 'name' field, max_tokens<16, audio/modalities/prediction/web_search_options/logit_bias, or a dated/retired model id outside Router's catalog) fall back to OpenAI unchanged; calls that do route get Router's account-default service tier (Flex where offered, unless ROUTER_MIGRATE_SERVICE_TIER pins one) instead of OpenAI's default, and `stop` sequences are now cut client-side by the runtime instead of server-side by OpenAI.",
+      "why": "ChatOpenAI.prepare_client (sync): wrapped the OpenAI client the same way as the async branch above."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:421",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "Same per-call fallback and service-tier trade-off as openai.py:312 (this subclass shares that wrapped client). In addition, Router's /v1/responses defaults a json_schema response format to strict mode, whereas OpenAI's beta chat.completions.parse() does not default to strict -- a schema relying on non-strict behavior (e.g. optional fields without defaults) could be rejected by Router and fall back to OpenAI unchanged.",
+      "why": "StructuredOutputChatOpenAI.openai_response (client.beta.chat.completions.parse): this subclass reuses ChatOpenAI.prepare_client, so it inherits the wrap from openai.py:312 automatically. Router's /v1/responses supports json_schema structured output."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:427",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "Same trade-off as openai.py:421: per-call fallback and Router-default service tier apply as at openai.py:308, and a json_schema response format is served with Router's strict default rather than Chat Completions' non-strict default.",
+      "why": "StructuredOutputChatOpenAI.aopenai_response: inherits the async wrap from openai.py:308 the same way."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:502",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "AzureChatOpenAI.openai_response calls client.chat.completions.create, but the client is built by AzureChatOpenAI.prepare_client (openai.py:467-473) as openai.AzureOpenAI/AsyncAzureOpenAI, keyed by azure_endpoint + azure_deployment + api_version rather than a model id. router_runtime.wrap_openai() explicitly refuses to wrap AzureOpenAI/AsyncAzureOpenAI clients ('Azure deployments and test doubles stay on their configured endpoint') and `router-migrate wrap` itself reports 'AsyncAzureOpenAI (azure-openai) has no deterministic wrap'. Router has no Azure-shaped endpoint (no azure_endpoint/deployment/api_version concept), so this call physically can't be routed without the operator reconfiguring deployments to point at Router, which is a deployment/infra decision, not a code change. A human would need to decide whether to stop using the Azure-specific client (switching the azure_deployment to a Router catalog model id via the plain ChatOpenAI/base_url path instead) if they want this traffic on Router."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/openai.py:506",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "AzureChatOpenAI.aopenai_response: same Azure client as openai.py:502 above; same hard limit."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:28",
+      "outcome": "migrated",
+      "levers": ["wrap (by hand, dynamically built client)"],
+      "loses": "Only the OpenAI and Anthropic SDK clients that a LangChain object holds actually route -- wrap_langchain finds and wraps those specifically, and no-ops for the Azure/Gemini/Cohere/Ollama clients also reachable through this same line, so those keep today's direct-provider behavior unchanged. For the OpenAI/Anthropic calls that do route, the same per-call fallback and Router-default-service-tier trade-offs described at openai.py:308 apply, since wrap_langchain installs the identical transport under the hood.",
+      "why": "LCChatMixin.__init__ builds self._obj = self._lc_class(**params) dynamically (the actual class -- langchain_openai.ChatOpenAI, ChatAnthropic, AzureChatOpenAI, ChatGoogleGenerativeAI, ChatCohere, or ChatOllama -- is only known at runtime via _get_lc_class(), so the scanner can't see this site). Passed the built object through router_runtime.wrap_langchain(), which finds and wraps whichever real OpenAI/Anthropic SDK client the LangChain object holds (root_client/_client/etc) and no-ops for everything else. Verified with `check --run`: both LCChatOpenAI and LCAnthropicChat sent valid /v1/responses and /v1/messages requests to the Router simulator respectively (2 valid, 0 invalid). LCAzureChatOpenAI, LCGeminiChat, LCCohereChat and LCOllamaChat pass through this same line unaffected, since wrap_langchain only acts on openai/anthropic client instances -- Gemini/Cohere/Ollama have no Router endpoint, and Azure keeps the same hard limit as above."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:166",
+      "outcome": "migrated",
+      "levers": ["wrap (by hand, dynamically built client)"],
+      "loses": "Same trade-off as langchain_based.py:28: only the OpenAI/Anthropic client rebuilt here actually routes (Azure/Gemini/Cohere/Ollama rebuilds no-op and keep direct-provider behavior), and routed calls pick up the same per-call fallback and Router-default-service-tier trade-offs described at openai.py:308.",
+      "why": "LCChatMixin.__setattr__ rebuilds self._obj = self._lc_class(**self._kwargs) whenever a tracked param is changed after construction (e.g. llm.model = 'x'). Wrapped this rebuild the same way as __init__ above, otherwise a parameter update after construction would silently drop back to direct provider traffic."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/openai.py:194",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "openai embeddings.create. Hard limit: Router serves only /v1/responses and /v1/messages, no embeddings endpoint. Left untouched."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/openai.py:257",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "Same hard limit as embeddings/openai.py:194 (async embeddings.create)."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/embeddings/langchain_based.py:16",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "LCEmbeddingMixin.__init__ dynamically builds an embeddings client (OpenAIEmbeddings, AzureOpenAIEmbeddings, CohereEmbeddings, HuggingFaceBgeEmbeddings, GoogleGenerativeAIEmbeddings, or MistralAIEmbeddings). Same hard limit: Router has no embeddings endpoint, so there is nothing to route this to regardless of which backend is selected."
+    },
+    {
+      "site": "libs/kotaemon/kotaemon/llms/completions/langchain_based.py:19",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "LCCompletionMixin.__init__ dynamically builds a legacy-completions client (langchain's OpenAI/AzureOpenAI text-davinci-003-style completion, or LlamaCpp). Router serves only /v1/responses and /v1/messages; it has no legacy completions endpoint, so this traffic cannot be routed regardless of backend."
+    }
+  ]
+}

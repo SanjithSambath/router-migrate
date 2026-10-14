@@ -25,6 +25,7 @@ import glob
 import gzip
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -40,9 +41,11 @@ import run_eval as RE  # noqa: E402
 
 # RM_EVAL_SET=dev runs the same harness on the original 15 SPEC repos (eval/repos.json, eval/recipes/, prepared envs under
 # eval/work); their results go to eval/v3/runs_dev so they never mix with the v3 set. The dev set has no ground-truth inventory.
+# RM_EVAL_SET=heldout2: eval/heldout2 (REPOS.json, recipes/, inventory/), prepared under eval/work/heldout2, results in
+# eval/heldout2/runs. Sets with an inventory/ directory are scored against it.
 EVAL_SET = os.environ.get("RM_EVAL_SET", "v3")
-if EVAL_SET not in ("v3", "dev"):
-    raise SystemExit("RM_EVAL_SET must be v3 or dev, got %r" % EVAL_SET)
+if EVAL_SET not in ("v3", "dev", "heldout", "heldout2"):
+    raise SystemExit("RM_EVAL_SET must be v3, dev, heldout or heldout2, got %r" % EVAL_SET)
 RE.SETDIR, RE.WORK = RE.SETS[EVAL_SET]
 RE.LOGS = os.path.join(RE.WORK, "logs")
 os.makedirs(RE.LOGS, exist_ok=True)
@@ -50,7 +53,9 @@ import heldout_audit as HA  # noqa: E402
 from router_migrate import plan as planmod, scan_py  # noqa: E402
 from router_migrate.catalog import Catalog  # noqa: E402
 
-RUNS = os.path.join(HERE, "runs" if EVAL_SET == "v3" else "runs_" + EVAL_SET)
+RUNS = os.path.join(HERE, "runs") if EVAL_SET == "v3" else os.path.join(HERE, "runs_dev") if EVAL_SET == "dev" else \
+    os.path.join(RE.SETDIR, "runs_agents" if EVAL_SET == "heldout" else "runs")  # eval/heldout/runs* never held agent runs before
+INVENTORY_DIR = None if EVAL_SET == "dev" else RE.SETDIR  # <set>/inventory[_adjudicated]/<repo>.json
 TRIALS = os.path.join(RE.WORK, "trials")
 RM = os.path.join(ROOT, "bin", "router-migrate")
 ARMS = ("A", "B", "B_prime", "C")
@@ -114,6 +119,9 @@ def typecheck_cmd(rec, src):
 
 
 # ------------------------------------------------------------------------------------------------ scoring
+CLIENTS = {}  # trial dir -> scanner client constructions of the code as it stands (pristine-mapped lines), set by measure()
+
+
 def measure(dst, name):
     """Prod sites that route to Router in the code as it is now, with lines mapped back to the pristine source."""
     scan = scan_py.scan(dst)
@@ -125,18 +133,103 @@ def measure(dst, name):
         except Exception:
             pass
     p = planmod.build({"sites": sites, "root": dst}, Catalog.load(), measure_only=True)
-    pristine = os.path.join(RE.WORK, "pristine", name)
-    maps = {}
+    pm = PristineMap(dst, name)
+    # the client constructions too (scorer: a decision or probe anchored at a client covers the calls that use it)
+    CLIENTS[dst] = [dict(c, line=pm(c["file"], int(c["line"])), line_now=int(c["line"])) for c in sites
+                    if c.get("kind") == "client" and c.get("prod", True)]
     out = []
     for s in p["sites"]:
         if not s.get("prod"):
             continue
-        f = s["file"]
-        if f not in maps:
-            maps[f] = line_map(os.path.join(pristine, f), os.path.join(dst, f))
-        m = maps[f]
-        out.append(dict(s, line=m(int(s["line"])) if m else int(s["line"]), line_now=int(s["line"])))
+        out.append(dict(s, line=pm(s["file"], int(s["line"])), line_now=int(s["line"])))
     return out
+
+
+# where a trial's diff against its base commit comes from when the tree itself can't say (a tree rebuilt from diff.patch)
+PATCH_FOR = {}
+_PATCH_CMD = ("git diff --no-color $(git rev-list --max-parents=0 HEAD) -- . ':(exclude).router-migrate' ':(exclude,glob)**/router_runtime.py' "
+              "':(exclude,glob)**/routerRuntime.ts' ':(exclude,glob)**/router_policy.py'")
+
+
+def pristine_maps(diff_text):
+    """{file (b/ path): f(new_line) -> old_line} from a unified diff: context lines map exactly, a line added in a block
+    that replaced old lines maps onto those old lines in order (the overflow onto the block's last old line), a pure
+    insertion maps to the nearest preceding original line, and lines between hunks shift by the preceding hunks' delta."""
+    import re
+    files, cur = {}, None
+    old = new = 0
+    blk = None  # [first old line of the current -/+ block, number of - lines, number of + lines]
+    for l in (diff_text or "").splitlines():
+        if l.startswith("+++ "):
+            cur = files.setdefault(l[6:] if l.startswith("+++ b/") else None, {"exact": {}, "hunks": []}) if not l.startswith("+++ /dev/null") else None
+            continue
+        if l.startswith("--- ") or l.startswith("diff --git") or l.startswith("index "):
+            continue
+        m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", l)
+        if m:
+            al = int(m.group(2)) if m.group(2) is not None else 1
+            nl = int(m.group(4)) if m.group(4) is not None else 1
+            old = int(m.group(1)) + (0 if al else 1)  # "-5,0": inserted after line 5, so the next old line is 6
+            new, blk = int(m.group(3)) + (0 if nl else 1), None
+            if cur is not None:
+                cur["hunks"].append((old, al, new, nl))
+            continue
+        if cur is not None and not l:
+            l = " "  # a blank context line whose trailing space was stripped (git apply reads it the same way)
+        if cur is None or l[0] not in " +-\\":
+            continue
+        if l[0] == " ":
+            cur["exact"][new] = old
+            old, new, blk = old + 1, new + 1, None
+        elif l[0] == "-":
+            if blk is None or blk[2]:
+                blk = [old, 0, 0]
+            blk[1] += 1
+            old += 1
+        elif l[0] == "+":
+            if blk is None:
+                blk = [old, 0, 0]
+            cur["exact"][new] = (blk[0] + min(blk[2], blk[1] - 1)) if blk[1] else max(blk[0] - 1, 1)
+            blk[2] += 1
+            new += 1
+
+    def make(d):
+        def f(n):
+            if n in d["exact"]:
+                return d["exact"][n]
+            delta = 0
+            for a, al, c, cl in d["hunks"]:
+                if n >= c + cl:
+                    delta = (a + al) - (c + cl)
+            return n + delta
+        return f
+    return {k: make(v) for k, v in files.items() if k}
+
+
+class PristineMap:
+    """f(file, line_now) -> the line in the pristine source, through the trial's own diff (the hunks of `git diff <base>` in
+    the trial tree, or the saved diff.patch for a rebuilt tree). Falls back to a difflib alignment when there is no diff."""
+
+    def __init__(self, dst, name):
+        self.dst, self.pristine, self.maps, self._fallback = dst, os.path.join(RE.WORK, "pristine", name), None, {}
+        try:
+            if dst in PATCH_FOR:
+                self.maps = pristine_maps(open(PATCH_FOR[dst]).read())
+            elif os.path.isdir(os.path.join(dst, ".git")):
+                p = subprocess.run(_PATCH_CMD, cwd=dst, shell=True, capture_output=True, text=True)
+                self.maps = pristine_maps(p.stdout) if p.returncode == 0 else None
+        except OSError:
+            self.maps = None
+
+    def __call__(self, f, n):
+        n = int(n)
+        if self.maps is not None:
+            m = self.maps.get(f)
+            return m(n) if m else n  # a file the diff doesn't touch is unchanged
+        if f not in self._fallback:
+            self._fallback[f] = line_map(os.path.join(self.pristine, f), os.path.join(self.dst, f))
+        m = self._fallback[f]
+        return m(n) if m else n
 
 
 def line_map(old_path, new_path):
@@ -156,8 +249,8 @@ def line_map(old_path, new_path):
 
 
 def inventory(name, adjudicated=False):
-    p = os.path.join(HERE, "inventory_adjudicated" if adjudicated else "inventory", name + ".json")
-    if EVAL_SET != "v3" or not os.path.exists(p):
+    p = os.path.join(INVENTORY_DIR or HERE, "inventory_adjudicated" if adjudicated else "inventory", name + ".json")
+    if INVENTORY_DIR is None or not os.path.exists(p):
         return None  # no ground truth (dev set, or no adjudication): scoring reports what it can without it
     d = json.load(open(p))
     return [s for s in d["sites"] if s.get("prod")]
@@ -291,13 +384,140 @@ def run_agent(dst, prompt, settings, out_dir):
             "usage": result.get("usage"), "terminal_reason": result.get("terminal_reason")}, wall
 
 
+# ------------------------------------------------------------------------------------------------ transcripts: cost, time, validity
+# $/MTok (input, output) by model-id prefix, for transcripts with no result message (a timeout or a crash). Cache writes bill
+# at 1.25x input (5-minute TTL) / 2x (1-hour TTL), cache reads at 0.1x. Longest prefix wins; unknown models use Sonnet 5's.
+PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-sonnet-5": (2.0, 10.0), "claude-sonnet-4": (3.0, 15.0),
+          "claude-opus-5-5": (4.0, 20.0), "claude-opus-5": (5.0, 25.0), "claude-opus-4-8": (5.0, 25.0), "claude-opus-4-7": (5.0, 25.0),
+          "claude-opus-4-6": (5.0, 25.0), "claude-opus-4-5": (5.0, 25.0), "claude-opus-4": (15.0, 75.0),
+          "claude-haiku-5-5": (0.1, 0.5), "claude-haiku-4-5": (1.0, 5.0), "claude-fable-5": (10.0, 50.0)}
+API_ERROR = re.compile(r"API Error|Connection lost|Connection error|ECONNRESET|socket hang up|overloaded_error|Request timed out|"
+                       r"Credit balance is too low|Invalid API key|OAuth token has expired|rate_limit_error", re.I)
+
+
+def _price(model):
+    k = max((p for p in PRICES if str(model or "").startswith(p)), key=len, default="claude-sonnet-5")
+    return PRICES[k]
+
+
+def _usage_usd(u, model):
+    pin, pout = _price(model)
+    cc = u.get("cache_creation") or {}
+    w1h = cc.get("ephemeral_1h_input_tokens") or 0
+    w5m = cc.get("ephemeral_5m_input_tokens") if cc else (u.get("cache_creation_input_tokens") or 0)
+    return ((u.get("input_tokens") or 0) * pin + (w5m or 0) * pin * 1.25 + w1h * pin * 2.0 +
+            (u.get("cache_read_input_tokens") or 0) * pin * 0.1 + (u.get("output_tokens") or 0) * pout) / 1e6
+
+
+def _events(path):
+    for p in (path, path + ".gz") if not path.endswith(".gz") else (path,):
+        if os.path.exists(p):
+            fh = gzip.open(p, "rt", encoding="utf-8", errors="replace") if p.endswith(".gz") else open(p, encoding="utf-8", errors="replace")
+            with fh:
+                for line in fh:
+                    try:
+                        ev = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(ev, dict):
+                        yield ev
+            return
+
+
+def transcript_stats(path):
+    """Cost, time and health of an agent run from its stream-json transcript (transcript.jsonl or .jsonl.gz), even when it
+    timed out. Per session id, result messages carry the process's cumulative total_cost_usd (a woken-up agent can emit
+    several; a drop means a new process, e.g. a resume, so the previous total is banked). Assistant messages after a
+    session's last result (or in a session with none: a timeout or crash) are costed from their usage at list prices, one
+    usage per message id. duration_ms only covers the last query of a process that was woken mid-run, so agent_minutes is
+    reported only for single-result transcripts; the harness's wall clock stays the time measure. None: no transcript."""
+    if not any(os.path.exists(p) for p in (path, path + ".gz")):
+        return None
+    sess, order, model, n_asst = {}, [], None, 0
+    for ev in _events(path):
+        sid = ev.get("session_id") or "?"
+        if sid not in sess:
+            sess[sid] = {"results": [], "tail": {}, "last_text": ""}
+            order.append(sid)
+        s = sess[sid]
+        if ev.get("type") == "system" and ev.get("subtype") == "init":
+            model = ev.get("model") or model
+        elif ev.get("type") == "result":
+            s["results"].append(ev)
+            s["tail"], s["last_text"] = {}, ""
+        elif ev.get("type") == "assistant":
+            m = ev.get("message") or {}
+            mid = m.get("id") or "n%d" % n_asst
+            n_asst += mid not in s["tail"]
+            s["tail"][mid] = (m.get("usage") or {}, m.get("model") or model)
+            for b in m.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text" and b.get("text"):
+                    s["last_text"] = b["text"]
+    usd, sources, api_errors, results = 0.0, set(), [], []
+    for sid in order:
+        s = sess[sid]
+        banked = cur = 0.0
+        for r in s["results"]:
+            c = r.get("total_cost_usd") or 0.0
+            if c < cur:
+                banked += cur
+            cur = c
+            results.append(r)
+            txt = str(r.get("result") or "")
+            if (r.get("is_error") or txt.startswith("API Error")) and API_ERROR.search(txt):
+                api_errors.append(txt[:300])
+        if s["results"]:
+            sources.add("result")
+        if s["tail"]:
+            sources.add("usage_estimate")
+            if s["last_text"].startswith("API Error") and API_ERROR.search(s["last_text"]):
+                api_errors.append(s["last_text"][:300])
+        usd += banked + cur + sum(_usage_usd(u, mdl) for u, mdl in s["tail"].values())
+    last = results[-1] if results else {}
+    return {"usd": round(usd, 4) if order else None, "usd_source": "+".join(sorted(sources)) or None,
+            "complete": sources == {"result"}, "results": len(results), "sessions": len(order),
+            "agent_minutes": round(last["duration_ms"] / 60000, 1) if len(results) == 1 and sources == {"result"} and last.get("duration_ms") else None,
+            "turns": sum(r.get("num_turns") or 0 for r in results), "assistant_messages": n_asst,
+            "final": str(last.get("result") or "")[:2000], "is_error": bool(last.get("is_error")),
+            "terminal_reason": last.get("terminal_reason") or last.get("subtype"), "api_errors": api_errors}
+
+
+def transcript_path(out_dir):
+    return os.path.join(out_dir, "transcript.jsonl")
+
+
+def infra_failure(out_dir, agent=None):
+    """Why an agent trial is not a measurement of the arm (an infrastructure failure), or None. Arms without an agent are
+    never infra failures. An API error result (`API Error`, `Connection lost`, ...) or an agent that produced no output at all
+    (crashed before its first message) is; a timeout is not (the agent ran; its decisions are scored, see score_moved)."""
+    if agent is None:
+        return None
+    ts = transcript_stats(transcript_path(out_dir))
+    if ts is None:
+        return "no agent transcript (the agent never started: exit %s)" % agent.get("exit")
+    if ts["api_errors"]:
+        return "API error: %s" % ts["api_errors"][-1][:200]
+    if not ts["assistant_messages"]:
+        return "the agent produced no output (exit %s)" % agent.get("exit")
+    return None
+
+
+def clear_run_dir(out_dir, keep=("status.json",)):
+    """Empty a run's output dir for a fresh trial, keeping eval/run.py's status.json."""
+    if os.path.isdir(out_dir):
+        for f in os.listdir(out_dir):
+            if f not in keep:
+                p = os.path.join(out_dir, f)
+                shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) and not os.path.islink(p) else os.remove(p)
+    os.makedirs(out_dir, exist_ok=True)
+
+
 def trial(arm, name):
     """Run one arm on one repo (the expensive part), then score it."""
     rec = recipe(name)
     baseline(name)
     out_dir = os.path.join(RUNS, arm, name)
-    shutil.rmtree(out_dir, ignore_errors=True)
-    os.makedirs(out_dir, exist_ok=True)
+    clear_run_dir(out_dir)
     t0 = time.time()
     agent = None
     if arm == "C":
@@ -477,6 +697,8 @@ def score_trial(arm, name):
                            "':(exclude,glob)**/router_runtime.py' ':(exclude,glob)**/routerRuntime.ts' ':(exclude,glob)**/router_policy.py'",
                            cwd=dst, shell=True, capture_output=True, text=True).stdout
     open(os.path.join(out_dir, "diff.patch"), "w").write(patch)
+    ts = transcript_stats(transcript_path(out_dir)) if agent is not None else None
+    infra = infra_failure(out_dir, agent)
     dl = sum(1 for l in patch.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")))
     test_files = sorted({l[6:] for l in patch.splitlines() if l.startswith("+++ b/") and not scan_py.is_prod(l[6:])})
     leak = False
@@ -496,8 +718,9 @@ def score_trial(arm, name):
     row = {"repo": name, "commit": repos()[name]["commit"], "arm": arm, "broken": is_broken, "broken_gate_checks": gate_broken,
            "independent_check": ind, "tests_before": base["tests"], "tests_after": after,
            "typecheck_before": base.get("typecheck"), "typecheck_after": tc, "diff_lines": dl, "test_files_edited": test_files,
-           "usd": (agent or {}).get("usd") or 0.0, "minutes": minutes, "agent": agent, "inventory_leak_in_transcript": leak,
-           "scored_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+           "usd": (ts or {}).get("usd") if (ts or {}).get("usd") is not None else ((agent or {}).get("usd") or 0.0),
+           "minutes": minutes, "agent_minutes": (ts or {}).get("agent_minutes"), "cost_source": (ts or {}).get("usd_source") or ("agent" if agent else None), "agent": agent,
+           "inventory_leak_in_transcript": leak, "invalid": infra, "scored_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     row.update(sc)
     if os.path.exists(led):
         L = json.load(open(led))
@@ -510,12 +733,15 @@ def score_trial(arm, name):
         import score_moved
         mv = score_moved.score_one(arm, name, dst=dst, measured=measured, reported=reported, broken=is_broken)
         row["moved_v4"] = {k: mv.get(k) for k in ("sites_moved", "movable_total", "sites_moved_movable", "sites_moved_wrong",
-                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated")}
+                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated", "buckets",
+                                                  "one_approval_away", "minutes")}
+        row["moved_v4"]["destructive"] = (mv.get("destructive") or {}).get("count")
+        row["invalid"] = row["invalid"] or mv.get("invalid")
     except Exception as e:
         row["moved_v4"] = {"error": str(e)[:300]}
     json.dump(row, open(os.path.join(out_dir, "result.json"), "w"), indent=1, default=str)
-    print("%-8s %-30s broken=%s moved=%s (correct %s, wrong %s) valid-traffic moved=%s/%s usd=%.2f min=%s" % (
-        arm, name, is_broken, row.get("sites_moved"), row.get("sites_moved_correct"), row.get("sites_moved_wrong"),
+    print("%-8s %-30s %sbroken=%s moved=%s (correct %s, wrong %s) valid-traffic moved=%s/%s usd=%.2f min=%s" % (
+        arm, name, ("INVALID (%s) " % row["invalid"][:80]) if row.get("invalid") else "", is_broken, row.get("sites_moved"), row.get("sites_moved_correct"), row.get("sites_moved_wrong"),
         row["moved_v4"].get("sites_moved_movable") if row["moved_v4"].get("movable_total") is not None else row["moved_v4"].get("sites_moved"),
         row["moved_v4"].get("movable_total") or "-",
         row["usd"], minutes), flush=True)
@@ -529,17 +755,14 @@ def reported_outcomes(arm, dst, name, measured):
     plan_p = os.path.join(dst, ".router-migrate", "plan.json")
     if not os.path.exists(plan_p):
         return measured
-    pristine = os.path.join(RE.WORK, "pristine", name)
     # plan.json lines refer to the pre-apply (pristine) source
     rep = [dict(s) for s in json.load(open(plan_p))["sites"] if s.get("prod")]
     if arm == "C" and os.path.exists(os.path.join(dst, ".router-migrate", "ledger.json")):
         L = json.load(open(os.path.join(dst, ".router-migrate", "ledger.json")))
-        maps = {}
+        pm = PristineMap(dst, name)
         for c in (L.get("claims") or {}).values():
             f = c["file"]
-            if f not in maps:
-                maps[f] = line_map(os.path.join(pristine, f), os.path.join(dst, f))
-            ln = maps[f](int(c["line"])) if maps[f] else int(c["line"])
+            ln = pm(f, int(c["line"]))
             hit = [s for s in rep if s["file"] == f and abs(int(s["line"]) - ln) <= 3]
             outcome = "kept" if c["outcome"] == "not_a_site" else c["outcome"]
             why = "%s %s: %s" % (c["outcome"], c.get("reason_code") or "", c.get("why") or "")

@@ -1,0 +1,35 @@
+{
+  "name": "stock-tracker-agent",
+  "lang": "py",
+  "python": "3.12",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.12 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$SRC/requirements.txt\""
+  ],
+  "reinstall": [],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && unset OPENAI_BASE_URL && HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" OPENAI_API_KEY=sk-dummy TWILIO_ACCOUNT_SID=ACdummy TWILIO_AUTH_TOKEN=dummy TWILIO_PHONE_NUMBER=+15550000000 TARGET_PHONE_NUMBER=+15550000001 WEBHOOK_URL=http://localhost/receive-message $PY -c 'import compileall, importlib, re, sys, time\nt = time.time(); p = f = 0\nif compileall.compile_dir(\".\", quiet=1, force=True, rx=re.compile(r\"/[.]\")):\n    p += 1\nelse:\n    f += 1; print(\"FAILED compileall .\")\nfor m, attrs in [(\"lib.sms\", [\"send_sms\"]), (\"lib.tools\", [\"get_stock_price_info\"]), (\"lib.agent\", [\"message_handler_agent\", \"stock_research_agent\", \"summariser_agent\", \"handle_incoming_message\", \"run_research_pipeline\"]), (\"lib.tracker\", [\"track_stocks\"]), (\"main\", [\"app\"])]:\n    try:\n        mod = importlib.import_module(m)\n        assert all(getattr(mod, a, None) is not None for a in attrs), attrs\n        p += 1; print(\"PASSED import\", m)\n    except BaseException as e:\n        f += 1; print(\"FAILED import\", m, repr(e))\ndt = time.time() - t\nprint((\"%d failed, %d passed in %.2fs\" % (f, p, dt)) if f else (\"%d passed in %.2fs\" % (p, dt)))\nsys.exit(1 if f else 0)'",
+  "test_env": {
+    "OPENAI_API_KEY": "sk-dummy",
+    "TWILIO_ACCOUNT_SID": "ACdummy",
+    "TWILIO_AUTH_TOKEN": "dummy"
+  },
+  "timeout_s": 300,
+  "test_kind": "unit",
+  "notes": "No test suite and no CI (README only; Dockerfile python:3.12-slim), so test_cmd is a smoke check: compileall of the whole repo, then import lib.sms, lib.tools, lib.agent (asserts the three openai-agents Agent objects and both entry coroutines exist), lib.tracker and main (asserts the FastAPI app), with dummy OpenAI/Twilio env. main.py's uvicorn.run is behind __main__, so importing it starts nothing. Deps: requirements.txt (unpinned) resolved with --exclude-newer 2026-10-13 into a Python 3.12 uv venv; not a package, so no reinstall step (cwd = the copy puts it on sys.path). Twilio client.messages.create in lib/sms.py is an SMS call, not an LLM site.",
+  "baseline": {
+    "passed": 6,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 2.8,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      2.8,
+      2.8
+    ]
+  }
+}

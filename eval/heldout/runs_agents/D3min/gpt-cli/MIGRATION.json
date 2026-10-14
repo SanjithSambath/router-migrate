@@ -1,0 +1,53 @@
+{
+  "sites": [
+    {
+      "site": "gptcli/providers/anthropic.py:31",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing for current catalog Claude ids",
+      "why": "Client construction (originally line 24) wrapped with router_runtime.wrap_anthropic. Stateless per-request usage (no previous_response_id/conversations); stop_sequences, temperature/top_p, and extended-thinking params all pass through Router's /v1/messages unchanged. Covers the two call sites the scanner sees at anthropic.py:93 (messages.stream) and anthropic.py:116 (messages.create), both now ROUTES per `check --all`."
+    },
+    {
+      "site": "gptcli/providers/anthropic.py:31",
+      "outcome": "migrated",
+      "levers": ["model-map: claude-3-7-sonnet-20250219=claude-sonnet-4-5", "model-map: claude-3-opus-20240229=claude-opus-5"],
+      "loses": "Requests for these two specific dated/retired Claude ids (the exact ids the README documents as examples, including the --thinking demo) get a newer model's behavior/pricing/output characteristics instead of the exact legacy snapshot; thinking-mode kwargs built for claude-3-7 are sent to claude-sonnet-4-5 instead.",
+      "why": "Neither id is in Router's catalog (confirmed via `check --run`), so without a map they would silently fall back to the direct Anthropic API. Serving a dated/retired model under its closest catalog equivalent is the explicitly-endorsed trade-off; verified with `check --run` that both now reach Router as valid /v1/messages requests (claude-sonnet-4-5 / claude-opus-5)."
+    },
+    {
+      "site": "gptcli/providers/google.py:29",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "google-genai SDK talks to Google's own endpoint; Router does not serve this vendor with the shared key. Scanner confirms `kept` at google.py:60 and google.py:74. A human could only change this by giving the app a Router-served Gemini-equivalent model id, which is a model-choice decision, not a routing fix."
+    },
+    {
+      "site": "gptcli/providers/openai.py:27",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observed",
+      "why": "Client construction wrapped with router_runtime.wrap_openai. store=False already set, no previous_response_id/conversation usage. Verified gpt-3.5-turbo, gpt-4o, gpt-4o-mini, gpt-4.1-mini, gpt-5, gpt-5-mini, o1, o3, o3-mini, o4-mini (including the reasoning-model web_search_preview tool + reasoning kwargs path) all send valid /v1/responses requests via `check --run`. Covers scanner sites openai.py:62 and openai.py:91, both ROUTES."
+    },
+    {
+      "site": "gptcli/providers/azure_openai.py:9",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "AzureOpenAICompletionProvider builds its own AzureOpenAI client against an Azure-specific host/deployment-id addressing scheme and api-key auth, separate from the wrapped OpenAI client. Router's shared key only serves its own catalog-id addressing over api.openai.com/api.anthropic.com; an Azure deployment id is not a catalog model id, and the host never matches, so wrapping would be a safe no-op, not an actual move. Not seen by the scanner (0 calls) since it inherits OpenAICompletionProvider.complete rather than defining its own call site."
+    },
+    {
+      "site": "gptcli/providers/cohere.py:38",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "Cohere's command-r/command-r-plus models are not in Router's catalog (no Cohere entries). Not seen by the scanner at all (unsupported SDK), confirmed via a direct check of this file."
+    },
+    {
+      "site": "gptcli/providers/llama.py:69",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "Local self-hosted llama_cpp model, loaded from a path on disk (n_ctx/use_mlock etc. are local inference knobs). This is the product itself for this assistant path, not something Router can serve."
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "sites": [
+    {
+      "site": "src/minisweagent/models/litellm_model.py:74",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable: litellm.completion requests now travel through Router's httpx transport when RAMP_ROUTER_API_KEY is set (chat.completions -> /v1/responses translation); any request Router can't serve (unsupported param, non-catalog model) falls back to the original provider unchanged.",
+      "why": "Module-level litellm usage with no install hook. `router-migrate wrap src/minisweagent/models/litellm_model.py:1` installs install_litellm(), which points litellm.client_session/aclient_session at the Router-aware httpx client. Verified with `check --run`: a real LitellmModel('gpt-4o').query(...) sent a valid /v1/responses request to the Router simulator."
+    },
+    {
+      "site": "src/minisweagent/models/litellm_response_model.py:57",
+      "outcome": "migrated",
+      "levers": ["wrap", "hand-patch"],
+      "loses": "nothing observable: litellm.responses requests now travel through Router; unsupported requests fall back to the provider. This model is already stateless (it flattens prior response objects into inline input items before calling), so Router's lack of server-side state is not a loss here.",
+      "why": "`router-migrate wrap src/minisweagent/models/litellm_response_model.py:1` installs install_litellm(), which sets litellm.client_session/aclient_session -- but litellm.responses() (unlike litellm.completion()) does not read those module-level sessions at all; it builds its own httpx client via base_llm_http_handler.response_api_handler() unless a client is passed explicitly in the call. Verified with `check --run`: before the hand-patch, all 10 requests went straight to api.openai.com (blocked by the Router simulator -- confirms the wrap alone did nothing for this call). Hand-patched _query() to pass client=HTTPHandler(client=router_runtime.http_client()) (litellm's own httpx wrapper class, imported from litellm.llms.custom_httpx.http_handler) when Router is active, mirroring what the generic wrap/adapt tooling could not reach automatically. Re-verified with `check --run`: requests now reach the Router simulator's /v1/responses endpoint (previously 0 of 10 reached it; now 10 of 10 reach it). The simulator still flags those requests invalid, but for an unrelated, pre-existing reason: this app's BASH_TOOL_RESPONSE_API tool schema omits `additionalProperties: false`, which the Responses API (Router's and real OpenAI's alike) requires by default for function tools unlike Chat Completions ('Responses defaults tools to strict' per router_runtime.py's own comment) -- the same request would fail identically against the real OpenAI Responses API today, so it is not a cost of this migration and was left unfixed (out of scope: not an LLM-routing change)."
+    },
+    {
+      "site": "src/minisweagent/models/litellm_textbased_model.py:30",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable; same install_litellm() hook as litellm_model.py, this subclass just calls litellm.completion without the toolcall-API `tools` kwarg.",
+      "why": "Same fix via `router-migrate wrap src/minisweagent/models/litellm_textbased_model.py:1`."
+    },
+    {
+      "site": "src/minisweagent/models/portkey_model.py:92",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "PortkeyModel is an alternate, user-selected backend (model_class=\"portkey\") whose entire purpose is Portkey's own multi-provider gateway: virtual keys, per-request provider/config selection, caching and observability across providers Router does not carry. Technically, self.client is a `portkey_ai.Portkey` instance, not an `openai.OpenAI`/`AsyncOpenAI` instance, so `router_runtime.wrap_openai()` is a no-op for it (`_is_openai()` returns False); its httpx traffic also targets Portkey's own gateway host, not api.openai.com, so Router's host-matched transport shim would never see it even if the type check were bypassed. Rerouting this traffic to Router directly would mean bypassing Portkey entirely, i.e. removing the reason this backend exists -- the loss would be the product itself. needs_decision-grade question for a human: if Portkey is only being used for billing convenience (not virtual keys/caching/multi-provider access), it could be dropped in favor of LitellmModel + Router instead of adapting this code path."
+    },
+    {
+      "site": "src/minisweagent/models/portkey_response_model.py:75",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "Same reasoning as portkey_model.py:92 -- same Portkey gateway client, Responses-API variant."
+    },
+    {
+      "site": "src/minisweagent/models/openrouter_model.py:78",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "Dynamically-built client the scanner misses: a raw `requests.post()` to https://openrouter.ai/api/v1/chat/completions, not an SDK call router_runtime can hook. OpenRouterModel is a user-selected backend (model_class=\"openrouter\") whose purpose is OpenRouter's own catalog (many models Router doesn't carry) and OpenRouter's billing/key -- migrating would drop both, which is the product itself, not a side effect."
+    },
+    {
+      "site": "src/minisweagent/models/openrouter_response_model.py:56",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "Same reasoning as openrouter_model.py:78 -- raw `requests.post()` to OpenRouter's Responses endpoint, same gateway/catalog/billing rationale."
+    },
+    {
+      "site": "src/minisweagent/models/openrouter_textbased_model.py:46",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "Same reasoning as openrouter_model.py:78 -- raw `requests.post()` to OpenRouter's chat.completions endpoint from the text-based action variant."
+    },
+    {
+      "site": "src/minisweagent/models/requesty_model.py:83",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "Dynamically-built client the scanner misses: a raw `requests.post()` to https://router.requesty.ai/v1/chat/completions. RequestyModel is a user-selected backend (model_class=\"requesty\") whose purpose is Requesty's own multi-provider catalog and billing -- same rationale as OpenRouter/Portkey: the loss would be the product itself, and there is no SDK client here for router_runtime to hook."
+    }
+  ]
+}

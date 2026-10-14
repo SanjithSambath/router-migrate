@@ -1,0 +1,30 @@
+diff --git a/llm/default_plugins/openai_models.py b/llm/default_plugins/openai_models.py
+index bb85184..55c0c0e 100644
+--- a/llm/default_plugins/openai_models.py
++++ b/llm/default_plugins/openai_models.py
+@@ -34,6 +34,13 @@ from llm.utils import (
+     remove_dict_none_values,
+     simplify_usage_dict,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ @hookimpl
+@@ -1364,9 +1371,9 @@ class _Shared:
+         if os.environ.get("LLM_OPENAI_SHOW_RESPONSES"):
+             kwargs["http_client"] = logging_client()
+         if async_:
+-            return openai.AsyncOpenAI(**kwargs)
++            return _router_wrap_openai(openai.AsyncOpenAI(**kwargs), operator_key_only=True)
+         else:
+-            return openai.OpenAI(**kwargs)
++            return _router_wrap_openai(openai.OpenAI(**kwargs), operator_key_only=True)
+ 
+     def build_kwargs(self, prompt, stream):
+         kwargs = dict(not_nulls(prompt.options))

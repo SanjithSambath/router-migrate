@@ -1,0 +1,556 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 625,
+   "seconds": 31.2
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python",
+  "test_cmd": "export FINANCIAL_DATASETS_API_KEY=''; export FINANCIAL_DATASETS_API_KEY=; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/tmp\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/tmp\" /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python -m pytest -q -p no:cacheprovider hedge_fund/",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "hedge_fund/llm/client.py:277": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [],
+   "line": 277,
+   "loses": "n/a \u2014 not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "TypeSafe/Jev (JevLLM) speaks a bespoke JSON contract over a plain requests.post to api.typesafe.ai/v1/systemone (contract.build_jev_request / normalize_jev_response). It is not Chat Completions, Responses, or Anthropic Messages shaped, so Router has no endpoint that can serve it."
+  },
+  "hedge_fund/llm/client.py:282": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [
+    "wrap_langchain"
+   ],
+   "line": 282,
+   "loses": "none \u2014 claude-opus-5-5 and claude-fable-5-1 are exact Router catalog ids (anthropic-owned); no beta headers, store, or previous_response_id are used by this client.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatAnthropic wrapped with router_runtime.wrap_langchain(); every /v1/messages request from this client now goes through Router when RAMP_ROUTER_API_KEY is set, with per-request fallback to Anthropic unchanged for anything Router can't serve."
+  },
+  "hedge_fund/llm/client.py:286": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [
+    "wrap_langchain"
+   ],
+   "line": 286,
+   "loses": "none for the default OPENAI_API_BASE (unset) \u2014 gpt-6-sol and gpt-6-astra are exact Router catalog ids. A custom OPENAI_API_BASE (Azure, a proxy) is not touched: Router only intercepts requests to api.openai.com, so that deployment shape is unaffected either way.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatOpenAI wrapped with router_runtime.wrap_langchain(); Router serves it when the host is api.openai.com (the default), with provider fallback for anything else."
+  },
+  "hedge_fund/llm/client.py:290": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [
+    "unlock_host:api.deepseek.com",
+    "model_map:deepseek-flash=deepseek-v4.1-flash"
+   ],
+   "line": 290,
+   "loses": "deepseek-flash now resolves, on Router-bound requests only, to Router's catalog id deepseek-v4.1-flash (same DeepSeek V4.1 Flash model, Router's spelling of it). The original request to DeepSeek is untouched on fallback, so DeepSeek's own API still sees 'deepseek-flash' if Router can't take the request.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatDeepSeek/langchain-deepseek builds its own openai.OpenAI client pointed at api.deepseek.com (an OpenAI-compatible host); Router's catalog carries this exact model family under a different id (deepseek-v4.1-flash, with several DeepSeek-V4.1-Flash spellings already aliased to it), so api.deepseek.com was unlocked and the app's id mapped to Router's. Implemented by hand (router-migrate's wrap/adapt codemods don't recognize langchain-deepseek's constructor or inject unlock_hosts into a langchain call), using router_runtime.wrap_openai(..., unlock_hosts=[...]) directly on every SDK client langchain_deepseek builds (ChatDeepSeek keeps a second, separate OpenAI client under '.client' besides '.root_client' \u2014 both needed unlocking). Verified end-to-end with `check --run`: a deepseek-flash call now reaches the Router simulator as a valid /v1/responses request."
+  },
+  "hedge_fund/llm/client.py:294": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [],
+   "line": 294,
+   "loses": "n/a \u2014 not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "ChatGoogleGenerativeAI talks to Google's native Gemini API, not an OpenAI/Anthropic-compatible wire format, and Router's catalog carries no Google/Gemini-owned models at all. There is no Router endpoint or catalog id this call could map to."
+  },
+  "hedge_fund/llm/client.py:299": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [
+    "unlock_host:api.x.ai"
+   ],
+   "line": 299,
+   "loses": "none \u2014 grok-4.7 is an exact Router catalog id (xai-owned), so no model mapping was needed.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatXAI/langchain-xai builds its own openai.OpenAI client pointed at api.x.ai; Router serves grok-4.7 itself, so that host was unlocked the same way as DeepSeek (hand-wired with router_runtime.wrap_openai(..., unlock_hosts=[...]) on every client the langchain object builds, since the wrap/adapt codemods don't support langchain-xai's constructor or unlock_hosts injection on a langchain call). Verified with `check --run`: a grok-4.7 call reaches the Router simulator as a valid /v1/responses request."
+  },
+  "hedge_fund/llm/client.py:308": {
+   "by": "agent",
+   "evidence": [],
+   "file": "hedge_fund/llm/client.py",
+   "levers": [
+    "unlock_host:api.moonshot.ai"
+   ],
+   "line": 308,
+   "loses": "none for the default Moonshot host \u2014 kimi-k3 is an exact Router catalog id. A MOONSHOT_BASE_URL override (mainland users) is not unlocked, so that deployment shape stays on Moonshot exactly as before.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "This is a langchain-openai ChatOpenAI pointed at Moonshot's OpenAI-compatible endpoint (api.moonshot.ai), not at api.openai.com, so the wrap/adapt codemods wouldn't inject unlock_hosts here either (same constraint as DeepSeek/xAI \u2014 a langchain construction, not a raw SDK client literal). Hand-wired the same way: router_runtime.wrap_openai(..., unlock_hosts=['api.moonshot.ai']) on every SDK client the langchain object builds. Verified with `check --run`: a kimi-k3 call reaches the Router simulator as a valid /v1/responses request."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 17.6,
+  "agent_turns": 85,
+  "agent_usd": 2.9724776000000013,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:34:41",
+ "edits": [
+  {
+   "at": "2026-10-14T13:35:27",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "hedge_fund/llm/client.py",
+   "line": 257,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:35:42",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "hedge_fund/llm/client.py",
+   "line": 268,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:37:55",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "hedge_fund/llm/client.py",
+   "line": 286,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:38:55",
+   "by": "agent-unwrap",
+   "changed": true,
+   "file": "hedge_fund/llm/client.py",
+   "line": 286
+  },
+  {
+   "at": "2026-10-14T13:39:12",
+   "by": "tradeoff",
+   "files": [
+    "hedge_fund/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T1"
+  },
+  {
+   "at": "2026-10-14T13:40:09",
+   "by": "tradeoff",
+   "files": [
+    "hedge_fund/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T2"
+  },
+  {
+   "at": "2026-10-14T13:46:42",
+   "by": "tradeoff",
+   "files": [
+    "hedge_fund/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T3"
+  },
+  {
+   "at": "2026-10-14T13:49:24",
+   "by": "tradeoff",
+   "files": [
+    "hedge_fund/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T4"
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:53:20",
+    "gates": [],
+    "info": {
+     "report_sites": 7,
+     "sites": 3,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 625,
+      "seconds": 28.3
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 625,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "ecd4e52e8d527b96da874b8198d653e5444b300e"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:42:13",
+   "blocked": {
+    "api.deepseek.com:443": 2,
+    "api.x.ai:443": 2
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-ai-hedge-fund/52293d37-44f1-469b-8706-3b25cedd5f50/scratchpad/probe_calls.py",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "deepseek-flash",
+     "n": 2,
+     "reason": "model 'deepseek-flash' is not in the Router catalog"
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "grok-4.7",
+     "n": 2,
+     "reason": null
+    }
+   ],
+   "requests": [
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "claude-opus-5-5",
+     "path": "/v1/messages",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "gpt-6-sol",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "kimi-k3",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 4.3,
+   "tail": "deepseek-flash -> APIConnectionError Connection error.\ngrok-4.7 -> APIConnectionError Connection error.\nrouter-migrate policy 4c09e37d\nrouter-migrate policy not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:43:27",
+   "blocked": {
+    "api.x.ai:443": 2
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-ai-hedge-fund/52293d37-44f1-469b-8706-3b25cedd5f50/scratchpad/probe_xai.py",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "grok-4.7",
+     "n": 2,
+     "reason": null
+    }
+   ],
+   "requests": [],
+   "seconds": 9.6,
+   "tail": "grok-4.7 -> APIConnectionError Connection error.\n"
+  },
+  "PR3": {
+   "at": "2026-10-14T13:46:32",
+   "blocked": {
+    "api.deepseek.com:443": 2
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-ai-hedge-fund/52293d37-44f1-469b-8706-3b25cedd5f50/scratchpad/probe_calls.py",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "deepseek-flash",
+     "n": 2,
+     "reason": "model 'deepseek-flash' is not in the Router catalog"
+    }
+   ],
+   "requests": [
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "claude-opus-5-5",
+     "path": "/v1/messages",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "gpt-6-sol",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "grok-4.7",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "kimi-k3",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 3.7,
+   "tail": "deepseek-flash -> APIConnectionError Connection error.\nrouter-migrate policy 4c09e37d\nrouter-migrate policy not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)\n"
+  },
+  "PR4": {
+   "at": "2026-10-14T13:47:45",
+   "blocked": {
+    "api.deepseek.com:443": 2
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-ai-hedge-fund/52293d37-44f1-469b-8706-3b25cedd5f50/scratchpad/probe_calls.py",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "deepseek-flash",
+     "n": 2,
+     "reason": "model 'deepseek-flash' is not in the Router catalog"
+    }
+   ],
+   "requests": [
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "claude-opus-5-5",
+     "path": "/v1/messages",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "gpt-6-sol",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "grok-4.7",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "kimi-k3",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 7.4,
+   "tail": "deepseek-flash -> APIConnectionError Connection error.\nrouter-migrate policy 47a5af86\nrouter-migrate policy not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)\n"
+  },
+  "PR5": {
+   "at": "2026-10-14T13:49:33",
+   "blocked": {},
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/ai-hedge-fund/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-ai-hedge-fund/52293d37-44f1-469b-8706-3b25cedd5f50/scratchpad/probe_calls.py",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "claude-opus-5-5",
+     "path": "/v1/messages",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:make_llm",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "gpt-6-sol",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "deepseek-v4.1-flash",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "grok-4.7",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+     "error": null,
+     "feature": "hedge_fund/llm/client.py:complete",
+     "model": "kimi-k3",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 2.9,
+   "tail": "router-migrate policy 48d09ba4\nrouter-migrate policy not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "hedge_fund/llm/client.py:290",
+   "hedge_fund/llm/client.py:299"
+  ],
+  "failures": [],
+  "moved": 3,
+  "moved_sites": [
+   "hedge_fund/llm/client.py:282",
+   "hedge_fund/llm/client.py:286",
+   "hedge_fund/llm/client.py:308"
+  ],
+  "ok": true,
+  "report_sites": 7,
+  "reverted": [],
+  "sites_seen": 3,
+  "tradeoffs": 4
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/trials/D3min/ai-hedge-fund",
+ "tradeoff_policy": {
+  "**llm/client.py:_router_wrap_vendor_openai": [
+   "model_map"
+  ],
+  "**llm/client.py:make_llm": [
+   "drop_params",
+   "model_map"
+  ]
+ },
+ "tradeoffs": [
+  {
+   "at": "2026-10-14T13:39:12",
+   "evidence": [],
+   "feature": "hedge_fund/llm/client.py:make_llm",
+   "file": "hedge_fund/llm/client.py",
+   "id": "T1",
+   "levers": {
+    "drop_params": [
+     "seed"
+    ]
+   },
+   "line": 286,
+   "loses": "test",
+   "site": "hedge_fund/llm/client.py:286",
+   "undone": false,
+   "why": "test"
+  },
+  {
+   "at": "2026-10-14T13:40:09",
+   "evidence": [],
+   "feature": "hedge_fund/llm/client.py:make_llm",
+   "file": "hedge_fund/llm/client.py",
+   "id": "T2",
+   "levers": {},
+   "line": 286,
+   "loses": "test-record-only",
+   "site": "hedge_fund/llm/client.py:286",
+   "undone": false,
+   "why": "test"
+  },
+  {
+   "at": "2026-10-14T13:46:42",
+   "evidence": [],
+   "feature": "hedge_fund/llm/client.py:make_llm",
+   "file": "hedge_fund/llm/client.py",
+   "id": "T3",
+   "levers": {
+    "model_map": {
+     "deepseek-flash": "deepseek-v4.1-flash"
+    }
+   },
+   "line": 286,
+   "loses": "deepseek-flash requests are served by Router's deepseek-v4.1-flash (same DeepSeek V4.1 Flash model under Router's id); any feature of this exact app-side model id Router doesn't recognize natively is moot since the model itself is unchanged",
+   "site": "hedge_fund/llm/client.py:286",
+   "undone": false,
+   "why": "Router's catalog lists this model under id deepseek-v4.1-flash (aliases map several DeepSeek-V4.1-Flash spellings to it already); deepseek-flash itself is this app's own shorthand, not in Router's catalog or alias table, so it needs an explicit map to route"
+  },
+  {
+   "at": "2026-10-14T13:49:24",
+   "evidence": [],
+   "feature": "hedge_fund/llm/client.py:_router_wrap_vendor_openai",
+   "file": "hedge_fund/llm/client.py",
+   "id": "T4",
+   "levers": {
+    "model_map": {
+     "deepseek-flash": "deepseek-v4.1-flash"
+    }
+   },
+   "line": 50,
+   "loses": "deepseek-flash requests are served by Router's deepseek-v4.1-flash id (the same DeepSeek V4.1 Flash model under Router's catalog spelling); nothing about the model itself changes",
+   "site": "hedge_fund/llm/client.py:50",
+   "undone": false,
+   "why": "the app's model id (deepseek-flash) isn't Router's catalog spelling for this exact model; this feature tag matches the real call-time origin (the shared vendor-wrap helper, not make_llm) so the mapping actually applies at request time"
+  }
+ ],
+ "version": 5,
+ "worklist": []
+}

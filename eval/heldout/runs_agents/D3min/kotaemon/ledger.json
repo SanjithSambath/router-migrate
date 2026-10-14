@@ -1,0 +1,296 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 109,
+   "seconds": 29.5
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/bin/python",
+  "test_cmd": "cd libs/kotaemon && mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/tmp\" && unset OPENAI_API_KEY OPENAI_BASE_URL ANTHROPIC_API_KEY && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/tmp\" TIKTOKEN_CACHE_DIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/tiktoken\" THEFLOW_TEMP_PATH=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/tmp/theflow\" /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/bin/python -m pytest -p no:cacheprovider -o log_file=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/tmp/pytest-logs.txt\" --deselect tests/test_vectorstore.py::TestMilvusVectorStore --deselect tests/test_agent.py::test_rewoo_agent --deselect tests/test_embedding_models.py::test_fastembed_embeddings; rc=$?; rm -rf ./\"<MagicMock \"*; exit $rc",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "libs/kotaemon/kotaemon/embeddings/langchain_based.py:16": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/embeddings/langchain_based.py",
+   "levers": [],
+   "line": 16,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "LCEmbeddingMixin.__init__ dynamically builds an embeddings client (OpenAIEmbeddings, AzureOpenAIEmbeddings, CohereEmbeddings, HuggingFaceBgeEmbeddings, GoogleGenerativeAIEmbeddings, or MistralAIEmbeddings). Same hard limit: Router has no embeddings endpoint, so there is nothing to route this to regardless of which backend is selected."
+  },
+  "libs/kotaemon/kotaemon/embeddings/openai.py:194": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/embeddings/openai.py",
+   "levers": [],
+   "line": 194,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "openai embeddings.create. Hard limit: Router serves only /v1/responses and /v1/messages, no embeddings endpoint. Left untouched."
+  },
+  "libs/kotaemon/kotaemon/embeddings/openai.py:257": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/embeddings/openai.py",
+   "levers": [],
+   "line": 257,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Same hard limit as embeddings/openai.py:194 (async embeddings.create)."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:166": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py",
+   "levers": [
+    "wrap (by hand, dynamically built client)"
+   ],
+   "line": 166,
+   "loses": "Same trade-off as langchain_based.py:28: only the OpenAI/Anthropic client rebuilt here actually routes (Azure/Gemini/Cohere/Ollama rebuilds no-op and keep direct-provider behavior), and routed calls pick up the same per-call fallback and Router-default-service-tier trade-offs described at openai.py:308.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "LCChatMixin.__setattr__ rebuilds self._obj = self._lc_class(**self._kwargs) whenever a tracked param is changed after construction (e.g. llm.model = 'x'). Wrapped this rebuild the same way as __init__ above, otherwise a parameter update after construction would silently drop back to direct provider traffic."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:28": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py",
+   "levers": [
+    "wrap (by hand, dynamically built client)"
+   ],
+   "line": 28,
+   "loses": "Only the OpenAI and Anthropic SDK clients that a LangChain object holds actually route -- wrap_langchain finds and wraps those specifically, and no-ops for the Azure/Gemini/Cohere/Ollama clients also reachable through this same line, so those keep today's direct-provider behavior unchanged. For the OpenAI/Anthropic calls that do route, the same per-call fallback and Router-default-service-tier trade-offs described at openai.py:308 apply, since wrap_langchain installs the identical transport under the hood.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "LCChatMixin.__init__ builds self._obj = self._lc_class(**params) dynamically (the actual class -- langchain_openai.ChatOpenAI, ChatAnthropic, AzureChatOpenAI, ChatGoogleGenerativeAI, ChatCohere, or ChatOllama -- is only known at runtime via _get_lc_class(), so the scanner can't see this site). Passed the built object through router_runtime.wrap_langchain(), which finds and wraps whichever real OpenAI/Anthropic SDK client the LangChain object holds (root_client/_client/etc) and no-ops for everything else. Verified with `check --run`: both LCChatOpenAI and LCAnthropicChat sent valid /v1/responses and /v1/messages requests to the Router simulator respectively (2 valid, 0 invalid). LCAzureChatOpenAI, LCGeminiChat, LCCohereChat and LCOllamaChat pass through this same line unaffected, since wrap_langchain only acts on openai/anthropic client instances -- Gemini/Cohere/Ollama have no Router endpoint, and Azure keeps the same hard limit as above."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:308": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 308,
+   "loses": "Calls using a param Router can't translate for Chat Completions (seed, n>1, logprobs/top_logprobs, a tool_choice of a non-function type, a message with a 'name' field, max_tokens<16, audio/modalities/prediction/web_search_options/logit_bias, or a dated/retired model id not in Router's catalog) fall back to OpenAI unchanged, so this wrap only changes behavior for calls Router can actually serve. Those calls get Router's account-default service tier (Flex pricing/latency where the model offers it, unless ROUTER_MIGRATE_SERVICE_TIER pins a tier) instead of OpenAI's own default tier, and any `stop` sequence is now cut out of the text client-side by the runtime instead of being truncated server-side by OpenAI.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatOpenAI.prepare_client (async): wrapped the AsyncOpenAI client with router_runtime.wrap_openai() so its chat.completions.create traffic routes through Router when RAMP_ROUTER_API_KEY is set. wrap_openai falls back to OpenAI untouched for anything Router can't serve (dated models, seed, n>1, etc)."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:312": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 312,
+   "loses": "Same trade-off as openai.py:308: calls with a param Router can't translate (seed, n>1, logprobs/top_logprobs, a tool_choice of a non-function type, a message 'name' field, max_tokens<16, audio/modalities/prediction/web_search_options/logit_bias, or a dated/retired model id outside Router's catalog) fall back to OpenAI unchanged; calls that do route get Router's account-default service tier (Flex where offered, unless ROUTER_MIGRATE_SERVICE_TIER pins one) instead of OpenAI's default, and `stop` sequences are now cut client-side by the runtime instead of server-side by OpenAI.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "ChatOpenAI.prepare_client (sync): wrapped the OpenAI client the same way as the async branch above."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:421": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 421,
+   "loses": "Same per-call fallback and service-tier trade-off as openai.py:312 (this subclass shares that wrapped client). In addition, Router's /v1/responses defaults a json_schema response format to strict mode, whereas OpenAI's beta chat.completions.parse() does not default to strict -- a schema relying on non-strict behavior (e.g. optional fields without defaults) could be rejected by Router and fall back to OpenAI unchanged.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "StructuredOutputChatOpenAI.openai_response (client.beta.chat.completions.parse): this subclass reuses ChatOpenAI.prepare_client, so it inherits the wrap from openai.py:312 automatically. Router's /v1/responses supports json_schema structured output."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:427": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 427,
+   "loses": "Same trade-off as openai.py:421: per-call fallback and Router-default service tier apply as at openai.py:308, and a json_schema response format is served with Router's strict default rather than Chat Completions' non-strict default.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "StructuredOutputChatOpenAI.aopenai_response: inherits the async wrap from openai.py:308 the same way."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:502": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [],
+   "line": 502,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "AzureChatOpenAI.openai_response calls client.chat.completions.create, but the client is built by AzureChatOpenAI.prepare_client (openai.py:467-473) as openai.AzureOpenAI/AsyncAzureOpenAI, keyed by azure_endpoint + azure_deployment + api_version rather than a model id. router_runtime.wrap_openai() explicitly refuses to wrap AzureOpenAI/AsyncAzureOpenAI clients ('Azure deployments and test doubles stay on their configured endpoint') and `router-migrate wrap` itself reports 'AsyncAzureOpenAI (azure-openai) has no deterministic wrap'. Router has no Azure-shaped endpoint (no azure_endpoint/deployment/api_version concept), so this call physically can't be routed without the operator reconfiguring deployments to point at Router, which is a deployment/infra decision, not a code change. A human would need to decide whether to stop using the Azure-specific client (switching the azure_deployment to a Router catalog model id via the plain ChatOpenAI/base_url path instead) if they want this traffic on Router."
+  },
+  "libs/kotaemon/kotaemon/llms/chats/openai.py:506": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "levers": [],
+   "line": 506,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "AzureChatOpenAI.aopenai_response: same Azure client as openai.py:502 above; same hard limit."
+  },
+  "libs/kotaemon/kotaemon/llms/completions/langchain_based.py:19": {
+   "by": "agent",
+   "evidence": [],
+   "file": "libs/kotaemon/kotaemon/llms/completions/langchain_based.py",
+   "levers": [],
+   "line": 19,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "LCCompletionMixin.__init__ dynamically builds a legacy-completions client (langchain's OpenAI/AzureOpenAI text-davinci-003-style completion, or LlamaCpp). Router serves only /v1/responses and /v1/messages; it has no legacy completions endpoint, so this traffic cannot be routed regardless of backend."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 8.7,
+  "agent_turns": 51,
+  "agent_usd": 2.1380765999999998,
+  "api_error": false,
+  "resumed": true
+ },
+ "created": "2026-10-14T13:34:41",
+ "edits": [
+  {
+   "at": "2026-10-14T13:35:17",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "line": 301,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:35:31",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "libs/kotaemon/kotaemon/llms/chats/openai.py",
+   "line": 312,
+   "native": false
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:45:41",
+    "gates": [],
+    "info": {
+     "report_sites": 12,
+     "sites": 8,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 109,
+      "seconds": 50.2
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 109,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "b7ae38678c8a27b9b35b2b5a55077f3401807e6d"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:38:52",
+   "blocked": {
+    "raw.githubusercontent.com:443": 1
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/kotaemon/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-kotaemon/7ddf84eb-84a9-4758-9f66-96a042886b03/scratchpad/probe_lc.py",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:__init__",
+     "error": null,
+     "feature": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:invoke",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:__init__",
+     "error": null,
+     "feature": "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:invoke",
+     "model": "claude-haiku-4-5",
+     "path": "/v1/messages",
+     "valid": true
+    }
+   ],
+   "seconds": 7.8,
+   "tail": "pong\npong\n[nltk_data] Error loading punkt_tab: <urlopen error Tunnel connection\n[nltk_data]     failed: 403 Forbidden>\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:308",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:312",
+   "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:28",
+   "libs/kotaemon/kotaemon/llms/chats/langchain_based.py:166"
+  ],
+  "failures": [],
+  "moved": 6,
+  "moved_sites": [
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:341",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:345",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:421",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:427",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:502",
+   "libs/kotaemon/kotaemon/llms/chats/openai.py:506"
+  ],
+  "ok": true,
+  "report_sites": 12,
+  "reverted": [],
+  "sites_seen": 8,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/trials/D3min/kotaemon",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

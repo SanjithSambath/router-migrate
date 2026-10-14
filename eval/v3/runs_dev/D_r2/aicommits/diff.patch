@@ -1,0 +1,60 @@
+diff --git a/src/commands/pr.ts b/src/commands/pr.ts
+index 8031564..660917c 100644
+--- a/src/commands/pr.ts
++++ b/src/commands/pr.ts
+@@ -10,6 +10,7 @@ import { createOpenAI } from '@ai-sdk/openai';
+ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+ import { KnownError, handleCommandError } from '../utils/error.js';
+ import { isInteractive } from '../utils/headless.js';
++import { routerOptions } from '../lib/routerRuntime.js';
+ 
+ type GitProvider = 'github' | 'gitlab' | 'bitbucket' | 'azure';
+ 
+@@ -178,11 +179,12 @@ export default command(
+ 			}
+ 			const aiProvider =
+ 				baseUrl === 'https://api.openai.com/v1'
+-					? createOpenAI({ apiKey })
++					? createOpenAI({ apiKey, ...routerOptions() })
+ 					: createOpenAICompatible({
+ 							name: 'custom',
+ 							apiKey,
+ 							baseURL: baseUrl,
++							...routerOptions(),
+ 					  });
+ 
+ 			const generating = spinner();
+diff --git a/src/feature/providers/base.ts b/src/feature/providers/base.ts
+index a62d67a..fe91c5c 100644
+--- a/src/feature/providers/base.ts
++++ b/src/feature/providers/base.ts
+@@ -8,6 +8,7 @@ import type {
+ } from 'ai';
+ import { fetchModels } from '../models.js';
+ import type { ValidConfig } from '../../utils/config-types.js';
++import { routerOptions } from '../../lib/routerRuntime.js';
+ 
+ const isLoopbackUrl = (baseUrl: string): boolean => {
+ 	try {
+@@ -186,11 +187,11 @@ export class Provider {
+ 		const apiKey = this.getApiKey() || '';
+ 		const provider = (() => {
+ 			if (this.name === 'openai') {
+-				return createOpenAI({ apiKey });
++				return createOpenAI({ apiKey, ...routerOptions() });
+ 			}
+ 
+ 			if (this.name === 'togetherai') {
+-				return createTogetherAI({ apiKey, baseURL: baseUrl });
++				return createTogetherAI({ apiKey, baseURL: baseUrl, ...routerOptions() });
+ 			}
+ 
+ 			return createOpenAICompatible({
+@@ -198,6 +199,7 @@ export class Provider {
+ 				apiKey,
+ 				baseURL: baseUrl,
+ 				headers: this.getHeaders(),
++				...routerOptions(),
+ 			});
+ 		})();
+ 		return provider(model);

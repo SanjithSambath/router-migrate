@@ -161,7 +161,8 @@ def test_finish_needs_decisions_and_evidence_then_passes_with_guardrails(repo):
     res = ledger(repo)["result"]
     assert res["migrated_confirmed_dynamic"] >= 1 and res["migrated_unconfirmed"] == 0
     pol = json.load(open(repo / "router.policy.json"))
-    assert pol["globs"]["**svc/direct.py:ask"] == {"provider_timeout": 30}  # user_waiting + buffered; no forced tier anywhere
+    # user_waiting + buffered: a timeout guardrail, and the standard tier pinned (Flex stays Router's default for background work)
+    assert pol["globs"]["**svc/direct.py:ask"] == {"provider_timeout": 30, "service_tier": "default"}
     assert os.path.exists(repo / "svc" / "router_policy.py")
 
 

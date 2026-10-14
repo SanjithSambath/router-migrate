@@ -1,0 +1,93 @@
+diff --git a/hedge_fund/llm/client.py b/hedge_fund/llm/client.py
+index 1d59a36..386cc75 100644
+--- a/hedge_fund/llm/client.py
++++ b/hedge_fund/llm/client.py
+@@ -32,6 +32,34 @@ from hedge_fund.llm.registry import (
+     provider_for,
+     SUPPORTED_PROVIDERS,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_langchain as _router_wrap_langchain
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
++
++
++def _router_unlock_vendor_host(chat, host):
++    """wrap_langchain() can't carry unlock_hosts through to the client(s) it
++    finds, so vendor-hosted OpenAI-wire clients (xAI, Kimi/Moonshot, ...) are
++    unlocked directly here instead. langchain-openai builds the sync chat
++    completions resource from a *separate* OpenAI client than root_client, so
++    both (all of root_client/root_async_client/client/async_client, really)
++    need unlocking -- mirrors router_runtime.wrap_langchain's own traversal."""
++    seen = []
++    for attr in ("root_client", "root_async_client", "_client", "_async_client", "client", "async_client"):
++        c = getattr(chat, attr, None)
++        for cand in (c, getattr(c, "_client", None)):
++            if cand is None or any(cand is x for x in seen):
++                continue
++            seen.append(cand)
++            _router_wrap_openai(cand, unlock_hosts=[host])
++    return chat
+ 
+ DEFAULT_MODEL = "claude-opus-5-5"
+ 
+@@ -254,32 +282,41 @@ def make_llm(
+ 
+     if provider == "Anthropic":
+         from langchain_anthropic import ChatAnthropic
+-        chat = ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
+-                             max_retries=1, max_tokens=max_tokens)
++        chat = _router_wrap_langchain(ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
++                             max_retries=1, max_tokens=max_tokens))
+     elif provider == "OpenAI":
+         from langchain_openai import ChatOpenAI
+-        chat = ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
+-                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE"))
++        chat = _router_wrap_langchain(ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
++                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE")))
+     elif provider == "DeepSeek":
+         from langchain_deepseek import ChatDeepSeek
+-        chat = ChatDeepSeek(model=model, api_key=api_key, timeout=timeout,
+-                            max_retries=1)
++        # ChatDeepSeek is a BaseChatOpenAI subclass (builds a plain openai.OpenAI
++        # client against api.deepseek.com), so its traffic can be unlocked onto
++        # Router the same way Kimi/xAI below are, for whichever model ids Router's
++        # catalog actually carries.
++        chat = _router_unlock_vendor_host(
++            ChatDeepSeek(model=model, api_key=api_key, timeout=timeout, max_retries=1),
++            "api.deepseek.com")
+     elif provider == "Google":
+         from langchain_google_genai import ChatGoogleGenerativeAI
+         chat = ChatGoogleGenerativeAI(model=model, api_key=api_key,
+                                       timeout=timeout, max_retries=1)
+     elif provider == "xAI":
+         from langchain_xai import ChatXAI
+-        chat = ChatXAI(model=model, api_key=api_key, timeout=timeout,
+-                       max_retries=1)
++        # ChatXAI is a BaseChatOpenAI subclass too — same reasoning as DeepSeek above.
++        chat = _router_unlock_vendor_host(
++            ChatXAI(model=model, api_key=api_key, timeout=timeout, max_retries=1),
++            "api.x.ai")
+     elif provider == "Kimi":
+         # Moonshot speaks the OpenAI wire format. Default to the international
+         # host; mainland users override with MOONSHOT_BASE_URL (v1 does the same).
+         from langchain_openai import ChatOpenAI
+-        chat = ChatOpenAI(
+-            model=model, api_key=api_key, timeout=timeout, max_retries=1,
+-            base_url=(os.getenv("MOONSHOT_BASE_URL")
+-                      or "https://api.moonshot.ai/v1"))
++        base_url = os.getenv("MOONSHOT_BASE_URL") or "https://api.moonshot.ai/v1"
++        chat = ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
++                           max_retries=1, base_url=base_url)
++        # wrap_langchain() doesn't carry unlock_hosts through, so unlock by host
++        # instead; a MOONSHOT_BASE_URL override simply won't match and stays put.
++        _router_unlock_vendor_host(chat, "api.moonshot.ai")
+     else:  # pragma: no cover - SUPPORTED_PROVIDERS is checked above
+         raise ValueError(f"Unhandled provider {provider}")
+ 

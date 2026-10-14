@@ -1,0 +1,32 @@
+{
+  "name": "loushang",
+  "lang": "py",
+  "python": "3.11",
+  "setup": [
+    ". scripts/env.sh && .venv/bin/uv venv -q --clear --python 3.11 \"$ENV\"",
+    ". scripts/env.sh && .venv/bin/uv export -q --project \"$SRC\" --frozen --extra dev --no-hashes --no-emit-project --no-header -o \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" -r \"$ENV/requirements.lock.txt\"",
+    ". scripts/env.sh && .venv/bin/uv pip install -q --exclude-newer 2026-10-13T00:00:00Z --python \"$ENV/bin/python\" --no-deps -e \"$SRC\""
+  ],
+  "test_cmd": "mkdir -p \"$ENV/home\" \"$ENV/tmp\" && $PY -m compileall -q -x \"/[.]\" src && env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_OAUTH_TOKEN -u ANTHROPIC_BASE_URL -u ARK_API_KEY -u BAIDU_QIANFAN_API_KEY -u COPILOT_GITHUB_TOKEN -u DASHSCOPE_API_KEY -u DEEPSEEK_API_KEY -u GH_TOKEN -u GITHUB_TOKEN -u HUNYUAN_API_KEY -u MINIMAX_API_KEY -u MOONSHOT_API_KEY -u OPENAI_API_KEY -u OPENAI_BASE_URL -u QIANFAN_API_KEY -u STEPFUN_API_KEY -u STEP_API_KEY -u ZAI_API_KEY HOME=\"$ENV/home\" TMPDIR=\"$ENV/tmp\" PYTHONPYCACHEPREFIX=\"$ENV/tmp/pycache\" $PY -m pytest -q -p no:cacheprovider tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py -m \"not live\" --deselect tests/ai/test_provider_runtime.py::test_provider_runtime_total_deadline_wins_while_tokens_keep_arriving",
+  "test_env": {},
+  "timeout_s": 900,
+  "test_kind": "unit",
+  "notes": "Python 3.11.x (requires-python >=3.11; CI uses 3.11 with uv sync --locked). Setup exports the committed uv.lock with --extra dev and installs it, then the package editable --no-deps (src layout; re-pointed at the run copy by prepare()). test_cmd = compileall of src/ plus the repo's own Makefile 'test-ai' target (the AI provider layer CI gate): pytest tests/ai tests/protocols tests/examples/test_ai_examples.py tests/examples/test_auth_examples.py -m 'not live', with the same AI_OFFLINE_ENV key unsets as the Makefile, run with plain pytest instead of scripts/dev/run_pytest.py (that wrapper only leases a scratch dir). Deselected: tests/ai/test_provider_runtime.py::test_provider_runtime_total_deadline_wins_while_tokens_keep_arriving (timing race on an infinite async generator: hangs forever when the machine is loaded; passed when idle). 7 tests are 'live' and deselected by the marker. The full tests/ suite (1474 files) was not used: apphost tests fail on macOS (managed_storage_unsupported) and need host runtime/PTY/tmux. 857 passed, identical over 3 runs; the same subset also passed with outbound network denied (sandbox-exec).",
+  "baseline": {
+    "passed": 857,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 6.9,
+    "exit": 0
+  },
+  "stability": {
+    "runs": 2,
+    "identical": true,
+    "seconds": [
+      6.9,
+      6.9
+    ]
+  }
+}

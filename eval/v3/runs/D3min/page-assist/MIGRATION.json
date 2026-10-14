@@ -1,0 +1,40 @@
+{
+  "sites": [
+    {
+      "site": "src/libs/openai.ts:43",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "GET /v1/models against api.anthropic.com, used to list available models for the user's configured Anthropic provider in Settings. Router has no models-list endpoint, so this physically can't move."
+    },
+    {
+      "site": "src/models/CustomChatAnthropic.ts:355",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "",
+      "why": "Raw fetch to api.anthropic.com/v1/messages using `apiKey` taken directly from the user's own per-provider settings (src/models/index.ts:173-182, providerInfo.apiKey) — Page Assist is a browser extension with no backend and no operator-held credential anywhere in the codebase; every request is the end user's own key hitting the provider they chose. Router is one key per deployment: wrapping this would mean the extension's operator (whoever builds/ships it with RAMP_ROUTER_API_KEY set) silently substitutes their own Router credential for the user's own Anthropic account on any request, which breaks the BYOK guarantee that is the point of this settings screen. This is the 'end user's own key where the app has no operator key' case called out as a keep."
+    },
+    {
+      "site": "src/models/CustomChatOpenAI.ts:938",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "",
+      "why": "Generic OpenAI-compatible client (client constructed at CustomChatOpenAI.ts:968) shared by every BYOK/custom provider the user adds in Settings — plain OpenAI, Azure, Gemini-as-OpenAI-compat, Vertex, OpenRouter, DeepSeek, and arbitrary local/self-hosted OpenAI-compatible servers (see isGeminiProvider/isDeepSeekProvider helpers and src/models/index.ts:132-270) — all keyed and pointed at a baseURL the end user supplies, with no operator key in this codebase. Wrapping it would let an operator's single RAMP_ROUTER_API_KEY silently intercept and re-home any request whose model id happens to match the Router catalog, overriding the user's own chosen account/endpoint — including requests meant for a locally-hosted model server, which this app exists to support directly from the browser with no middleman. Same 'BYOK, no operator key' / 'local model the app exists to use' keep as CustomChatAnthropic.ts.",
+      "notes": "Same reasoning applies to src/models/ChatGoogleAI.ts (instantiated at src/models/index.ts:133), a thin @langchain/openai ChatOpenAI subclass the scanner doesn't see because it has no literal client construction in its own file — it's the same user-keyed, user-pointed OpenAI-compatible call path as CustomChatOpenAI.ts, used for the Gemini-via-OpenAI-compat provider."
+    },
+    {
+      "site": "src/models/OAIEmbedding.ts:158",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "openai.embeddings.create — Router has no embeddings endpoint. Hard limit."
+    },
+    {
+      "site": "src/services/openai-tts.ts:25",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "openai.audio (TTS) — Router has no audio endpoint. Hard limit."
+    }
+  ]
+}

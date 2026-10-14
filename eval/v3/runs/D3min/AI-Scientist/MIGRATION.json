@@ -1,0 +1,193 @@
+{
+  "sites": [
+    {
+      "site": "ai_scientist/llm.py:320",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "None: a lossless client wrap. Requests already use no Router-incompatible parameters, so behavior is unchanged other than traffic now going to Router instead of directly to Anthropic.",
+      "why": "create_client()'s direct anthropic.Anthropic() construction, wrapped with router_runtime.wrap_anthropic(); claude-3-5-sonnet-* calls route to Router's /v1/messages unchanged."
+    },
+    {
+      "site": "ai_scientist/llm.py:167",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "None: a lossless migration. The request uses no Router-incompatible parameters.",
+      "why": "Claude branch of get_response_from_llm (client.messages.create). Confirmed ROUTES by `router-migrate check --all` once the client at llm.py:320 was wrapped. No untranslatable params in this call."
+    },
+    {
+      "site": "ai_scientist/llm.py:338",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "None: a lossless client wrap. The seed=0 knob used by the branches this client feeds is handled separately below (llm.py:82/188/204).",
+      "why": "create_client()'s direct openai.OpenAI() construction for the gpt/o1/o3 branches, wrapped with router_runtime.wrap_openai()."
+    },
+    {
+      "site": "ai_scientist/llm.py:82",
+      "outcome": "migrated",
+      "levers": ["wrap", "drop seed"],
+      "loses": "Dropped seed=0 (Router rejects the seed param). Output is no longer bit-reproducible across identical calls, matching how this code's non-OpenAI branches already behave (they never passed seed).",
+      "why": "gpt branch of get_batch_responses_from_llm (chat.completions.create). seed is a provider-only reproducibility knob with no Router equivalent; nothing in this codebase relies on deterministic replay, only on getting a response. Verified ROUTES via `check --all` and a live `check --run` (gpt-4o-mini produced a valid /v1/responses request)."
+    },
+    {
+      "site": "ai_scientist/llm.py:188",
+      "outcome": "migrated",
+      "levers": ["wrap", "drop seed"],
+      "loses": "Dropped seed=0 (Router rejects the seed param); same reproducibility loss as the batch branch above.",
+      "why": "gpt branch of get_response_from_llm (chat.completions.create, seed=0). Same reasoning as the batch gpt branch; both live under the same feature policy (ai_scientist/llm.py:get_response_from_llm)."
+    },
+    {
+      "site": "ai_scientist/llm.py:204",
+      "outcome": "migrated",
+      "levers": ["wrap", "drop seed"],
+      "loses": "Dropped seed=0 (Router rejects the seed param); same reproducibility loss as the other OpenAI branches.",
+      "why": "o1/o3 branch of get_response_from_llm (chat.completions.create, seed=0). Covered by the same drop_params=[seed] policy recorded for ai_scientist/llm.py:get_response_from_llm (applies per-function, not per-branch)."
+    },
+    {
+      "site": "ai_scientist/llm.py:346",
+      "outcome": "needs_decision",
+      "levers": ["wrap", "model-map (available, not applied)"],
+      "loses": "If a human approves mapping deepseek-chat/deepseek-coder -> Router's deepseek-v4-flash: the exact DeepSeek v3-generation model this code names is no longer what answers the request -- a different (newer) model generation serves it instead. That is a real identity/behavior change for a tool whose job is partly to compare specific named LLMs.",
+      "why": "deepseek-chat/deepseek-coder client construction in create_client (openai.OpenAI(base_url=api.deepseek.com)). Client wrapped and ready, but `check --run` proved the literal ids 'deepseek-chat'/'deepseek-coder' are not in Router's catalog (confirmed against Router's own catalog JSON: only deepseek-v4-flash, deepseek-v4-flash-0731, deepseek-v4-pro-0813, deepseek-v4.1-flash exist), so today the call stays on the DeepSeek provider unchanged. A model-map to a v4 model would route it, but swaps which model actually answers -- a judgment call for a human given this is a model-comparison research tool, not an incidental backend choice."
+    },
+    {
+      "site": "ai_scientist/llm.py:234",
+      "outcome": "needs_decision",
+      "levers": ["model-map (available, not applied)"],
+      "loses": "Same as llm.py:346: would require substituting a different DeepSeek model generation to route.",
+      "why": "deepseek-chat/deepseek-coder branch of get_response_from_llm. Same catalog gap as the client construction at llm.py:346; this is the call site actually blocked by it."
+    },
+    {
+      "site": "ai_scientist/llm.py:249",
+      "outcome": "needs_decision",
+      "levers": ["model-map (available, not applied)"],
+      "loses": "Would require mapping deepseek-reasoner to Router's deepseek-v4-pro-0813 (a reasoning-capable v4 model) -- again a different model generation actually answering the request.",
+      "why": "deepseek-reasoner branch of get_response_from_llm. Not a Router catalog id (verified against the catalog and with `check --run`, which showed the request held at the provider rather than routing)."
+    },
+    {
+      "site": "ai_scientist/llm.py:360",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "None beyond the structural fact that Router has no Gemini model, so wrapping is a no-op safety net here, not an actual migration of traffic -- see llm.py:262 for why this call does not currently route.",
+      "why": "Gemini client construction in create_client (openai.OpenAI(base_url=generativelanguage.googleapis.com)), wrapped for consistency/future-proofing (harmless: wrap_openai forwards anything Router can't serve to the original provider unchanged)."
+    },
+    {
+      "site": "ai_scientist/llm.py:262",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "Gemini branch of get_response_from_llm. Router's catalog carries no Google Gemini model at all (verified against Router's own catalog JSON and with a live `check --run`, which showed gemini-1.5-flash held at the provider rather than reaching Router). There is no catalog id to map to; this traffic physically cannot move."
+    },
+    {
+      "site": "ai_scientist/llm.py:100",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "llama branch of get_batch_responses_from_llm (model 'meta-llama/llama-3.1-405b-instruct' via OpenRouter). `check --all` confirms the model is not in Router's catalog. The only available substitute (e.g. gpt-3.5) is a completely different model family/architecture, not a dated snapshot of the same model -- the kind of forced substitution a reasonable engineer would reject rather than silently accept, since llama-3.1-405b is explicitly selected by name as one of this tool's benchmarked backends."
+    },
+    {
+      "site": "ai_scientist/llm.py:219",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "llama branch of get_response_from_llm (same OpenRouter model). Same reasoning as the batch-response llama branch; both read from the same OpenRouter-backed client at ai_scientist/llm.py:354."
+    },
+    {
+      "site": "ai_scientist/llm.py:354",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "llama3.1-405b client construction (openai.OpenAI(base_url=openrouter.ai)). Left unwrapped: the model it serves is not in Router's catalog (see above), so wrapping would be a pure no-op. Kept as-is rather than adding dead code."
+    },
+    {
+      "site": "ai_scientist/llm.py:335",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "model.startswith('bedrock') branch, anthropic.AnthropicBedrock(). `router-migrate wrap` itself refuses this client ('AnthropicBedrock (bedrock) has no deterministic wrap'). Bedrock calls are authenticated via AWS SigV4 against a bedrock-runtime.*.amazonaws.com host, not a portable API key over HTTPS to api.anthropic.com -- Router has no endpoint that can serve this transport."
+    },
+    {
+      "site": "ai_scientist/llm.py:339",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "model.startswith('vertex_ai') branch, anthropic.AnthropicVertex(). Same reasoning as Bedrock: Vertex AI authenticates via GCP ADC against a *-aiplatform.googleapis.com host, a different transport Router cannot serve."
+    },
+    {
+      "site": "launch_scientist.py:271",
+      "outcome": "migrated",
+      "levers": ["wrap", "model-map"],
+      "loses": "gpt-4o-2024-05-13 (retired by OpenAI, not in Router's catalog) is served by Router's current 'gpt-4o' catalog entry instead of that exact dated snapshot. Behavior should be equivalent or better since gpt-4o has since been updated by OpenAI itself, but byte-for-byte reproducibility against the old snapshot specifically is lost.",
+      "why": "client=openai.OpenAI() passed into perform_review(model='gpt-4o-2024-05-13'); a second, independent openai.OpenAI() construction outside ai_scientist/llm.py (the scanner only sees llm.py), wrapped by hand with router_runtime.wrap_openai(). The call itself happens inside ai_scientist.perform_review -> get_response_from_llm/get_batch_responses_from_llm, so it is covered by the model-map (gpt-4o-2024-05-13 -> gpt-4o) and drop-seed policies recorded against ai_scientist/llm.py. Verified with a live `check --run`: gpt-4o-2024-05-13 now produces a valid /v1/responses request for model=gpt-4o."
+    },
+    {
+      "site": "launch_scientist.py:304",
+      "outcome": "migrated",
+      "levers": ["wrap", "model-map"],
+      "loses": "Same as launch_scientist.py:271: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+      "why": "Second, identical client=openai.OpenAI()/perform_review(model='gpt-4o-2024-05-13') call site (the post-improvement review pass). Wrapped and covered the same way."
+    },
+    {
+      "site": "experimental/launch_oe_scientist.py:249",
+      "outcome": "migrated",
+      "levers": ["wrap", "model-map"],
+      "loses": "Same as launch_scientist.py above: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+      "why": "Identical client=openai.OpenAI()/perform_review pattern in the experimental open-ended launcher. Wrapped the same way and covered by the same ai_scientist/llm.py model-map/drop-seed policies."
+    },
+    {
+      "site": "experimental/launch_oe_scientist.py:276",
+      "outcome": "migrated",
+      "levers": ["wrap", "model-map"],
+      "loses": "Same as above: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+      "why": "Second identical call site in the experimental launcher (post-improvement review pass)."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:243",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "None: a lossless client wrap, same as ai_scientist/llm.py:320.",
+      "why": "claude-3-5-sonnet-20240620 branch of a standalone client factory (does not import ai_scientist.llm.create_client) duplicating the same branches; wrapped by hand with router_runtime.wrap_anthropic(). Feeds ai_scientist.perform_review -> get_response_from_llm, same as the direct Claude path."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:269",
+      "outcome": "migrated",
+      "levers": ["wrap", "model-map"],
+      "loses": "For gpt-4o-2024-05-13 specifically: same dated-snapshot substitution to gpt-4o as above. gpt-4o-mini-2024-07-18 and gpt-4o-2024-08-06 (the other two models this branch serves) already resolve to their current catalog ids with no substitution needed.",
+      "why": "gpt-4o-2024-05-13 / gpt-4o-mini-2024-07-18 / gpt-4o-2024-08-06 branch, openai.OpenAI(). Wrapped by hand; routes through the same ai_scientist/llm.py functions and policies as the other OpenAI call sites."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:244",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "Bedrock branch. Same AWS transport limitation as ai_scientist/llm.py's Bedrock branch -- no Router endpoint for this auth/host."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:249",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "Vertex AI branch. Same GCP transport limitation as ai_scientist/llm.py's Vertex branch -- no Router endpoint for this auth/host."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:263",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "deepseek-coder-v2-0724 branch. Not in Router's catalog, same gap as the equivalent DeepSeek branches in ai_scientist/llm.py. Left unwrapped (would be a no-op)."
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:269",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "",
+      "why": "llama-3-1-405b-instruct branch via OpenRouter. Not in Router's catalog, same gap as the equivalent Llama branches in ai_scientist/llm.py. Left unwrapped (would be a no-op)."
+    },
+    {
+      "site": "launch_scientist.py:209",
+      "outcome": "needs_decision",
+      "levers": [],
+      "loses": "Unknown without the human making an explicit choice: this traffic (the actual code-generation agent for running experiments) runs entirely inside the third-party `aider` package's own model resolution (ultimately LiteLLM), never constructing an OpenAI/Anthropic client in this repository. `router-migrate wrap` was tried at the file level and found no client construction to hook, consistent with that.",
+      "why": "aider Coder.create(main_model=Model(...)) call for the code-writing/experiment step. This is a real, likely high-volume production LLM call path, but it is owned entirely by a third-party dependency (aider/litellm), not by this repo's source. Routing it would mean reconfiguring aider/litellm's own base_url/model-provider settings to point at Router -- which only serves /v1/responses and /v1/messages, not the chat/completions shape litellm's default OpenAI provider expects -- and was judged too deep into third-party internals to do blindly. A human should decide whether to pursue a litellm-level Router integration for this path or accept it stays on the original providers. The same pattern recurs at launch_scientist.py:245, experimental/launch_oe_scientist.py:191 and experimental/launch_oe_scientist.py:225."
+    }
+  ]
+}

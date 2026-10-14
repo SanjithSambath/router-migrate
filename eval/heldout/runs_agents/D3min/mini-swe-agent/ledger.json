@@ -1,0 +1,379 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 1,
+   "failed": 2,
+   "passed": 540,
+   "seconds": 45.4
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python",
+  "test_cmd": "export LITELLM_LOCAL_MODEL_COST_MAP=True; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/tmp\" && PATH=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin:$PATH\" HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/tmp\" LITELLM_LOCAL_MODEL_COST_MAP=True /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -m pytest -q -p no:cacheprovider --deselect tests/run/test_swebench.py::test_redo_existing_false_skips_existing",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "src/minisweagent/models/litellm_model.py:74": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/litellm_model.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 74,
+   "loses": "nothing observable: litellm.completion requests now travel through Router's httpx transport when RAMP_ROUTER_API_KEY is set (chat.completions -> /v1/responses translation); any request Router can't serve (unsupported param, non-catalog model) falls back to the original provider unchanged.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Module-level litellm usage with no install hook. `router-migrate wrap src/minisweagent/models/litellm_model.py:1` installs install_litellm(), which points litellm.client_session/aclient_session at the Router-aware httpx client. Verified with `check --run`: a real LitellmModel('gpt-4o').query(...) sent a valid /v1/responses request to the Router simulator."
+  },
+  "src/minisweagent/models/litellm_response_model.py:57": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/litellm_response_model.py",
+   "levers": [
+    "wrap",
+    "hand-patch"
+   ],
+   "line": 57,
+   "loses": "nothing observable: litellm.responses requests now travel through Router; unsupported requests fall back to the provider. This model is already stateless (it flattens prior response objects into inline input items before calling), so Router's lack of server-side state is not a loss here.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "`router-migrate wrap src/minisweagent/models/litellm_response_model.py:1` installs install_litellm(), which sets litellm.client_session/aclient_session -- but litellm.responses() (unlike litellm.completion()) does not read those module-level sessions at all; it builds its own httpx client via base_llm_http_handler.response_api_handler() unless a client is passed explicitly in the call. Verified with `check --run`: before the hand-patch, all 10 requests went straight to api.openai.com (blocked by the Router simulator -- confirms the wrap alone did nothing for this call). Hand-patched _query() to pass client=HTTPHandler(client=router_runtime.http_client()) (litellm's own httpx wrapper class, imported from litellm.llms.custom_httpx.http_handler) when Router is active, mirroring what the generic wrap/adapt tooling could not reach automatically. Re-verified with `check --run`: requests now reach the Router simulator's /v1/responses endpoint (previously 0 of 10 reached it; now 10 of 10 reach it). The simulator still flags those requests invalid, but for an unrelated, pre-existing reason: this app's BASH_TOOL_RESPONSE_API tool schema omits `additionalProperties: false`, which the Responses API (Router's and real OpenAI's alike) requires by default for function tools unlike Chat Completions ('Responses defaults tools to strict' per router_runtime.py's own comment) -- the same request would fail identically against the real OpenAI Responses API today, so it is not a cost of this migration and was left unfixed (out of scope: not an LLM-routing change)."
+  },
+  "src/minisweagent/models/litellm_textbased_model.py:30": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/litellm_textbased_model.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 30,
+   "loses": "nothing observable; same install_litellm() hook as litellm_model.py, this subclass just calls litellm.completion without the toolcall-API `tools` kwarg.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Same fix via `router-migrate wrap src/minisweagent/models/litellm_textbased_model.py:1`."
+  },
+  "src/minisweagent/models/openrouter_model.py:78": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/openrouter_model.py",
+   "levers": [],
+   "line": 78,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Dynamically-built client the scanner misses: a raw `requests.post()` to https://openrouter.ai/api/v1/chat/completions, not an SDK call router_runtime can hook. OpenRouterModel is a user-selected backend (model_class=\"openrouter\") whose purpose is OpenRouter's own catalog (many models Router doesn't carry) and OpenRouter's billing/key -- migrating would drop both, which is the product itself, not a side effect."
+  },
+  "src/minisweagent/models/openrouter_response_model.py:56": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/openrouter_response_model.py",
+   "levers": [],
+   "line": 56,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Same reasoning as openrouter_model.py:78 -- raw `requests.post()` to OpenRouter's Responses endpoint, same gateway/catalog/billing rationale."
+  },
+  "src/minisweagent/models/openrouter_textbased_model.py:46": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/openrouter_textbased_model.py",
+   "levers": [],
+   "line": 46,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Same reasoning as openrouter_model.py:78 -- raw `requests.post()` to OpenRouter's chat.completions endpoint from the text-based action variant."
+  },
+  "src/minisweagent/models/portkey_model.py:92": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/portkey_model.py",
+   "levers": [],
+   "line": 92,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "PortkeyModel is an alternate, user-selected backend (model_class=\"portkey\") whose entire purpose is Portkey's own multi-provider gateway: virtual keys, per-request provider/config selection, caching and observability across providers Router does not carry. Technically, self.client is a `portkey_ai.Portkey` instance, not an `openai.OpenAI`/`AsyncOpenAI` instance, so `router_runtime.wrap_openai()` is a no-op for it (`_is_openai()` returns False); its httpx traffic also targets Portkey's own gateway host, not api.openai.com, so Router's host-matched transport shim would never see it even if the type check were bypassed. Rerouting this traffic to Router directly would mean bypassing Portkey entirely, i.e. removing the reason this backend exists -- the loss would be the product itself. needs_decision-grade question for a human: if Portkey is only being used for billing convenience (not virtual keys/caching/multi-provider access), it could be dropped in favor of LitellmModel + Router instead of adapting this code path."
+  },
+  "src/minisweagent/models/portkey_response_model.py:75": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/portkey_response_model.py",
+   "levers": [],
+   "line": 75,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Same reasoning as portkey_model.py:92 -- same Portkey gateway client, Responses-API variant."
+  },
+  "src/minisweagent/models/requesty_model.py:83": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/minisweagent/models/requesty_model.py",
+   "levers": [],
+   "line": 83,
+   "loses": "n/a (not moved)",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Dynamically-built client the scanner misses: a raw `requests.post()` to https://router.requesty.ai/v1/chat/completions. RequestyModel is a user-selected backend (model_class=\"requesty\") whose purpose is Requesty's own multi-provider catalog and billing -- same rationale as OpenRouter/Portkey: the loss would be the product itself, and there is no SDK client here for router_runtime to hook."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 27.3,
+  "agent_turns": 81,
+  "agent_usd": 3.014212200000001,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:35:21",
+ "edits": [
+  {
+   "at": "2026-10-14T13:35:53",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "src/minisweagent/models/litellm_model.py",
+   "line": 1,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:35:55",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "src/minisweagent/models/litellm_response_model.py",
+   "line": 1,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:35:58",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "src/minisweagent/models/litellm_textbased_model.py",
+   "line": 1,
+   "native": false
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T14:04:12",
+    "gates": [],
+    "info": {
+     "report_sites": 9,
+     "sites": 5,
+     "tests": {
+      "errors": 0,
+      "exit": 1,
+      "failed": 2,
+      "passed": 540,
+      "seconds": 39.0
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 1,
+      "failed": 2,
+      "passed": 540,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "1120a6a5fafad7a1e63c83fc8a45a4d95e3aade3"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:41:58",
+   "blocked": {},
+   "cmd": "PYTHONPATH=src /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -c \"\nfrom minisweagent.models.litellm_model import LitellmModel\nm = LitellmModel(model_name='gpt-4o')\nprint(m.query([{'role':'user','content':'hi'}]))\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "src/minisweagent/models/litellm_model.py:<module>",
+     "error": null,
+     "feature": "src/minisweagent/models/litellm_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 5.1,
+   "tail": "is mini-swe-agent version 2.4.6.\nCheck the v2 migration guide at https://klieret.short.gy/mini-v2-migration\nLoading global config from '/Users/sanjithsambath/Library/Application \nSupport/mini-swe-agent/.env'\n{'content': None, 'role': 'assistant', 'tool_calls': [{'function': {'arguments': '{\"command\": \"x\"}', 'name': 'bash'}, 'id': 'call_2b2a73ce23cd40c6a8a691e6', 'type': 'function'}], 'function_call': None, 'provider_specific_fields': {'refusal': None}, 'extra': {'actions': [{'command': 'x', 'tool_call_id': 'call_2b2a73ce23cd40c6a8a691e6'}], 'response': {'id': 'chatcmpl-resp_838d12b48e724bb186276755', 'created': 1791999718, 'model': 'gpt-4o', 'object': 'chat.completion', 'system_fingerprint': None, 'choices': [{'finish_reason': 'tool_calls', 'index': 0, 'message': {'content': None, 'role': 'assistant', 'tool_calls': [{'function': {'arguments': '{\"command\": \"x\"}', 'name': 'bash'}, 'id': 'call_2b2a73ce23cd40c6a8a691e6', 'type': 'function'}], 'function_call': None, 'provider_specific_fields': {'refusal': None}}, 'provider_specific_fields': {}}], 'usage': {'completion_tokens': 12, 'prompt_tokens': 8, 'total_tokens': 20, 'completion_tokens_details': {'accepted_prediction_tokens': None, 'audio_tokens': None, 'reasoning_tokens': 0, 'rejected_prediction_tokens': None}, 'prompt_tokens_details': {'audio_tokens': None, 'cached_tokens': 0}, 'cost': 0.00014}, 'moderation': None, 'service_tier': 'flex', 'provider': 'openai'}, 'cost': 0.00014000000000000001, 'timestamp': 1791999718.239128}}\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:46:19",
+   "blocked": {
+    "api.openai.com:443": 10
+   },
+   "cmd": "PYTHONPATH=src /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -c \"\nfrom minisweagent.models.litellm_response_model import LitellmResponseModel\nm = LitellmResponseModel(model_name='gpt-4o')\nprint(m.query([{'role':'user','content':'hi'}])['object'])\nfrom minisweagent.models.litellm_textbased_model import LitellmTextbasedModel\nm2 = LitellmTextbasedModel(model_name='gpt-4o')\nprint(m2.query([{'role':'user','content':'hi'}])['role'])\n\"",
+   "exit": 1,
+   "kept": [],
+   "requests": [],
+   "seconds": 253.6,
+   "tail": "jithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/utils.py\", line 1970, in wrapper\n    raise e\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/utils.py\", line 1817, in wrapper\n    result = original_function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/responses/main.py\", line 1452, in responses\n    raise litellm.exception_type(\n          ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2730, in exception_type\n    raise e  # it's already mapped\n    ^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2477, in exception_type\n    _map_openai_exception(\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 474, in _map_openai_exception\n    raise InternalServerError(\nlitellm.exceptions.InternalServerError: litellm.InternalServerError: InternalServerError: OpenAIException - 403 Forbidden\n"
+  },
+  "PR3": {
+   "at": "2026-10-14T13:50:59",
+   "blocked": {
+    "api.openai.com:443": 10
+   },
+   "cmd": "PYTHONPATH=src /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -c \"\nfrom minisweagent.models.litellm_response_model import LitellmResponseModel\nm = LitellmResponseModel(model_name='gpt-4o')\nprint(m.query([{'role':'user','content':'hi'}])['object'])\n\"",
+   "exit": 1,
+   "kept": [],
+   "requests": [],
+   "seconds": 252.7,
+   "tail": "jithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/utils.py\", line 1970, in wrapper\n    raise e\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/utils.py\", line 1817, in wrapper\n    result = original_function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/responses/main.py\", line 1452, in responses\n    raise litellm.exception_type(\n          ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2730, in exception_type\n    raise e  # it's already mapped\n    ^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2477, in exception_type\n    _map_openai_exception(\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 474, in _map_openai_exception\n    raise InternalServerError(\nlitellm.exceptions.InternalServerError: litellm.InternalServerError: InternalServerError: OpenAIException - 403 Forbidden\n"
+  },
+  "PR4": {
+   "at": "2026-10-14T13:53:36",
+   "blocked": {},
+   "cmd": "PYTHONPATH=src /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -c \"\nfrom minisweagent.models.litellm_textbased_model import LitellmTextbasedModel\nm = LitellmTextbasedModel(model_name='gpt-4o')\nprint(m.query([{'role':'user','content':'hi'}])['role'])\n\"",
+   "exit": 1,
+   "kept": [],
+   "requests": [
+    {
+     "client": "src/minisweagent/models/litellm_model.py:<module>",
+     "error": null,
+     "feature": "src/minisweagent/models/litellm_textbased_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 4.5,
+   "tail": "This is mini-swe-agent version 2.4.6.\nCheck the v2 migration guide at https://klieret.short.gy/mini-v2-migration\nLoading global config from '/Users/sanjithsambath/Library/Application \nSupport/mini-swe-agent/.env'\nTraceback (most recent call last):\n  File \"<string>\", line 4, in <module>\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/heldout/trials/D3min/mini-swe-agent/src/minisweagent/models/litellm_model.py\", line 97, in query\n    actions = self._parse_actions(response)\n              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/heldout/trials/D3min/mini-swe-agent/src/minisweagent/models/litellm_textbased_model.py\", line 40, in _parse_actions\n    return parse_regex_actions(\n           ^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate/eval/work/heldout/trials/D3min/mini-swe-agent/src/minisweagent/models/utils/actions_text.py\", line 27, in parse_regex_actions\n    raise FormatError(\nminisweagent.exceptions.FormatError\n"
+  },
+  "PR5": {
+   "at": "2026-10-14T13:58:36",
+   "blocked": {},
+   "cmd": "PYTHONPATH=src /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/bin/python -c \"\nfrom minisweagent.models.litellm_response_model import LitellmResponseModel\nm = LitellmResponseModel(model_name='gpt-4o')\nprint(m.query([{'role':'user','content':'hi'}])['object'])\n\"",
+   "exit": 1,
+   "kept": [],
+   "requests": [
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    },
+    {
+     "client": "src/minisweagent/models/litellm_response_model.py:_query",
+     "error": "Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.",
+     "feature": "src/minisweagent/models/litellm_response_model.py:_query",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": false
+    }
+   ],
+   "seconds": 251.9,
+   "tail": "ni-swe-agent/lib/python3.11/site-packages/litellm/utils.py\", line 1817, in wrapper\n    result = original_function(*args, **kwargs)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/responses/main.py\", line 1452, in responses\n    raise litellm.exception_type(\n          ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2730, in exception_type\n    raise e  # it's already mapped\n    ^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 2477, in exception_type\n    _map_openai_exception(\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/mini-swe-agent/lib/python3.11/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py\", line 374, in _map_openai_exception\n    raise BadRequestError(\nlitellm.exceptions.BadRequestError: litellm.BadRequestError: OpenAIException - {\"error\": {\"message\": \"Invalid schema for function 'bash': In context=(), 'additionalProperties' is required to be supplied and to be false, and all properties must be listed in 'required'.\", \"type\": \"invalid_request_error\", \"param\": null, \"code\": \"invalid_function_parameters\"}}\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 3,
+  "moved_sites": [
+   "src/minisweagent/models/litellm_model.py:74",
+   "src/minisweagent/models/litellm_response_model.py:57",
+   "src/minisweagent/models/litellm_textbased_model.py:30"
+  ],
+  "ok": true,
+  "report_sites": 9,
+  "reverted": [],
+  "sites_seen": 5,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/trials/D3min/mini-swe-agent",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

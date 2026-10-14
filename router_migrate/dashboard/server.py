@@ -9,7 +9,8 @@ Security:
 - endpoints: GET /, GET /api/bundle, POST /api/decide, POST /api/apply. Nothing else.
 
 Status codes: 403 auth/host/origin failures, 413 oversize, 400 bad JSON or payload, 415 non-JSON content type,
-404 unknown path, 405 other methods, 500 callback error.
+404 unknown path, 405 other methods, 409 apply refused while the bundle says `apply_blocked` (the full test suite is
+running or failed), 500 callback error.
 """
 import hmac
 import json
@@ -179,7 +180,11 @@ def _make_handler(app):
                 else:
                     if not isinstance(payload, dict) or payload:
                         raise HttpError(400, "apply takes an empty JSON object")
-                    result = app.on_apply()
+                    b = app.get_bundle() or {}
+                    blocked = b.get("apply_blocked")  # e.g. the full test suite is running or failed
+                    if blocked and not b.get("undo_allowed"):
+                        raise HttpError(409, str(blocked))
+                    result = app.on_apply(undo_only=True) if blocked else app.on_apply()  # failed suite: undos only
                     cmd = result.get("command") if isinstance(result, dict) else result
                     self._json(200, {"ok": True, "command": cmd, "result": result})
             except HttpError as e:
@@ -220,6 +225,8 @@ def serve(get_bundle, on_decide, on_apply, host="127.0.0.1", port=0, open_browse
 
     get_bundle() -> dict (the window.__RM__ bundle); on_decide({card_id, action, reason?, until?}) -> JSON-able result;
     on_apply() -> JSON-able result, ideally {"command": "router-migrate apply --decisions ...", ...} (echoed to the UI).
+    on_apply is not called while get_bundle()["apply_blocked"] is set (409 with that message), except that with
+    get_bundle()["undo_allowed"] (the suite failed) it is called as on_apply(undo_only=True): trade-off undos only.
     """
     if host != "127.0.0.1":
         raise ValueError("the dashboard binds 127.0.0.1 only")
