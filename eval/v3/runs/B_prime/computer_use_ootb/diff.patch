@@ -1,0 +1,171 @@
+diff --git a/computer_use_demo/gui_agent/actor/uitars_agent.py b/computer_use_demo/gui_agent/actor/uitars_agent.py
+index 67e4f51..9edf7d3 100644
+--- a/computer_use_demo/gui_agent/actor/uitars_agent.py
++++ b/computer_use_demo/gui_agent/actor/uitars_agent.py
+@@ -5,6 +5,13 @@ from openai import OpenAI
+ from computer_use_demo.gui_agent.llm_utils.oai import encode_image
+ from computer_use_demo.tools.screen_capture import get_screenshot
+ from computer_use_demo.tools.logger import logger, truncate_string
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ class UITARS_Actor:
+@@ -34,7 +41,7 @@ call_user() # Submit the task and call the user when the task is unsolvable, or
+     def __init__(self, ui_tars_url, output_callback, api_key="", selected_screen=0):
+ 
+         self.ui_tars_url = ui_tars_url
+-        self.ui_tars_client = OpenAI(base_url=self.ui_tars_url, api_key=api_key)
++        self.ui_tars_client = _router_wrap_openai(OpenAI(base_url=self.ui_tars_url, api_key=api_key))
+         self.selected_screen = selected_screen
+         self.output_callback = output_callback
+ 
+diff --git a/computer_use_demo/gui_agent/llm_utils/oai.py b/computer_use_demo/gui_agent/llm_utils/oai.py
+index a7359ff..21b6fb1 100644
+--- a/computer_use_demo/gui_agent/llm_utils/oai.py
++++ b/computer_use_demo/gui_agent/llm_utils/oai.py
+@@ -2,8 +2,14 @@ import os
+ import logging
+ import base64
+ import requests
++from openai import OpenAI
+ from computer_use_demo.gui_agent.llm_utils.llm_utils import is_image_path, encode_image
+ 
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from computer_use_demo.gui_agent.planner.router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++    _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
++
+ 
+ 
+ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max_tokens=256, temperature=0):
+@@ -11,11 +17,10 @@ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max
+     api_key = api_key or os.environ.get("OPENAI_API_KEY")
+     if not api_key:
+         raise ValueError("OPENAI_API_KEY is not set")
+-    
+-    headers = {"Content-Type": "application/json",
+-               "Authorization": f"Bearer {api_key}"}
+ 
+-    final_messages = [{"role": "system", "content": system}]
++    client = _router_wrap_openai(OpenAI(api_key=api_key))
++
++    final_messages = []
+ 
+     # image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+     if type(messages) == list:
+@@ -27,59 +32,54 @@ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max
+                     if isinstance(cnt, str):
+                         if is_image_path(cnt):
+                             base64_image = encode_image(cnt)
+-                            content = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
++                            content = {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"}
+                         else:
+-                            content = {"type": "text", "text": cnt}
+-                    
++                            content = {"type": "input_text", "text": cnt}
++
+                     # if isinstance(cnt, list):
+-                        
++
+                     contents.append(content)
+                 message = {"role": item["role"], "content": contents}
+-                
++
+             elif isinstance(item, str):
+                 if is_image_path(item):
+                     base64_image = encode_image(item)
+-                    contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}})
++                    contents.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"})
+                     message = {"role": "user", "content": contents}
+                 else:
+-                    contents.append({"type": "text", "text": item})
++                    contents.append({"type": "input_text", "text": item})
+                     message = {"role": "user", "content": contents}
+-                    
++
+             else:  # str
+-                contents.append({"type": "text", "text": item})
++                contents.append({"type": "input_text", "text": item})
+                 message = {"role": "user", "content": contents}
+-            
++
+             final_messages.append(message)
+ 
+-    
++
+     elif isinstance(messages, str):
+         final_messages.append({"role": "user", "content": messages})
+ 
+     print("[oai] sending messages:", [f"{k}: {v}, {k}" for k, v in final_messages])
+ 
+-    payload = {
+-        "model": llm,
+-        "messages": final_messages,
+-        "max_tokens": max_tokens,
+-        "temperature": temperature,
+-        # "stop": stop,
+-    }
+-
+     # from IPython.core.debugger import Pdb; Pdb().set_trace()
+ 
+-    response = requests.post(
+-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
+-    )
+-
+     try:
+-        text = response.json()['choices'][0]['message']['content']
+-        token_usage = int(response.json()['usage']['total_tokens'])
++        response = client.responses.create(
++            model=llm,
++            instructions=system,
++            input=final_messages,
++            max_output_tokens=max_tokens,
++            temperature=temperature,
++        )
++        text = response.output_text
++        token_usage = int(response.usage.total_tokens)
+         return text, token_usage
+-        
++
+     # return error message if the response is not successful
+     except Exception as e:
+-        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY. Please check the response: {response.json()} ")
+-        return response.json()
++        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY.")
++        raise
+ 
+ def run_ssh_llm_interleaved(messages: list, system: str, llm: str, ssh_host: str, ssh_port: int, max_tokens=256, temperature=0.7, do_sample=True):
+     """Send chat completion request to SSH remote server"""
+diff --git a/computer_use_demo/gui_agent/planner/anthropic_agent.py b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+index 63966be..5549e9a 100644
+--- a/computer_use_demo/gui_agent/planner/anthropic_agent.py
++++ b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+@@ -30,6 +30,13 @@ from PIL import Image
+ from io import BytesIO
+ import gradio as gr
+ from typing import Dict
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ BETA_FLAG = "computer-use-2024-10-22"
+@@ -95,7 +102,7 @@ class AnthropicActor:
+         # Instantiate the appropriate API client based on the provider
+         print("provider:", provider)
+         if provider == APIProvider.ANTHROPIC:
+-            self.client = Anthropic(api_key=api_key)
++            self.client = _router_wrap_anthropic(Anthropic(api_key=api_key))
+         elif provider == APIProvider.VERTEX:
+             self.client = AnthropicVertex()
+         elif provider == APIProvider.BEDROCK:

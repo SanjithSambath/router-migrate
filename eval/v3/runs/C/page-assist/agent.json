@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 2.0041097999999997,
+  "turns": 116,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` passed (exit 0). Summary of the migration judgment for Page Assist:\n\n**Architecture**: Page Assist is a BYOK (bring-your-own-key) browser extension \u2014 every provider (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, OpenRouter, Vertex, dozens more) is selected and keyed per-user in the Settings UI (`oai-api-providers.ts` list \u2192 `providerInfo.baseUrl`/`apiKey` \u2192 model constructors in `src/models/index.ts`).\n\n**Outcomes (70 worklist items + 3 extra sites found by reading the code):**\n- **1 `flagged R_PER_TENANT`** \u2014 `CustomChatAnthropic.ts:355`, raw `fetch` to Anthropic with a user-supplied key; Router has one key per deployment, so a per-user key can't be forwarded.\n- **6 `kept`**:\n  - `CustomChatOpenAI.ts:939` (chat.completions) and `ChatGoogleAI.ts` (Gemini via `@langchain/openai`) \u2014 `R_OTHER_HOST`, base URL is runtime-selected from the provider list.\n  - `OAIEmbedding.ts:159` and `openai-tts.ts:27` \u2014 `R_NO_ENDPOINT` (embeddings / audio TTS, Router doesn't serve either).\n  - `libs/openai.ts:43` and `:116` \u2014 `R_NO_ENDPOINT`/`R_OTHER_HOST`, raw-HTTP model-listing calls to the configured vendor's own `/models` endpoint (account introspection, not generation).\n- **67 `not_a_site`** \u2014 the provider-list config data, default class-field model literals, helper predicates (`isGeminiProvider`, `isAnthropicAPI`), Vertex/UI model picklists, `model-utils.ts` capability-detection strings, TTS base-URL defaults, and 20 i18n imports of `openai.json` translation strings \u2014 none are LLM calls.\n\nNet result: nothing could be safely migrated to Router \u2014 every real call site is blocked by per-user keys or a non-OpenAI/Anthropic/variable host, and the one site the floor's codemod wrapped (`openai-tts.ts`) was overridden back since TTS has no Router endpoint.",
+  "finish_exit": 0
+ },
+ "minutes": 11.1
+}

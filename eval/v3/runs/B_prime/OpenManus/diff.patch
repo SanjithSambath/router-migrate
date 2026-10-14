@@ -1,0 +1,91 @@
+diff --git a/.github/workflows/pr-autodiff.yaml b/.github/workflows/pr-autodiff.yaml
+index 46c95c6..96582b5 100644
+--- a/.github/workflows/pr-autodiff.yaml
++++ b/.github/workflows/pr-autodiff.yaml
+@@ -44,8 +44,9 @@ jobs:
+           pip install openai requests
+       - name: Create and run Python script
+         env:
+-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
++          RAMP_ROUTER_API_KEY: ${{ secrets.RAMP_ROUTER_API_KEY }}
++          RAMP_ROUTER_BASE_URL: ${{ secrets.RAMP_ROUTER_BASE_URL }}
++          ROUTER_MODEL: ${{ vars.ROUTER_MODEL }}
+           GH_TOKEN: ${{ github.token }}
+           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+           TARGET_BRANCH: ${{ steps.get-pr-sha.outputs.target_branch }}
+@@ -69,8 +70,8 @@ jobs:
+ 
+           def generate_comment(diff_content):
+               client = OpenAI(
+-                  base_url=os.getenv("OPENAI_BASE_URL"),
+-                  api_key=os.getenv("OPENAI_API_KEY")
++                  base_url=(os.getenv("RAMP_ROUTER_BASE_URL") or "https://api.router.com") + "/v1",
++                  api_key=os.getenv("RAMP_ROUTER_API_KEY")
+               )
+ 
+               guidelines = '''
+@@ -100,17 +101,12 @@ jobs:
+           3. Highlight non-English comments
+           4. Check for spelling/offensive content'''
+ 
+-              response = client.chat.completions.create(
+-                  model="o3-mini",
+-                  messages=[{
+-                      "role": "system",
+-                      "content": "Generate bilingual code review feedback."
+-                  }, {
+-                      "role": "user",
+-                      "content": f"Review these changes per guidelines:\n{guidelines}\n\nDIFF:\n{diff_content}"
+-                  }]
++              response = client.responses.create(
++                  model=os.getenv("ROUTER_MODEL"),
++                  instructions="Generate bilingual code review feedback.",
++                  input=f"Review these changes per guidelines:\n{guidelines}\n\nDIFF:\n{diff_content}"
+               )
+-              return response.choices[0].message.content
++              return response.output_text
+ 
+           def post_comment(comment):
+               repo = os.getenv("GITHUB_REPOSITORY")
+diff --git a/app/llm.py b/app/llm.py
+index 82ebe88..65657d9 100644
+--- a/app/llm.py
++++ b/app/llm.py
+@@ -1,5 +1,6 @@
+ import math
+ from typing import Dict, List, Optional, Union
++from urllib.parse import urlparse
+ 
+ import tiktoken
+ from openai import (
+@@ -29,6 +30,13 @@ from app.schema import (
+     Message,
+     ToolChoice,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ REASONING_MODELS = ["o1", "o3-mini"]
+@@ -222,7 +230,14 @@ class LLM:
+             elif self.api_type == "aws":
+                 self.client = BedrockClient()
+             else:
+-                self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
++                # router-migrate: this client's base_url may point at a provider other than api.openai.com
++                # (e.g. Anthropic's or Jiekou.AI's OpenAI-compatible endpoint, per config/config.toml). unlock_hosts
++                # tells the runtime to also evaluate that host's requests for Router eligibility, per-model.
++                base_host = urlparse(self.base_url).hostname if self.base_url else None
++                self.client = _router_wrap_openai(
++                    AsyncOpenAI(api_key=self.api_key, base_url=self.base_url),
++                    unlock_hosts=(base_host,) if base_host else None,
++                )
+ 
+             self.token_counter = TokenCounter(self.tokenizer)
+ 

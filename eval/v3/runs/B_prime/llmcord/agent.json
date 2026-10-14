@@ -1,0 +1,47 @@
+{
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 2.115636,
+  "turns": 44,
+  "final": "Migration complete. Summary:\n\n## What changed\n\n**`config.yaml`**\n- Replaced the five cloud provider entries (`openrouter`, `openai`, `x-ai`, `google`, `azure-openai`), each holding its own provider API key, with a single `router` provider pointed at Router (`base_url_env: RAMP_ROUTER_BASE_URL`, defaulting to `https://api.router.com/v1`; `api_key_env: RAMP_ROUTER_API_KEY`). No provider keys remain in the file.\n- Kept the local providers (`lmstudio`, `ollama`, `vllm`) unchanged \u2014 they have no API keys and Router can't reach localhost, so they're out of scope for this migration.\n- The model entry is now `router/${ROUTER_MODEL}` \u2014 a new `${VAR}` substitution convention (see below) so the actual model id is supplied via env rather than hardcoded, since valid Router model ids are account-specific (from `GET /v1/models`) and I can't invent one. Its parameters were rewritten to the Responses shape (`reasoning.effort`, `text.verbosity` instead of Chat Completions' flat `reasoning_effort`/`verbosity`).\n\n**`llmcord.py`**\n- `get_config()` now expands `${VAR}` references in the raw YAML text before parsing (via `os.path.expandvars`), extending the existing `_env`-suffix convention to also cover values embedded in keys, like the model name.\n- For the `router` provider, the client calls `openai_client.responses.create(...)` instead of `chat.completions.create(...)` \u2014 Router has no Chat Completions surface. `messages` \u2192 `input` (with `text`/`image_url` parts converted to `input_text`/`input_image`), and the system prompt is passed as `instructions` instead of a `system`-role message. Local providers keep using Chat Completions unchanged.\n- Added `iter_response_deltas()`, which normalizes both Chat Completions chunks and Responses SSE events into the same `(delta_text, finish_reason)` shape the existing streaming/embed-splitting logic already consumed \u2014 so that logic (timing, message splitting, embed colors) is untouched. It reads `response.output_text.delta` for streamed text and `response.completed`/`response.incomplete` for finish state, and falls back to scanning `response.output` for text if a turn produced no streamed deltas (covers non-text-only results per the task's guidance), rather than assuming text-only output.\n- `base_url` resolution gained a one-line default for the `router` provider so it falls back to `https://api.router.com/v1` when `RAMP_ROUTER_BASE_URL` isn't set.\n- `router_runtime.py`'s `_router_wrap_openai` wrap is still applied (harmless/inert now, since no remaining provider points at `api.openai.com`/`api.anthropic.com`) \u2014 left in place as defense-in-depth per the \"build on it\" guidance, in case a future provider is added pointing directly at those hosts.\n\nRouter-only fields (`allow_flex_tier`, `provider_timeout`, `timeout_before_headers`, `metadata`) didn't need any code changes \u2014 they already flow through via the existing per-model `extra_body` merge mechanism; I documented this in `config.yaml` and `README.md`.\n\n**README.md** updated to describe the new `router` provider and the `${VAR}` substitution.\n\n## Verification\n- Ran the provided base test command and the `sim_test.py` Router-simulator harness \u2014 both pass (`2 passed`).\n- Additionally, since neither test actually exercises `on_message`, I wrote a standalone script that drives the new Responses code path (`to_responses_content`, `iter_response_deltas`) through a real `responses.create(stream=True, ...)` call against the Router simulator: it received one valid `POST /v1/responses` request with the correct model and got back `\"pong\"` / `finish=stop`, confirming the transport, request shape, and streaming parse all work end-to-end.\n\n## Call sites I could not migrate\nNone for the Router-eligible path \u2014 `on_message` is the only LLM call site, and it's fully converted. The local-provider path (`ollama`/`lmstudio`/`vllm`) intentionally stays on Chat Completions since those run on localhost and aren't served by Router.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 78,
+   "cache_creation_input_tokens": 130741,
+   "cache_read_input_tokens": 5097080,
+   "output_tokens": 57310,
+   "output_tokens_details": {
+    "thinking_tokens": 38560
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 130741,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1433,
+     "cache_read_input_tokens": 168458,
+     "cache_creation_input_tokens": 953,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 953
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "minutes": 10.4
+}

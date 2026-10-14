@@ -150,20 +150,38 @@ def line_map(old_path, new_path):
     return lambda n: m.get(n, n)
 
 
-def inventory(name):
-    d = json.load(open(os.path.join(HERE, "inventory", name + ".json")))
+def inventory(name, adjudicated=False):
+    p = os.path.join(HERE, "inventory_adjudicated" if adjudicated else "inventory", name + ".json")
+    if adjudicated and not os.path.exists(p):
+        return None
+    d = json.load(open(p))
     return [s for s in d["sites"] if s.get("prod")]
 
 
-def score(name, measured, reported):
+def score(name, measured, reported, adjudicated=False):
     """Routed sites vs the inventory, and the arm's reported outcomes vs the inventory."""
-    inv = inventory(name)
+    inv = inventory(name, adjudicated)
+    if inv is None:
+        return {}
     # credited as moved: the code routes it (measured) AND the arm reports it migrated (a site the agent says stays on its
     # provider in production, e.g. a config base URL to another vendor, is not claimed as moved even if a harmless wrap remains)
     rep_mig = [r for r in reported if r.get("outcome") == "migrated"]
     moved = [s for s in measured if s["outcome"] == "migrated" and
              any(r["file"] == s["file"] and abs(int(r["line"]) - int(s["line"])) <= 3 for r in rep_mig)]
     pairs, missed, extra = HA.match(inv, moved)
+    # second pass for rewrites (an arm that consolidates or moves calls breaks line matching): pair leftover moved sites with
+    # leftover inventory sites in the same file and call family, ignoring the line. Applied to every arm; counted separately.
+    file_level = 0
+    openai_gen = {"chat", "responses"}  # an OpenAI chat call rewritten to Responses is the same site; Anthropic messages stay messages
+    for p in list(extra):
+        cands = [i for i in missed if i["file"] == p["file"] and (HA.fam(i.get("surface")) == HA.fam(p.get("surface")) or
+                                                                 {HA.fam(i.get("surface")), HA.fam(p.get("surface"))} <= openai_gen)]
+        if cands:
+            best = sorted(cands, key=lambda i: (i["expected"] not in ("migrated", "handoff"), abs(int(i["line"]) - int(p["line"]))))[0]
+            missed.remove(best)
+            extra.remove(p)
+            pairs.append((best, p))
+            file_level += 1
     good = {"migrated", "handoff"}
     correct = [(i, p) for i, p in pairs if i["expected"] in good]
     wrong = [(i, p) for i, p in pairs if i["expected"] not in good]
@@ -176,7 +194,7 @@ def score(name, measured, reported):
         "inventory_prod_sites": len(inv), "inventory_migrated": len(expected_movable),
         "inventory_handoff": sum(1 for i in inv if i["expected"] == "handoff"),
         "sites_moved": len(moved), "sites_moved_correct": len(correct), "sites_moved_wrong": len(wrong),
-        "sites_moved_unmatched": len(extra),
+        "sites_moved_unmatched": len(extra), "file_level_matches": file_level,
         "moved_recall": round(len([1 for i, _ in correct if i["expected"] == "migrated"]) / len(expected_movable), 3) if expected_movable else None,
         "moved_precision": round(len(correct) / len(moved), 3) if moved else None,
         "reported_sites_matched": len(rpairs), "reported_outcome_agreement": round(agree / len(rpairs), 3) if rpairs else None,
@@ -367,7 +385,10 @@ def independent_check(name, dst, rec):
     for f in changed:
         if f.endswith(".py") and os.path.exists(os.path.join(dst, f)) and os.path.exists(py):
             root_dir, mod = _module_of(dst, f)
-            prog = "import importlib, sys; sys.path.insert(0, %r); importlib.import_module(%r)"
+            full = f[:-3].replace("/", ".")
+            # import as the app would (dotted path from the repo root, namespace packages allowed), else package-relative
+            prog = ("import importlib, sys; sys.path[:0] = [%r, %r]\n"
+                    "try:\n    importlib.import_module(%r)\nexcept Exception:\n    importlib.import_module(%r)")
             res = []
             for base in (dst, pristine):
                 if not os.path.exists(os.path.join(base, f)):
@@ -375,7 +396,7 @@ def independent_check(name, dst, rec):
                     continue
                 rd = os.path.join(base, os.path.relpath(root_dir, dst))
                 try:
-                    r = subprocess.run([py, "-c", prog % (rd, mod)], cwd=rd, env=env, capture_output=True, text=True, timeout=90)
+                    r = subprocess.run([py, "-c", prog % (base, rd, full, mod)], cwd=base, env=env, capture_output=True, text=True, timeout=90)
                     res.append(r.returncode == 0)
                 except subprocess.TimeoutExpired:
                     res.append(None)
@@ -437,6 +458,9 @@ def score_trial(arm, name):
     measured = measure(dst, name)
     reported = reported_outcomes(arm, dst, name, measured)
     sc = score(name, measured, reported)
+    sc.update({k + "_adj": v for k, v in score(name, measured, reported, adjudicated=True).items()
+               if k in ("sites_moved", "sites_moved_correct", "sites_moved_wrong", "sites_moved_unmatched", "moved_recall",
+                        "moved_precision", "inventory_migrated", "reported_migrated", "reported_migrated_correct", "reported_outcome_agreement")})
     sh("git add -A", cwd=dst)
     patch = subprocess.run("git diff --no-color --cached $(git rev-list --max-parents=0 HEAD) -- . ':(exclude).router-migrate' "
                            "':(exclude,glob)**/router_runtime.py' ':(exclude,glob)**/routerRuntime.ts' ':(exclude,glob)**/router_policy.py'",
@@ -495,10 +519,12 @@ def reported_outcomes(arm, dst, name, measured):
             ln = maps[f](int(c["line"])) if maps[f] else int(c["line"])
             hit = [s for s in rep if s["file"] == f and abs(int(s["line"]) - ln) <= 3]
             outcome = "kept" if c["outcome"] == "not_a_site" else c["outcome"]
+            why = "%s %s: %s" % (c["outcome"], c.get("reason_code") or "", c.get("why") or "")
             if hit:
                 hit[0]["outcome"] = outcome
+                hit[0]["reason"] = why
             elif c["outcome"] not in ("not_a_site",):
-                rep.append({"file": f, "line": ln, "surface": "chat", "outcome": outcome, "prod": True})
+                rep.append({"file": f, "line": ln, "surface": "chat", "outcome": outcome, "prod": True, "reason": why})
     return rep
 
 
@@ -552,7 +578,9 @@ def aggregate():
     keep = ("repo", "commit", "arm", "sites_moved", "sites_moved_correct", "sites_moved_wrong", "sites_moved_unmatched", "moved_recall",
             "moved_precision", "broken", "usd", "minutes", "diff_lines", "test_files_edited", "inventory_prod_sites", "inventory_migrated",
             "inventory_handoff", "reported_migrated", "reported_migrated_correct", "reported_outcome_agreement", "reported_sites_matched",
-            "inventory_leak_in_transcript", "ledger", "wrong_detail", "missed_migrated")
+            "inventory_leak_in_transcript", "ledger", "wrong_detail", "missed_migrated", "file_level_matches", "routed_static",
+            "broken_gate_checks", "independent_check", "sites_moved_adj", "sites_moved_correct_adj", "sites_moved_wrong_adj",
+            "inventory_migrated_adj", "reported_migrated_adj", "reported_migrated_correct_adj")
     slim = [{k: r.get(k) for k in keep} | {"model": (r.get("agent") or {}).get("model"), "agent_exit": (r.get("agent") or {}).get("exit"),
                                            "turns": (r.get("agent") or {}).get("turns")} for r in rows]
     arms = {}
@@ -563,13 +591,16 @@ def aggregate():
         a["repos"] += 1
         a["broken"] += int(bool(r["broken"]))
         for k in ("sites_moved", "sites_moved_correct", "sites_moved_wrong", "inventory_migrated", "usd", "minutes", "diff_lines",
-                  "reported_migrated", "reported_migrated_correct"):
-            a[k] += r.get(k) or 0
+                  "reported_migrated", "reported_migrated_correct", "sites_moved_adj", "sites_moved_correct_adj", "sites_moved_wrong_adj",
+                  "inventory_migrated_adj", "reported_migrated_adj", "reported_migrated_correct_adj"):
+            a[k] = a.get(k, 0) + (r.get(k) or 0)
         a["test_files_edited"] += int(bool(r.get("test_files_edited")))
     for a in arms.values():
         a["broken_ci95"] = clopper_pearson(a["broken"], a["repos"])
         a["moved_precision"] = round(a["sites_moved_correct"] / a["sites_moved"], 3) if a["sites_moved"] else None
         a["reported_migrated_precision"] = round(a["reported_migrated_correct"] / a["reported_migrated"], 3) if a["reported_migrated"] else None
+        a["moved_precision_adj"] = round(a["sites_moved_correct_adj"] / a["sites_moved_adj"], 3) if a.get("sites_moved_adj") else None
+        a["reported_migrated_precision_adj"] = round(a["reported_migrated_correct_adj"] / a["reported_migrated_adj"], 3) if a.get("reported_migrated_adj") else None
         a["usd"] = round(a["usd"], 2)
         a["minutes"] = round(a["minutes"], 1)
     out = {"generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "set": "eval/v3/REPOS.json (10 fresh repos)", "arms": arms, "repos": slim}
@@ -593,6 +624,16 @@ def write_md(d):
         L.append("| %s | %d | %d/%d (%s-%s) | %d | %d | %d | %s | %s | %d | %.2f | %.0f |" % (
             arm, a["repos"], a["broken"], a["repos"], ci[0], ci[1], a["sites_moved"], a["sites_moved_correct"], a["sites_moved_wrong"],
             a["moved_precision"], a["reported_migrated_precision"], a["diff_lines"], a["usd"], a["minutes"]))
+    if any(a.get("sites_moved_adj") is not None and a.get("inventory_migrated_adj") for a in d["arms"].values()):
+        L += ["", "**Against the adjudicated inventory** (each disagreement between an arm and the inventory judged blind against "
+              "the code; eval/v3/adjudication/):", "",
+              "| arm | sites moved | correct | wrong | moved precision | reported migrated precision |", "|---|---|---|---|---|---|"]
+        for arm in ARMS:
+            a = d["arms"].get(arm)
+            if a:
+                L.append("| %s | %d | %d | %d | %s | %s |" % (arm, a.get("sites_moved_adj", 0), a.get("sites_moved_correct_adj", 0),
+                                                         a.get("sites_moved_wrong_adj", 0), a.get("moved_precision_adj"),
+                                                         a.get("reported_migrated_precision_adj")))
     L += ["", "Inventory: %d sites expected migrated across the set (handoff sites count as correct when moved)." % (
         max((a["inventory_migrated"] for a in d["arms"].values()), default=0)), "",
           "## Per repo", "", "| repo | arm | broken | moved | correct | wrong | reported migrated (correct) | diff | $ | min | notes |",
@@ -610,6 +651,9 @@ def write_md(d):
         L.append("| %s | %s | %s | %s | %s | %s | %s (%s) | %s | %.2f | %.0f | %s |" % (
             r["repo"], r["arm"], "**yes**" if r["broken"] else "no", r["sites_moved"], r["sites_moved_correct"], r["sites_moved_wrong"],
             r.get("reported_migrated"), r.get("reported_migrated_correct"), r["diff_lines"], r["usd"] or 0, r["minutes"] or 0, "; ".join(notes)))
+    notes = os.path.join(HERE, "RESULTS_NOTES.md")
+    if os.path.exists(notes):
+        L = L[:L.index("## Per repo")] + [open(notes).read().rstrip(), ""] + L[L.index("## Per repo"):]
     open(os.path.join(HERE, "RESULTS.md"), "w").write("\n".join(L) + "\n")
 
 

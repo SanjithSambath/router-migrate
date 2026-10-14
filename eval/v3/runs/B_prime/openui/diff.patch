@@ -1,0 +1,276 @@
+diff --git a/backend/openui/config.py b/backend/openui/config.py
+index 933e5a0..2318ee4 100644
+--- a/backend/openui/config.py
++++ b/backend/openui/config.py
+@@ -62,6 +62,9 @@ CORS_ORIGINS = os.getenv(
+ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "xxx")
++OPENAI_MODELS = os.getenv(
++    "OPENAI_MODELS", "gpt-3.5-turbo,gpt-4o-mini,gpt-4o,gpt-4-turbo"
++).split(",")
+ GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", os.getenv("LITELLM_MASTER_KEY"))
+diff --git a/backend/openui/eval/evaluate.py b/backend/openui/eval/evaluate.py
+index 01ddd6e..f60253e 100644
+--- a/backend/openui/eval/evaluate.py
++++ b/backend/openui/eval/evaluate.py
+@@ -9,6 +9,13 @@ from pathlib import Path
+ import base64
+ import json
+ from datetime import datetime
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ last: datetime | None = None
+ 
+@@ -48,7 +55,7 @@ class EvaluateQualityModel(Model):
+ 
+         pt("Actually predicting", input["emoji"], input["name"] + ":", input["prompt"])
+         pt("Desktop:", input["desktop_img"], "Mobile:", input["mobile_img"])
+-        client = OpenAI()
++        client = _router_wrap_openai(OpenAI())
+         user_message = f"""{input['prompt']}
+ ---
+ name: {input['name']}
+diff --git a/backend/openui/eval/evaluate_weave.py b/backend/openui/eval/evaluate_weave.py
+index efe6f38..d575618 100644
+--- a/backend/openui/eval/evaluate_weave.py
++++ b/backend/openui/eval/evaluate_weave.py
+@@ -18,6 +18,13 @@ from datetime import datetime
+ from openui.util import gen_screenshots
+ 
+ from promptsearch import PromptSearch, PromptModel
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ last: datetime | None = None
+@@ -126,7 +133,7 @@ class OpenUIModel(PromptModel):
+                 base_url="https://api.fireworks.ai/inference/v1",
+             )
+         else:
+-            return AsyncOpenAI()
++            return _router_wrap_openai(AsyncOpenAI())
+ 
+     @property
+     def model(self):
+@@ -284,7 +291,7 @@ class OpenUIScoringModel(Model):
+ 
+     @weave.op()
+     async def predict(self, prompt: str, prediction: dict) -> dict:
+-        client = AsyncOpenAI()
++        client = _router_wrap_openai(AsyncOpenAI())
+ 
+         user_message = f"""{prompt}
+ ---
+diff --git a/backend/openui/eval/model.py b/backend/openui/eval/model.py
+index 7111870..3108412 100644
+--- a/backend/openui/eval/model.py
++++ b/backend/openui/eval/model.py
+@@ -4,6 +4,13 @@ import json
+ from pathlib import Path
+ 
+ import base64
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ def data_url(file_path):
+@@ -28,7 +35,7 @@ class EvaluateQualityModel(Model):
+     async def predict(self, input: dict) -> dict:
+         from openai import OpenAI
+ 
+-        client = OpenAI()
++        client = _router_wrap_openai(OpenAI())
+         user_message = f"""prompt: {input['prompt']}
+ name: {input['name']}
+ emoji: {input['emoji']}
+diff --git a/backend/openui/eval/prompt_to_img.py b/backend/openui/eval/prompt_to_img.py
+index b8908cc..31f2183 100644
+--- a/backend/openui/eval/prompt_to_img.py
++++ b/backend/openui/eval/prompt_to_img.py
+@@ -8,6 +8,13 @@ import sys
+ from openui.util import gen_screenshots
+ 
+ from openai import AsyncOpenAI
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ SYSTEM_PROMPT = """You're a frontend web developer that specializes in tailwindcss. Given a description, generate HTML with tailwindcss. You should support both dark and light mode. It should render nicely on desktop, tablet, and mobile. Keep your responses concise and just return HTML that would appear in the <body> no need for <head>. Use placehold.co for placeholder images. If the user asks for interactivity, use modern ES6 javascript and native browser apis to handle events.
+ 
+@@ -120,6 +127,6 @@ if __name__ == "__main__":
+         model = model.replace("ollama/", "")
+         openai = AsyncOpenAI(base_url="http://localhost:11434/v1")
+     else:
+-        openai = AsyncOpenAI()
++        openai = _router_wrap_openai(AsyncOpenAI())
+ 
+     asyncio.run(main(model))
+diff --git a/backend/openui/eval/promptsearch.py b/backend/openui/eval/promptsearch.py
+index 034c3cb..06d2c56 100644
+--- a/backend/openui/eval/promptsearch.py
++++ b/backend/openui/eval/promptsearch.py
+@@ -4,6 +4,14 @@ import traceback
+ from typing import Callable, Optional
+ from pydantic import BaseModel
+ import openai
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import install_openai_module as _router_install_openai_module
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import install_openai_module as _router_install_openai_module
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_install_openai_module = lambda: None  # noqa: E731
++_router_install_openai_module()  # router-migrate
+ import random
+ from weave import Dataset
+ from weave import Object
+diff --git a/backend/openui/eval/synthesize.py b/backend/openui/eval/synthesize.py
+index 16ef578..51814b6 100644
+--- a/backend/openui/eval/synthesize.py
++++ b/backend/openui/eval/synthesize.py
+@@ -3,8 +3,15 @@ import json
+ import asyncio
+ 
+ from openai import AsyncOpenAI
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+-openai = AsyncOpenAI()
++openai = _router_wrap_openai(AsyncOpenAI())
+ 
+ SYSTEM_PROMPT = """You're a fun and creative web developer. Given a description and name of a component, I want a list of json that contain "emoji", "name", and "prompt" properties.  At least 3-5 but upto 10.  The "emoji" should represent the idea of the component and the question should be what a user would ask for, i.e.
+ 
+diff --git a/backend/openui/litellm.py b/backend/openui/litellm.py
+index 9486a01..c50b3ae 100644
+--- a/backend/openui/litellm.py
++++ b/backend/openui/litellm.py
+@@ -3,6 +3,13 @@ import os
+ import tempfile
+ import openai
+ from .logs import logger
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ def generate_config():
+@@ -98,10 +105,10 @@ def generate_config():
+         )
+ 
+     if "OPENAI_COMPATIBLE_ENDPOINT" in os.environ:
+-        client = openai.OpenAI(
++        client = _router_wrap_openai(openai.OpenAI(
+             api_key=os.getenv("OPENAI_COMPATIBLE_API_KEY"),
+             base_url=os.getenv("OPENAI_COMPATIBLE_ENDPOINT"),
+-        )
++        ))
+         try:
+             for model in client.models.list().data:
+                 models.append(
+diff --git a/backend/openui/server.py b/backend/openui/server.py
+index 09f9e2c..b4a5429 100644
+--- a/backend/openui/server.py
++++ b/backend/openui/server.py
+@@ -50,6 +50,21 @@ from pathlib import Path
+ from typing import Optional
+ import traceback
+ import os
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import (
++        install_openai_module as _router_install_openai_module,
++        wrap_openai as _router_wrap_openai,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            install_openai_module as _router_install_openai_module,
++            wrap_openai as _router_wrap_openai,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_install_openai_module = lambda: None  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
++_router_install_openai_module()  # router-migrate
+ 
+ 
+ @asynccontextmanager
+@@ -69,20 +84,20 @@ app = FastAPI(
+     description="API for proxying LLM requests to different services",
+ )
+ 
+-openai = AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
++openai = _router_wrap_openai(AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY))
+ 
+-litellm = AsyncOpenAI(
++litellm = _router_wrap_openai(AsyncOpenAI(
+     api_key=config.LITELLM_API_KEY,
+     base_url=config.LITELLM_BASE_URL,
+-)
++))
+ 
+ if config.GROQ_API_KEY is not None:
+-    groq = AsyncOpenAI(base_url=config.GROQ_BASE_URL, api_key=config.GROQ_API_KEY)
++    groq = _router_wrap_openai(AsyncOpenAI(base_url=config.GROQ_BASE_URL, api_key=config.GROQ_API_KEY))
+ else:
+     groq = None
+ 
+ ollama = AsyncClient()
+-ollama_openai = AsyncOpenAI(base_url=config.OLLAMA_HOST + "/v1", api_key="xxx")
++ollama_openai = _router_wrap_openai(AsyncOpenAI(base_url=config.OLLAMA_HOST + "/v1", api_key="xxx"))
+ router = APIRouter()
+ session_store = DBSessionStore()
+ github_sso = GithubSSO(
+@@ -394,8 +409,7 @@ async def vote(request: Request, payload: VoteRequest):
+ async def get_openai_models():
+     try:
+         await openai.models.list()
+-        # We only support 3.5 and 4 for now
+-        return ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
++        return config.OPENAI_MODELS
+     except Exception:
+         logger.warning("Couldn't connect to OpenAI at %s", config.OPENAI_BASE_URL)
+         return []
+diff --git a/docker-compose.yaml b/docker-compose.yaml
+index 0fe3869..77db006 100644
+--- a/docker-compose.yaml
++++ b/docker-compose.yaml
+@@ -17,7 +17,7 @@ services:
+       - "7878:7878"
+     environment:
+       - OLLAMA_HOST=http://ollama:11434
+-      - OPENAI_API_KEY
++      - RAMP_ROUTER_API_KEY
+       - ANTHROPIC_API_KEY
+       - GROQ_API_KEY
+     env_file:

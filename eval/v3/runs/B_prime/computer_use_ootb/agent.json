@@ -1,0 +1,47 @@
+{
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 1.5724907999999995,
+  "turns": 35,
+  "final": "## Summary\n\n**Migrated:**\n- `computer_use_demo/gui_agent/llm_utils/oai.py` \u2014 `run_oai_interleaved` was making raw `requests.post` calls directly to `https://api.openai.com/v1/chat/completions`, bypassing the SDK entirely (so the vendored `router_runtime` transport shim had no hook to intercept it). Rewrote it to build an `OpenAI` client wrapped with `wrap_openai` (same pattern already used in `uitars_agent.py`/`anthropic_agent.py`), and call `client.responses.create()` directly: `system` \u2192 `instructions`, chat-style content parts \u2192 `input_text`/`input_image`, `max_tokens` \u2192 `max_output_tokens`, and reads `response.output_text` / `response.usage.total_tokens`. Verified end-to-end against the Router simulator \u2014 it now sends a valid `POST /v1/responses` request.\n\n**Already compliant (no change needed, confirmed by testing):**\n- `anthropic_agent.py` (`AnthropicActor`) is already on the Anthropic Messages API and wrapped with `wrap_anthropic`. I verified a non-beta call routes correctly to Router's `/v1/messages` surface.\n- `uitars_agent.py` is wrapped with `wrap_openai`, but its client's `base_url` points at a self-hosted UI-TARS server, not `api.openai.com`, so the runtime correctly leaves that traffic untouched (not a Router target).\n\n**Could not / should not migrate \u2014 flagging rather than guessing:**\n1. **`AnthropicActor`'s actual Claude calls stay on Anthropic directly**, not Router. The call passes `betas=[\"computer-use-2024-10-22\"]`, and `wrap_anthropic`'s runtime deliberately refuses to route *any* request carrying an Anthropic beta header unless that beta is explicitly passed to `wrap_anthropic(client, drop_betas=[...])` \u2014 the runtime's own comment calls this a \"customer-approved, stated-loss\" decision, since Router's behavior with that beta is unmeasured. I verified this directly: the same call without the beta header routes to Router fine; with it, it goes to Anthropic. Since dropping it would change the tool-use beta behavior (out of scope \u2014 \"leave tool definitions/business logic unchanged\"), I left it as-is. **This needs an explicit decision from you** on whether to approve dropping that beta flag.\n2. **`gui_agent/llm_utils/qwen.py` (`run_qwen`)** uses Alibaba's `dashscope` SDK against its own proprietary endpoint/schema \u2014 not OpenAI or Anthropic compatible, so neither Router surface nor the vendored runtime applies. Router's catalog has a similarly-named `qwen3p8-max` model, but it's a different provider-hosted model than `qwen-vl-max-latest`, and I have no live `GET /v1/models` access in this environment to confirm an account-valid equivalent, so I did not guess a mapping.\n3. **`run_ssh_llm_interleaved`** talks to a user-specified local/private `ssh_host:ssh_port` inference server \u2014 no provider API key or cloud vendor involved, so it's out of scope for Router.\n\n**Secrets:** No `.env` files, CI config, or secret managers contain provider keys \u2014 `app.py` only reads `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`QWEN_API_KEY` as UI defaults for a bring-your-own-key text field, which the vendored runtime's design still requires (SDK constructors need *some* key even when Router handles the actual call), so nothing needed deleting there.\n\n**Verification:** Import/compile check passes; Router-simulator smoke test confirms the migrated OpenAI call lands as a valid `POST /v1/responses` request.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 50,
+   "cache_creation_input_tokens": 143483,
+   "cache_read_input_tokens": 3532444,
+   "output_tokens": 29197,
+   "output_tokens_details": {
+    "thinking_tokens": 17479
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 143483,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1377,
+     "cache_read_input_tokens": 181586,
+     "cache_creation_input_tokens": 567,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 567
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "minutes": 5.4
+}

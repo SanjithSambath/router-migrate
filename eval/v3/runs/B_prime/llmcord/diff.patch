@@ -1,0 +1,255 @@
+diff --git a/README.md b/README.md
+index b4e02f9..1c24f41 100644
+--- a/README.md
++++ b/README.md
+@@ -34,11 +34,7 @@ Additionally:
+ ### Model switching with `/model`:
+ ![image](https://github.com/user-attachments/assets/568e2f5c-bf32-4b77-ab57-198d9120f3d2)
+ 
+-llmcord supports remote models from:
+-- [OpenRouter](https://openrouter.ai/models)
+-- [OpenAI](https://platform.openai.com/docs/models)
+-- [xAI](https://docs.x.ai/docs/models)
+-- [Google](https://ai.google.dev/gemini-api/docs/models)
++llmcord supports remote models from any provider available on [Router](https://router.com), Ramp's gateway in front of models from multiple providers.
+ 
+ Or run local models with:
+ - [LM Studio](https://lmstudio.ai)
+@@ -91,8 +87,8 @@ Or run local models with:
+ 
+ | Setting | Description |
+ | --- | --- |
+-| **providers** | Add the LLM providers you want to use, each with a `base_url` and optional `api_key` entry. Popular providers (`openrouter`, `openai`, `ollama`, etc.) are already included.<br /><br />**Only supports OpenAI /v1/chat/completions compatible APIs.**<br /><br />**Some providers may need `extra_headers` / `extra_query` / `extra_body` entries for extra HTTP data. See the included `azure-openai` provider for an example.** |
+-| **models** | Add the models you want to use in `<provider>/<model>: <parameters>` format (examples are included). When you run `/model` these models will show up as autocomplete suggestions.<br /><br />**Refer to each provider's documentation for supported parameters.**<br /><br />**The first model in your `models` list will be the default model at startup.**<br /><br />**Some vision models may need `:vision` added to the end of their name to enable image support.** |
++| **providers** | The `router` provider talks to [Router](https://router.com) (`https://api.router.com/v1`, authenticated with `RAMP_ROUTER_API_KEY`) and reaches every provider on your Router account — no per-provider API keys needed. You can also add local providers (`ollama`, `lmstudio`, `vllm`, etc.) with a `base_url` for models Router doesn't serve.<br /><br />**Router is only reachable through its gateway; local providers must be OpenAI `/v1/chat/completions` compatible.** |
++| **models** | Add the models you want to use in `<provider>/<model>: <parameters>` format (examples are included). `${VAR}` anywhere in this file, including in a model name, is substituted from the environment — e.g. `router/${ROUTER_MODEL}`. For `router` models, `<model>` must be an id from Router's `GET /v1/models` (ids are account-specific); other Router-only fields like `allow_flex_tier`, `provider_timeout`, and `metadata` can also go under a model's parameters. When you run `/model` these models will show up as autocomplete suggestions.<br /><br />**Refer to each provider's documentation for supported parameters.**<br /><br />**The first model in your `models` list will be the default model at startup.**<br /><br />**Some vision models may need `:vision` added to the end of their name to enable image support.** |
+ | **system_prompt** | Write anything you want to customize the bot's behavior!<br /><br />**Leave blank for no system prompt.**<br /><br />**You can use the `{date}` and `{time}` tags in your system prompt to insert the current date and time, based on your host computer's time zone.**<br /><br />**It is recommended to include something like `"User messages are prefixed with their Discord ID as <@ID>. Use this format to mention users."` in your system prompt to help the bot understand the user message format.** |
+ 
+ 3. Run the bot:
+diff --git a/config.yaml b/config.yaml
+index 0650c52..2a7bbe4 100644
+--- a/config.yaml
++++ b/config.yaml
+@@ -1,4 +1,5 @@
+ # Any setting can be read from an environment variable by appending "_env" to its name (e.g. bot_token_env: DISCORD_BOT_TOKEN).
++# ${VAR_NAME} anywhere in this file (including in keys, like the model name below) is substituted from the environment.
+ 
+ bot_token_env: DISCORD_BOT_TOKEN
+ client_id_env: DISCORD_CLIENT_ID
+@@ -26,28 +27,12 @@ permissions:
+     allowed_ids: []
+     blocked_ids: []
+ 
++# "router" is Ramp's Router (https://router.com): one OpenAI Responses-compatible endpoint in front of every
++# provider on the account. It holds the provider credentials; only RAMP_ROUTER_API_KEY is needed here.
+ providers:
+-  openrouter:
+-    base_url: https://openrouter.ai/api/v1
+-    api_key_env: OPENROUTER_API_KEY
+-
+-  openai:
+-    base_url: https://api.openai.com/v1
+-    api_key_env: OPENAI_API_KEY
+-
+-  x-ai:
+-    base_url: https://api.x.ai/v1
+-    api_key_env: X_AI_API_KEY
+-
+-  google:
+-    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+-    api_key_env: GEMINI_API_KEY
+-
+-  azure-openai:
+-    base_url: https://<resource name>.openai.azure.com/openai/deployments/<deployment name>
+-    api_key_env: AZURE_OPENAI_API_KEY
+-    extra_query:
+-      api-version: 2024-12-01-preview
++  router:
++    base_url_env: RAMP_ROUTER_BASE_URL  # defaults to https://api.router.com/v1 when unset
++    api_key_env: RAMP_ROUTER_API_KEY
+ 
+   lmstudio:
+     base_url: http://localhost:1234/v1
+@@ -58,15 +43,15 @@ providers:
+   vllm:
+     base_url: http://localhost:8000/v1
+ 
++# ROUTER_MODEL must be a model id from `GET /v1/models` on your Router account (ids are account-specific).
++# Parameters use the /v1/responses request shape (e.g. reasoning.effort, text.verbosity), not /v1/chat/completions.
++# Router-only fields (allow_flex_tier, provider_timeout, timeout_before_headers, metadata) can go here too.
+ models:
+-  openai/gpt-5.5:
+-    reasoning_effort: high
+-    verbosity: medium
+-
+-  openrouter/~anthropic/claude-opus-latest:
+-    tools:
+-      - type: openrouter:web_search
+-      - type: openrouter:web_fetch
++  router/${ROUTER_MODEL}:
++    reasoning:
++      effort: high
++    text:
++      verbosity: medium
+ 
+   ollama/llama4:
+ 
+diff --git a/llmcord.py b/llmcord.py
+index 23d2d20..9f56add 100644
+--- a/llmcord.py
++++ b/llmcord.py
+@@ -14,6 +14,13 @@ from dotenv import load_dotenv
+ import httpx
+ from openai import AsyncOpenAI
+ import yaml
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ load_dotenv()
+ 
+@@ -41,7 +48,61 @@ def resolve_env(node: Any) -> Any:
+ 
+ def get_config(filename: str = "config.yaml") -> dict[str, Any]:
+     with open(filename, encoding="utf-8") as file:
+-        return resolve_env(yaml.safe_load(file))
++        return resolve_env(yaml.safe_load(os.path.expandvars(file.read())))
++
++
++def to_responses_content(content: Any) -> Any:
++    """Chat Completions message content -> Responses input content (text/image_url -> input_text/input_image)."""
++    if isinstance(content, str):
++        return content
++
++    parts = []
++    for part in content:
++        if part["type"] == "text":
++            parts.append(dict(type="input_text", text=part["text"]))
++        elif part["type"] == "image_url":
++            parts.append(dict(type="input_image", image_url=part["image_url"]["url"]))
++
++    return parts
++
++
++def _responses_output_text(response: Any) -> str:
++    text = ""
++    for item in getattr(response, "output", None) or []:
++        if getattr(item, "type", None) != "message":
++            continue  # tool calls, reasoning, etc. aren't rendered as chat text; see README/task notes
++        for part in getattr(item, "content", None) or []:
++            if getattr(part, "type", None) == "output_text":
++                text += part.text
++    return text
++
++
++async def iter_response_deltas(stream, use_responses_api: bool):
++    """Yield (delta_text, finish_reason) pairs, normalizing Chat Completions chunks and Responses SSE events alike."""
++    if not use_responses_api:
++        async for chunk in stream:
++            if not (choice := chunk.choices[0] if chunk.choices else None):
++                continue
++            yield choice.delta.content or "", choice.finish_reason
++        return
++
++    emitted_text = False
++    async for event in stream:
++        if event.type == "response.output_text.delta":
++            emitted_text = True
++            yield event.delta or "", None
++        elif event.type == "response.failed":
++            raise RuntimeError(getattr(getattr(event.response, "error", None), "message", None) or "Router response failed")
++        elif event.type in ("response.completed", "response.incomplete"):
++            reason = getattr(getattr(event.response, "incomplete_details", None), "reason", None)
++            if reason == "content_filter":
++                finish_reason = "content_filter"
++            elif reason == "max_output_tokens":
++                finish_reason = "length"
++            else:
++                finish_reason = "stop"
++            # Some non-text results (e.g. a reasoning-only turn) stream no output_text delta; recover the text at the end.
++            yield ("" if emitted_text else _responses_output_text(event.response)), finish_reason
+ 
+ 
+ config = get_config()
+@@ -151,9 +212,9 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+     provider_config = config["providers"][provider]
+ 
+-    base_url = provider_config["base_url"]
++    base_url = provider_config.get("base_url") or "https://api.router.com/v1" if provider == "router" else provider_config["base_url"]
+     api_key = provider_config.get("api_key", "sk-no-key-required")
+-    openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
++    openai_client = _router_wrap_openai(AsyncOpenAI(base_url=base_url, api_key=api_key))
+ 
+     model_parameters = config["models"].get(provider_slash_model, None)
+ 
+@@ -247,19 +308,40 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+     logging.info(f"Message received (user ID: {new_msg.author.id}, attachments: {len(new_msg.attachments)}, conversation length: {len(messages)}):\n{new_msg.content}")
+ 
+-    if system_prompt := config.get("system_prompt"):
++    use_responses_api = provider == "router"
++
++    system_prompt = None
++    if raw_system_prompt := config.get("system_prompt"):
+         now = datetime.now().astimezone()
+ 
+-        system_prompt = system_prompt.replace("{date}", now.strftime("%B %d %Y")).replace("{time}", now.strftime("%H:%M:%S %Z%z")).strip()
++        system_prompt = raw_system_prompt.replace("{date}", now.strftime("%B %d %Y")).replace("{time}", now.strftime("%H:%M:%S %Z%z")).strip()
+ 
+-        messages.append(dict(role="system", content=system_prompt))
++        if not use_responses_api:
++            messages.append(dict(role="system", content=system_prompt))
+ 
+     # Generate and send response message(s) (can be multiple if response is long)
+     curr_content = finish_reason = None
+     response_msgs = []
+     response_contents = []
+ 
+-    openai_kwargs = dict(model=model, messages=messages[::-1], stream=True, extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body)
++    ordered_messages = messages[::-1]
++
++    if use_responses_api:
++        # Router has no Chat Completions surface: send input/instructions to /v1/responses instead of messages to /v1/chat/completions
++        api_kwargs = dict(
++            model=model,
++            input=[dict(role=m["role"], content=to_responses_content(m["content"])) for m in ordered_messages],
++            stream=True,
++            extra_headers=extra_headers,
++            extra_query=extra_query,
++            extra_body=extra_body,
++        )
++        if system_prompt:
++            api_kwargs["instructions"] = system_prompt
++        create_stream = lambda: openai_client.responses.create(**api_kwargs)
++    else:
++        api_kwargs = dict(model=model, messages=ordered_messages, stream=True, extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body)
++        create_stream = lambda: openai_client.chat.completions.create(**api_kwargs)
+ 
+     if use_plain_responses := config.get("use_plain_responses", False):
+         max_message_length = 4000
+@@ -277,17 +359,14 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+     try:
+         async with new_msg.channel.typing():
+-            async for chunk in await openai_client.chat.completions.create(**openai_kwargs):
++            async for delta, delta_finish_reason in iter_response_deltas(await create_stream(), use_responses_api):
+                 if finish_reason != None:
+                     break
+ 
+-                if not (choice := chunk.choices[0] if chunk.choices else None):
+-                    continue
+-
+-                finish_reason = choice.finish_reason
++                finish_reason = delta_finish_reason
+ 
+                 prev_content = curr_content or ""
+-                curr_content = choice.delta.content or ""
++                curr_content = delta
+ 
+                 new_content = prev_content if finish_reason == None else (prev_content + curr_content)
+ 

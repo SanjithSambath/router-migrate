@@ -1,0 +1,47 @@
+{
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 1.5569625999999999,
+  "turns": 19,
+  "final": "Both the OpenAI and Anthropic paths are confirmed working through the Router simulator, and the inactive-Router case confirms the documented no-op contract (`routerFetch(undefined)` returns `undefined` exactly as it did before, since `RAMP_ROUTER_API_KEY` is unset).\n\n## Summary\n\n**Context:** this is a desktop Obsidian plugin, not a backend service. Every one of its 13 LLM providers (OpenAI, Anthropic, Cohere, Google, xAI, OpenRouter, Ollama, LM Studio, Groq, generic OpenAI-format, SiliconFlow, Copilot Plus, Mistral, DeepSeek) is BYOK \u2014 the end user types their own key into the plugin's settings UI on their own machine. There are no application-held provider secrets anywhere in the repo (no `.env` files, no CI secrets referencing `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`). The vendored `src/lib/routerRuntime.ts` shim (already wired into `ChatOpenRouter.ts` by the prior codemod) is a `fetch`-level interceptor: it's a complete no-op unless `RAMP_ROUTER_API_KEY` is set in the environment, and even when active it only intercepts requests whose *host* is `api.openai.com` or `api.anthropic.com` \u2014 everything else passes straight to its original destination.\n\n**What I migrated:** `src/LLMProviders/chatModelManager.ts` builds the LangChain client config for every provider. Two of those \u2014 `OPENAI` (`ChatOpenAI`, defaults to `api.openai.com`) and `ANTHROPIC` (`ChatAnthropic`, defaults to `api.anthropic.com`) \u2014 were still constructed with a bare `fetch: customModel.enableCors ? safeFetchNoThrow : undefined`, bypassing the shim entirely (unlike `ChatOpenRouter`, which already wraps its fetch with `routerFetch`). I wrapped both with `routerFetch(...)`, matching the existing pattern. Verified with standalone smoke requests against the Router simulator: a Chat-Completions-shaped OpenAI call and an Anthropic Messages call both got intercepted, had their `Authorization`/`x-api-key` header replaced with `Bearer $RAMP_ROUTER_API_KEY` (the user-supplied key never left the process), were translated to `POST /v1/responses` / `POST /v1/messages`, and came back with valid 200 responses from the simulator.\n\n**Call sites I did not migrate, and why:**\n- Every other provider's client (Cohere, Google, xAI, Groq, Ollama, LM Studio, OpenAI-format, SiliconFlow, Mistral, DeepSeek) constructs its request against that provider's own distinct host, which `routerRuntime.ts`'s host allowlist (`api.openai.com` / `api.anthropic.com` only) never matches \u2014 wrapping their `fetch` would be a dead no-op, so I left them untouched rather than add inert code.\n- `COPILOT_PLUS` (`ChatOpenRouter` pointed at `models.brevilabs.com`) is the plugin vendor's own hosted backend, authenticated with a `plusLicenseKey`, not a provider API key. The actual model calls happen server-side on Brevilabs' infrastructure, which this repo has no visibility into \u2014 there's nothing here to point at Router.\n- Embeddings, model-listing/credential-verification calls (`GET /models` in the `modelManagement/providers/adapters/*` files), and local-provider traffic (Ollama/LM Studio to `localhost`) are correctly left on the direct provider path \u2014 the shim explicitly carves these out (embeddings/images/files bypass Router by design; GET-based listing isn't one of the two intercepted routes).\n\nNo env files, secrets, or CI config needed changes (none existed to begin with \u2014 confirmed by grep). `npm run build`'s typecheck passes and the full unit suite (569 suites / 7867 tests) passes unchanged.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 38,
+   "cache_creation_input_tokens": 97242,
+   "cache_read_input_tokens": 2040736,
+   "output_tokens": 23056,
+   "output_tokens_details": {
+    "thinking_tokens": 14067
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 97242,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1525,
+     "cache_read_input_tokens": 134061,
+     "cache_creation_input_tokens": 1851,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 1851
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "minutes": 8.1
+}

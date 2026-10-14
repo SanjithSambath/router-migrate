@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 9.214053000000003,
+  "turns": 167,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "The migration is complete \u2014 `router-migrate finish .` exits OK.\n\n**Summary of what changed:**\n\n- **1 code edit**, `src/LLMProviders/chatModelManager.ts`: the real production gap the scanner's static analysis missed. `ChatModelManager.instantiateChatModel` builds `ChatOpenAI`/`ChatAnthropic` through a dynamic `CHAT_PROVIDER_CONSTRUCTORS` lookup (`new AIConstructor(...)`), so the deterministic floor couldn't see it as a literal `new OpenAI(`/`new Anthropic(` construction. I hand-wired `routerFetch()` into the OPENAI and ANTHROPIC provider configs' `fetch` option \u2014 the same hook the floor already used in `ChatOpenRouter.ts` \u2014 so chat traffic for those two providers now routes through Router when eligible and falls back to the provider otherwise.\n\n**Judgment calls across the 659-item worklist:**\n- `ChatOpenRouter.ts`'s wrapped OpenAI client (the floor's one \"site\") \u2192 **kept, R_OTHER_HOST**: it's always constructed with an explicit non-OpenAI base URL (openrouter.ai, localhost for LM Studio, or Obsidian Copilot's own Brevilabs gateway for Copilot Plus), never OpenAI's default endpoint.\n- BYOK credential-verification endpoints (`anthropicAdapter`, `listAnthropicModels`, shared `listModelsHttp`) \u2192 **flagged, R_PER_TENANT**: these GET `/v1/models` calls exist specifically to validate whatever candidate key the user just typed into a settings form; Router authenticates upstream with its own fixed key, so routing these through it would silently validate the wrong credential.\n- Google/OpenAI-compatible adapters, Perplexity web-search, and the legacy provider config's OpenRouter/LM-Studio/Copilot-Plus paths \u2192 **kept, R_OTHER_HOST**.\n- Everything else outside test/story files (model-capability detection helpers, prompt-building logic, provider metadata tables, CLI-binary path resolution, UI placeholder text) \u2192 **not_a_site**: real production code, but not an LLM call site itself.\n- All ~587 hotspots inside `.test.ts`/`.stories.tsx` files \u2192 **not_a_site, R_NOT_PRODUCTION**.\n\nFinal gate result: `migrated: 2` (1 static + 1 judgment-overridden), `kept: 7`, `flagged: 3`, `not_a_site: 621`, 0 unresolved conditionals.",
+  "finish_exit": 0
+ },
+ "minutes": 45.4
+}

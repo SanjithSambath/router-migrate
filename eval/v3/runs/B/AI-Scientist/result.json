@@ -1,0 +1,95 @@
+{
+ "repo": "AI-Scientist",
+ "commit": "1de1dbc1f4ee2c5f61e9c94348d55eb51d7fa2eb",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 6,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 505,
+ "test_files_edited": [],
+ "usd": 4.960154900000001,
+ "minutes": 14.5,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 4.960154900000001,
+  "turns": 104,
+  "final": "No stray provider-key client constructions remain outside `ai_scientist/llm.py`. Migration is complete and verified.\n\n## Summary\n\n**Migrated to Router:**\n- **`ai_scientist/llm.py`** (the central LLM abstraction): `create_client` now builds a single Router-backed client per request \u2014 `openai.OpenAI(base_url=..., api_key=RAMP_ROUTER_API_KEY)` for everything (OpenAI, DeepSeek, OpenRouter/Llama, Gemini \u2014 previously four separate provider clients with separate provider keys), using Router's Responses API. Claude models (detected by `\"claude\" in model`, same heuristic the original code already used) keep using the Anthropic SDK's native Messages shape \u2014 per the migration rules, a codebase already on the Anthropic API can stay on Router's Messages-compatible surface \u2014 just repointed at Router's base URL/key. Collapsed all the Chat-Completions branches (gpt/o1/o3/llama/deepseek/deepseek-reasoner/gemini) into one Responses-API branch (`messages`\u2192`input`, system\u2192`instructions`, `max_tokens`/`max_completion_tokens`\u2192`max_output_tokens`, reading `response.output_text`). `get_batch_responses_from_llm`'s old `n=` trick (GPT/Llama only) has no Responses equivalent, so all models now use the sequential-sampling loop that was already the fallback path for other models \u2014 this preserves the ensembling semantics exactly, just via N calls instead of one call with `n=`.\n- Removed hardcoded model-name lists/defaults (`AVAILABLE_LLMS`, `\"gpt-4o-2024-05-13\"`, `\"claude-3-5-sonnet-...\"`, etc.) \u2014 these were invented/stale provider model names, invalid now that Router's catalog is account-specific. Replaced with `AI_SCIENTIST_MODEL` / `AI_SCIENTIST_REVIEW_MODEL` env vars, read in `generate_ideas.py`, `perform_writeup.py`, `launch_scientist.py`, `experimental/launch_oe_scientist.py`, `review_iclr_bench/iclr_analysis.py`.\n- Removed the four direct `openai.OpenAI()` constructions with hardcoded models in `launch_scientist.py` and `experimental/launch_oe_scientist.py` (used for the paper-review step) \u2014 now go through `create_client`.\n- `review_iclr_bench/iclr_analysis.py` had its own duplicated, drifted copy of the old provider-dispatch logic (including a latent `args.model` vs `model` bug) \u2014 replaced with a single call to `ai_scientist.llm.create_client`.\n- Dropped the dead `google-generativeai` import/dependency (Gemini was already routed through an OpenAI-compatible endpoint, never through that SDK).\n- Updated `README.md`'s key/model documentation accordingly.\n\n**Issues found only by testing against the Router simulator** (not visible from static reading):\n- The installed `anthropic` SDK version here no longer accepts `temperature` as a typed `messages.create` kwarg \u2014 now passed via `extra_body`.\n- The Anthropic SDK appends `/v1/messages` itself (unlike the OpenAI SDK), so it needs the base URL *without* the trailing `/v1` that `RAMP_ROUTER_BASE_URL` carries \u2014 handled via a separate `ROUTER_ANTHROPIC_BASE_URL`.\n- Router's model catalog is opaque and many current models reject `temperature` with no naming pattern to detect in advance (confirmed live against both an OpenAI- and an Anthropic-family model). Rather than guess from model-name substrings, both branches now catch that specific 400 and retry once without `temperature`.\n\n**Not migrated \u2014 flagged, not guessed:**\n- The experiment-coding and LaTeX-writeup steps (`aider.coders.Coder` / `aider.models.Model`, used in `launch_scientist.py`, `experimental/launch_oe_scientist.py`, `ai_scientist/perform_writeup.py`) run through aider's own LiteLLM-based client, entirely separate from `ai_scientist/llm.py`. Router has no Chat Completions surface, and aider doesn't speak the Responses API, so it can't be pointed at Router without forking/patching aider itself \u2014 out of scope for a transport-only migration. These call sites still require a provider API key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, or `OPENROUTER_API_KEY`, depending on the model string passed to aider), which I left in place and d",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:18:52",
+ "routed_static": 4,
+ "inventory_prod_sites": 17,
+ "inventory_migrated": 3,
+ "inventory_handoff": 2,
+ "sites_moved": 4,
+ "sites_moved_correct": 2,
+ "sites_moved_wrong": 1,
+ "sites_moved_unmatched": 1,
+ "file_level_matches": 2,
+ "moved_recall": 0.667,
+ "moved_precision": 0.5,
+ "reported_sites_matched": 1,
+ "reported_outcome_agreement": 0.0,
+ "reported_migrated": 1,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 167,
+   "expected": "flagged",
+   "why": "Rule 6: Anthropic messages.create ('claude' branch); client from create_client is anthropic.Anthropic() (default endpoint, ANTHROPIC_API_KEY) for claude-* model"
+  }
+ ],
+ "missed_migrated": [
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 82,
+   "why": "Rule 8: OpenAI chat.completions ('gpt' branch of get_batch_responses_from_llm, review ensemble) on openai.OpenAI() default endpoint with OPENAI_API_KEY; model i"
+  }
+ ],
+ "inventory_migrated_adj": 3,
+ "sites_moved_adj": 4,
+ "sites_moved_correct_adj": 2,
+ "sites_moved_wrong_adj": 1,
+ "sites_moved_unmatched_adj": 1,
+ "moved_recall_adj": 0.667,
+ "moved_precision_adj": 0.5,
+ "reported_outcome_agreement_adj": 0.0,
+ "reported_migrated_adj": 1,
+ "reported_migrated_correct_adj": 0
+}

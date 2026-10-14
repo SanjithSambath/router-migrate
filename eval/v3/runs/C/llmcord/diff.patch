@@ -1,0 +1,27 @@
+diff --git a/llmcord.py b/llmcord.py
+index 23d2d20..c920fb4 100644
+--- a/llmcord.py
++++ b/llmcord.py
+@@ -14,6 +14,13 @@ from dotenv import load_dotenv
+ import httpx
+ from openai import AsyncOpenAI
+ import yaml
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ load_dotenv()
+ 
+@@ -153,7 +160,7 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+     base_url = provider_config["base_url"]
+     api_key = provider_config.get("api_key", "sk-no-key-required")
+-    openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
++    openai_client = _router_wrap_openai(AsyncOpenAI(base_url=base_url, api_key=api_key))
+ 
+     model_parameters = config["models"].get(provider_slash_model, None)
+ 

@@ -1,0 +1,133 @@
+{
+ "repo": "n3d1117/chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "sites": [
+  {
+   "file": "bot/openai_helper.py",
+   "line": 261,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4o",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8: AsyncOpenAI(api_key=config['api_key'] <- env OPENAI_API_KEY), no base_url (SDK reads OPENAI_BASE_URL env, defaults to api.openai.com). Model is config['model'] (env OPENAI_MODEL, default 'gpt-4o') or config['vision_model'] (env VISION_MODEL, default 'gpt-4o'), chosen at runtime; 'gpt-4o' and other repo literals (gpt-4o-mini, gpt-4, o1...) are catalog ids. Main chat call (__common_get_chat_response), streaming/non-streaming, legacy functions/function_call and n choices.",
+   "expected_inventory": "migrated",
+   "adjudication": "Rule 8. The single client is openai.AsyncOpenAI(api_key=config['api_key']) (bot/openai_helper.py:107). That config is the operator dict built once at startup from env OPENAI_API_KEY (bot/main.py:34, 111), not a per-user object, so rule 4 does not apply. There is no base_url (OPENAI_BASE_URL is commented out in .env.example:28, so it defaults to api.openai.com). The model is OPENAI_MODEL/VISION_MODEL, default 'gpt-4o' (main.py:30, 56), a catalog id; there is no state and no beta."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 316,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4o",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8: same client; follow-up chat call after a plugin function call (__handle_function_call), model=config['model'] from env OPENAI_MODEL (default 'gpt-4o', a catalog id), legacy functions/function_call, optional stream.",
+   "expected_inventory": "migrated",
+   "adjudication": "Rule 8. This is the follow-up chat.completions.create after a plugin function call (openai_helper.py:316), on the same env-keyed, default-endpoint client (openai_helper.py:107, main.py:34). model=config['model'] comes from OPENAI_MODEL, default 'gpt-4o' (main.py:30), a catalog id. A config dict passed to __init__ is app config, not a per-tenant key."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 333,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "images",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "dall-e-2",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: client.images.generate (DALL-E, model from env IMAGE_MODEL default 'dall-e-2'); Router has no images endpoint."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 361,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "audio",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "tts-1",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: client.audio.speech.create (TTS, model from env TTS_MODEL default 'tts-1'); Router has no audio endpoint. Also reached via the auto_tts plugin (helper.generate_speech)."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 382,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "audio",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "whisper-1",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: client.audio.transcriptions.create (Whisper, literal 'whisper-1'); Router has no audio endpoint."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 459,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4o",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8: same client; vision chat call (__common_get_chat_response_vision) with image_url content parts, model=config['vision_model'] from env VISION_MODEL (default 'gpt-4o', a catalog id), optional stream.",
+   "expected_inventory": "migrated",
+   "adjudication": "Rule 8. This is the vision chat call (openai_helper.py:459) on the same client, keyed by operator env OPENAI_API_KEY (main.py:34), with the default endpoint. model=config['vision_model'] comes from VISION_MODEL, default 'gpt-4o' (main.py:56), a catalog id."
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 612,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "env-config",
+   "key_source": "env",
+   "model": {
+    "value": "gpt-4o",
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "migrated",
+   "why": "Rule 8: same client; history summarisation call (__summarise), model=config['model'] from env OPENAI_MODEL (default 'gpt-4o', a catalog id).",
+   "expected_inventory": "migrated",
+   "adjudication": "Rule 8. This is the history-summarisation chat call in __summarise (openai_helper.py:612) on the same env-keyed, default-endpoint client. model=config['model'] comes from OPENAI_MODEL, default 'gpt-4o' (main.py:30), a catalog id. Only one OpenAIHelper is built per deployment (main.py:111), so there is no per-user key."
+  }
+ ]
+}

@@ -1,0 +1,88 @@
+{
+ "repo": "chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 2,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 500,
+ "test_files_edited": [],
+ "usd": 3.774888999999999,
+ "minutes": 16.1,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 3.774888999999999,
+  "turns": 81,
+  "final": "All green. Here's the summary.\n\n## What I migrated\n\n**`bot/openai_helper.py`** \u2014 the sole LLM integration point \u2014 now talks to Router's Responses-compatible surface for every chat/vision/function-calling call:\n\n- New `self.client = openai.AsyncOpenAI(api_key=RAMP_ROUTER_API_KEY, base_url=RAMP_ROUTER_BASE_URL)`, used for all `responses.create()` calls.\n- `messages` \u2192 `input`; the leading system/assistant priming message \u2192 `instructions`; vision content parts `image_url`/`text` \u2192 `input_image`/`input_text`; `max_tokens`/`max_completion_tokens` \u2192 `max_output_tokens`.\n- Legacy `functions`/`function_call` Chat Completions flow rewritten to Responses' native tool-calling: flat function specs \u2192 `tools` (`type: \"function\"`, `strict: False` since plugin schemas don't comply with strict-mode requirements), `function_call='auto'` \u2192 `tool_choice`, and the old `role: \"function\"` history entries \u2192 native `function_call`/`function_call_output` input items tracked by `call_id`. `parallel_tool_calls: False` preserves the original one-call-per-round behavior.\n- Streaming rewritten around Responses SSE events (`response.output_text.delta` for incremental text, `response.completed` for the final `Response` object with real `usage`), replacing the old `chunk.choices[0].delta` loop. Intermediate function-calling rounds run silently (same as before); only the final round streams to the user.\n- `response.choices[0].message.content` \u2192 `response.output_text`; `usage.prompt_tokens/completion_tokens` \u2192 `usage.input_tokens/output_tokens`.\n- Upgraded `openai` from 1.58.1 (no Responses API) to `>=1.99,<2` in `requirements.txt`, and verified against the Router simulator (text-only, streaming, function-call direct-result, function-call continuation round, and vision \u2014 6/6 requests valid at `POST /v1/responses`).\n- Model names stay config-driven (`OPENAI_MODEL`, `VISION_MODEL`); `OPENAI_MODEL` is now required with no hardcoded fallback, since Router model ids are account-specific and I won't guess one. `VISION_MODEL` falls back to `OPENAI_MODEL` rather than a guessed id.\n- Dropped `presence_penalty`/`frequency_penalty` and `n` (choices) \u2014 Responses has no equivalent parameters. Fixed two pre-existing OpenAI-model-literal lookups (`__max_model_tokens`, `__count_tokens_vision`) that otherwise raised `NotImplementedError` for any non-`gpt-*` Router model id \u2014 they now fall back to the newest-tier budget instead of crashing every turn.\n- `main.py`/`.env.example`/`README.md` updated: `RAMP_ROUTER_API_KEY`/`RAMP_ROUTER_BASE_URL` added, `OPENAI_API_KEY` is no longer required for chat.\n\n## Call sites I could not migrate\n\nRouter only exposes `GET /v1/models` and `POST /v1/responses` (plus an Anthropic compat surface this app doesn't use). Three methods call OpenAI endpoints with no Router equivalent, so they still use a **separate** direct OpenAI client, gated on an optional `OPENAI_API_KEY` (never sent to Router):\n\n- `generate_image` \u2014 `images.generate` (DALL\u00b7E)\n- `generate_speech` \u2014 `audio.speech.create` (TTS)\n- `transcribe` \u2014 `audio.transcriptions.create` (Whisper)\n\nIf `OPENAI_API_KEY` isn't set, these raise a clear error at call time rather than failing silently; everything else (chat, streaming, vision, plugin/function-calling, conversation summarization) runs entirely through Router.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:18:37",
+ "routed_static": 3,
+ "inventory_prod_sites": 7,
+ "inventory_migrated": 4,
+ "inventory_handoff": 0,
+ "sites_moved": 3,
+ "sites_moved_correct": 3,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 2,
+ "moved_recall": 0.75,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 4,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 1,
+ "reported_migrated_correct": 1,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "bot/openai_helper.py",
+   "line": 316,
+   "why": "Rule 8: same client; follow-up chat call after a plugin function call (__handle_function_call), model=config['model'] from env OPENAI_MODEL (default 'gpt-4o', a"
+  }
+ ],
+ "inventory_migrated_adj": 4,
+ "sites_moved_adj": 3,
+ "sites_moved_correct_adj": 3,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.75,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 1,
+ "reported_migrated_correct_adj": 1
+}

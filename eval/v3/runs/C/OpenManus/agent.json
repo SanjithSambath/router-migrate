@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 0.9921167999999999,
+  "turns": 48,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` exited 0.\n\n## Summary\n\nThe floor's deterministic wrap on `app/llm.py:232` (`AsyncOpenAI` construction) was syntactically correct, but judgment showed it shouldn't actually route in production:\n\n- **S1\u2013S5** (`app/llm.py:428,445,600,610,739` \u2014 the OpenAI chat-completions calls): all go through one client whose `base_url`/`api_type` is fully operator-configured (`app/config.py`, no hardcoded default). The repo's own example configs document that same code path pointed at OpenAI, Anthropic, **and** three non-OpenAI/Anthropic hosts (Ollama localhost, PPIO, Jiekou.AI, Google Gemini). Since the default/documented setup isn't reliably OpenAI or Anthropic, claimed `kept R_OTHER_HOST`.\n- **H13** (`chartVisualize.ts:343`): a Node subprocess that takes the same operator-configured `base_url`/`api_key` and fires its own request via the VMind SDK directly, bypassing both the Python OpenAI SDK and the Router runtime wrapper \u2014 also `kept R_OTHER_HOST`.\n- **H6\u2013H12** (`REASONING_MODELS`/`MULTIMODAL_MODELS` literal lists): feature-detection data used by the calls above, not call sites themselves \u2014 claimed `not_a_site R_NOT_PRODUCTION`.\n\nSwept the rest of the repo for other SDKs/raw HTTP to LLM hosts (LiteLLM, LangChain, Anthropic SDK, raw `httpx`/`requests`/`fetch`) and found nothing beyond the search-engine `requests.get` in `web_search.py`, which isn't an LLM call.\n\nNet effect: the floor's 5 wrapped sites were overridden back to not-migrated (this deployment's config makes the provider genuinely multi-vendor), and `router-migrate finish .` passes clean.",
+  "finish_exit": 0
+ },
+ "minutes": 4.6
+}

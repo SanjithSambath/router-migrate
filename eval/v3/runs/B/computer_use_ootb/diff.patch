@@ -1,0 +1,646 @@
+diff --git a/README.md b/README.md
+index 63e405b..615b213 100644
+--- a/README.md
++++ b/README.md
+@@ -79,7 +79,7 @@ pip install -r requirements.txt
+ 
+ 2. Make sure to install the correct GPU version of PyTorch (CUDA, MPS, etc.) on your machine. See [install guide and verification](https://pytorch.org/get-started/locally/).
+ 
+-3. Get API Keys for [GPT-4o](https://platform.openai.com/docs/quickstart) or [Qwen-VL](https://help.aliyun.com/zh/dashscope/developer-reference/acquisition-and-configuration-of-api-key). For mainland China users, Qwen API free trial for first 1 mil tokens is [available](https://help.aliyun.com/zh/dashscope/developer-reference/tongyi-qianwen-vl-plus-api).
++3. Get a Router API key (`RAMP_ROUTER_API_KEY`). Router holds the GPT-4o/Qwen-VL/Claude provider credentials, so this app no longer needs separate provider API keys.
+ 
+ ### 2.3 (Optional) Get Prepared for **UI-TARS** Local-Run
+ 
+@@ -104,13 +104,15 @@ If you successfully start the interface, you will see two URLs in the terminal:
+ ```
+ 
+ 
+-> <u>For convenience</u>, we recommend running one or more of the following command to set API keys to the environment variables before starting the interface. Then you don’t need to manually pass the keys each run. On Windows Powershell (via the `set` command if on cmd): 
++> <u>For convenience</u>, set these environment variables before starting the interface. On Windows Powershell (via the `set` command if on cmd):
+ > ```bash
+-> $env:ANTHROPIC_API_KEY="sk-xxxxx" (Replace with your own key)
+-> $env:QWEN_API_KEY="sk-xxxxx"
+-> $env:OPENAI_API_KEY="sk-xxxxx"
++> $env:RAMP_ROUTER_API_KEY="rm-xxxxx" (Replace with your own Router key)
++> $env:ROUTER_MODEL_GPT4O="<router model id from GET /v1/models>"
++> $env:ROUTER_MODEL_GPT4O_MINI="<router model id from GET /v1/models>"
++> $env:ROUTER_MODEL_QWEN_VL_MAX="<router model id from GET /v1/models>"
++> $env:ROUTER_MODEL_ANTHROPIC="<router model id from GET /v1/models>"
+ > ```
+-> On macOS/Linux, replace `$env:ANTHROPIC_API_KEY` with `export ANTHROPIC_API_KEY` in the above command. 
++> On macOS/Linux, replace `$env:RAMP_ROUTER_API_KEY` with `export RAMP_ROUTER_API_KEY` in the above command.
+ 
+ 
+ ### 4. Control Your Computer with Any Device can Access the Internet
+@@ -119,7 +121,7 @@ If you successfully start the interface, you will see two URLs in the terminal:
+   
+ Open the website at http://localhost:7860/ (if you're controlling the computer itself) or https://xxxxxxxxxxxxxxxxx.gradio.live in your mobile browser for remote control.
+ 
+-Enter the Anthropic API key (you can obtain it through this [website](https://console.anthropic.com/settings/keys)), then give commands to let the AI perform your tasks.
++Give commands to let the AI perform your tasks.
+ 
+ ### ShowUI Advanced Settings
+ 
+diff --git a/app.py b/app.py
+index 635c78f..9c9ee75 100644
+--- a/app.py
++++ b/app.py
+@@ -54,31 +54,15 @@ def setup_state(state):
+     if "actor_provider" not in state:
+         state["actor_provider"] = "local"    # default
+ 
+-     # Fetch API keys from environment variables
+-    if "openai_api_key" not in state: 
+-        state["openai_api_key"] = os.getenv("OPENAI_API_KEY", "")
+-    if "anthropic_api_key" not in state:
+-        state["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY", "")    
+-    if "qwen_api_key" not in state:
+-        state["qwen_api_key"] = os.getenv("QWEN_API_KEY", "")
+     if "ui_tars_url" not in state:
+         state["ui_tars_url"] = ""
+ 
+-    # Set the initial api_key based on the provider
++    # openai/anthropic/qwen planners are authenticated by Router via
++    # RAMP_ROUTER_API_KEY, so the app never holds a provider API key for
++    # them. "planner_api_key" is only meaningful for the ssh provider,
++    # where it holds a "host:port" connection string.
+     if "planner_api_key" not in state:
+-        if state["planner_provider"] == "openai":
+-            state["planner_api_key"] = state["openai_api_key"]
+-        elif state["planner_provider"] == "anthropic":
+-            state["planner_api_key"] = state["anthropic_api_key"]
+-        elif state["planner_provider"] == "qwen":
+-            state["planner_api_key"] = state["qwen_api_key"]
+-        else:
+-            state["planner_api_key"] = ""
+-
+-    logger.info(f"loaded initial api_key for {state['planner_provider']}: {state['planner_api_key']}")
+-
+-    if not state["planner_api_key"]:
+-        logger.warning("Planner API key not found. Please set it in the environment or paste in textbox.")
++        state["planner_api_key"] = ""
+ 
+ 
+     if "selected_screen" not in state:
+@@ -285,8 +269,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+                     label="Planner API Key",
+                     type="password",
+                     value=state.value.get("planner_api_key", ""),
+-                    placeholder="Paste your planner model API key",
+-                    interactive=True,
++                    placeholder="not required (Router manages credentials)",
++                    interactive=False,
+                 )
+ 
+             with gr.Column():
+@@ -396,8 +380,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+             provider_choices = ["qwen"]
+             provider_value = "qwen"
+             provider_interactive = False
+-            api_key_interactive = True
+-            api_key_placeholder = "qwen API key"
++            api_key_interactive = False
++            api_key_placeholder = "not required (Router manages credentials)"
+             actor_model_choices = ["ShowUI", "UI-TARS"]
+             actor_model_value = "ShowUI"
+             actor_model_interactive = True
+@@ -436,10 +420,10 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+             provider_choices = ["openai"]
+             provider_value = "openai"
+             provider_interactive = False
+-            api_key_interactive = True
++            api_key_interactive = False
+             api_key_type = "password"  # Display API key in password form
+ 
+-            api_key_placeholder = "openai API key"
++            api_key_placeholder = "not required (Router manages credentials)"
+             actor_model_choices = ["ShowUI", "UI-TARS"]
+             actor_model_value = "ShowUI"
+             actor_model_interactive = True
+@@ -450,8 +434,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+             provider_value = "anthropic"  # Set default to 'anthropic'
+             state['actor_provider'] = "anthropic"
+             provider_interactive = True
+-            api_key_interactive = True
+-            api_key_placeholder = "claude API key"
++            api_key_interactive = False
++            api_key_placeholder = "not required (Router manages credentials)"
+             actor_model_choices = ["claude-3-5-sonnet-20241022"]
+             actor_model_value = "claude-3-5-sonnet-20241022"
+             actor_model_interactive = False
+@@ -462,17 +446,12 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+ 
+         # Update the provider in state
+         state["planner_api_provider"] = provider_value
+-        
+-        # Update api_key in state based on the provider
+-        if provider_value == "openai":
+-            state["api_key"] = state.get("openai_api_key", "")
+-        elif provider_value == "anthropic":
+-            state["api_key"] = state.get("anthropic_api_key", "")
+-        elif provider_value == "qwen":
+-            state["api_key"] = state.get("qwen_api_key", "")
+-        elif provider_value == "local":
++
++        # Only the ssh provider carries a real "api_key" value (a host:port
++        # connection string); openai/anthropic/qwen/local are authenticated
++        # by Router, not by the app.
++        if provider_value != "ssh":
+             state["api_key"] = ""
+-        # SSH的情况已经在上面处理过了，这里不需要重复处理
+ 
+         provider_update = gr.update(
+             choices=provider_choices,
+@@ -504,7 +483,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+     def update_api_key_placeholder(provider_value, model_selection):
+         if model_selection == "claude-3-5-sonnet-20241022":
+             if provider_value == "anthropic":
+-                return gr.update(placeholder="anthropic API key")
++                return gr.update(placeholder="not required (Router manages credentials)")
+             elif provider_value == "bedrock":
+                 return gr.update(placeholder="bedrock API key")
+             elif provider_value == "vertex":
+@@ -512,7 +491,7 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
+             else:
+                 return gr.update(placeholder="")
+         elif model_selection == "gpt-4o + ShowUI":
+-            return gr.update(placeholder="openai API key")
++            return gr.update(placeholder="not required (Router manages credentials)")
+         else:
+             return gr.update(placeholder="")
+ 
+diff --git a/computer_use_demo/gui_agent/llm_utils/oai.py b/computer_use_demo/gui_agent/llm_utils/oai.py
+index a7359ff..71fcea2 100644
+--- a/computer_use_demo/gui_agent/llm_utils/oai.py
++++ b/computer_use_demo/gui_agent/llm_utils/oai.py
+@@ -1,21 +1,15 @@
+-import os
+-import logging
+ import base64
+ import requests
+ from computer_use_demo.gui_agent.llm_utils.llm_utils import is_image_path, encode_image
++from computer_use_demo.gui_agent.llm_utils.router_client import get_router_client
+ 
+ 
+ 
+-def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max_tokens=256, temperature=0):
++def run_oai_interleaved(messages: list, system: str, llm: str, max_tokens=256, temperature=0):
+ 
+-    api_key = api_key or os.environ.get("OPENAI_API_KEY")
+-    if not api_key:
+-        raise ValueError("OPENAI_API_KEY is not set")
+-    
+-    headers = {"Content-Type": "application/json",
+-               "Authorization": f"Bearer {api_key}"}
++    client = get_router_client()
+ 
+-    final_messages = [{"role": "system", "content": system}]
++    final_messages = []
+ 
+     # image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+     if type(messages) == list:
+@@ -27,59 +21,55 @@ def run_oai_interleaved(messages: list, system: str, llm: str, api_key: str, max
+                     if isinstance(cnt, str):
+                         if is_image_path(cnt):
+                             base64_image = encode_image(cnt)
+-                            content = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
++                            content = {"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"}
+                         else:
+-                            content = {"type": "text", "text": cnt}
+-                    
++                            content = {"type": "input_text", "text": cnt}
++
+                     # if isinstance(cnt, list):
+-                        
++
+                     contents.append(content)
+                 message = {"role": item["role"], "content": contents}
+-                
++
+             elif isinstance(item, str):
+                 if is_image_path(item):
+                     base64_image = encode_image(item)
+-                    contents.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}})
++                    contents.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{base64_image}"})
+                     message = {"role": "user", "content": contents}
+                 else:
+-                    contents.append({"type": "text", "text": item})
++                    contents.append({"type": "input_text", "text": item})
+                     message = {"role": "user", "content": contents}
+-                    
++
+             else:  # str
+-                contents.append({"type": "text", "text": item})
++                contents.append({"type": "input_text", "text": item})
+                 message = {"role": "user", "content": contents}
+-            
++
+             final_messages.append(message)
+ 
+-    
++
+     elif isinstance(messages, str):
+         final_messages.append({"role": "user", "content": messages})
+ 
+-    print("[oai] sending messages:", [f"{k}: {v}, {k}" for k, v in final_messages])
+-
+-    payload = {
+-        "model": llm,
+-        "messages": final_messages,
+-        "max_tokens": max_tokens,
+-        "temperature": temperature,
+-        # "stop": stop,
+-    }
++    print("[oai] sending messages:", final_messages)
+ 
+     # from IPython.core.debugger import Pdb; Pdb().set_trace()
+ 
+-    response = requests.post(
+-        "https://api.openai.com/v1/chat/completions", headers=headers, json=payload
++    response = client.responses.create(
++        model=llm,
++        input=final_messages,
++        instructions=system,
++        max_output_tokens=max_tokens,
++        temperature=temperature,
+     )
+ 
+     try:
+-        text = response.json()['choices'][0]['message']['content']
+-        token_usage = int(response.json()['usage']['total_tokens'])
++        text = response.output_text
++        token_usage = int(response.usage.total_tokens)
+         return text, token_usage
+-        
++
+     # return error message if the response is not successful
+     except Exception as e:
+-        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY. Please check the response: {response.json()} ")
+-        return response.json()
++        print(f"Error in interleaved openAI: {e}. Please check the response: {response} ")
++        return response
+ 
+ def run_ssh_llm_interleaved(messages: list, system: str, llm: str, ssh_host: str, ssh_port: int, max_tokens=256, temperature=0.7, do_sample=True):
+     """Send chat completion request to SSH remote server"""
+@@ -196,24 +186,7 @@ def run_ssh_llm_interleaved(messages: list, system: str, llm: str, ssh_host: str
+ 
+ 
+ if __name__ == "__main__":
+-    
+-    api_key = os.environ.get("OPENAI_API_KEY")
+-    if not api_key:
+-        raise ValueError("OPENAI_API_KEY is not set")
+-    
+-    # text, token_usage = run_oai_interleaved(
+-    #     messages= [{"content": [
+-    #                     "What is in the screenshot?",   
+-    #                     "./tmp/outputs/screenshot_0b04acbb783d4706bc93873d17ba8c05.png"],
+-    #                 "role": "user"
+-    #                 }],
+-    #     llm="gpt-4o-mini",
+-    #     system="You are a helpful assistant",
+-    #     api_key=api_key,
+-    #     max_tokens=256,
+-    #     temperature=0)
+-    
+-    # print(text, token_usage)
++
+     text, token_usage = run_ssh_llm_interleaved(
+         messages= [{"content": [
+                         "What is in the screenshot?",   
+diff --git a/computer_use_demo/gui_agent/llm_utils/qwen.py b/computer_use_demo/gui_agent/llm_utils/qwen.py
+index 2a23288..81cd1ad 100644
+--- a/computer_use_demo/gui_agent/llm_utils/qwen.py
++++ b/computer_use_demo/gui_agent/llm_utils/qwen.py
+@@ -1,30 +1,18 @@
+ 
+-import os
+-import logging
+-import base64
+-import requests
+-
+-import dashscope
+-# from computer_use_demo.gui_agent.llm_utils import is_image_path, encode_image
++from computer_use_demo.gui_agent.llm_utils.router_client import get_router_client
+ 
+ def is_image_path(text):
+     return False
+ 
+ def encode_image(image_path):
+-    return ""   
++    return ""
++
+ 
++def run_qwen(messages: list, system: str, llm: str, max_tokens=256, temperature=0):
+ 
+-def run_qwen(messages: list, system: str, llm: str, api_key: str, max_tokens=256, temperature=0):
+-    
+-    api_key = api_key or os.environ.get("QWEN_API_KEY")
+-    if not api_key:
+-        raise ValueError("QWEN_API_KEY is not set")
+-    
+-    dashscope.api_key = api_key
+-    
+-    # from IPython.core.debugger import Pdb; Pdb().set_trace()
++    client = get_router_client()
+ 
+-    final_messages = [{"role": "system", "content": [{"text": system}]}]
++    final_messages = []
+     # image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+     if type(messages) == list:
+         for item in messages:
+@@ -34,75 +22,37 @@ def run_qwen(messages: list, system: str, llm: str, api_key: str, max_tokens=256
+                     if isinstance(cnt, str):
+                         if is_image_path(cnt):
+                             # base64_image = encode_image(cnt)
+-                            content = [{"image": cnt}]
+-                        # content = {"type": "image_url", "image_url": {"url": image_url}}
++                            content = {"type": "input_image", "image_url": cnt}
++                        else:
++                            content = {"type": "input_text", "text": cnt}
+                     else:
+-                        content = {"text": cnt}
++                        content = {"type": "input_text", "text": cnt}
+                     contents.append(content)
+-                    
++
+                 message = {"role": item["role"], "content": contents}
+             else:  # str
+-                contents.append({"text": item})
++                contents.append({"type": "input_text", "text": item})
+                 message = {"role": "user", "content": contents}
+-            
++
+             final_messages.append(message)
+ 
+     print("[qwen-vl] sending messages:", final_messages)
+ 
+-    response = dashscope.MultiModalConversation.call(
+-        model='qwen-vl-max-latest',
+-        # model='qwen-vl-max-0809',
+-        messages=final_messages
+-        )
++    response = client.responses.create(
++        model=llm,
++        input=final_messages,
++        instructions=system,
++        max_output_tokens=max_tokens,
++        temperature=temperature,
++    )
+ 
+-    # from IPython.core.debugger import Pdb; Pdb().set_trace()
+-    
+     try:
+-        text = response.output.choices[0].message.content[0]['text']
++        text = response.output_text
+         usage = response.usage
+-        
+-        if "total_tokens" not in usage:
+-            token_usage = int(usage["input_tokens"] + usage["output_tokens"])
+-        else:
+-            token_usage = int(usage["total_tokens"])
+-        
++        token_usage = int(usage.total_tokens)
++
+         return text, token_usage
+-        # return response.json()['choices'][0]['message']['content']
+     # return error message if the response is not successful
+     except Exception as e:
+-        print(f"Error in interleaved openAI: {e}. This may due to your invalid OPENAI_API_KEY. Please check the response: {response.json()} ")
+-        return response.json()
+-
+-
+-
+-if __name__ == "__main__":
+-    api_key = os.environ.get("QWEN_API_KEY")
+-    if not api_key:
+-        raise ValueError("QWEN_API_KEY is not set")
+-    
+-    dashscope.api_key = api_key
+-    
+-    final_messages = [{"role": "user",
+-                       "content": [
+-                           {"text": "What is in the screenshot?"},
+-                           {"image": "./tmp/outputs/screenshot_0b04acbb783d4706bc93873d17ba8c05.png"}
+-                           ]
+-                       }
+-                    ]
+-    response = dashscope.MultiModalConversation.call(model='qwen-vl-max-0809', messages=final_messages)
+-    
+-    print(response)
+-    
+-    text = response.output.choices[0].message.content[0]['text']
+-    usage = response.usage
+-    
+-    if "total_tokens" not in usage:
+-        if "image_tokens" in usage:
+-            token_usage = usage["input_tokens"] + usage["output_tokens"] + usage["image_tokens"]
+-        else:
+-            token_usage = usage["input_tokens"] + usage["output_tokens"]
+-    else:
+-        token_usage = usage["total_tokens"]
+-    
+-    print(text, token_usage)
+-    # The screenshot is from a video game... 1387
+\ No newline at end of file
++        print(f"Error in interleaved Qwen call: {e}. Please check the response: {response} ")
++        return response
+diff --git a/computer_use_demo/gui_agent/llm_utils/router_client.py b/computer_use_demo/gui_agent/llm_utils/router_client.py
+new file mode 100644
+index 0000000..3e68639
+--- /dev/null
++++ b/computer_use_demo/gui_agent/llm_utils/router_client.py
+@@ -0,0 +1,47 @@
++"""
++Shared configuration for talking to Router (https://api.router.com/v1) instead
++of calling LLM providers directly. Router holds the provider credentials, so
++callers only ever need RAMP_ROUTER_API_KEY.
++"""
++import os
++
++from openai import OpenAI
++
++DEFAULT_ROUTER_BASE_URL = "https://api.router.com/v1"
++
++
++def get_router_base_url() -> str:
++    return os.environ.get("RAMP_ROUTER_BASE_URL", DEFAULT_ROUTER_BASE_URL)
++
++
++def get_router_api_key() -> str:
++    api_key = os.environ.get("RAMP_ROUTER_API_KEY")
++    if not api_key:
++        raise ValueError("RAMP_ROUTER_API_KEY is not set")
++    return api_key
++
++
++def get_router_client() -> OpenAI:
++    """OpenAI Responses client pointed at Router."""
++    return OpenAI(base_url=get_router_base_url(), api_key=get_router_api_key())
++
++
++def get_router_anthropic_base_url() -> str:
++    """The Anthropic SDK appends '/v1/messages' itself, so it needs the base
++    URL without the '/v1' suffix that the Responses client uses."""
++    base_url = get_router_base_url()
++    if base_url.endswith("/v1"):
++        return base_url[: -len("/v1")]
++    return base_url
++
++
++def get_router_model(env_var: str) -> str:
++    """Router model ids are account-specific (from GET /v1/models), so they
++    must come from configuration rather than being hardcoded at call sites."""
++    model = os.environ.get(env_var)
++    if not model:
++        raise ValueError(
++            f"{env_var} is not set. Set it to a Router model id "
++            f"(see GET {get_router_base_url()}/models)."
++        )
++    return model
+diff --git a/computer_use_demo/gui_agent/planner/anthropic_agent.py b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+index 63966be..1e868e4 100644
+--- a/computer_use_demo/gui_agent/planner/anthropic_agent.py
++++ b/computer_use_demo/gui_agent/planner/anthropic_agent.py
+@@ -25,6 +25,11 @@ from anthropic.types import TextBlock
+ from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock
+ 
+ from computer_use_demo.tools import BashTool, ComputerTool, EditTool, ToolCollection, ToolResult
++from computer_use_demo.gui_agent.llm_utils.router_client import (
++    get_router_anthropic_base_url,
++    get_router_api_key,
++    get_router_model,
++)
+ 
+ from PIL import Image
+ from io import BytesIO
+@@ -59,20 +64,18 @@ SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
+ class AnthropicActor:
+     def __init__(
+         self, 
+-        model: str, 
+-        provider: APIProvider, 
+-        system_prompt_suffix: str, 
+-        api_key: str,
++        model: str,
++        provider: APIProvider,
++        system_prompt_suffix: str,
+         api_response_callback: Callable[[APIResponse[BetaMessage]], None],
+         max_tokens: int = 4096,
+         only_n_most_recent_images: int | None = None,
+         selected_screen: int = 0,
+         print_usage: bool = True,
+     ):
+-        self.model = model
++        self.model = get_router_model("ROUTER_MODEL_ANTHROPIC")
+         self.provider = provider
+         self.system_prompt_suffix = system_prompt_suffix
+-        self.api_key = api_key
+         self.api_response_callback = api_response_callback
+         self.max_tokens = max_tokens
+         self.only_n_most_recent_images = only_n_most_recent_images
+@@ -95,7 +98,7 @@ class AnthropicActor:
+         # Instantiate the appropriate API client based on the provider
+         print("provider:", provider)
+         if provider == APIProvider.ANTHROPIC:
+-            self.client = Anthropic(api_key=api_key)
++            self.client = Anthropic(api_key=get_router_api_key(), base_url=get_router_anthropic_base_url())
+         elif provider == APIProvider.VERTEX:
+             self.client = AnthropicVertex()
+         elif provider == APIProvider.BEDROCK:
+diff --git a/computer_use_demo/gui_agent/planner/api_vlm_planner.py b/computer_use_demo/gui_agent/planner/api_vlm_planner.py
+index 7ab537f..b4f345d 100644
+--- a/computer_use_demo/gui_agent/planner/api_vlm_planner.py
++++ b/computer_use_demo/gui_agent/planner/api_vlm_planner.py
+@@ -14,6 +14,7 @@ from computer_use_demo.tools.screen_capture import get_screenshot
+ from computer_use_demo.gui_agent.llm_utils.oai import run_oai_interleaved, run_ssh_llm_interleaved
+ from computer_use_demo.gui_agent.llm_utils.qwen import run_qwen
+ from computer_use_demo.gui_agent.llm_utils.llm_utils import extract_data, encode_image
++from computer_use_demo.gui_agent.llm_utils.router_client import get_router_model
+ from computer_use_demo.tools.colorful_text import colorful_text_showui, colorful_text_vlm
+ 
+ 
+@@ -31,12 +32,13 @@ class APIVLMPlanner:
+         selected_screen: int = 0,
+         print_usage: bool = True,
+     ):
++        self._model_choice = model
+         if model == "gpt-4o":
+-            self.model = "gpt-4o-2024-11-20"
++            self.model = get_router_model("ROUTER_MODEL_GPT4O")
+         elif model == "gpt-4o-mini":
+-            self.model = "gpt-4o-mini"  # "gpt-4o-mini"
++            self.model = get_router_model("ROUTER_MODEL_GPT4O_MINI")
+         elif model == "qwen2-vl-max":
+-            self.model = "qwen2-vl-max"
++            self.model = get_router_model("ROUTER_MODEL_QWEN_VL_MAX")
+         elif model == "qwen2-vl-2b (ssh)":
+             self.model = "Qwen2-VL-2B-Instruct"
+         elif model == "qwen2-vl-7b (ssh)":
+@@ -45,7 +47,7 @@ class APIVLMPlanner:
+             self.model = "Qwen2.5-VL-7B-Instruct"
+         else:
+             raise ValueError(f"Model {model} not supported")
+-        
++
+         self.provider = provider
+         self.system_prompt_suffix = system_prompt_suffix
+         self.api_key = api_key
+@@ -92,25 +94,23 @@ class APIVLMPlanner:
+         
+         print(f"Sending messages to VLMPlanner: {planner_messages}")
+ 
+-        if self.model == "gpt-4o-2024-11-20":
++        if self._model_choice in ("gpt-4o", "gpt-4o-mini"):
+             vlm_response, token_usage = run_oai_interleaved(
+                 messages=planner_messages,
+                 system=self.system_prompt,
+                 llm=self.model,
+-                api_key=self.api_key,
+                 max_tokens=self.max_tokens,
+                 temperature=0,
+             )
+             print(f"oai token usage: {token_usage}")
+             self.total_token_usage += token_usage
+             self.total_cost += (token_usage * 0.15 / 1000000)  # https://openai.com/api/pricing/
+-            
+-        elif self.model == "qwen2-vl-max":
++
++        elif self._model_choice == "qwen2-vl-max":
+             vlm_response, token_usage = run_qwen(
+                 messages=planner_messages,
+                 system=self.system_prompt,
+                 llm=self.model,
+-                api_key=self.api_key,
+                 max_tokens=self.max_tokens,
+                 temperature=0,
+             )
+diff --git a/computer_use_demo/loop.py b/computer_use_demo/loop.py
+index 5a511d9..dcc67f7 100644
+--- a/computer_use_demo/loop.py
++++ b/computer_use_demo/loop.py
+@@ -88,10 +88,9 @@ def sampling_loop_sync(
+         
+         # Register Actor and Executor
+         actor = AnthropicActor(
+-            model=planner_model, 
+-            provider=actor_provider, 
+-            system_prompt_suffix=system_prompt_suffix, 
+-            api_key=api_key, 
++            model=planner_model,
++            provider=actor_provider,
++            system_prompt_suffix=system_prompt_suffix,
+             api_response_callback=api_response_callback,
+             max_tokens=max_tokens,
+             only_n_most_recent_images=only_n_most_recent_images,
+diff --git a/requirements.txt b/requirements.txt
+index aa490cf..50d697e 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -19,6 +19,5 @@ uiautomation
+ transformers
+ qwen-vl-utils
+ accelerate
+-dashscope
+ huggingface_hub
+ openai

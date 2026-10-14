@@ -1,0 +1,71 @@
+{
+ "repo": "chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "pristine": "/Users/sanjithsambath/code/router-migrate/eval/work/v3/pristine/chatgpt-telegram-bot",
+ "questions": [
+  {
+   "file": "bot/openai_helper.py",
+   "line": 261,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "AsyncOpenAI(api_key=config['api_key'] <- env OPENAI_API_KEY), no base_url (SDK reads OPENAI_BASE_URL env, defaults to api.openai.com). Model is config['model'] (env OPENAI_MODEL, default 'gpt-4o') or config['vision_model'] (env VISION_MODEL, default 'gpt-4o'), chosen at runtime; 'gpt-4o' and other repo literals (gpt-4o-mini, gpt-4, o1...) are catalog ids. Main chat call (__common_get_chat_response), streaming/non-streaming, legacy functions/function_call and n choices."
+    },
+    {
+     "outcome": "flagged",
+     "why": "per-tenant provider credentials: all tenants would share one Router key (billing/isolation change) [api_key from function parameter 'config']"
+    }
+   ],
+   "id": "Q1"
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 316,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "flagged",
+     "why": "per-tenant provider credentials: all tenants would share one Router key (billing/isolation change) [api_key from function parameter 'config']"
+    },
+    {
+     "outcome": "migrated",
+     "why": "same client; follow-up chat call after a plugin function call (__handle_function_call), model=config['model'] from env OPENAI_MODEL (default 'gpt-4o', a catalog id), legacy functions/function_call, optional stream."
+    }
+   ],
+   "id": "Q2"
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 459,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "same client; vision chat call (__common_get_chat_response_vision) with image_url content parts, model=config['vision_model'] from env VISION_MODEL (default 'gpt-4o', a catalog id), optional stream."
+    },
+    {
+     "outcome": "flagged",
+     "why": "per-tenant provider credentials: all tenants would share one Router key (billing/isolation change) [api_key from function parameter 'config']"
+    }
+   ],
+   "id": "Q3"
+  },
+  {
+   "file": "bot/openai_helper.py",
+   "line": 612,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "same client; history summarisation call (__summarise), model=config['model'] from env OPENAI_MODEL (default 'gpt-4o', a catalog id)."
+    },
+    {
+     "outcome": "flagged",
+     "why": "per-tenant provider credentials: all tenants would share one Router key (billing/isolation change) [api_key from function parameter 'config']"
+    }
+   ],
+   "id": "Q4"
+  }
+ ]
+}

@@ -1,0 +1,103 @@
+{
+ "repo": "openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "arm": "C",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 2,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 1,
+   "ok": 1,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "tests_after": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 36,
+ "test_files_edited": [],
+ "usd": 1.0312283999999998,
+ "minutes": 5.7,
+ "agent": {
+  "exit": 0,
+  "usd": 1.0312283999999998,
+  "turns": 82,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` exited 0. Migration complete.\n\nSummary: the floor already wrapped the 4 OpenAI client constructions it could see (`openai`, `litellm`, `groq`, `ollama_openai` in `server.py`). My job was the judgment layer on top:\n\n- **Kept, `R_OTHER_HOST`** (9 sites): the Groq, LiteLLM-proxy, and Ollama chat-completion branches in `server.py` all point at non-OpenAI/Anthropic hosts by default (Groq's API, a local LiteLLM proxy, local/containerized Ollama) \u2014 confirmed against `config.py` defaults, `docker-compose.yaml`, and the README. The frontend's `openai.ts` client also turned out to target the app's *own* origin (`host() + '/v1'`), not `api.openai.com` \u2014 it's calling this app's own proxy endpoint, not a vendor directly, so it's kept too. The four `models.list()`/account-listing calls (OpenAI, Groq, LiteLLM) are kept `R_NO_ENDPOINT` since Router's `GET /v1/models` serves the Router catalog, not a provider account's model listing.\n- **not_a_site, `R_NOT_PRODUCTION`** (21 hotspots): model-literal UI state/filters, LiteLLM proxy-config model entries, route declarations, config constants, and type-only imports (`openai`, `ollama`, types) \u2014 none of these are themselves LLM calls.\n\nNo code edits were needed beyond what the floor already applied \u2014 every real production LLM call either already routes through Router or has a documented reason it must stay with its current provider.",
+  "finish_exit": 0
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:20:17",
+ "routed_static": 4,
+ "inventory_prod_sites": 11,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 1,
+ "sites_moved_correct": 1,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.5,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 10,
+ "reported_outcome_agreement": 0.9,
+ "reported_migrated": 1,
+ "reported_migrated_correct": 1,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 396,
+   "why": "Rule 8 (by extension): openai.models.list() on the same env-config default-OpenAI client as line 139; Router serves GET /v1/models so rule 1 does not apply. Res"
+  }
+ ],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 1,
+ "sites_moved_correct_adj": 1,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.5,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 0.9,
+ "reported_migrated_adj": 1,
+ "reported_migrated_correct_adj": 1,
+ "ledger": {
+  "result": {
+   "claims": {
+    "kept": 9,
+    "not_a_site": 21
+   },
+   "conditional_unresolved": 0,
+   "migrated_confirmed_claims": 0,
+   "migrated_static": 4,
+   "migrated_unconfirmed_claims": 0,
+   "overridden_to_not_migrated": 3
+  },
+  "finish_attempts": 0,
+  "reverted": false,
+  "claims": 30,
+  "worklist": 26
+ }
+}

@@ -1,0 +1,82 @@
+{
+ "repo": "computer_use_ootb",
+ "commit": "21b05ae06de89700b998dc85d8ef64454f0d0291",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 7,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 0,
+   "ok": 0,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 7,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 7,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 350,
+ "test_files_edited": [],
+ "usd": 3.1556349999999993,
+ "minutes": 11.8,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 3.1556349999999993,
+  "turns": 74,
+  "final": "## Summary\n\n**Migrated to Router:**\n\n1. **`computer_use_demo/gui_agent/llm_utils/oai.py`** \u2014 `run_oai_interleaved` now uses an OpenAI SDK client pointed at Router (`client.responses.create`) instead of a raw `requests.post` to `api.openai.com/v1/chat/completions`. `messages`\u2192`input` (with `image_url`\u2192`input_image`, `text`\u2192`input_text`), `system`\u2192`instructions`, `max_tokens`\u2192`max_output_tokens`, and parsing switched to `response.output_text`/`response.usage.total_tokens`. Dropped the unused `api_key` param (Router holds the credential now).\n\n2. **`computer_use_demo/gui_agent/llm_utils/qwen.py`** \u2014 Replaced the `dashscope` SDK call with the same Router Responses client. This also fixed a pre-existing wiring bug where the hardcoded `model='qwen-vl-max-latest'` ignored the caller's model argument entirely \u2014 now the model comes through from config.\n\n3. **`computer_use_demo/gui_agent/planner/anthropic_agent.py`** \u2014 Per the instructions, an already-Anthropic-API codebase can point at Router's Anthropic Messages-compat surface rather than being rewritten to Responses. Repointed the `Anthropic` client's `base_url`/`api_key` to Router (the Anthropic SDK appends `/v1/messages` itself, so the base URL is Router's base minus the `/v1` suffix). Verified against the simulator that the beta `computer-use-2024-10-22` tool call round-trips correctly through `/v1/messages`.\n\n4. **New `computer_use_demo/gui_agent/llm_utils/router_client.py`** \u2014 central config: `RAMP_ROUTER_API_KEY`/`RAMP_ROUTER_BASE_URL` reading, and `get_router_model(env_var)` helpers so model IDs come from env vars, never hardcoded. New env vars (operator-set, from `GET /v1/models`): `ROUTER_MODEL_GPT4O`, `ROUTER_MODEL_GPT4O_MINI`, `ROUTER_MODEL_QWEN_VL_MAX`, `ROUTER_MODEL_ANTHROPIC`.\n\n5. **`computer_use_demo/gui_agent/planner/api_vlm_planner.py`** and **`loop.py`** \u2014 wired the new model config through; removed the unused `api_key` passthrough to the migrated call sites.\n\n6. **`app.py`** \u2014 removed reads of `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`/`QWEN_API_KEY` and the UI plumbing that fed them into provider clients; the Planner API Key field is now only live for the `ssh` provider (where it's a `host:port` string, not a credential).\n\n7. **`requirements.txt`** \u2014 dropped the now-unused `dashscope` dependency. Updated `README.md`'s setup instructions accordingly.\n\n**Verified:** compiled/imported cleanly, and ran live smoke requests against the Router simulator for all three migrated paths \u2014 `POST /v1/responses` (gpt-4o and qwen3p8-max) and `POST /v1/messages` (claude-sonnet-5, including the computer-use beta tool) \u2014 all returned `valid=True`.\n\n**Not migrated (left as-is), with reasons:**\n- **`computer_use_demo/gui_agent/actor/uitars_agent.py`** (`UITARS_Actor`) and **`install_tools/test_ui-tars_server.py`** \u2014 point at a user-deployed, fine-tuned UI-TARS inference server (`ui_tars_url`), not a Router-fronted provider. There's no provider API key here to remove, and Router doesn't serve this custom model.\n- **`run_ssh_llm_interleaved`** (in `oai.py`) \u2014 talks to a self-hosted Qwen model server over SSH host:port (see `computer_use_demo/remote_inference.py`, a local GPU inference server), not a Router provider.\n- **`AnthropicBedrock`/`AnthropicVertex`** branches in `anthropic_agent.py` \u2014 these use AWS/GCP native credentials (SigV4/ADC), not a simple provider API key, so they're outside Router's Anthropic-compat surface and were left on direct cloud auth.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:18:31",
+ "routed_static": 0,
+ "inventory_prod_sites": 5,
+ "inventory_migrated": 0,
+ "inventory_handoff": 0,
+ "sites_moved": 0,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": null,
+ "moved_precision": null,
+ "reported_sites_matched": 2,
+ "reported_outcome_agreement": 0.5,
+ "reported_migrated": 0,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 0,
+ "sites_moved_adj": 0,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": null,
+ "moved_precision_adj": null,
+ "reported_outcome_agreement_adj": 0.5,
+ "reported_migrated_adj": 0,
+ "reported_migrated_correct_adj": 0
+}

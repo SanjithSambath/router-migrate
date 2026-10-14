@@ -1,0 +1,280 @@
+diff --git a/backend/.env.development b/backend/.env.development
+index c0e9305..3b9d4a9 100644
+--- a/backend/.env.development
++++ b/backend/.env.development
+@@ -1,6 +1,12 @@
+ DATABASE_URL=postgresql://user:password@127.0.0.1:5432/llama_app_db
+ BACKEND_CORS_ORIGINS='["http://localhost", "http://localhost:8000", "http://localhost:3000", "http://127.0.0.1:3000", "https://llama-app-backend.onrender.com", "https://llama-app-frontend.vercel.app", "http://secinsights.ai", "http://www.secinsights.ai", "https://secinsights.ai", "https://www.secinsights.ai"]'
++# Used only for direct calls to OpenAI's embeddings API (Router does not expose embeddings).
+ OPENAI_API_KEY=sk-XXXXXXXXXXXXXXXXXXXXXXXX
++# Router (https://api.router.com/v1) holds the chat LLM provider credentials; this is
++# the app's own key for calling Router.
++RAMP_ROUTER_API_KEY=rr-XXXXXXXXXXXXXXXXXXXXXXXX
++# Fetch valid model IDs for your Router account from GET {RAMP_ROUTER_BASE_URL}/models
++ROUTER_CHAT_MODEL=XXXXXXXXXXXXXXXXXXXXXXXX
+ LOG_LEVEL=debug
+ RENDER=False
+ S3_BUCKET_NAME=llama-app-backend-local
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+index a2a2b82..f62a8c5 100644
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -16,4 +16,7 @@ ENV DATABASE_URL=$DATABASE_URL
+ ARG OPENAI_API_KEY
+ ENV OPENAI_API_KEY=$OPENAI_API_KEY
+ 
++ARG RAMP_ROUTER_API_KEY
++ENV RAMP_ROUTER_API_KEY=$RAMP_ROUTER_API_KEY
++
+ CMD ["poetry", "run", "start"]
+diff --git a/backend/README.md b/backend/README.md
+index 4a063c0..dc33713 100644
+--- a/backend/README.md
++++ b/backend/README.md
+@@ -18,7 +18,8 @@ Live at https://secinsights.ai/
+     - The server will not run in a container but will instead run directly on your OS.
+         - This is to allow for use of debugging tools like `pdb`
+ 1. Lastly, you will likely want to populate your local database with some sample SEC filings
+-    - We have a script for this! But first, open your `.env` file and replace the placeholder value for the `OPENAI_API_KEY` with your own OpenAI API key
++    - We have a script for this! But first, open your `.env` file and replace the placeholder value for `RAMP_ROUTER_API_KEY` with your own Router API key, and `ROUTER_CHAT_MODEL` with a valid model ID for your account from `GET {RAMP_ROUTER_BASE_URL}/models`
++        - `OPENAI_API_KEY` is only used for direct calls to OpenAI's embeddings API (Router doesn't expose embeddings), so replace that with your own OpenAI API key too
+         - At some point you will want to do the same for the other secret keys in here like `POLYGON_IO_API_KEY`, `AWS_KEY`, & `AWS_SECRET`
+         - To follow the [SEC's Internet Security Policy](https://www.sec.gov/os/webmaster-faq#code-support), make sure to also replace the `SEC_EDGAR_COMPANY_NAME` & `SEC_EDGAR_EMAIL` values in the `.env` file with your own values.
+     - Source the file again with `set -a` then `source .env`
+diff --git a/backend/app/chat/constants.py b/backend/app/chat/constants.py
+index e6f6dc4..8d4ff36 100644
+--- a/backend/app/chat/constants.py
++++ b/backend/app/chat/constants.py
+@@ -18,3 +18,8 @@ The current date is: {curr_date}
+ 
+ NODE_PARSER_CHUNK_SIZE = 512
+ NODE_PARSER_CHUNK_OVERLAP = 10
++
++# Router model IDs are account-specific and won't be in llama-index's built-in
++# OpenAI model->context-size table, which would otherwise raise when computing
++# LLM metadata. This is local bookkeeping only; it is never sent to Router.
++ROUTER_CHAT_LLM_CONTEXT_WINDOW = 128000
+diff --git a/backend/app/chat/engine.py b/backend/app/chat/engine.py
+index ba15f2e..419b191 100644
+--- a/backend/app/chat/engine.py
++++ b/backend/app/chat/engine.py
+@@ -18,8 +18,8 @@ from cachetools import cached, TTLCache
+ from llama_index.readers.file.docs.base import PDFReader
+ from llama_index.core.schema import Document as LlamaIndexDocument
+ from llama_index.core.chat_engine.types import ChatMessage
+-from llama_index.agent.openai import OpenAIAgent
+-from llama_index.llms.openai import OpenAI
++from llama_index.core.agent import FunctionCallingAgent
++from llama_index.llms.openai import OpenAIResponses
+ from llama_index.core.base.llms.types import MessageRole
+ from llama_index.core.callbacks.base import BaseCallbackHandler, CallbackManager
+ from llama_index.core.tools import QueryEngineTool, ToolMetadata
+@@ -41,6 +41,7 @@ from app.models.db import MessageRoleEnum, MessageStatusEnum
+ from app.chat.constants import (
+     DB_DOC_ID_KEY,
+     SYSTEM_MESSAGE,
++    ROUTER_CHAT_LLM_CONTEXT_WINDOW,
+ )
+ from app.chat.tools import get_api_query_engine_tool
+ from app.chat.utils import build_title_for_document
+@@ -204,7 +205,7 @@ def get_chat_history(
+ async def get_chat_engine(
+     callback_handler: BaseCallbackHandler,
+     conversation: ConversationSchema,
+-) -> OpenAIAgent:
++) -> FunctionCallingAgent:
+     callback_manager = CallbackManager([callback_handler])
+     s3_fs = get_s3_fs()
+     doc_id_to_index = await build_doc_id_to_index_map(
+@@ -270,11 +271,16 @@ Any questions about company-related financials or other metrics should be asked
+         ),
+     ]
+ 
+-    chat_llm = OpenAI(
++    chat_llm = OpenAIResponses(
+         temperature=0,
+-        model=settings.OPENAI_CHAT_LLM_NAME,
+-        streaming=True,
+-        api_key=settings.OPENAI_API_KEY,
++        model=settings.ROUTER_CHAT_MODEL,
++        api_key=settings.RAMP_ROUTER_API_KEY or "",
++        api_base=settings.RAMP_ROUTER_BASE_URL,
++        context_window=ROUTER_CHAT_LLM_CONTEXT_WINDOW,
++        # The Responses API defaults function tools to strict=true; setting this
++        # makes llama-index emit the matching `additionalProperties: false` /
++        # fully-specified `required` that strict mode requires.
++        strict=True,
+     )
+     chat_messages: List[MessageSchema] = conversation.messages
+     chat_history = get_chat_history(chat_messages)
+@@ -288,7 +294,7 @@ Any questions about company-related financials or other metrics should be asked
+         doc_titles = "No documents selected."
+ 
+     curr_date = datetime.utcnow().strftime("%Y-%m-%d")
+-    chat_engine = OpenAIAgent.from_tools(
++    chat_engine = FunctionCallingAgent.from_tools(
+         tools=top_level_sub_tools,
+         llm=chat_llm,
+         chat_history=chat_history,
+diff --git a/backend/app/chat/tools.py b/backend/app/chat/tools.py
+index e02d307..3572345 100644
+--- a/backend/app/chat/tools.py
++++ b/backend/app/chat/tools.py
+@@ -16,7 +16,7 @@ from app.schema import (
+ from llama_index.core.tools import FunctionTool, ToolMetadata, QueryEngineTool
+ from llama_index.core.callbacks import CallbackManager
+ from llama_index.core import Settings
+-from llama_index.agent.openai import OpenAIAgent
++from llama_index.core.agent import FunctionCallingAgent
+ from app.core.config import settings
+ from app.chat.utils import build_title_for_document
+ 
+@@ -149,11 +149,13 @@ def get_api_query_engine_tool(
+     polygon_io_tool = get_polygon_io_sec_tool(document)
+     tool_metadata = get_tool_metadata_for_document(document)
+     doc_title = build_title_for_document(document)
++    # deep=False: OpenAIResponses eagerly constructs its httpx-backed OpenAI
++    # client in __init__, which can't be deep-copied (holds a thread lock).
+     llm = Settings.llm.model_copy(
+         update={"callback_manager": callback_manager},
+-        deep=True
++        deep=False
+     )
+-    agent = OpenAIAgent.from_tools(
++    agent = FunctionCallingAgent.from_tools(
+         [polygon_io_tool],
+         llm=llm,
+         callback_manager=callback_manager,
+diff --git a/backend/app/core/config.py b/backend/app/core/config.py
+index 49eb28e..3e00b48 100644
+--- a/backend/app/core/config.py
++++ b/backend/app/core/config.py
+@@ -39,6 +39,9 @@ class PreviewPrefixedSettings(BaseSettings):
+     AWS_KEY: str
+     AWS_SECRET: str
+     POLYGON_IO_API_KEY: str
++    # Router holds the provider credentials for chat completions; this is only
++    # the app's own credential for calling Router itself.
++    RAMP_ROUTER_API_KEY: Optional[str] = None
+ 
+     model_config = model_config
+ 
+@@ -65,7 +68,14 @@ class Settings(PreviewPrefixedSettings):
+     LOADER_IO_VERIFICATION_STR: str = "loaderio-e51043c635e0f4656473d3570ae5d9ec"
+     SEC_EDGAR_COMPANY_NAME: str = "YourOrgName"
+     SEC_EDGAR_EMAIL: EmailStr = "you@example.com"
+-    OPENAI_CHAT_LLM_NAME: str = "gpt-4o-mini"
++    # Router (https://api.router.com/v1) fronts the chat LLM. OPENAI_API_KEY above
++    # is kept only for direct calls to OpenAI's embeddings API, which Router does
++    # not expose.
++    RAMP_ROUTER_BASE_URL: str = "https://api.router.com/v1"
++    # Valid IDs are account-specific; fetch them from GET {RAMP_ROUTER_BASE_URL}/models
++    # and set this via env var. This default is a non-functional placeholder so the
++    # app can still start up without Router configured.
++    ROUTER_CHAT_MODEL: str = "gpt-4o-mini"
+ 
+     # BACKEND_CORS_ORIGINS is a JSON-formatted list of origins
+     # e.g: '["http://localhost", "http://localhost:4200", "http://localhost:3000", \
+diff --git a/backend/app/llama_index_settings.py b/backend/app/llama_index_settings.py
+index f206da9..8070394 100644
+--- a/backend/app/llama_index_settings.py
++++ b/backend/app/llama_index_settings.py
+@@ -1,6 +1,6 @@
+ from llama_index.core import Settings
+ from llama_index.core.settings import _Settings
+-from llama_index.llms.openai import OpenAI
++from llama_index.llms.openai import OpenAIResponses
+ from llama_index.embeddings.openai import OpenAIEmbedding, OpenAIEmbeddingMode, OpenAIEmbeddingModelType
+ from app.core.config import settings
+ from llama_index.core.node_parser import SentenceSplitter
+@@ -8,12 +8,19 @@ from llama_index.core.node_parser import SentenceSplitter
+ from app.chat.constants import (
+     NODE_PARSER_CHUNK_OVERLAP,
+     NODE_PARSER_CHUNK_SIZE,
++    ROUTER_CHAT_LLM_CONTEXT_WINDOW,
+ )
+ 
+ def _setup_llama_index_settings() -> _Settings:
+-    Settings.llm = OpenAI(
+-        model=settings.OPENAI_CHAT_LLM_NAME,
+-        api_key=settings.OPENAI_API_KEY
++    Settings.llm = OpenAIResponses(
++        model=settings.ROUTER_CHAT_MODEL,
++        api_key=settings.RAMP_ROUTER_API_KEY or "",
++        api_base=settings.RAMP_ROUTER_BASE_URL,
++        context_window=ROUTER_CHAT_LLM_CONTEXT_WINDOW,
++        # The Responses API defaults function tools to strict=true; setting this
++        # makes llama-index emit the matching `additionalProperties: false` /
++        # fully-specified `required` that strict mode requires.
++        strict=True,
+     )
+     Settings.embed_model = OpenAIEmbedding(
+         mode=OpenAIEmbeddingMode.SIMILARITY_MODE,
+diff --git a/backend/pyproject.toml b/backend/pyproject.toml
+index 27956fd..2663514 100644
+--- a/backend/pyproject.toml
++++ b/backend/pyproject.toml
+@@ -25,7 +25,7 @@ fsspec = "^2023.6.0"
+ pdfkit = "^1.0.0"
+ pgvector = "^0.3.6"
+ sentry-sdk = {extras = ["fastapi"], version = "^1.28.1"}
+-llama-index-core = "0.12.23"
++llama-index-core = "0.12.52.post1"
+ polygon = "^1.2.6"
+ polygon-api-client = "^1.14.4"
+ nltk = "^3.8.1"
+@@ -33,13 +33,15 @@ cachetools = "^5.3.1"
+ greenlet = "^2.0.2"
+ email-validator = "^2.0.0.post2"
+ pydantic-settings = "^2.8.1"
+-openai = "^1.66.2"
++openai = "^1.81.0"
+ llama-index-vector-stores-postgres = "^0.4.2"
+ llama-index-embeddings-openai = "^0.3.1"
+ llama-index-readers-file = "^0.4.6"
+-llama-index-llms-openai = "^0.3.25"
+-llama-index-agent-openai = "^0.4.6"
+-llama-index-question-gen-openai = "^0.3.0"
++# >=0.4.0 is required for the OpenAIResponses class (Responses API support),
++# used to talk to Router.
++llama-index-llms-openai = "^0.4.7"
++llama-index-agent-openai = "^0.4.12"
++llama-index-question-gen-openai = "^0.3.1"
+ 
+ 
+ [tool.poetry.group.dev.dependencies]
+diff --git a/render.yaml b/render.yaml
+index d1186a0..172ed60 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -76,8 +76,13 @@ envVarGroups:
+       previewValue: https://dl94gqvzlh4k8.cloudfront.net
+     - key: SENTRY_DSN
+       sync: false
++    # Valid model IDs are account-specific; fetch them from GET {RAMP_ROUTER_BASE_URL}/models
++    # and set this manually in the Render dashboard.
++    - key: ROUTER_CHAT_MODEL
++      sync: false
+ - name: prod-web-secrets
+   envVars:
++    # Only used for direct calls to OpenAI's embeddings API (Router has no embeddings endpoint).
+     # Manually add a prod value for OPENAI_API_KEY in Render dashboard
+     - key: OPENAI_API_KEY
+       sync: false
+@@ -87,6 +92,9 @@ envVarGroups:
+       sync: false
+     - key: POLYGON_IO_API_KEY
+       sync: false
++    # Manually add a prod value for RAMP_ROUTER_API_KEY in Render dashboard
++    - key: RAMP_ROUTER_API_KEY
++      sync: false
+ - name: preview-web-secrets
+   envVars:
+     # All env vars in this group should be prefixed with "PREVIEW_"
+@@ -99,3 +107,6 @@ envVarGroups:
+       sync: false
+     - key: PREVIEW_POLYGON_IO_API_KEY
+       sync: false
++    # Manually add a preview value for PREVIEW_RAMP_ROUTER_API_KEY in Render dashboard
++    - key: PREVIEW_RAMP_ROUTER_API_KEY
++      sync: false

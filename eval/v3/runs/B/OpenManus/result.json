@@ -1,0 +1,82 @@
+{
+ "repo": "OpenManus",
+ "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 2,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 4,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 4,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 892,
+ "test_files_edited": [],
+ "usd": 6.400479299999998,
+ "minutes": 16.6,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 6.400479299999998,
+  "turns": 132,
+  "final": "Migration complete. Here's the summary:\n\n## What I migrated\n\n**`app/llm.py`** (the single, central LLM client) \u2014 replaced `AsyncOpenAI`/`AsyncAzureOpenAI`/`BedrockClient` chat-completions calls with one `AsyncOpenAI` client pointed at Router (`RAMP_ROUTER_BASE_URL`, default `https://api.router.com/v1`) authenticated with `RAMP_ROUTER_API_KEY`. All three call sites (`ask`, `ask_with_images`, `ask_tool`) now call `client.responses.create`:\n- `messages` \u2192 `input` (with new helper `_to_responses_input` that splits system messages into `instructions`, and turns tool-role messages/assistant tool_calls into the Responses API's `function_call_output`/`function_call` item types)\n- `max_tokens` \u2192 `max_output_tokens`\n- tool defs flattened from `{type, function:{...}}` \u2192 `{type, name, description, parameters, strict:false}` (Router's Responses surface defaults function tools to `strict=true`, which the existing tool schemas don't satisfy \u2014 confirmed via the simulator and fixed)\n- streaming now consumes `response.output_text.delta` SSE events instead of chat chunks\n- `ask_tool`'s return value is still a `ChatCompletionMessage`/`ChatCompletionMessageToolCall` shim (constructed from `response.output`'s `function_call` items + `response.output_text`), so callers in `toolcall.py`/`planning.py` needed zero changes\n- usage reads `response.usage.input_tokens`/`output_tokens` instead of `prompt_tokens`/`completion_tokens`\n\n**Removed hardcoded model-name lists** (`REASONING_MODELS`, `MULTIMODAL_MODELS`) since Router model IDs are account-specific opaque strings, not matchable against literal names like `\"o1\"` or `\"claude-3-opus-20240229\"`. Replaced with two config-driven capability flags on `LLMSettings`/`config.toml`: `supports_images` and `supports_temperature` (the latter needed because the simulator confirmed many Router models reject the `temperature` param entirely \u2014 a real capability difference, not a guess).\n\n**Deleted**: `app/bedrock.py` (provider-specific adapter, now redundant), `boto3` from `requirements.txt`, and the 6 now-pointless provider-specific example configs (`config.example-model-{anthropic,azure,google,ollama,ppio,jiekouai}.toml`) \u2014 Router removes all per-provider config, so these files had nothing left to differentiate and would have misled users into inventing model IDs.\n\n**Config/docs**: `config/config.example.toml` and `config/config.example-daytona.toml` now hold a single Router-shaped `[llm]`/`[llm.vision]` block with no `api_key`/`base_url`/`api_type`/`api_version`; model values are placeholders pointing at `GET /v1/models` rather than invented IDs. Updated `README.md`'s configuration section accordingly.\n\n**CI**: `.github/workflows/pr-autodiff.yaml` switched from `OPENAI_API_KEY`/`OPENAI_BASE_URL` secrets and `chat.completions.create` to `RAMP_ROUTER_API_KEY`/`RAMP_ROUTER_BASE_URL` and `responses.create`, with the hardcoded `model=\"o3-mini\"` moved to a `ROUTER_PR_DIFF_MODEL` repo variable.\n\n**Verified**: compiled the whole tree, ran the full test suite (4 passed, unaffected \u2014 no existing test exercises the LLM client directly), and ran a smoke test against the Router simulator covering non-streaming text, streaming text, tool-calling, image input, and a no-temperature model \u2014 all requests came back `valid=True`.\n\n## Call site I could not migrate\n\n`app/tool/chart_visualization/data_visualization.py` forwards `self.llm.{base_url,model,api_key}` into a Node.js subprocess (`src/chartVisualize.ts`) that uses the third-party `@visactor/vmind` npm package to make its own independent LLM call, in TypeScript, outside `app/llm.py` entirely. VMind's internal client expects an OpenAI-style `{baseURL, model, apiKey}` and almost certainly calls Chat Completions internally \u2014 but Router has no Chat Completions surface, so pointing it at Router's base URL would 404. Fixing this would mean patching VMind's vendored TypeScript internals, which is outside the Python transport layer this migration covers. I left the Python-side forwarding",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:18:08",
+ "routed_static": 5,
+ "inventory_prod_sites": 8,
+ "inventory_migrated": 5,
+ "inventory_handoff": 1,
+ "sites_moved": 5,
+ "sites_moved_correct": 5,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 5,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 5,
+ "reported_migrated_correct": 5,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 0,
+ "sites_moved_adj": 5,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 5,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": null,
+ "moved_precision_adj": 0.0,
+ "reported_outcome_agreement_adj": 0.0,
+ "reported_migrated_adj": 5,
+ "reported_migrated_correct_adj": 0
+}

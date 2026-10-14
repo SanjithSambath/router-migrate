@@ -101,24 +101,48 @@ ROUTER_TEXT = re.compile(r"router\.com|RAMP_ROUTER")
 
 
 def _router_by_assignment(root, c):
-    """Measure-only (scoring migrations someone else wrote): is a non-literal base URL like `self.base_url` or `base_url`
-    assigned in the same file from a Router default or a RAMP_ROUTER_* env var (following one constant)?"""
+    """Measure-only (scoring migrations someone else wrote): does a non-literal base URL resolve to Router? It does when the
+    expression names a Router setting (`config['router_base_url']`), or when the name / dict key it reads (`self.base_url`,
+    `base_url`, `config['base_url']`) is assigned or set, in this file or another source file of the repo, from a Router
+    default or a RAMP_ROUTER_* env var (following one constant)."""
     bu = c.get("base_url") or {}
     v = str(bu.get("value") or "")
-    if not v or bu.get("static") or ROUTER_TEXT.search(v) or not re.fullmatch(r"[A-Za-z_][\w.]*", v):
+    if not v or bu.get("static") or ROUTER_TEXT.search(v):
         return False
+    if re.search(r"(?<!open)router", v, re.I):
+        return True
+    m = re.fullmatch(r"[\w.]*\[\s*['\"](\w+)['\"]\s*\]|[A-Za-z_][\w.]*", v.strip())
+    if not m:
+        return False
+    key = m.group(1) or v.strip().split(".")[-1]
+    texts = []
     try:
-        text = open(os.path.join(root, c["file"]), encoding="utf-8", errors="replace").read()
+        texts.append(open(os.path.join(root, c["file"]), encoding="utf-8", errors="replace").read())
     except OSError:
-        return False
-    name = re.escape(v.split(".")[-1])
-    for m in re.finditer(r"(?m)\b%s\s*(?::[^=\n]+)?=\s*([^\n]+)" % name, text):
-        rhs = m.group(1)
-        if ROUTER_TEXT.search(rhs):
-            return True
-        for const in re.findall(r"\b([A-Z][A-Z0-9_]{2,})\b", rhs):
-            if re.search(r"(?m)^\s*%s\s*(?::[^=\n]+)?=\s*[^\n]*(router\.com|RAMP_ROUTER)" % re.escape(const), text):
+        pass
+    n = 0
+    for d, dirs, files in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in ("node_modules", ".git", ".venv", "venv", "dist", "build", ".router-migrate", "__pycache__")]
+        for f in files:
+            if f.endswith((".py", ".ts", ".js", ".tsx", ".mjs")) and f not in ("router_runtime.py", "routerRuntime.ts"):
+                n += 1
+                if n > 3000:
+                    break
+                try:
+                    t = open(os.path.join(d, f), encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                if key in t and ROUTER_TEXT.search(t):
+                    texts.append(t)
+    k = re.escape(key)
+    for text in texts:
+        for mm in re.finditer(r"(?m)(?:\b%s\s*(?::[^=\n]+)?=|['\"]%s['\"]\s*:)\s*([^\n]+)" % (k, k), text):
+            rhs = mm.group(1)
+            if ROUTER_TEXT.search(rhs):
                 return True
+            for const in re.findall(r"\b([A-Z][A-Z0-9_]{2,})\b", rhs):
+                if re.search(r"(?m)^\s*%s\s*(?::[^=\n]+)?=\s*[^\n]*(router\.com|RAMP_ROUTER)" % re.escape(const), text):
+                    return True
     return False
 
 

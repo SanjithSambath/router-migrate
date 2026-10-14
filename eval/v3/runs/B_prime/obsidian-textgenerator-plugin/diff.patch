@@ -1,0 +1,407 @@
+diff --git a/src/LLMProviders/custom/anthropic.tsx b/src/LLMProviders/custom/anthropic.tsx
+index f59bf0f..1469528 100644
+--- a/src/LLMProviders/custom/anthropic.tsx
++++ b/src/LLMProviders/custom/anthropic.tsx
+@@ -6,6 +6,9 @@ import SettingItem from "#/ui/settings/components/item";
+ import Input from "#/ui/settings/components/input";
+ import CustomProvider, { default_values as baseDefaultValues } from "./base";
+ import { IconExternalLink } from "#/ui/icons";
++import { getRouterApiKey, getRouterBaseURL, isRouterEnabled } from "#/router-config";
++
++const routerEnabled = isRouterEnabled();
+ 
+ const globalVars: Record<string, boolean> = {
+   n: true,
+@@ -27,8 +30,20 @@ const untangableVars = [
+ 
+ export const default_values = {
+   ...baseDefaultValues,
+-  endpoint: "https://api.anthropic.com/v1/messages",
+-  custom_header: `{
++  // Router holds the provider credentials: when RAMP_ROUTER_API_KEY is set, default to
++  // Router's Anthropic Messages-compatible surface (same request/response shape, so no
++  // body/header rewrite is needed) instead of api.anthropic.com directly, authenticated
++  // with Router's key via Bearer auth rather than the user's own Anthropic key.
++  endpoint: routerEnabled
++    ? `${getRouterBaseURL()}/messages`
++    : "https://api.anthropic.com/v1/messages",
++  custom_header: routerEnabled
++    ? `{
++    "anthropic-version": "2023-06-01",
++    "Content-Type": "application/json",
++    "authorization": "Bearer {{api_key}}"
++}`
++    : `{
+     "anthropic-version": "2023-06-01",
+     "Content-Type": "application/json",
+     "x-api-key":  "{{api_key}}"
+@@ -39,6 +54,7 @@ export const default_values = {
+     max_tokens: {{max_tokens}},
+     messages: {{stringify messages}}
+ }`,
++  api_key: routerEnabled ? getRouterApiKey() : undefined,
+ 
+   sanatization_response: `async (data, res)=>{
+     // catch error
+diff --git a/src/LLMProviders/custom/base.tsx b/src/LLMProviders/custom/base.tsx
+index 7c7361d..bbd1bad 100644
+--- a/src/LLMProviders/custom/base.tsx
++++ b/src/LLMProviders/custom/base.tsx
+@@ -10,16 +10,37 @@ import { requestWithoutCORS, requestWithoutCORSParam, Message } from "../refs";
+ import { Platform } from "obsidian";
+ import runJSInSandbox from "#/helpers/javascript-sandbox";
+ import { AI_MODELS } from "#/constants";
++import { getRouterApiKey, getRouterBaseURL, isRouterEnabled } from "#/router-config";
+ 
+ const logger = debug("textgenerator:CustomProvider");
+ 
++const routerEnabled = isRouterEnabled();
++
+ export const default_values = {
+-  endpoint: "https://api.openai.com/v1/chat/completions",
++  // Router holds the provider credentials: when RAMP_ROUTER_API_KEY is set, a freshly
++  // added Custom provider defaults to calling Router's /v1/responses instead of OpenAI's
++  // Chat Completions endpoint directly, and never sends a provider API key. Users who
++  // repoint `endpoint`/`custom_header`/`custom_body` at their own server keep working as
++  // before — these are only the out-of-the-box defaults.
++  endpoint: routerEnabled
++    ? `${getRouterBaseURL()}/responses`
++    : "https://api.openai.com/v1/chat/completions",
+   custom_header: `{
+     "Content-Type": "application/json",
+     authorization: "Bearer {{api_key}}"
+ }`,
+-  custom_body: `{
++  custom_body: routerEnabled
++    ? `{
++    model: "{{model}}",
++    temperature: {{temperature}},
++    top_p: {{top_p}},
++    frequency_penalty: {{frequency_penalty}},
++    presence_penalty: {{presence_penalty}},
++    max_output_tokens: {{max_tokens}},
++    stream: {{stream}},
++    input: {{stringify messages}}
++}`
++    : `{
+     model: "{{model}}",
+     temperature: {{temperature}},
+     top_p: {{top_p}},
+@@ -40,7 +61,32 @@ export const default_values = {
+   // stream: false,
+   // temperature: 0.7,
+ 
+-  sanatization_streaming: `// catch error
++  api_key: routerEnabled ? getRouterApiKey() : undefined,
++
++  sanatization_streaming: routerEnabled
++    ? `// catch error
++if (res.status >= 300) {
++  const err = data?.error?.message || JSON.stringify(data);
++  throw err;
++}
++let resultTexts = [];
++const blocks = this.chunk.split("\\n\\n");
++
++for (const block of blocks) {
++    const lines = block.split("\\n");
++    const eventLine = lines.find((l) => l.startsWith("event: "));
++    const dataLine = lines.find((l) => l.startsWith("data: "));
++    if (!eventLine || !dataLine) continue;
++    if (eventLine.slice("event: ".length).trim() !== "response.output_text.delta") continue;
++
++    try {
++        const parsed = JSON.parse(dataLine.slice("data: ".length));
++        if (parsed.delta) resultTexts.push(parsed.delta);
++    } catch { }
++}
++
++return resultTexts.join("");`
++    : `// catch error
+ if (res.status >= 300) {
+   const err = data?.error?.message || JSON.stringify(data);
+   throw err;
+@@ -68,7 +114,29 @@ for (const parsedLine of parsedLines) {
+     }
+ }
+ return resultTexts.join("");`,
+-  sanatization_response: `// catch error
++  sanatization_response: routerEnabled
++    ? `// catch error
++if (res.status >= 300) {
++  const err = data?.error?.message || JSON.stringify(data);
++  throw err;
++}
++
++// Responses API: pull the assistant message(s) out of the output array.
++const choices = (data.output || [])
++  .filter(o => o.type === "message")
++  .map(o => ({
++    role: o.role || "assistant",
++    content: (o.content || [])
++      .filter(c => c.type === "output_text")
++      .map(c => c.text)
++      .join(""),
++  }));
++
++// the return object should be in the format of
++// { content: string }[]
++// if there's only one response, put it in the array of choices.
++return choices.length ? choices : [{ role: "assistant", content: data.output_text || "" }];`
++    : `// catch error
+ if (res.status >= 300) {
+   const err = data?.error?.message || JSON.stringify(data);
+   throw err;
+@@ -77,8 +145,8 @@ if (res.status >= 300) {
+ // get choices
+ const choices = (data.choices || data).map(c=> c.message);
+ 
+-// the return object should be in the format of 
+-// { content: string }[] 
++// the return object should be in the format of
++// { content: string }[]
+ // if there's only one response, put it in the array of choices.
+ return choices;`,
+ };
+diff --git a/src/LLMProviders/custom/custom.tsx b/src/LLMProviders/custom/custom.tsx
+index 3288eb8..e9b03cd 100644
+--- a/src/LLMProviders/custom/custom.tsx
++++ b/src/LLMProviders/custom/custom.tsx
+@@ -15,6 +15,7 @@ import { Platform } from "obsidian";
+ import { useDebounceCallback } from "usehooks-ts";
+ import { AI_MODELS } from "#/constants";
+ import Dropdown from "#/ui/settings/components/dropdown";
++import { isRouterEnabled } from "#/router-config";
+ 
+ const logger = debug("textgenerator:CustomProvider");
+ 
+@@ -44,7 +45,10 @@ test4`,
+ 
+ export const default_values = {
+   ...baseDefaultValues,
+-  endpoint: "https://api.openai.com/v1/chat/completions",
++  // Match base.tsx's own Router-aware default so both still agree once resolved.
++  endpoint: isRouterEnabled()
++    ? baseDefaultValues.endpoint
++    : "https://api.openai.com/v1/chat/completions",
+   stream: false,
+   model: "gpt-3.5-turbo-16k",
+ 
+diff --git a/src/LLMProviders/langchain/base.tsx b/src/LLMProviders/langchain/base.tsx
+index 681f4e5..61d2c00 100644
+--- a/src/LLMProviders/langchain/base.tsx
++++ b/src/LLMProviders/langchain/base.tsx
+@@ -20,6 +20,7 @@ import { chains, splitters, Message, AI_MODELS } from "../refs";
+ import { Callbacks } from "@langchain/core/callbacks/manager";
+ import JSON5 from "json5";
+ import { Handlebars } from "#/helpers/handlebars-helpers";
++import { getRouterApiKey, getRouterBaseURL, isRouterEnabled } from "#/router-config";
+ 
+ const logger = debug("textgenerator:LangchainProvider");
+ 
+@@ -43,6 +44,10 @@ export default class LangchainProvider
+   streamable = true;
+   isAzure = false;
+ 
++  /** Set to true on providers whose traffic should go through Router (see src/router-config.ts)
++   * when RAMP_ROUTER_API_KEY is set, instead of the provider's own endpoint/key. */
++  routerCompatible = false;
++
+   provider = LangchainProvider.provider;
+   id = LangchainProvider.id;
+   originalId = LangchainProvider.id;
+@@ -126,7 +131,7 @@ export default class LangchainProvider
+   }
+ 
+   configMerger(options: Partial<LLMConfig>) {
+-    return {
++    const merged = {
+       ...this.cleanConfig(this.plugin.settings),
+       ...this.cleanConfig(
+         this.plugin.settings.LLMProviderOptions[
+@@ -141,6 +146,15 @@ export default class LangchainProvider
+         ]
+       ),
+     };
++
++    if (this.routerCompatible && isRouterEnabled()) {
++      // Router holds the provider credentials: never forward the user's own
++      // provider key, and never call the provider's endpoint directly.
++      merged.api_key = getRouterApiKey() as string;
++      merged.basePath = getRouterBaseURL();
++    }
++
++    return merged;
+   }
+ 
+   getReqOptions(options: Partial<LLMConfig>) {
+diff --git a/src/LLMProviders/langchain/chatanthropic.tsx b/src/LLMProviders/langchain/chatanthropic.tsx
+index a82434f..75e8b3e 100644
+--- a/src/LLMProviders/langchain/chatanthropic.tsx
++++ b/src/LLMProviders/langchain/chatanthropic.tsx
+@@ -10,6 +10,7 @@ import { Dropdown, fetchWithoutCORS, Input, Message, SettingItem, useGlobal } fr
+ 
+ import type { AnthropicInput } from "@langchain/anthropic";
+ import { HeaderEditor, ModelsHandler } from "../utils";
++import { getRouterAnthropicBaseURL, getRouterApiKey, isRouterEnabled } from "#/router-config";
+ 
+ const logger = debug("textgenerator:llmProvider:chatanthropic");
+ 
+@@ -32,6 +33,7 @@ export default class LangchainChatAnthropicProvider
+   static displayName = "Chat Anthropic";
+ 
+   corsBypass = true;
++  routerCompatible = true;
+ 
+   provider = LangchainChatAnthropicProvider.provider;
+   id = LangchainChatAnthropicProvider.id;
+@@ -63,9 +65,15 @@ export default class LangchainChatAnthropicProvider
+       },
+     } : {};
+ 
++    // Router holds the provider credentials: when it's configured, call its Anthropic
++    // Messages-compatible surface instead of api.anthropic.com directly, and never send
++    // the user's own Anthropic key. The Anthropic SDK (unlike the OpenAI one) expects a
++    // base URL without a trailing "/v1" — it appends "/v1/messages" itself.
++    const routerEnabled = this.routerCompatible && isRouterEnabled();
++
+     return this.cleanConfig({
+-      anthropicApiKey: options.api_key,
+-      anthropicApiUrl: options.basePath,
++      anthropicApiKey: routerEnabled ? getRouterApiKey() : options.api_key,
++      anthropicApiUrl: routerEnabled ? getRouterAnthropicBaseURL() : options.basePath,
+       // stopSequences: options.stop,
+ 
+       // ------------Necessary stuff--------------
+diff --git a/src/LLMProviders/langchain/openaiAgent.tsx b/src/LLMProviders/langchain/openaiAgent.tsx
+index d351e9c..74819fc 100644
+--- a/src/LLMProviders/langchain/openaiAgent.tsx
++++ b/src/LLMProviders/langchain/openaiAgent.tsx
+@@ -30,6 +30,7 @@ export default class LangchainOpenAIAgentProvider
+   id = LangchainOpenAIAgentProvider.id;
+   provider = LangchainOpenAIAgentProvider.provider;
+   originalId = LangchainOpenAIAgentProvider.id;
++  routerCompatible = true;
+ 
+   default_values = default_values;
+ 
+@@ -47,12 +48,15 @@ export default class LangchainOpenAIAgentProvider
+       openAIApiKey: options.api_key, // Keep for backward compatibility
+ 
+       // ------------Necessary stuff--------------
+-      modelKwargs: {
+-        ...options.modelKwargs,
+-        // Add reasoning effort for o-series thinking models
+-        reasoning_effort: reasoningEffort,
++      // Router (and OpenAI's own /v1/responses) expects reasoning effort and output
++      // caps as first-class fields, not the Chat Completions modelKwargs/body hacks.
++      useResponsesApi: true,
++      reasoning: {
++        effort: reasoningEffort,
+       },
++      modelKwargs: options.modelKwargs,
+       modelName: options.model,
++      maxTokens: +options.max_tokens,
+       // frequencyPenalty: +options.frequency_penalty || 0,
+       presencePenalty: +options.presence_penalty || 0,
+       n: options.n || 1,
+@@ -60,10 +64,6 @@ export default class LangchainOpenAIAgentProvider
+       streaming: options.stream || false,
+       maxRetries: 3,
+       headers: options.headers || undefined,
+-
+-      bodyParams: {
+-        max_completion_tokens: +options.max_tokens,
+-      },
+     } as Partial<OpenAIChatInput>);
+   }
+ 
+diff --git a/src/LLMProviders/langchain/openaiChat.tsx b/src/LLMProviders/langchain/openaiChat.tsx
+index 671a425..a30ed36 100644
+--- a/src/LLMProviders/langchain/openaiChat.tsx
++++ b/src/LLMProviders/langchain/openaiChat.tsx
+@@ -30,6 +30,7 @@ export default class LangchainOpenAIChatProvider
+   id = LangchainOpenAIChatProvider.id;
+   provider = LangchainOpenAIChatProvider.provider;
+   originalId = LangchainOpenAIChatProvider.id;
++  routerCompatible = true;
+ 
+   default_values = default_values;
+ 
+@@ -49,26 +50,28 @@ export default class LangchainOpenAIChatProvider
+       return this.cleanConfig({
+         apiKey: options.api_key,
+         openAIApiKey: options.api_key,
+-        modelKwargs: {
+-          ...options.modelKwargs,
+-          reasoning_effort: options.reasoningEffort || default_values.reasoningEffort,
++        // Router (and OpenAI's own /v1/responses) expects reasoning effort and output
++        // caps as first-class fields, not the Chat Completions modelKwargs/body hacks.
++        useResponsesApi: true,
++        reasoning: {
++          effort: options.reasoningEffort || default_values.reasoningEffort,
+         },
++        modelKwargs: options.modelKwargs,
+         modelName: options.model,
++        maxTokens: +options.max_tokens,
+         presencePenalty: +options.presence_penalty || 0,
+         n: options.n || 1,
+         stop: options.stop || undefined,
+         streaming: options.stream || false,
+         maxRetries: 3,
+         headers: options.headers || undefined,
+-        bodyParams: {
+-          max_completion_tokens: +options.max_tokens,
+-        },
+       } as Partial<OpenAIChatInput>);
+     }
+ 
+     return this.cleanConfig({
+       apiKey: options.api_key,
+       openAIApiKey: options.api_key,
++      useResponsesApi: true,
+       modelKwargs: options.modelKwargs,
+       modelName: options.model,
+       maxTokens: +options.max_tokens,
+diff --git a/src/router-config.ts b/src/router-config.ts
+new file mode 100644
+index 0000000..42fdb76
+--- /dev/null
++++ b/src/router-config.ts
+@@ -0,0 +1,36 @@
++/**
++ * Router (https://api.router.com) is an OpenAI Responses-compatible gateway that fronts
++ * multiple model providers behind one credential. When RAMP_ROUTER_API_KEY is present,
++ * providers that support Router point their traffic there instead of the provider's own
++ * endpoint, and never send the provider's own API key.
++ */
++
++const DEFAULT_ROUTER_BASE_URL = "https://api.router.com/v1";
++
++function readEnv(name: string): string | undefined {
++  // `process` is shimmed to an empty env object in the bundled Obsidian plugin;
++  // this only resolves to a real value in Node-based build/test environments.
++  return typeof process !== "undefined" ? process.env?.[name] : undefined;
++}
++
++export function getRouterApiKey(): string | undefined {
++  return readEnv("RAMP_ROUTER_API_KEY") || undefined;
++}
++
++export function isRouterEnabled(): boolean {
++  return !!getRouterApiKey();
++}
++
++/** Router's base URL, e.g. "https://api.router.com/v1" (OpenAI-SDK style: includes "/v1"). */
++export function getRouterBaseURL(): string {
++  const base = readEnv("RAMP_ROUTER_BASE_URL") || DEFAULT_ROUTER_BASE_URL;
++  return base.endsWith("/") ? base.slice(0, -1) : base;
++}
++
++/**
++ * Base URL for the @anthropic-ai/sdk-flavored clients, which append "/v1/messages"
++ * themselves. getRouterBaseURL() already includes a trailing "/v1", so strip it here.
++ */
++export function getRouterAnthropicBaseURL(): string {
++  return getRouterBaseURL().replace(/\/v1$/, "");
++}

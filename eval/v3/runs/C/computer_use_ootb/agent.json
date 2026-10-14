@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 1.2334688000000005,
+  "turns": 78,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "Migration complete \u2014 `router-migrate finish .` exits 0.\n\n**Outcome: nothing moved to Router.** Every real production LLM call site in this repo hits a reason Router can't (or shouldn't) serve:\n\n| Site | Outcome | Why |\n|---|---|---|\n| `AnthropicActor` (anthropic_agent.py:125) | `flagged R_BETA` | sets `betas=[\"computer-use-2024-10-22\"]` \u2014 Anthropic beta header, stays on Anthropic |\n| `UITARS_Actor` (uitars_agent.py:62) | `flagged R_MODEL_NOT_IN_CATALOG` | model `\"ui-tars\"` served by a user-supplied self-hosted URL, not a Router catalog id |\n| `run_oai_interleaved` (oai.py:71) | `handoff R_RAW_REQUESTS` | raw `requests.post` to `api.openai.com/v1/chat/completions`, bypasses the SDK the runtime hooks |\n| `run_ssh_llm_interleaved` (oai.py:175) | `kept R_OTHER_HOST` | raw HTTP to a user-typed `ssh_host:port` self-hosted inference server (served by `remote_inference.py`) |\n| `run_qwen` (qwen.py:23/52) | `kept R_OTHER_HOST` | Alibaba DashScope SDK, never an OpenAI/Anthropic endpoint |\n| `LocalVLMPlanner` / `remote_inference.py` | `not_a_site` | local HF model inference / an inbound OpenAI-compatible server, not an outbound LLM call |\n\nThe other 41 worklist hotspots were dispatch literals, UI dropdown choices, dict mappings, and type-only `anthropic` imports (used for callback typing, never instantiated) \u2014 none of those are themselves calls, so they're claimed `not_a_site` with evidence pointing at the real call sites above.\n\nNo files were edited beyond what the floor already touched \u2014 this repo's actual LLM traffic (Anthropic computer-use beta, a self-hosted UI-TARS/SSH model, DashScope) structurally can't route through Router today, so the correct migration here is \"leave it on the provider with evidence,\" not code changes.",
+  "finish_exit": 0
+ },
+ "minutes": 6.5
+}

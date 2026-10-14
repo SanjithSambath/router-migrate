@@ -1,0 +1,217 @@
+diff --git a/README.md b/README.md
+index b4e02f9..655bfb9 100644
+--- a/README.md
++++ b/README.md
+@@ -34,18 +34,9 @@ Additionally:
+ ### Model switching with `/model`:
+ ![image](https://github.com/user-attachments/assets/568e2f5c-bf32-4b77-ab57-198d9120f3d2)
+ 
+-llmcord supports remote models from:
+-- [OpenRouter](https://openrouter.ai/models)
+-- [OpenAI](https://platform.openai.com/docs/models)
+-- [xAI](https://docs.x.ai/docs/models)
+-- [Google](https://ai.google.dev/gemini-api/docs/models)
+-
+-Or run local models with:
+-- [LM Studio](https://lmstudio.ai)
+-- [Ollama](https://ollama.com)
+-- [vLLM](https://github.com/vllm-project/vllm)
+-
+-...Or use any other OpenAI /v1/chat/completions compatible API server.
++llmcord talks to models through [Router](https://api.router.com), a single OpenAI Responses-compatible
++gateway in front of models from multiple providers. Router holds the provider credentials, so
++llmcord only ever needs one API key.
+ 
+ ---
+ 
+@@ -91,8 +82,8 @@ Or run local models with:
+ 
+ | Setting | Description |
+ | --- | --- |
+-| **providers** | Add the LLM providers you want to use, each with a `base_url` and optional `api_key` entry. Popular providers (`openrouter`, `openai`, `ollama`, etc.) are already included.<br /><br />**Only supports OpenAI /v1/chat/completions compatible APIs.**<br /><br />**Some providers may need `extra_headers` / `extra_query` / `extra_body` entries for extra HTTP data. See the included `azure-openai` provider for an example.** |
+-| **models** | Add the models you want to use in `<provider>/<model>: <parameters>` format (examples are included). When you run `/model` these models will show up as autocomplete suggestions.<br /><br />**Refer to each provider's documentation for supported parameters.**<br /><br />**The first model in your `models` list will be the default model at startup.**<br /><br />**Some vision models may need `:vision` added to the end of their name to enable image support.** |
++| **RAMP_ROUTER_API_KEY** (environment variable) | Your Router API key. Set it in the environment (or `.env`) -- never in `config.yaml`. |
++| **models** | Add the Router model IDs you want to use, each with an optional map of extra [Responses API](https://platform.openai.com/docs/api-reference/responses) request fields (`reasoning`, `text`, `tools`, etc.) (examples are included). When you run `/model` these models will show up as autocomplete suggestions.<br /><br />**Model IDs are account-specific -- get the valid list from `GET /v1/models` on your Router account.**<br /><br />**The first model in your `models` list will be the default model at startup.**<br /><br />**Some vision models may need `:vision` added to the end of their name to enable image support.** |
+ | **system_prompt** | Write anything you want to customize the bot's behavior!<br /><br />**Leave blank for no system prompt.**<br /><br />**You can use the `{date}` and `{time}` tags in your system prompt to insert the current date and time, based on your host computer's time zone.**<br /><br />**It is recommended to include something like `"User messages are prefixed with their Discord ID as <@ID>. Use this format to mention users."` in your system prompt to help the bot understand the user message format.** |
+ 
+ 3. Run the bot:
+diff --git a/config.yaml b/config.yaml
+index 0650c52..c3c1db5 100644
+--- a/config.yaml
++++ b/config.yaml
+@@ -26,49 +26,19 @@ permissions:
+     allowed_ids: []
+     blocked_ids: []
+ 
+-providers:
+-  openrouter:
+-    base_url: https://openrouter.ai/api/v1
+-    api_key_env: OPENROUTER_API_KEY
+-
+-  openai:
+-    base_url: https://api.openai.com/v1
+-    api_key_env: OPENAI_API_KEY
+-
+-  x-ai:
+-    base_url: https://api.x.ai/v1
+-    api_key_env: X_AI_API_KEY
+-
+-  google:
+-    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+-    api_key_env: GEMINI_API_KEY
+-
+-  azure-openai:
+-    base_url: https://<resource name>.openai.azure.com/openai/deployments/<deployment name>
+-    api_key_env: AZURE_OPENAI_API_KEY
+-    extra_query:
+-      api-version: 2024-12-01-preview
+-
+-  lmstudio:
+-    base_url: http://localhost:1234/v1
+-
+-  ollama:
+-    base_url: http://localhost:11434/v1
+-
+-  vllm:
+-    base_url: http://localhost:8000/v1
+-
++# Router (https://api.router.com/v1) holds every provider credential, so there is no "providers"
++# section anymore. Model IDs below must come from `GET /v1/models` on your Router account --
++# don't invent one or reuse a provider's public model name.
+ models:
+-  openai/gpt-5.5:
+-    reasoning_effort: high
+-    verbosity: medium
++  gpt-5.5:
++    reasoning:
++      effort: high
++    text:
++      verbosity: medium
+ 
+-  openrouter/~anthropic/claude-opus-latest:
++  claude-opus-5:
+     tools:
+-      - type: openrouter:web_search
+-      - type: openrouter:web_fetch
+-
+-  ollama/llama4:
++      - type: web_search
+ 
+ system_prompt: |
+   You are a snarky Discord chatbot. Be informative but harsh.
+diff --git a/llmcord.py b/llmcord.py
+index 23d2d20..e4ed4c0 100644
+--- a/llmcord.py
++++ b/llmcord.py
+@@ -57,6 +57,11 @@ discord_bot = commands.Bot(intents=intents, activity=activity, command_prefix=No
+ 
+ httpx_client = httpx.AsyncClient()
+ 
++router_client = AsyncOpenAI(
++    base_url=os.environ.get("RAMP_ROUTER_BASE_URL", "https://api.router.com/v1"),
++    api_key=os.environ.get("RAMP_ROUTER_API_KEY"),
++)
++
+ 
+ @dataclass
+ class MsgNode:
+@@ -146,22 +151,12 @@ async def on_message(new_msg: discord.Message) -> None:
+     if is_bad_user or is_bad_channel:
+         return
+ 
+-    provider_slash_model = curr_model
+-    provider, model = provider_slash_model.removesuffix(":vision").split("/", 1)
+-
+-    provider_config = config["providers"][provider]
++    model = curr_model.removesuffix(":vision")
+ 
+-    base_url = provider_config["base_url"]
+-    api_key = provider_config.get("api_key", "sk-no-key-required")
+-    openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key)
++    model_parameters = config["models"].get(curr_model, None)
++    extra_body = model_parameters or None
+ 
+-    model_parameters = config["models"].get(provider_slash_model, None)
+-
+-    extra_headers = provider_config.get("extra_headers")
+-    extra_query = provider_config.get("extra_query")
+-    extra_body = (provider_config.get("extra_body") or {}) | (model_parameters or {}) or None
+-
+-    accept_images = any(x in provider_slash_model.lower() for x in VISION_MODEL_TAGS)
++    accept_images = any(x in curr_model.lower() for x in VISION_MODEL_TAGS)
+ 
+     max_text = config.get("max_text", 100000)
+     max_images = config.get("max_images", 5) if accept_images else 0
+@@ -193,7 +188,7 @@ async def on_message(new_msg: discord.Message) -> None:
+                 )
+ 
+                 curr_node.images = [
+-                    dict(type="image_url", image_url=dict(url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}"))
++                    dict(type="input_image", image_url=f"data:{att.content_type};base64,{b64encode(resp.content).decode('utf-8')}")
+                     for att, resp in zip(good_attachments, attachment_responses)
+                     if att.content_type.startswith("image")
+                 ]
+@@ -226,8 +221,8 @@ async def on_message(new_msg: discord.Message) -> None:
+                     logging.exception("Error fetching next message in the chain")
+                     curr_node.fetch_parent_failed = True
+ 
+-            if curr_node.images[:max_images]:
+-                content = [dict(type="text", text=curr_node.text[:max_text])] + curr_node.images[:max_images]
++            if curr_node.role == "user" and curr_node.images[:max_images]:
++                content = [dict(type="input_text", text=curr_node.text[:max_text])] + curr_node.images[:max_images]
+             else:
+                 content = curr_node.text[:max_text]
+ 
+@@ -252,14 +247,12 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+         system_prompt = system_prompt.replace("{date}", now.strftime("%B %d %Y")).replace("{time}", now.strftime("%H:%M:%S %Z%z")).strip()
+ 
+-        messages.append(dict(role="system", content=system_prompt))
+-
+     # Generate and send response message(s) (can be multiple if response is long)
+     curr_content = finish_reason = None
+     response_msgs = []
+     response_contents = []
+ 
+-    openai_kwargs = dict(model=model, messages=messages[::-1], stream=True, extra_headers=extra_headers, extra_query=extra_query, extra_body=extra_body)
++    responses_kwargs = dict(model=model, input=messages[::-1], instructions=system_prompt or None, stream=True, extra_body=extra_body)
+ 
+     if use_plain_responses := config.get("use_plain_responses", False):
+         max_message_length = 4000
+@@ -277,17 +270,23 @@ async def on_message(new_msg: discord.Message) -> None:
+ 
+     try:
+         async with new_msg.channel.typing():
+-            async for chunk in await openai_client.chat.completions.create(**openai_kwargs):
++            async for event in await router_client.responses.create(**responses_kwargs):
+                 if finish_reason != None:
+                     break
+ 
+-                if not (choice := chunk.choices[0] if chunk.choices else None):
++                # Only the text-delta and terminal events matter here; tool calls, reasoning, and
++                # other output item events are inspected and skipped since this bot only renders text.
++                if event.type == "response.output_text.delta":
++                    event_finish_reason, event_content = None, event.delta or ""
++                elif event.type in ("response.completed", "response.incomplete", "response.failed"):
++                    event_finish_reason, event_content = event.response.status, ""
++                else:
+                     continue
+ 
+-                finish_reason = choice.finish_reason
++                finish_reason = event_finish_reason
+ 
+                 prev_content = curr_content or ""
+-                curr_content = choice.delta.content or ""
++                curr_content = event_content
+ 
+                 new_content = prev_content if finish_reason == None else (prev_content + curr_content)
+ 
+@@ -305,7 +304,7 @@ async def on_message(new_msg: discord.Message) -> None:
+                     ready_to_edit = time_delta >= EDIT_DELAY_SECONDS
+                     msg_split_incoming = finish_reason == None and len(response_contents[-1] + curr_content) > max_message_length
+                     is_final_edit = finish_reason != None or msg_split_incoming
+-                    is_good_finish = finish_reason != None and finish_reason.lower() in ("stop", "end_turn")
++                    is_good_finish = finish_reason != None and finish_reason.lower() in ("stop", "end_turn", "completed")
+ 
+                     if start_next_msg or ready_to_edit or is_final_edit:
+                         embed.description = response_contents[-1] if is_final_edit else (response_contents[-1] + STREAMING_INDICATOR)

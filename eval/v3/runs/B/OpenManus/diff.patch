@@ -1,0 +1,1221 @@
+diff --git a/.github/workflows/pr-autodiff.yaml b/.github/workflows/pr-autodiff.yaml
+index 46c95c6..0c06445 100644
+--- a/.github/workflows/pr-autodiff.yaml
++++ b/.github/workflows/pr-autodiff.yaml
+@@ -41,11 +41,12 @@ jobs:
+       - name: Install dependencies
+         run: |
+           python -m pip install --upgrade pip
+-          pip install openai requests
++          pip install "openai>=1.66" requests
+       - name: Create and run Python script
+         env:
+-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
++          RAMP_ROUTER_API_KEY: ${{ secrets.RAMP_ROUTER_API_KEY }}
++          RAMP_ROUTER_BASE_URL: ${{ secrets.RAMP_ROUTER_BASE_URL }}
++          ROUTER_PR_DIFF_MODEL: ${{ vars.ROUTER_PR_DIFF_MODEL }}
+           GH_TOKEN: ${{ github.token }}
+           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+           TARGET_BRANCH: ${{ steps.get-pr-sha.outputs.target_branch }}
+@@ -69,8 +70,8 @@ jobs:
+ 
+           def generate_comment(diff_content):
+               client = OpenAI(
+-                  base_url=os.getenv("OPENAI_BASE_URL"),
+-                  api_key=os.getenv("OPENAI_API_KEY")
++                  base_url=os.getenv("RAMP_ROUTER_BASE_URL", "https://api.router.com/v1"),
++                  api_key=os.getenv("RAMP_ROUTER_API_KEY")
+               )
+ 
+               guidelines = '''
+@@ -100,17 +101,12 @@ jobs:
+           3. Highlight non-English comments
+           4. Check for spelling/offensive content'''
+ 
+-              response = client.chat.completions.create(
+-                  model="o3-mini",
+-                  messages=[{
+-                      "role": "system",
+-                      "content": "Generate bilingual code review feedback."
+-                  }, {
+-                      "role": "user",
+-                      "content": f"Review these changes per guidelines:\n{guidelines}\n\nDIFF:\n{diff_content}"
+-                  }]
++              response = client.responses.create(
++                  model=os.getenv("ROUTER_PR_DIFF_MODEL"),
++                  instructions="Generate bilingual code review feedback.",
++                  input=f"Review these changes per guidelines:\n{guidelines}\n\nDIFF:\n{diff_content}"
+               )
+-              return response.choices[0].message.content
++              return response.output_text
+ 
+           def post_comment(comment):
+               repo = os.getenv("GITHUB_REPOSITORY")
+diff --git a/README.md b/README.md
+index a2b64c9..906cac9 100644
+--- a/README.md
++++ b/README.md
+@@ -122,30 +122,36 @@ ### Browser automation
+ 
+ ## Configuration
+ 
+-OpenManus requires configuration for the LLM APIs it uses. Follow these steps to set up your configuration:
++OpenManus talks to LLMs through Router, a gateway that exposes a single
++OpenAI Responses-compatible API in front of models from multiple providers.
++Router holds the provider credentials, so the app never sees a provider API
++key - only `RAMP_ROUTER_API_KEY`. Follow these steps to set up your
++configuration:
+ 
+-1. Create a `config.toml` file in the `config` directory (you can copy from the example):
++1. Set `RAMP_ROUTER_API_KEY` in your environment (and optionally
++   `RAMP_ROUTER_BASE_URL` if you're not using `https://api.router.com/v1`).
++
++2. Create a `config.toml` file in the `config` directory (you can copy from the example):
+ 
+ ```bash
+ cp config/config.example.toml config/config.toml
+ ```
+ 
+-2. Edit `config/config.toml` to add your API keys and customize settings:
++3. Edit `config/config.toml` to pick a model and customize settings. Model IDs
++   are account-specific - fetch the list of valid ones from `GET /v1/models`
++   on Router and use one of those, rather than a provider's public model name:
+ 
+ ```toml
+ # Global LLM configuration
+ [llm]
+-model = "gpt-4o"
+-base_url = "https://api.openai.com/v1"
+-api_key = "sk-..."  # Replace with your actual API key
++model = "<a model ID from GET /v1/models>"
+ max_tokens = 4096
+ temperature = 0.0
+ 
+ # Optional configuration for specific LLM models
+ [llm.vision]
+-model = "gpt-4o"
+-base_url = "https://api.openai.com/v1"
+-api_key = "sk-..."  # Replace with your actual API key
++model = "<a model ID from GET /v1/models that accepts images>"
++supports_images = true
+ ```
+ 
+ ## Quick Start
+diff --git a/app/bedrock.py b/app/bedrock.py
+deleted file mode 100644
+index 2806329..0000000
+--- a/app/bedrock.py
++++ /dev/null
+@@ -1,334 +0,0 @@
+-import json
+-import sys
+-import time
+-import uuid
+-from datetime import datetime
+-from typing import Dict, List, Literal, Optional
+-
+-import boto3
+-
+-
+-# Global variables to track the current tool use ID across function calls
+-# Tmp solution
+-CURRENT_TOOLUSE_ID = None
+-
+-
+-# Class to handle OpenAI-style response formatting
+-class OpenAIResponse:
+-    def __init__(self, data):
+-        # Recursively convert nested dicts and lists to OpenAIResponse objects
+-        for key, value in data.items():
+-            if isinstance(value, dict):
+-                value = OpenAIResponse(value)
+-            elif isinstance(value, list):
+-                value = [
+-                    OpenAIResponse(item) if isinstance(item, dict) else item
+-                    for item in value
+-                ]
+-            setattr(self, key, value)
+-
+-    def model_dump(self, *args, **kwargs):
+-        # Convert object to dict and add timestamp
+-        data = self.__dict__
+-        data["created_at"] = datetime.now().isoformat()
+-        return data
+-
+-
+-# Main client class for interacting with Amazon Bedrock
+-class BedrockClient:
+-    def __init__(self):
+-        # Initialize Bedrock client, you need to configure AWS env first
+-        try:
+-            self.client = boto3.client("bedrock-runtime")
+-            self.chat = Chat(self.client)
+-        except Exception as e:
+-            print(f"Error initializing Bedrock client: {e}")
+-            sys.exit(1)
+-
+-
+-# Chat interface class
+-class Chat:
+-    def __init__(self, client):
+-        self.completions = ChatCompletions(client)
+-
+-
+-# Core class handling chat completions functionality
+-class ChatCompletions:
+-    def __init__(self, client):
+-        self.client = client
+-
+-    def _convert_openai_tools_to_bedrock_format(self, tools):
+-        # Convert OpenAI function calling format to Bedrock tool format
+-        bedrock_tools = []
+-        for tool in tools:
+-            if tool.get("type") == "function":
+-                function = tool.get("function", {})
+-                bedrock_tool = {
+-                    "toolSpec": {
+-                        "name": function.get("name", ""),
+-                        "description": function.get("description", ""),
+-                        "inputSchema": {
+-                            "json": {
+-                                "type": "object",
+-                                "properties": function.get("parameters", {}).get(
+-                                    "properties", {}
+-                                ),
+-                                "required": function.get("parameters", {}).get(
+-                                    "required", []
+-                                ),
+-                            }
+-                        },
+-                    }
+-                }
+-                bedrock_tools.append(bedrock_tool)
+-        return bedrock_tools
+-
+-    def _convert_openai_messages_to_bedrock_format(self, messages):
+-        # Convert OpenAI message format to Bedrock message format
+-        bedrock_messages = []
+-        system_prompt = []
+-        for message in messages:
+-            if message.get("role") == "system":
+-                system_prompt = [{"text": message.get("content")}]
+-            elif message.get("role") == "user":
+-                bedrock_message = {
+-                    "role": message.get("role", "user"),
+-                    "content": [{"text": message.get("content")}],
+-                }
+-                bedrock_messages.append(bedrock_message)
+-            elif message.get("role") == "assistant":
+-                bedrock_message = {
+-                    "role": "assistant",
+-                    "content": [{"text": message.get("content")}],
+-                }
+-                openai_tool_calls = message.get("tool_calls", [])
+-                if openai_tool_calls:
+-                    bedrock_tool_use = {
+-                        "toolUseId": openai_tool_calls[0]["id"],
+-                        "name": openai_tool_calls[0]["function"]["name"],
+-                        "input": json.loads(
+-                            openai_tool_calls[0]["function"]["arguments"]
+-                        ),
+-                    }
+-                    bedrock_message["content"].append({"toolUse": bedrock_tool_use})
+-                    global CURRENT_TOOLUSE_ID
+-                    CURRENT_TOOLUSE_ID = openai_tool_calls[0]["id"]
+-                bedrock_messages.append(bedrock_message)
+-            elif message.get("role") == "tool":
+-                bedrock_message = {
+-                    "role": "user",
+-                    "content": [
+-                        {
+-                            "toolResult": {
+-                                "toolUseId": CURRENT_TOOLUSE_ID,
+-                                "content": [{"text": message.get("content")}],
+-                            }
+-                        }
+-                    ],
+-                }
+-                bedrock_messages.append(bedrock_message)
+-            else:
+-                raise ValueError(f"Invalid role: {message.get('role')}")
+-        return system_prompt, bedrock_messages
+-
+-    def _convert_bedrock_response_to_openai_format(self, bedrock_response):
+-        # Convert Bedrock response format to OpenAI format
+-        content = ""
+-        if bedrock_response.get("output", {}).get("message", {}).get("content"):
+-            content_array = bedrock_response["output"]["message"]["content"]
+-            content = "".join(item.get("text", "") for item in content_array)
+-        if content == "":
+-            content = "."
+-
+-        # Handle tool calls in response
+-        openai_tool_calls = []
+-        if bedrock_response.get("output", {}).get("message", {}).get("content"):
+-            for content_item in bedrock_response["output"]["message"]["content"]:
+-                if content_item.get("toolUse"):
+-                    bedrock_tool_use = content_item["toolUse"]
+-                    global CURRENT_TOOLUSE_ID
+-                    CURRENT_TOOLUSE_ID = bedrock_tool_use["toolUseId"]
+-                    openai_tool_call = {
+-                        "id": CURRENT_TOOLUSE_ID,
+-                        "type": "function",
+-                        "function": {
+-                            "name": bedrock_tool_use["name"],
+-                            "arguments": json.dumps(bedrock_tool_use["input"]),
+-                        },
+-                    }
+-                    openai_tool_calls.append(openai_tool_call)
+-
+-        # Construct final OpenAI format response
+-        openai_format = {
+-            "id": f"chatcmpl-{uuid.uuid4()}",
+-            "created": int(time.time()),
+-            "object": "chat.completion",
+-            "system_fingerprint": None,
+-            "choices": [
+-                {
+-                    "finish_reason": bedrock_response.get("stopReason", "end_turn"),
+-                    "index": 0,
+-                    "message": {
+-                        "content": content,
+-                        "role": bedrock_response.get("output", {})
+-                        .get("message", {})
+-                        .get("role", "assistant"),
+-                        "tool_calls": openai_tool_calls
+-                        if openai_tool_calls != []
+-                        else None,
+-                        "function_call": None,
+-                    },
+-                }
+-            ],
+-            "usage": {
+-                "completion_tokens": bedrock_response.get("usage", {}).get(
+-                    "outputTokens", 0
+-                ),
+-                "prompt_tokens": bedrock_response.get("usage", {}).get(
+-                    "inputTokens", 0
+-                ),
+-                "total_tokens": bedrock_response.get("usage", {}).get("totalTokens", 0),
+-            },
+-        }
+-        return OpenAIResponse(openai_format)
+-
+-    async def _invoke_bedrock(
+-        self,
+-        model: str,
+-        messages: List[Dict[str, str]],
+-        max_tokens: int,
+-        temperature: float,
+-        tools: Optional[List[dict]] = None,
+-        tool_choice: Literal["none", "auto", "required"] = "auto",
+-        **kwargs,
+-    ) -> OpenAIResponse:
+-        # Non-streaming invocation of Bedrock model
+-        (
+-            system_prompt,
+-            bedrock_messages,
+-        ) = self._convert_openai_messages_to_bedrock_format(messages)
+-        response = self.client.converse(
+-            modelId=model,
+-            system=system_prompt,
+-            messages=bedrock_messages,
+-            inferenceConfig={"temperature": temperature, "maxTokens": max_tokens},
+-            toolConfig={"tools": tools} if tools else None,
+-        )
+-        openai_response = self._convert_bedrock_response_to_openai_format(response)
+-        return openai_response
+-
+-    async def _invoke_bedrock_stream(
+-        self,
+-        model: str,
+-        messages: List[Dict[str, str]],
+-        max_tokens: int,
+-        temperature: float,
+-        tools: Optional[List[dict]] = None,
+-        tool_choice: Literal["none", "auto", "required"] = "auto",
+-        **kwargs,
+-    ) -> OpenAIResponse:
+-        # Streaming invocation of Bedrock model
+-        (
+-            system_prompt,
+-            bedrock_messages,
+-        ) = self._convert_openai_messages_to_bedrock_format(messages)
+-        response = self.client.converse_stream(
+-            modelId=model,
+-            system=system_prompt,
+-            messages=bedrock_messages,
+-            inferenceConfig={"temperature": temperature, "maxTokens": max_tokens},
+-            toolConfig={"tools": tools} if tools else None,
+-        )
+-
+-        # Initialize response structure
+-        bedrock_response = {
+-            "output": {"message": {"role": "", "content": []}},
+-            "stopReason": "",
+-            "usage": {},
+-            "metrics": {},
+-        }
+-        bedrock_response_text = ""
+-        bedrock_response_tool_input = ""
+-
+-        # Process streaming response
+-        stream = response.get("stream")
+-        if stream:
+-            for event in stream:
+-                if event.get("messageStart", {}).get("role"):
+-                    bedrock_response["output"]["message"]["role"] = event[
+-                        "messageStart"
+-                    ]["role"]
+-                if event.get("contentBlockDelta", {}).get("delta", {}).get("text"):
+-                    bedrock_response_text += event["contentBlockDelta"]["delta"]["text"]
+-                    print(
+-                        event["contentBlockDelta"]["delta"]["text"], end="", flush=True
+-                    )
+-                if event.get("contentBlockStop", {}).get("contentBlockIndex") == 0:
+-                    bedrock_response["output"]["message"]["content"].append(
+-                        {"text": bedrock_response_text}
+-                    )
+-                if event.get("contentBlockStart", {}).get("start", {}).get("toolUse"):
+-                    bedrock_tool_use = event["contentBlockStart"]["start"]["toolUse"]
+-                    tool_use = {
+-                        "toolUseId": bedrock_tool_use["toolUseId"],
+-                        "name": bedrock_tool_use["name"],
+-                    }
+-                    bedrock_response["output"]["message"]["content"].append(
+-                        {"toolUse": tool_use}
+-                    )
+-                    global CURRENT_TOOLUSE_ID
+-                    CURRENT_TOOLUSE_ID = bedrock_tool_use["toolUseId"]
+-                if event.get("contentBlockDelta", {}).get("delta", {}).get("toolUse"):
+-                    bedrock_response_tool_input += event["contentBlockDelta"]["delta"][
+-                        "toolUse"
+-                    ]["input"]
+-                    print(
+-                        event["contentBlockDelta"]["delta"]["toolUse"]["input"],
+-                        end="",
+-                        flush=True,
+-                    )
+-                if event.get("contentBlockStop", {}).get("contentBlockIndex") == 1:
+-                    bedrock_response["output"]["message"]["content"][1]["toolUse"][
+-                        "input"
+-                    ] = json.loads(bedrock_response_tool_input)
+-        print()
+-        openai_response = self._convert_bedrock_response_to_openai_format(
+-            bedrock_response
+-        )
+-        return openai_response
+-
+-    def create(
+-        self,
+-        model: str,
+-        messages: List[Dict[str, str]],
+-        max_tokens: int,
+-        temperature: float,
+-        stream: Optional[bool] = True,
+-        tools: Optional[List[dict]] = None,
+-        tool_choice: Literal["none", "auto", "required"] = "auto",
+-        **kwargs,
+-    ) -> OpenAIResponse:
+-        # Main entry point for chat completion
+-        bedrock_tools = []
+-        if tools is not None:
+-            bedrock_tools = self._convert_openai_tools_to_bedrock_format(tools)
+-        if stream:
+-            return self._invoke_bedrock_stream(
+-                model,
+-                messages,
+-                max_tokens,
+-                temperature,
+-                bedrock_tools,
+-                tool_choice,
+-                **kwargs,
+-            )
+-        else:
+-            return self._invoke_bedrock(
+-                model,
+-                messages,
+-                max_tokens,
+-                temperature,
+-                bedrock_tools,
+-                tool_choice,
+-                **kwargs,
+-            )
+diff --git a/app/config.py b/app/config.py
+index a881e2a..1555165 100644
+--- a/app/config.py
++++ b/app/config.py
+@@ -17,17 +17,19 @@ WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+ 
+ 
+ class LLMSettings(BaseModel):
+-    model: str = Field(..., description="Model name")
+-    base_url: str = Field(..., description="API base URL")
+-    api_key: str = Field(..., description="API key")
++    model: str = Field(..., description="Router model ID, from GET /v1/models")
+     max_tokens: int = Field(4096, description="Maximum number of tokens per request")
+     max_input_tokens: Optional[int] = Field(
+         None,
+         description="Maximum input tokens to use across all requests (None for unlimited)",
+     )
+     temperature: float = Field(1.0, description="Sampling temperature")
+-    api_type: str = Field(..., description="Azure, Openai, or Ollama")
+-    api_version: str = Field(..., description="Azure Openai version if AzureOpenai")
++    supports_images: bool = Field(
++        False, description="Whether this model accepts image input"
++    )
++    supports_temperature: bool = Field(
++        True, description="Whether this model accepts a temperature parameter"
++    )
+ 
+ 
+ class ProxySettings(BaseModel):
+@@ -239,13 +241,11 @@ class Config:
+ 
+         default_settings = {
+             "model": base_llm.get("model"),
+-            "base_url": base_llm.get("base_url"),
+-            "api_key": base_llm.get("api_key"),
+             "max_tokens": base_llm.get("max_tokens", 4096),
+             "max_input_tokens": base_llm.get("max_input_tokens"),
+             "temperature": base_llm.get("temperature", 1.0),
+-            "api_type": base_llm.get("api_type", ""),
+-            "api_version": base_llm.get("api_version", ""),
++            "supports_images": base_llm.get("supports_images", False),
++            "supports_temperature": base_llm.get("supports_temperature", True),
+         }
+ 
+         # handle browser config.
+diff --git a/app/llm.py b/app/llm.py
+index 82ebe88..8178bf0 100644
+--- a/app/llm.py
++++ b/app/llm.py
+@@ -1,16 +1,14 @@
+ import math
++import os
+ from typing import Dict, List, Optional, Union
+ 
+ import tiktoken
+-from openai import (
+-    APIError,
+-    AsyncAzureOpenAI,
+-    AsyncOpenAI,
+-    AuthenticationError,
+-    OpenAIError,
+-    RateLimitError,
++from openai import APIError, AsyncOpenAI, AuthenticationError, OpenAIError, RateLimitError
++from openai.types.chat import ChatCompletionMessage
++from openai.types.chat.chat_completion_message_tool_call import (
++    ChatCompletionMessageToolCall,
++    Function as ToolCallFunction,
+ )
+-from openai.types.chat import ChatCompletion, ChatCompletionMessage
+ from tenacity import (
+     retry,
+     retry_if_exception_type,
+@@ -18,7 +16,6 @@ from tenacity import (
+     wait_random_exponential,
+ )
+ 
+-from app.bedrock import BedrockClient
+ from app.config import LLMSettings, config
+ from app.exceptions import TokenLimitExceeded
+ from app.logger import logger  # Assuming a logger is set up in your app
+@@ -31,15 +28,7 @@ from app.schema import (
+ )
+ 
+ 
+-REASONING_MODELS = ["o1", "o3-mini"]
+-MULTIMODAL_MODELS = [
+-    "gpt-4-vision-preview",
+-    "gpt-4o",
+-    "gpt-4o-mini",
+-    "claude-3-opus-20240229",
+-    "claude-3-sonnet-20240229",
+-    "claude-3-haiku-20240307",
+-]
++ROUTER_DEFAULT_BASE_URL = "https://api.router.com/v1"
+ 
+ 
+ class TokenCounter:
+@@ -192,10 +181,8 @@ class LLM:
+             self.model = llm_config.model
+             self.max_tokens = llm_config.max_tokens
+             self.temperature = llm_config.temperature
+-            self.api_type = llm_config.api_type
+-            self.api_key = llm_config.api_key
+-            self.api_version = llm_config.api_version
+-            self.base_url = llm_config.base_url
++            self.supports_images = llm_config.supports_images
++            self.supports_temperature = llm_config.supports_temperature
+ 
+             # Add token counting related attributes
+             self.total_input_tokens = 0
+@@ -213,16 +200,10 @@ class LLM:
+                 # If the model is not in tiktoken's presets, use cl100k_base as default
+                 self.tokenizer = tiktoken.get_encoding("cl100k_base")
+ 
+-            if self.api_type == "azure":
+-                self.client = AsyncAzureOpenAI(
+-                    base_url=self.base_url,
+-                    api_key=self.api_key,
+-                    api_version=self.api_version,
+-                )
+-            elif self.api_type == "aws":
+-                self.client = BedrockClient()
+-            else:
+-                self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
++            # Router holds the provider credentials; the app only ever talks to Router.
++            self.base_url = os.environ.get("RAMP_ROUTER_BASE_URL", ROUTER_DEFAULT_BASE_URL)
++            self.api_key = os.environ.get("RAMP_ROUTER_API_KEY", "")
++            self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
+ 
+             self.token_counter = TokenCounter(self.tokenizer)
+ 
+@@ -351,6 +332,119 @@ class LLM:
+ 
+         return formatted_messages
+ 
++    @staticmethod
++    def _to_responses_content(content: Union[str, List[dict]]) -> Union[str, List[dict]]:
++        """Convert chat-style message content into Responses API input content parts."""
++        if isinstance(content, str):
++            return content
++        parts = []
++        for item in content:
++            if isinstance(item, str):
++                parts.append({"type": "input_text", "text": item})
++            elif item.get("type") == "image_url":
++                parts.append(
++                    {
++                        "type": "input_image",
++                        "image_url": item["image_url"]["url"],
++                        "detail": "auto",
++                    }
++                )
++            else:  # {"type": "text", "text": ...}
++                parts.append({"type": "input_text", "text": item.get("text", "")})
++        return parts
++
++    @classmethod
++    def _to_responses_input(cls, messages: List[dict]) -> tuple:
++        """Split chat-style messages into (instructions, input) for the Responses API.
++
++        System messages become `instructions`; tool-role messages and assistant
++        tool_calls become the dedicated `function_call_output`/`function_call` item
++        types the Responses API uses instead of chat's role="tool" messages.
++        """
++        instructions_parts = []
++        input_items = []
++
++        for message in messages:
++            role = message["role"]
++
++            if role == "system":
++                if message.get("content"):
++                    instructions_parts.append(message["content"])
++                continue
++
++            if role == "tool":
++                input_items.append(
++                    {
++                        "type": "function_call_output",
++                        "call_id": message["tool_call_id"],
++                        "output": message.get("content") or "",
++                    }
++                )
++                continue
++
++            content = message.get("content")
++            if content:
++                input_items.append(
++                    {"role": role, "content": cls._to_responses_content(content)}
++                )
++
++            for tool_call in message.get("tool_calls") or []:
++                function = tool_call["function"]
++                input_items.append(
++                    {
++                        "type": "function_call",
++                        "call_id": tool_call["id"],
++                        "name": function["name"],
++                        "arguments": function["arguments"],
++                    }
++                )
++
++        instructions = "\n\n".join(instructions_parts) if instructions_parts else None
++        return instructions, input_items
++
++    @staticmethod
++    def _to_responses_tools(tools: Optional[List[dict]]) -> Optional[List[dict]]:
++        """Flatten chat-completions-shaped tool defs into the Responses API's flat shape."""
++        if not tools:
++            return tools
++        converted = []
++        for tool in tools:
++            if tool.get("type") == "function" and "function" in tool:
++                function = tool["function"]
++                converted.append(
++                    {
++                        "type": "function",
++                        "name": function["name"],
++                        "description": function.get("description", ""),
++                        "parameters": function.get("parameters", {}),
++                        # Responses function tools default to strict=true (requiring
++                        # additionalProperties:false and every property in `required`),
++                        # unlike chat.completions. These tool defs predate that rule, so
++                        # opt back out of strict mode rather than rewriting the schemas.
++                        "strict": False,
++                    }
++                )
++            else:
++                converted.append(tool)
++        return converted
++
++    @staticmethod
++    def _extract_tool_calls(response) -> List[ChatCompletionMessageToolCall]:
++        """Pull function_call items out of a Responses API `response.output`."""
++        tool_calls = []
++        for item in response.output:
++            if getattr(item, "type", None) == "function_call":
++                tool_calls.append(
++                    ChatCompletionMessageToolCall(
++                        id=item.call_id,
++                        type="function",
++                        function=ToolCallFunction(
++                            name=item.name, arguments=item.arguments
++                        ),
++                    )
++                )
++        return tool_calls
++
+     @retry(
+         wait=wait_random_exponential(min=1, max=60),
+         stop=stop_after_attempt(6),
+@@ -384,15 +478,14 @@ class LLM:
+             Exception: For unexpected errors
+         """
+         try:
+-            # Check if the model supports images
+-            supports_images = self.model in MULTIMODAL_MODELS
+-
+             # Format system and user messages with image support check
+             if system_msgs:
+-                system_msgs = self.format_messages(system_msgs, supports_images)
+-                messages = system_msgs + self.format_messages(messages, supports_images)
++                system_msgs = self.format_messages(system_msgs, self.supports_images)
++                messages = system_msgs + self.format_messages(
++                    messages, self.supports_images
++                )
+             else:
+-                messages = self.format_messages(messages, supports_images)
++                messages = self.format_messages(messages, self.supports_images)
+ 
+             # Calculate input token count
+             input_tokens = self.count_message_tokens(messages)
+@@ -403,47 +496,46 @@ class LLM:
+                 # Raise a special exception that won't be retried
+                 raise TokenLimitExceeded(error_message)
+ 
++            instructions, input_items = self._to_responses_input(messages)
++
+             params = {
+                 "model": self.model,
+-                "messages": messages,
++                "input": input_items,
++                "max_output_tokens": self.max_tokens,
+             }
+-
+-            if self.model in REASONING_MODELS:
+-                params["max_completion_tokens"] = self.max_tokens
+-            else:
+-                params["max_tokens"] = self.max_tokens
++            if instructions:
++                params["instructions"] = instructions
++            if self.supports_temperature:
+                 params["temperature"] = (
+                     temperature if temperature is not None else self.temperature
+                 )
+ 
+             if not stream:
+                 # Non-streaming request
+-                response = await self.client.chat.completions.create(
+-                    **params, stream=False
+-                )
++                response = await self.client.responses.create(**params, stream=False)
+ 
+-                if not response.choices or not response.choices[0].message.content:
++                if not response.output_text:
+                     raise ValueError("Empty or invalid response from LLM")
+ 
+                 # Update token counts
+                 self.update_token_count(
+-                    response.usage.prompt_tokens, response.usage.completion_tokens
++                    response.usage.input_tokens, response.usage.output_tokens
+                 )
+ 
+-                return response.choices[0].message.content
++                return response.output_text
+ 
+             # Streaming request, For streaming, update estimated token count before making the request
+             self.update_token_count(input_tokens)
+ 
+-            response = await self.client.chat.completions.create(**params, stream=True)
++            response = await self.client.responses.create(**params, stream=True)
+ 
+             collected_messages = []
+             completion_text = ""
+-            async for chunk in response:
+-                chunk_message = chunk.choices[0].delta.content or ""
+-                collected_messages.append(chunk_message)
+-                completion_text += chunk_message
+-                print(chunk_message, end="", flush=True)
++            async for event in response:
++                if event.type == "response.output_text.delta":
++                    collected_messages.append(event.delta)
++                    completion_text += event.delta
++                    print(event.delta, end="", flush=True)
+ 
+             print()  # Newline after streaming
+             full_response = "".join(collected_messages).strip()
+@@ -513,11 +605,12 @@ class LLM:
+             Exception: For unexpected errors
+         """
+         try:
+-            # For ask_with_images, we always set supports_images to True because
++            # For ask_with_images, we always require supports_images because
+             # this method should only be called with models that support images
+-            if self.model not in MULTIMODAL_MODELS:
++            if not self.supports_images:
+                 raise ValueError(
+-                    f"Model {self.model} does not support images. Use a model from {MULTIMODAL_MODELS}"
++                    f"Model {self.model} is not configured to support images "
++                    "(set supports_images = true in its [llm] config section)"
+                 )
+ 
+             # Format messages with image support
+@@ -572,41 +665,40 @@ class LLM:
+             if not self.check_token_limit(input_tokens):
+                 raise TokenLimitExceeded(self.get_limit_error_message(input_tokens))
+ 
++            instructions, input_items = self._to_responses_input(all_messages)
++
+             # Set up API parameters
+             params = {
+                 "model": self.model,
+-                "messages": all_messages,
+-                "stream": stream,
++                "input": input_items,
++                "max_output_tokens": self.max_tokens,
+             }
+-
+-            # Add model-specific parameters
+-            if self.model in REASONING_MODELS:
+-                params["max_completion_tokens"] = self.max_tokens
+-            else:
+-                params["max_tokens"] = self.max_tokens
++            if instructions:
++                params["instructions"] = instructions
++            if self.supports_temperature:
+                 params["temperature"] = (
+                     temperature if temperature is not None else self.temperature
+                 )
+ 
+             # Handle non-streaming request
+             if not stream:
+-                response = await self.client.chat.completions.create(**params)
++                response = await self.client.responses.create(**params, stream=False)
+ 
+-                if not response.choices or not response.choices[0].message.content:
++                if not response.output_text:
+                     raise ValueError("Empty or invalid response from LLM")
+ 
+-                self.update_token_count(response.usage.prompt_tokens)
+-                return response.choices[0].message.content
++                self.update_token_count(response.usage.input_tokens)
++                return response.output_text
+ 
+             # Handle streaming request
+             self.update_token_count(input_tokens)
+-            response = await self.client.chat.completions.create(**params)
++            response = await self.client.responses.create(**params, stream=True)
+ 
+             collected_messages = []
+-            async for chunk in response:
+-                chunk_message = chunk.choices[0].delta.content or ""
+-                collected_messages.append(chunk_message)
+-                print(chunk_message, end="", flush=True)
++            async for event in response:
++                if event.type == "response.output_text.delta":
++                    collected_messages.append(event.delta)
++                    print(event.delta, end="", flush=True)
+ 
+             print()  # Newline after streaming
+             full_response = "".join(collected_messages).strip()
+@@ -677,15 +769,14 @@ class LLM:
+             if tool_choice not in TOOL_CHOICE_VALUES:
+                 raise ValueError(f"Invalid tool_choice: {tool_choice}")
+ 
+-            # Check if the model supports images
+-            supports_images = self.model in MULTIMODAL_MODELS
+-
+             # Format messages
+             if system_msgs:
+-                system_msgs = self.format_messages(system_msgs, supports_images)
+-                messages = system_msgs + self.format_messages(messages, supports_images)
++                system_msgs = self.format_messages(system_msgs, self.supports_images)
++                messages = system_msgs + self.format_messages(
++                    messages, self.supports_images
++                )
+             else:
+-                messages = self.format_messages(messages, supports_images)
++                messages = self.format_messages(messages, self.supports_images)
+ 
+             # Calculate input token count
+             input_tokens = self.count_message_tokens(messages)
+@@ -710,41 +801,47 @@ class LLM:
+                     if not isinstance(tool, dict) or "type" not in tool:
+                         raise ValueError("Each tool must be a dict with 'type' field")
+ 
++            instructions, input_items = self._to_responses_input(messages)
++
+             # Set up the completion request
+             params = {
+                 "model": self.model,
+-                "messages": messages,
+-                "tools": tools,
++                "input": input_items,
++                "tools": self._to_responses_tools(tools),
+                 "tool_choice": tool_choice,
+                 "timeout": timeout,
++                "max_output_tokens": self.max_tokens,
+                 **kwargs,
+             }
+-
+-            if self.model in REASONING_MODELS:
+-                params["max_completion_tokens"] = self.max_tokens
+-            else:
+-                params["max_tokens"] = self.max_tokens
++            if instructions:
++                params["instructions"] = instructions
++            if self.supports_temperature:
+                 params["temperature"] = (
+                     temperature if temperature is not None else self.temperature
+                 )
+ 
+             params["stream"] = False  # Always use non-streaming for tool requests
+-            response: ChatCompletion = await self.client.chat.completions.create(
+-                **params
+-            )
++            response = await self.client.responses.create(**params)
++
++            content = response.output_text
++            tool_calls = self._extract_tool_calls(response)
+ 
+             # Check if response is valid
+-            if not response.choices or not response.choices[0].message:
++            if not content and not tool_calls:
+                 print(response)
+                 # raise ValueError("Invalid or empty response from LLM")
+                 return None
+ 
+             # Update token counts
+             self.update_token_count(
+-                response.usage.prompt_tokens, response.usage.completion_tokens
++                response.usage.input_tokens, response.usage.output_tokens
+             )
+ 
+-            return response.choices[0].message
++            return ChatCompletionMessage(
++                role="assistant",
++                content=content or None,
++                tool_calls=tool_calls or None,
++            )
+ 
+         except TokenLimitExceeded:
+             # Re-raise token limit errors without logging
+diff --git a/config/config.example-daytona.toml b/config/config.example-daytona.toml
+index 10975df..83a1685 100644
+--- a/config/config.example-daytona.toml
++++ b/config/config.example-daytona.toml
+@@ -1,51 +1,19 @@
+ # Global LLM configuration
++# OpenManus talks to Router (https://api.router.com/v1), which proxies to
++# whichever provider you choose. Authentication is handled entirely by the
++# RAMP_ROUTER_API_KEY environment variable - do not put provider API keys here.
+ [llm]
+-model = "claude-3-7-sonnet-20250219"       # The LLM model to use
+-base_url = "https://api.anthropic.com/v1/" # API endpoint URL
+-api_key = "YOUR_API_KEY"                   # Your API key
++model = "REPLACE_WITH_ROUTER_MODEL_ID"     # Pick a model ID from `GET /v1/models` on Router
+ max_tokens = 8192                          # Maximum number of tokens in the response
+ temperature = 0.0                          # Controls randomness
+-
+-# [llm] # Amazon Bedrock
+-# api_type = "aws"                                       # Required
+-# model = "us.anthropic.claude-3-7-sonnet-20250219-v1:0" # Bedrock supported modelID
+-# base_url = "bedrock-runtime.us-west-2.amazonaws.com"   # Not used now
+-# max_tokens = 8192
+-# temperature = 1.0
+-# api_key = "bear"                                       # Required but not used for Bedrock
+-
+-# [llm] #AZURE OPENAI:
+-# api_type= 'azure'
+-# model = "YOUR_MODEL_NAME" #"gpt-4o-mini"
+-# base_url = "{YOUR_AZURE_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_DEPLOYMENT_ID}"
+-# api_key = "AZURE API KEY"
+-# max_tokens = 8096
+-# temperature = 0.0
+-# api_version="AZURE API VERSION" #"2024-08-01-preview"
+-
+-# [llm] #OLLAMA:
+-# api_type = 'ollama'
+-# model = "llama3.2"
+-# base_url = "http://localhost:11434/v1"
+-# api_key = "ollama"
+-# max_tokens = 4096
+-# temperature = 0.0
++#supports_temperature = false              # Set to false if Router/the model rejects the `temperature` param (common on reasoning models)
+ 
+ # Optional configuration for specific LLM models
+ [llm.vision]
+-model = "claude-3-7-sonnet-20250219"       # The vision model to use
+-base_url = "https://api.anthropic.com/v1/" # API endpoint URL for vision model
+-api_key = "YOUR_API_KEY"                   # Your API key for vision model
++model = "REPLACE_WITH_ROUTER_MODEL_ID"     # A Router model ID that accepts image input
+ max_tokens = 8192                          # Maximum number of tokens in the response
+ temperature = 0.0                          # Controls randomness for vision model
+-
+-# [llm.vision] #OLLAMA VISION:
+-# api_type = 'ollama'
+-# model = "llama3.2-vision"
+-# base_url = "http://localhost:11434/v1"
+-# api_key = "ollama"
+-# max_tokens = 4096
+-# temperature = 0.0
++supports_images = true                     # Confirm the chosen model supports image input before enabling this
+ 
+ # Optional configuration for specific browser configuration
+ # [browser]
+diff --git a/config/config.example-model-anthropic.toml b/config/config.example-model-anthropic.toml
+deleted file mode 100644
+index b9fe7a8..0000000
+--- a/config/config.example-model-anthropic.toml
++++ /dev/null
+@@ -1,16 +0,0 @@
+-# Global LLM configuration
+-[llm]
+-model = "claude-3-7-sonnet-latest"        # The LLM model to use
+-base_url = "https://api.anthropic.com/v1/"  # API endpoint URL
+-api_key = "YOUR_API_KEY"                    # Your API key
+-max_tokens = 8192                           # Maximum number of tokens in the response
+-temperature = 0.0                           # Controls randomness
+-
+-
+-# Optional configuration for specific LLM models
+-[llm.vision]
+-model = "claude-3-7-sonnet-20250219"        # The vision model to use
+-base_url = "https://api.anthropic.com/v1/"  # API endpoint URL for vision model
+-api_key = "YOUR_API_KEY"                    # Your API key for vision model
+-max_tokens = 8192                           # Maximum number of tokens in the response
+-temperature = 0.0                           # Controls randomness for vision model
+diff --git a/config/config.example-model-azure.toml b/config/config.example-model-azure.toml
+deleted file mode 100644
+index 37f61dd..0000000
+--- a/config/config.example-model-azure.toml
++++ /dev/null
+@@ -1,18 +0,0 @@
+-# Global LLM configuration
+-[llm] #AZURE OPENAI:
+-api_type= 'azure'
+-model = "gpt-4o-mini"                                                                   # The LLM model to use
+-base_url = "{YOUR_AZURE_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_DEPLOYMENT_ID}" # API endpoint URL
+-api_key = "YOUR_API_KEY"                                                                # Your API key
+-max_tokens = 8096                                                                       # Maximum number of tokens in the response
+-temperature = 0.0                                                                       # Controls randomness
+-api_version="AZURE API VERSION" #"2024-08-01-preview"                                   # Azure Openai version if AzureOpenai
+-
+-
+-# Optional configuration for specific LLM models
+-[llm.vision]
+-model = "gpt-4o"        # The vision model to use
+-base_url = "{YOUR_AZURE_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_DEPLOYMENT_ID}"
+-api_key = "YOUR_API_KEY"                    # Your API key for vision model
+-max_tokens = 8192                           # Maximum number of tokens in the response
+-temperature = 0.0                           # Controls randomness for vision model
+diff --git a/config/config.example-model-google.toml b/config/config.example-model-google.toml
+deleted file mode 100644
+index 6c1b566..0000000
+--- a/config/config.example-model-google.toml
++++ /dev/null
+@@ -1,16 +0,0 @@
+- # Global LLM configuration
+-[llm]
+-model = "gemini-2.0-flash"                                              # The LLM model to use
+-base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"   # API endpoint URL
+-api_key = "YOUR_API_KEY"                                                # Your API key
+-temperature = 0.0                                                       # Controls randomness
+-max_tokens = 8096                                                       # Maximum number of tokens in the response
+-
+-
+-# Optional configuration for specific LLM models for Google
+-[llm.vision]
+-model = "gemini-2.0-flash-exp"                                      # The vision model to use
+-base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"  # API endpoint URL for vision model
+-api_key = "YOUR_API_KEY"                                               # Your API key for vision model
+-max_tokens = 8192                                                      # Maximum number of tokens in the response
+-temperature = 0.0                                                      # Controls randomness for vision model
+diff --git a/config/config.example-model-jiekouai.toml b/config/config.example-model-jiekouai.toml
+deleted file mode 100644
+index ea40f27..0000000
+--- a/config/config.example-model-jiekouai.toml
++++ /dev/null
+@@ -1,17 +0,0 @@
+-# Global LLM configuration
+-[llm] #Jiekou.AI:
+-api_type = 'jiekou'
+-model = "claude-sonnet-4-5-20250929"                               # The LLM model to use
+-base_url = "https://api.jiekou.ai/openai"                          # API endpoint URL
+-api_key = "your Jiekou.AI api key"                                 # Your API key
+-max_tokens = 64000                                                 # Maximum number of tokens in the response
+-temperature = 0.0                                                  # Controls randomness
+-
+-
+-[llm.vision] #Jiekou.AI VISION:
+-api_type = 'jiekou'
+-model = "claude-sonnet-4-5-20250929"                             # The vision model to use
+-base_url = "https://api.jiekou.ai/openai"                        # API endpoint URL for vision model
+-api_key = "your Jiekou.AI api key"                               # Your API key for vision model
+-max_tokens = 64000                                               # Maximum number of tokens in the response
+-temperature = 0.0                                                # Controls randomness for vision model
+diff --git a/config/config.example-model-ollama.toml b/config/config.example-model-ollama.toml
+deleted file mode 100644
+index 2d064d8..0000000
+--- a/config/config.example-model-ollama.toml
++++ /dev/null
+@@ -1,17 +0,0 @@
+-# Global LLM configuration
+-[llm] #OLLAMA:
+-api_type = 'ollama'
+-model = "llama3.2"                                                 # The LLM model to use
+-base_url = "http://localhost:11434/v1"                             # API endpoint URL
+-api_key = "ollama"                                                 # Your API key
+-max_tokens = 4096                                                  # Maximum number of tokens in the response
+-temperature = 0.0                                                  # Controls randomness
+-
+-
+-[llm.vision] #OLLAMA VISION:
+-api_type = 'ollama'
+-model = "llama3.2-vision"                                          # The vision model to use
+-base_url = "http://localhost:11434/v1"                             # API endpoint URL for vision model
+-api_key = "ollama"                                                 # Your API key for vision model
+-max_tokens = 4096                                                  # Maximum number of tokens in the response
+-temperature = 0.0                                                  # Controls randomness for vision model
+diff --git a/config/config.example-model-ppio.toml b/config/config.example-model-ppio.toml
+deleted file mode 100644
+index 64c6335..0000000
+--- a/config/config.example-model-ppio.toml
++++ /dev/null
+@@ -1,17 +0,0 @@
+-# Global LLM configuration
+-[llm] #PPIO:
+-api_type = 'ppio'
+-model = "deepseek/deepseek-v3-0324"                                # The LLM model to use
+-base_url = "https://api.ppinfra.com/v3/openai"                     # API endpoint URL
+-api_key = "your ppio api key"                                      # Your API key
+-max_tokens = 16000                                                 # Maximum number of tokens in the response
+-temperature = 0.0                                                  # Controls randomness
+-
+-
+-[llm.vision] #PPIO VISION:
+-api_type = 'ppio'
+-model = "qwen/qwen2.5-vl-72b-instruct"                             # The vision model to use
+-base_url = "https://api.ppinfra.com/v3/openai"                     # API endpoint URL for vision model
+-api_key = "your ppio api key"                                      # Your API key for vision model
+-max_tokens = 96000                                                 # Maximum number of tokens in the response
+-temperature = 0.0                                                  # Controls randomness for vision model
+diff --git a/config/config.example.toml b/config/config.example.toml
+index 2e99bf8..140c9d6 100644
+--- a/config/config.example.toml
++++ b/config/config.example.toml
+@@ -1,59 +1,19 @@
+ # Global LLM configuration
++# OpenManus talks to Router (https://api.router.com/v1), which proxies to
++# whichever provider you choose. Authentication is handled entirely by the
++# RAMP_ROUTER_API_KEY environment variable - do not put provider API keys here.
+ [llm]
+-model = "claude-3-7-sonnet-20250219"       # The LLM model to use
+-base_url = "https://api.anthropic.com/v1/" # API endpoint URL
+-api_key = "YOUR_API_KEY"                   # Your API key
++model = "REPLACE_WITH_ROUTER_MODEL_ID"     # Pick a model ID from `GET /v1/models` on Router
+ max_tokens = 8192                          # Maximum number of tokens in the response
+ temperature = 0.0                          # Controls randomness
+-
+-# [llm] # Amazon Bedrock
+-# api_type = "aws"                                       # Required
+-# model = "us.anthropic.claude-3-7-sonnet-20250219-v1:0" # Bedrock supported modelID
+-# base_url = "bedrock-runtime.us-west-2.amazonaws.com"   # Not used now
+-# max_tokens = 8192
+-# temperature = 1.0
+-# api_key = "bear"                                       # Required but not used for Bedrock
+-
+-# [llm] #AZURE OPENAI:
+-# api_type= 'azure'
+-# model = "YOUR_MODEL_NAME" #"gpt-4o-mini"
+-# base_url = "{YOUR_AZURE_ENDPOINT.rstrip('/')}/openai/deployments/{AZURE_DEPLOYMENT_ID}"
+-# api_key = "AZURE API KEY"
+-# max_tokens = 8096
+-# temperature = 0.0
+-# api_version="AZURE API VERSION" #"2024-08-01-preview"
+-
+-# [llm] #OLLAMA:
+-# api_type = 'ollama'
+-# model = "llama3.2"
+-# base_url = "http://localhost:11434/v1"
+-# api_key = "ollama"
+-# max_tokens = 4096
+-# temperature = 0.0
+-
+-# [llm] #Jiekou.AI:
+-# api_type = 'jiekou'
+-# model = "claude-sonnet-4-5-20250929"                               # The LLM model to use
+-# base_url = "https://api.jiekou.ai/openai"                          # API endpoint URL
+-# api_key = "your Jiekou.AI api key"                                 # Your API key
+-# max_tokens = 64000                                                 # Maximum number of tokens in the response
+-# temperature = 0.0                                                  # Controls randomness
++#supports_temperature = false              # Set to false if Router/the model rejects the `temperature` param (common on reasoning models)
+ 
+ # Optional configuration for specific LLM models
+ [llm.vision]
+-model = "claude-3-7-sonnet-20250219"       # The vision model to use
+-base_url = "https://api.anthropic.com/v1/" # API endpoint URL for vision model
+-api_key = "YOUR_API_KEY"                   # Your API key for vision model
++model = "REPLACE_WITH_ROUTER_MODEL_ID"     # A Router model ID that accepts image input
+ max_tokens = 8192                          # Maximum number of tokens in the response
+ temperature = 0.0                          # Controls randomness for vision model
+-
+-# [llm.vision] #OLLAMA VISION:
+-# api_type = 'ollama'
+-# model = "llama3.2-vision"
+-# base_url = "http://localhost:11434/v1"
+-# api_key = "ollama"
+-# max_tokens = 4096
+-# temperature = 0.0
++supports_images = true                     # Confirm the chosen model supports image input before enabling this
+ 
+ # Optional configuration for specific browser configuration
+ # [browser]
+diff --git a/requirements.txt b/requirements.txt
+index 42278f1..5f3a7b6 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -33,8 +33,6 @@ mcp~=1.5.0
+ httpx>=0.27.0
+ tomli>=2.0.0
+ 
+-boto3~=1.37.18
+-
+ requests~=2.32.3
+ beautifulsoup4~=4.13.3
+ crawl4ai~=0.6.3

@@ -1,0 +1,87 @@
+{
+ "repo": "OpenManus",
+ "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53",
+ "pristine": "/Users/sanjithsambath/code/router-migrate/eval/work/v3/pristine/OpenManus",
+ "questions": [
+  {
+   "file": "app/llm.py",
+   "line": 421,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "kept",
+     "why": "api_type/base_url for the else-branch AsyncOpenAI client (app/llm.py:232) is fully operator-configured; the repo documents this same code path pointed at OpenAI, Anthropic, and non-OpenAI/Anthropic hosts (Ollama localhost, PPIO, Jiekou.AI, Google Gemini), so the default/documented setup is not reliably the vendor's"
+    },
+    {
+     "outcome": "migrated",
+     "why": "LLM.ask non-streaming chat.completions.create on AsyncOpenAI(api_key, base_url) built from operator config/config.toml [llm] (falls back to shipped config.example.toml whose base_url is api.anthropic.com/v1/); operator key; model from config at runtime and repo literals include catalog ids (gpt-4o, gpt-4o-mini, o1, o3-mini). Same call also serves the AsyncAzureOpenAI (api_type=azure) and BedrockClient shim (api_type=aws) branches, which must stay as-is."
+    }
+   ],
+   "id": "Q1"
+  },
+  {
+   "file": "app/llm.py",
+   "line": 438,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "LLM.ask streaming chat.completions.create(stream=True), same config-driven AsyncOpenAI client, operator key, runtime model."
+    },
+    {
+     "outcome": "kept",
+     "why": "Same else-branch AsyncOpenAI client as app/llm.py:428; base_url/api_type is operator-configured and documented for OpenAI, Anthropic, and non-OpenAI/Anthropic hosts (Ollama, PPIO, Jiekou.AI, Google)"
+    }
+   ],
+   "id": "Q2"
+  },
+  {
+   "file": "app/llm.py",
+   "line": 593,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "LLM.ask_with_images non-streaming chat.completions.create with image_url content, config-driven client, operator key, runtime model."
+    },
+    {
+     "outcome": "kept",
+     "why": "Same else-branch AsyncOpenAI client as app/llm.py:428; base_url/api_type is operator-configured and documented for OpenAI, Anthropic, and non-OpenAI/Anthropic hosts (Ollama, PPIO, Jiekou.AI, Google)"
+    }
+   ],
+   "id": "Q3"
+  },
+  {
+   "file": "app/llm.py",
+   "line": 603,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "LLM.ask_with_images streaming chat.completions.create (stream in params), config-driven client, operator key, runtime model."
+    },
+    {
+     "outcome": "kept",
+     "why": "Same else-branch AsyncOpenAI client as app/llm.py:428; base_url/api_type is operator-configured and documented for OpenAI, Anthropic, and non-OpenAI/Anthropic hosts (Ollama, PPIO, Jiekou.AI, Google)"
+    }
+   ],
+   "id": "Q4"
+  },
+  {
+   "file": "app/llm.py",
+   "line": 732,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "kept",
+     "why": "Same else-branch AsyncOpenAI client as app/llm.py:428; base_url/api_type is operator-configured and documented for OpenAI, Anthropic, and non-OpenAI/Anthropic hosts (Ollama, PPIO, Jiekou.AI, Google)"
+    },
+    {
+     "outcome": "migrated",
+     "why": "LLM.ask_tool chat.completions.create with tools/tool_choice/timeout (agent loop hot path), config-driven client, operator key, runtime model."
+    }
+   ],
+   "id": "Q5"
+  }
+ ]
+}

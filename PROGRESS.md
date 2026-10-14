@@ -167,3 +167,9 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   and aicommits: `finish` exit 0 on all three, tests not worse on all three, $0.79 / $1.19 / $0.96, 1.9-5.4 agent minutes
   (eval/v3/smoke/dev_smoke.json + ledgers). On aicommits the agent overrode the floor's 4 "migrated" to kept
   (R_OTHER_HOST: the provider comes from an 8-entry settings UI), which is what the rubric says.
+- **T6 eval on 10 fresh repos** (eval/v3/results.json, RESULTS.md): arms A, B (docs prompt from source), B' (docs prompt from
+  the floor, the spec's arm), C (toolkit), k=1, plus a blind adjudication of all 25 sites where an arm disagreed with the
+  inventory (eval/v3/adjudication/). Adjudicated: C 10 correct moves / 0 wrong / 0 broken / $23.13; B' 10 / 16 / 0 / $25.05;
+  A 6 / 14 / 0 / $0; B 6 / 7 / 1 broken / $35.27. Raw inventory: B' 15 / 11, C 10 / 0, A 11 / 9, B 11 / 2.
+  Done when: results.json covers 10 repos x 4 arms with repo, commit, arm, sites_moved, broken, usd, minutes; inventories
+  were committed before any arm C run.

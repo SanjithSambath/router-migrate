@@ -1,0 +1,139 @@
+{
+ "repo": "AI-Scientist",
+ "commit": "1de1dbc1f4ee2c5f61e9c94348d55eb51d7fa2eb",
+ "arm": "B_prime",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 4,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 6,
+   "ok": 6,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 95,
+ "test_files_edited": [],
+ "usd": 2.7593288000000005,
+ "minutes": 11.0,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 2.7593288000000005,
+  "turns": 69,
+  "final": "## Summary\n\nA deterministic codemod had already wrapped every OpenAI/Anthropic client construction in this repo (`ai_scientist/llm.py`, `launch_scientist.py`, `experimental/launch_oe_scientist.py`, `review_iclr_bench/iclr_analysis.py`) with `router_runtime.py`, which transparently translates Chat Completions/Messages traffic to Router's `/v1/responses` when `RAMP_ROUTER_API_KEY` is set, and falls back to the original provider otherwise. Its own `HANDOFF.md`/`REPORT.md` left 3 judgment calls open, plus I found one real bug blocking routing. I fixed all of it:\n\n**Fixed so Router actually gets used:**\n- **Removed `seed=0`** from the three `client.chat.completions.create()` calls in `ai_scientist/llm.py` (the `gpt` branch in both `get_response_from_llm`/`get_batch_responses_from_llm`, and the `o1`/`o3` branch). `seed` has no Responses-API equivalent, so Router's translator was rejecting every one of these requests as `Untranslatable` and silently falling back straight to OpenAI \u2014 meaning **no GPT call was ever actually reaching Router** despite the client being wrapped. I verified this against the Router simulator before and after: before, 0 requests reached the sim; after, `gpt-4.1` routed correctly (`POST /v1/responses model=gpt-4.1 valid=True`).\n- **Added current Router-catalog Claude model ids** (`claude-opus-4-8`, `claude-sonnet-4-6`, `claude-sonnet-4-5`, `claude-haiku-4-5`, sourced from the catalog the codemod fetched live via `GET /v1/models`) to `AVAILABLE_LLMS` in `ai_scientist/llm.py` and to the `--model` choices/dispatch in `review_iclr_bench/iclr_analysis.py`. Previously only the old dated snapshots (`claude-3-5-sonnet-2024...`) were selectable, and those aren't in Router's catalog, so Anthropic traffic could never route no matter what.\n- **Moved the hardcoded `model=\"gpt-4o-2024-05-13\"`** (4 call sites in `launch_scientist.py` and `experimental/launch_oe_scientist.py`, used for the post-writeup review step) into `DEFAULT_REVIEWER_MODEL = os.environ.get(\"AI_SCIENTIST_REVIEWER_MODEL\", \"gpt-4o-2024-05-13\")` in `ai_scientist/llm.py`, so it's env-configurable instead of hardcoded at the call site. Default value unchanged.\n\n**Verified:** compile/import check passes (10/10), and a live text-only request through the Router simulator succeeded end-to-end for `gpt-4.1` (\"pong\" back, `valid=True`).\n\n**Could not migrate / left as-is, with reasons:**\n- `llama3.1-405b` (`meta-llama/llama-3.1-405b-instruct` via OpenRouter) in `ai_scientist/llm.py` \u2014 not in Router's catalog; genuinely has no substitute, stays on OpenRouter directly.\n- `deepseek-chat`/`deepseek-coder`/`deepseek-reasoner` and `gemini-*` branches \u2014 these construct `openai.OpenAI()` clients pointed at `api.deepseek.com` / `generativelanguage.googleapis.com` directly. The vendored runtime only intercepts `api.openai.com`/`api.anthropic.com` hosts, so this traffic never reaches Router; left untouched since Router doesn't proxy those hosts.\n- `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` were **not deleted** from the README/env setup instructions. The vendored runtime's own design requires them to remain set: the SDK client constructors (`openai.OpenAI()`, `anthropic.Anthropic()`) raise immediately if unset, and they're also the fallback path for requests Router can't serve (e.g. the OpenRouter/DeepSeek/Gemini/Bedrock/Vertex branches above, plus any Router-side rejection). Deleting them would break imports and the fallback entirely, not just \"Router-ineligible\" calls.\n- Hit an unrelated environment artifact during verification: the sandboxed `anthropic` SDK in this test env has a stub `Messages.create()` signature with no `temperature` parameter at all, so any Claude call (even against unmigrated `HEAD` code) throws `TypeError`. This is pre-existing and reproduces identically with the original, unmigrated code \u2014 not something introduced by this migration.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 120,
+   "cache_creation_input_tokens": 143705,
+   "cache_read_input_tokens": 8262394,
+   "output_tokens": 53179,
+   "output_tokens_details": {
+    "thinking_tokens": 32501
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 143705,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1602,
+     "cache_read_input_tokens": 182163,
+     "cache_creation_input_tokens": 212,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 212
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:47",
+ "routed_static": 7,
+ "inventory_prod_sites": 17,
+ "inventory_migrated": 3,
+ "inventory_handoff": 2,
+ "sites_moved": 7,
+ "sites_moved_correct": 3,
+ "sites_moved_wrong": 4,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 0.429,
+ "reported_sites_matched": 9,
+ "reported_outcome_agreement": 0.333,
+ "reported_migrated": 7,
+ "reported_migrated_correct": 3,
+ "wrong_detail": [
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 167,
+   "expected": "flagged",
+   "why": "Rule 6: Anthropic messages.create ('claude' branch); client from create_client is anthropic.Anthropic() (default endpoint, ANTHROPIC_API_KEY) for claude-* model"
+  },
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 234,
+   "expected": "kept",
+   "why": "Rule 2: deepseek-chat/deepseek-coder branch; create_client returns openai.OpenAI(base_url='https://api.deepseek.com', DEEPSEEK_API_KEY)."
+  },
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 249,
+   "expected": "kept",
+   "why": "Rule 2: deepseek-reasoner branch; client is openai.OpenAI(base_url='https://api.deepseek.com', DEEPSEEK_API_KEY)."
+  },
+  {
+   "file": "ai_scientist/llm.py",
+   "line": 262,
+   "expected": "kept",
+   "why": "Rule 2: gemini branch; create_client returns openai.OpenAI(base_url='https://generativelanguage.googleapis.com/v1beta/openai/', GEMINI_API_KEY), i.e. Google's O"
+  }
+ ],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 3,
+ "sites_moved_adj": 7,
+ "sites_moved_correct_adj": 3,
+ "sites_moved_wrong_adj": 4,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 1.0,
+ "moved_precision_adj": 0.429,
+ "reported_outcome_agreement_adj": 0.333,
+ "reported_migrated_adj": 7,
+ "reported_migrated_correct_adj": 3
+}

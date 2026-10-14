@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 1.2968898000000004,
+  "turns": 45,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` exits clean. Migration complete.\n\n**Summary:**\n- **Wrapped** the `openai.AsyncOpenAI` client construction at `bot/openai_helper.py:113` \u2014 the scanner had conservatively flagged the 4 chat-completion call sites as per-tenant (`api_key` traced through a `config` parameter), but tracing it back confirmed `config['api_key']` is a single operator-wide key read once from `OPENAI_API_KEY` at startup (`main.py:34`), not per-request \u2014 so this was the standard client-factory case, not `R_PER_TENANT`.\n- **Migrated** (8 claims): the 4 chat-completion calls plus their \"unconfirmed\" shadow claims at the original pre-wrap line numbers (the finish gate's worklist tracks original scan coordinates, so each call needed a claim keyed to both its current and original line).\n- **Kept** (3, `R_NO_ENDPOINT`): `images.generate`, `audio.speech.create`, `audio.transcriptions.create` \u2014 Router has no images/audio endpoints, so these stay on the provider through the same wrapped client.\n- **Not a site** (15): model-name literal tables/checks in `openai_helper.py` and `main.py` (classification data, not calls), plus a DeepL plugin's `User-Agent` string that happened to match the \"chatgpt\" text pattern.\n- Dispatched a search agent to sweep the rest of the repo (plugins, configs, docs) for missed LLM calls \u2014 confirmed nothing else: no other SDKs, no raw HTTP to LLM hosts, and `OPENAI_BASE_URL` is documented but never actually wired into the client, so the real default host is `api.openai.com`.",
+  "finish_exit": 0
+ },
+ "minutes": 5.8
+}

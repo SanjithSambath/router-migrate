@@ -1,0 +1,121 @@
+{
+ "repo": "obsidian-textgenerator-plugin",
+ "commit": "2a11031d15c4af8be477d35a5c2de17672e946eb",
+ "arm": "C",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 0,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 0,
+   "ok": 0,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 24,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 24,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": {
+  "exit": 2,
+  "errors": 85
+ },
+ "typecheck_after": {
+  "exit": 2,
+  "errors": 85
+ },
+ "diff_lines": 0,
+ "test_files_edited": [],
+ "usd": 3.5204197999999995,
+ "minutes": 15.6,
+ "agent": {
+  "exit": 0,
+  "usd": 3.5204197999999995,
+  "turns": 100,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`router-migrate finish .` passed. Summary of the migration:\n\n**Architecture**: this plugin registers ~15 selectable LLM providers (`LLMProviders/index.ts`), each its own LangChain wrapper class or raw-fetch \"Custom\" provider, picked by the user in Settings.\n\n**Outcomes (132 worklist items, all claimed):**\n- **`migrated` (7, unconfirmed by the local simulator but not overridden)**: OpenAI Chat, OpenAI Agent (thinking models), and Anthropic Chat providers \u2014 each is a vendor-branded LangChain class (`ChatOpenAI`/`ChatAnthropic`) defaulting to the vendor's own host with the operator's key; the \"Base Path\" field is an override valve, not a provider switchboard. Also the global `default-settings.ts` endpoint, which mirrors that OpenAI default.\n- **`kept R_OTHER_HOST` (22)**: Azure, Google (GenerativeAI/PaLM), Mistral, Together, Perplexity, Ollama, MiniMax (OpenAI/Anthropic-*compatible* but hosted by MiniMax), and the two generic \"Custom\"/\"Anthropic Legacy (Custom)\" providers whose endpoint is a free-text settings field meant for arbitrary hosts.\n- **`kept R_NO_ENDPOINT` (part of the 22)**: OpenAI Instruct (legacy Completions API) and the Whisper audio-transcription path \u2014 neither surface is served by Router.\n- **`handoff R_RAW_REQUESTS` (2)**: the two \"list available models\" helpers (`chatanthropic.tsx`, `utils.tsx`) that hit `/models` via Obsidian's raw `request()` API instead of an SDK or `fetch`.\n- **`not_a_site` (91)**: the static `AI_MODELS` pricing/token catalog (74 entries), local token-counting arithmetic in every provider's `calcTokens`/`calcPrice`, a one-time settings-migration helper, a test file, and a text-splitter import \u2014 none of these construct or send a request.\n\nNo code was edited \u2014 the floor's codemod found zero wrappable `new OpenAI(`/`new Anthropic(` constructions (this repo only uses LangChain wrapper classes and raw `fetch`), so every decision here was a judgment claim rather than a wrap.",
+  "finish_exit": 0
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:48",
+ "routed_static": 0,
+ "inventory_prod_sites": 18,
+ "inventory_migrated": 3,
+ "inventory_handoff": 1,
+ "sites_moved": 0,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.0,
+ "moved_precision": null,
+ "reported_sites_matched": 1,
+ "reported_outcome_agreement": 0.0,
+ "reported_migrated": 0,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "src/LLMProviders/langchain/openaiChat.tsx",
+   "line": 38,
+   "why": "Rule 8: ChatOpenAI on chat-completions. baseURL comes from the provider's Base Path setting, which defaults to https://api.openai.com/v1. Key comes from plugin "
+  },
+  {
+   "file": "src/LLMProviders/langchain/openaiAgent.tsx",
+   "line": 38,
+   "why": "Rule 8: ChatOpenAI (reasoning_effort via modelKwargs) with Base Path setting defaulting to api.openai.com/v1 and key from settings. Model is picked at runtime f"
+  },
+  {
+   "file": "src/LLMProviders/langchain/chatanthropic.tsx",
+   "line": 91,
+   "why": "Rule 8: ChatAnthropic on Messages. anthropicApiUrl comes from the Base Path setting (default https://api.anthropic.com/). Key comes from settings. Model is pick"
+  }
+ ],
+ "inventory_migrated_adj": 3,
+ "sites_moved_adj": 0,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.0,
+ "moved_precision_adj": null,
+ "reported_outcome_agreement_adj": 0.0,
+ "reported_migrated_adj": 0,
+ "reported_migrated_correct_adj": 0,
+ "ledger": {
+  "result": {
+   "claims": {
+    "handoff": 2,
+    "kept": 22,
+    "migrated": 7,
+    "not_a_site": 91
+   },
+   "conditional_unresolved": 0,
+   "migrated_confirmed_claims": 0,
+   "migrated_static": 0,
+   "migrated_unconfirmed_claims": 7,
+   "overridden_to_not_migrated": 0
+  },
+  "finish_attempts": 1,
+  "reverted": false,
+  "claims": 122,
+  "worklist": 132
+ }
+}

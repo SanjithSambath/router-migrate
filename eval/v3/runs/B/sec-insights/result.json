@@ -1,0 +1,93 @@
+{
+ "repo": "sec-insights",
+ "commit": "a9b6da0f5c4bff52437a5285954ff17bc713f14f",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 5,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 0,
+   "ok": 0,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 97,
+ "test_files_edited": [],
+ "usd": 6.170859599999999,
+ "minutes": 20.6,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 6.170859599999999,
+  "turns": 146,
+  "final": "This covers all the changes cleanly. Here's my summary.\n\n## Summary\n\nMigrated the `sec-insights` backend's chat LLM transport from direct OpenAI Chat Completions to Router's OpenAI Responses-compatible `/v1/responses` surface.\n\n**Core changes:**\n- `app/llama_index_settings.py`, `app/chat/engine.py`: replaced `llama_index.llms.openai.OpenAI` (Chat Completions) with `llama_index.llms.openai.OpenAIResponses`, pointed at `RAMP_ROUTER_BASE_URL`/`RAMP_ROUTER_API_KEY`.\n- `app/chat/engine.py`, `app/chat/tools.py`: replaced `llama_index.agent.openai.OpenAIAgent` with `llama_index.core.agent.FunctionCallingAgent`. `OpenAIAgent` hard-requires `isinstance(llm, OpenAI)` (the Chat Completions class), which rejects `OpenAIResponses`; `FunctionCallingAgent` only requires `FunctionCallingLLM`, so it works with either.\n- Bumped `openai`, `llama-index-core`, `llama-index-llms-openai` (\u21920.4.7, which adds `OpenAIResponses`), `llama-index-agent-openai`, `llama-index-question-gen-openai` in `pyproject.toml` \u2014 all within already-compatible version ranges, verified by installing and running the full test suite.\n- `app/core/config.py`: added `RAMP_ROUTER_API_KEY`, `RAMP_ROUTER_BASE_URL` (default `https://api.router.com/v1`), `ROUTER_CHAT_MODEL` (replaces hardcoded `OPENAI_CHAT_LLM_NAME`). Model IDs are account-specific per Router's `/v1/models`, so I didn't invent a default \u2014 `ROUTER_CHAT_MODEL` must be set via env var from your account's model list.\n- Set `strict=True` on both `OpenAIResponses` instances: the Responses API defaults function tools to `strict=true` server-side, and llama-index only emits the required `additionalProperties: false` when told to \u2014 without this, every tool call was rejected (confirmed against the simulator).\n- `tools.py`: changed `Settings.llm.model_copy(..., deep=True)` to `deep=False` \u2014 `OpenAIResponses` eagerly builds its httpx client in `__init__`, which can't be deep-copied.\n- Updated `.env.development`, `Dockerfile`, `render.yaml`, `README.md` to plumb the new Router env vars alongside the existing ones.\n\n**Kept unchanged:** `OpenAIEmbedding` still calls OpenAI directly with `OPENAI_API_KEY` \u2014 Router has no embeddings endpoint, so this is explicitly out of scope per the task's own instructions. All prompts, tool definitions, and retry policy are untouched.\n\n**Verified:**\n- Full baseline test suite (import/compile checks + pytest) passes unchanged.\n- Against the local Router simulator: a plain text-only request round-tripped correctly, and a tool-calling request (the polygon.io agent) also validated successfully after the `strict=True` fix \u2014 confirmed via `router-sim received N request(s), N valid`.\n- Updated `poetry.lock` isn't regenerated (no `poetry` binary available in this sandbox) \u2014 run `poetry lock` before deploying.\n\n**Could not fully resolve:** `FunctionCallingAgent` is deprecated in this llama-index-core version in favor of `llama_index.core.agent.workflow.FunctionAgent`, scheduled for removal in core 0.13.0. It works correctly now and was the minimal-risk choice compatible with the rest of this app's pinned 0.12.x stack, but it's worth a follow-up migration before upgrading core past 0.12.x.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:18:32",
+ "routed_static": 0,
+ "inventory_prod_sites": 3,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 0,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.0,
+ "moved_precision": null,
+ "reported_sites_matched": 0,
+ "reported_outcome_agreement": null,
+ "reported_migrated": 0,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "backend/app/llama_index_settings.py",
+   "line": 14,
+   "why": "Rule 8: llama_index OpenAI(...) set as global Settings.llm (also reused via Settings.llm.model_copy in app/chat/tools.py:152 and implicitly by SubQuestionQueryE"
+  },
+  {
+   "file": "backend/app/chat/engine.py",
+   "line": 273,
+   "why": "Rule 8: llama_index OpenAI(temperature=0, streaming=True) chat LLM passed to OpenAIAgent.from_tools in get_chat_engine; default endpoint, operator key from sett"
+  }
+ ],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 0,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.0,
+ "moved_precision_adj": null,
+ "reported_outcome_agreement_adj": null,
+ "reported_migrated_adj": 0,
+ "reported_migrated_correct_adj": 0
+}

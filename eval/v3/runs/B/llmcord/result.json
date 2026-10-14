@@ -1,0 +1,89 @@
+{
+ "repo": "llmcord",
+ "commit": "a99de6da1639f36972e6f57a4331e8d8b63b74bb",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 1,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 1,
+   "ok": 1,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 2,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 2,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 118,
+ "test_files_edited": [],
+ "usd": 1.3968209999999999,
+ "minutes": 7.4,
+ "agent": {
+  "exit": null,
+  "is_error": false,
+  "usd": 1.3968209999999999,
+  "turns": 36,
+  "final": "Request body is clean \u2014 only the expected fields, and the simulator confirms it's `valid=True`. The migration is complete and verified.\n\n## Summary\n\nMigrated `llmcord` (a Discord LLM bot) from direct multi-provider Chat Completions clients to Router's Responses API.\n\n**`llmcord.py`:**\n- Replaced the per-message, per-provider `AsyncOpenAI` client construction (which picked `base_url`/`api_key` from a `providers` config section) with a single module-level `router_client` pointed at `RAMP_ROUTER_BASE_URL` (default `https://api.router.com/v1`) using `RAMP_ROUTER_API_KEY`.\n- Removed the `provider/model` string-splitting logic \u2014 model IDs are now plain Router IDs.\n- Converted the Chat Completions call to `responses.create`: `messages` \u2192 `input`, the trailing system message \u2192 top-level `instructions`, content part types `text`/`image_url` \u2192 `input_text`/`input_image` (and `output_text` for replayed assistant turns).\n- Converted per-model config overrides from flat Chat-Completions-style keys (`reasoning_effort`, `verbosity`) to the Responses shape (`reasoning.effort`, `text.verbosity`), still passed through `extra_body`.\n- Rewrote the streaming loop to consume Responses SSE events (`response.output_text.delta` for text, `response.completed`/`incomplete`/`failed` as the terminal signal via `event.response.status`), explicitly inspecting `event.type` rather than assuming a single text field \u2014 other event types (tool/reasoning/item-lifecycle events) are skipped. Extended the \"good finish\" check to include Responses' `completed` status alongside the original `stop`/`end_turn`.\n\n**`config.yaml`:**\n- Deleted the entire `providers` section (and every provider API key env reference \u2014 OpenRouter, OpenAI, xAI, Google, Azure OpenAI).\n- Replaced the `provider/model` keyed entries with real Router catalog model IDs (`gpt-5.5`, `claude-opus-5`), confirmed against the actual Router model snapshot bundled in this environment.\n\n**README.md:** updated the provider list and settings table to describe Router instead of per-provider setup.\n\n**Verified:** ran the offline import/compile check (passes), and separately fired real requests at the Router simulator (`router_migrate/sim/server.py`) reproducing exactly what `on_message` sends \u2014 a plain-text `gpt-5.5` request with `reasoning`/`text` extra_body, and a `claude-opus-5` request with image input + a `web_search` tool. Both came back `valid=True`, `status=completed`, and the logged request body contained only Responses-schema fields (no leftover Chat Completions fields, no provider keys).\n\n**Not migrated \u2014 could not find a Router equivalent:**\n- The `ollama/llama4` model entry (and the `lmstudio`/`ollama`/`vllm` local-provider configs it depended on) \u2014 Router is a cloud gateway to hosted providers and has no surface for self-hosted/local inference endpoints, so local models can't be routed through it. I removed these from config rather than leave dead/broken entries.\n- The OpenRouter-specific plugin tool types (`openrouter:web_search`, `openrouter:web_fetch`) on the old `openrouter/~anthropic/claude-opus-latest` entry \u2014 these were OpenRouter's own non-standard tool identifiers, not part of the Responses API tool schema. I mapped the intent to the standard Responses `web_search` tool type on the equivalent `claude-opus-5` Router model instead of guessing at a literal translation.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "terminal_reason": "completed",
+  "recovered_from": "transcript.jsonl.gz"
+ },
+ "inventory_leak_in_transcript": true,
+ "scored_at": "2026-10-13T20:18:37",
+ "routed_static": 1,
+ "inventory_prod_sites": 1,
+ "inventory_migrated": 0,
+ "inventory_handoff": 0,
+ "sites_moved": 1,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 1,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": null,
+ "moved_precision": 0.0,
+ "reported_sites_matched": 1,
+ "reported_outcome_agreement": 0.0,
+ "reported_migrated": 1,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [
+  {
+   "file": "llmcord.py",
+   "line": 280,
+   "expected": "kept",
+   "why": "Rule 2: streaming chat.completions on an AsyncOpenAI client built per message (line 156) with base_url = config['providers'][provider]['base_url'], where provid"
+  }
+ ],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 0,
+ "sites_moved_adj": 1,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 1,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": null,
+ "moved_precision_adj": 0.0,
+ "reported_outcome_agreement_adj": 0.0,
+ "reported_migrated_adj": 1,
+ "reported_migrated_correct_adj": 0
+}

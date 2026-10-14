@@ -1,0 +1,123 @@
+{
+ "repo": "OpenManus",
+ "commit": "3309bf4e416fb1c74b008f3e86494439a31bad53",
+ "arm": "C",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 1,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 4,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 4,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 9,
+ "test_files_edited": [],
+ "usd": 0.9921167999999999,
+ "minutes": 4.6,
+ "agent": {
+  "exit": 0,
+  "usd": 0.9921167999999999,
+  "turns": 48,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` exited 0.\n\n## Summary\n\nThe floor's deterministic wrap on `app/llm.py:232` (`AsyncOpenAI` construction) was syntactically correct, but judgment showed it shouldn't actually route in production:\n\n- **S1\u2013S5** (`app/llm.py:428,445,600,610,739` \u2014 the OpenAI chat-completions calls): all go through one client whose `base_url`/`api_type` is fully operator-configured (`app/config.py`, no hardcoded default). The repo's own example configs document that same code path pointed at OpenAI, Anthropic, **and** three non-OpenAI/Anthropic hosts (Ollama localhost, PPIO, Jiekou.AI, Google Gemini). Since the default/documented setup isn't reliably OpenAI or Anthropic, claimed `kept R_OTHER_HOST`.\n- **H13** (`chartVisualize.ts:343`): a Node subprocess that takes the same operator-configured `base_url`/`api_key` and fires its own request via the VMind SDK directly, bypassing both the Python OpenAI SDK and the Router runtime wrapper \u2014 also `kept R_OTHER_HOST`.\n- **H6\u2013H12** (`REASONING_MODELS`/`MULTIMODAL_MODELS` literal lists): feature-detection data used by the calls above, not call sites themselves \u2014 claimed `not_a_site R_NOT_PRODUCTION`.\n\nSwept the rest of the repo for other SDKs/raw HTTP to LLM hosts (LiteLLM, LangChain, Anthropic SDK, raw `httpx`/`requests`/`fetch`) and found nothing beyond the search-engine `requests.get` in `web_search.py`, which isn't an LLM call.\n\nNet effect: the floor's 5 wrapped sites were overridden back to not-migrated (this deployment's config makes the provider genuinely multi-vendor), and `router-migrate finish .` passes clean.",
+  "finish_exit": 0
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:55",
+ "routed_static": 5,
+ "inventory_prod_sites": 8,
+ "inventory_migrated": 5,
+ "inventory_handoff": 1,
+ "sites_moved": 0,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.0,
+ "moved_precision": null,
+ "reported_sites_matched": 6,
+ "reported_outcome_agreement": 0.0,
+ "reported_migrated": 0,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "app/llm.py",
+   "line": 421,
+   "why": "Rule 8: LLM.ask non-streaming chat.completions.create on AsyncOpenAI(api_key, base_url) built from operator config/config.toml [llm] (falls back to shipped conf"
+  },
+  {
+   "file": "app/llm.py",
+   "line": 438,
+   "why": "Rule 8: LLM.ask streaming chat.completions.create(stream=True), same config-driven AsyncOpenAI client, operator key, runtime model."
+  },
+  {
+   "file": "app/llm.py",
+   "line": 593,
+   "why": "Rule 8: LLM.ask_with_images non-streaming chat.completions.create with image_url content, config-driven client, operator key, runtime model."
+  },
+  {
+   "file": "app/llm.py",
+   "line": 603,
+   "why": "Rule 8: LLM.ask_with_images streaming chat.completions.create (stream in params), config-driven client, operator key, runtime model."
+  },
+  {
+   "file": "app/llm.py",
+   "line": 732,
+   "why": "Rule 8: LLM.ask_tool chat.completions.create with tools/tool_choice/timeout (agent loop hot path), config-driven client, operator key, runtime model."
+  }
+ ],
+ "inventory_migrated_adj": 0,
+ "sites_moved_adj": 0,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": null,
+ "moved_precision_adj": null,
+ "reported_outcome_agreement_adj": 0.833,
+ "reported_migrated_adj": 0,
+ "reported_migrated_correct_adj": 0,
+ "ledger": {
+  "result": {
+   "claims": {
+    "kept": 6,
+    "not_a_site": 2
+   },
+   "conditional_unresolved": 0,
+   "migrated_confirmed_claims": 0,
+   "migrated_static": 5,
+   "migrated_unconfirmed_claims": 0,
+   "overridden_to_not_migrated": 5
+  },
+  "finish_attempts": 0,
+  "reverted": false,
+  "claims": 8,
+  "worklist": 13
+ }
+}

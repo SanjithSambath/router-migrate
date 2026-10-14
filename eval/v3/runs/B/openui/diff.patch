@@ -1,0 +1,715 @@
+diff --git a/.devcontainer/devcontainer.json b/.devcontainer/devcontainer.json
+index 545b7aa..be1c159 100644
+--- a/.devcontainer/devcontainer.json
++++ b/.devcontainer/devcontainer.json
+@@ -52,9 +52,9 @@
+   "postStartCommand": "nohup bash -c 'ollama serve &'",
+ 
+   "secrets": {
+-    "OPENAI_API_KEY": {
+-      "description": "Your OpenAI API Key",
+-      "documentationUrl": "https://platform.openai.com/api-keys"
++    "RAMP_ROUTER_API_KEY": {
++      "description": "Your Router API Key",
++      "documentationUrl": "https://router.com"
+     },
+     "WANDB_API_KEY": {
+       "description": "Your W&B API Key",
+diff --git a/README.md b/README.md
+index 7aa0c89..c9e76b2 100644
+--- a/README.md
++++ b/README.md
+@@ -18,17 +18,7 @@ OpenUI let's you describe UI using your imagination, then see it rendered live.
+ 
+ ## Running Locally
+ 
+-OpenUI supports [OpenAI](https://platform.openai.com/api-keys), [Groq](https://console.groq.com/keys), and any model [LiteLLM](https://docs.litellm.ai/docs/) supports such as [Gemini](https://aistudio.google.com/app/apikey) or [Anthropic (Claude)](https://console.anthropic.com/settings/keys).  The following environment variables are optional, but need to be set in your environment for alternative models to work:
+-
+-- **OpenAI** `OPENAI_API_KEY`
+-- **Groq** `GROQ_API_KEY`
+-- **Gemini** `GEMINI_API_KEY`
+-- **Anthropic** `ANTHROPIC_API_KEY`
+-- **Cohere** `COHERE_API_KEY`
+-- **Mistral** `MISTRAL_API_KEY`
+-- **OpenAI Compatible** `OPENAI_COMPATIBLE_ENDPOINT` and `OPENAI_COMPATIBLE_API_KEY`
+-
+-For example, if you're running a tool like [localai](https://localai.io/) you can set `OPENAI_COMPATIBLE_ENDPOINT` and optionally `OPENAI_COMPATIBLE_API_KEY` to have the models available listed in the UI's model selector under LiteLLM.
++OpenUI talks to cloud models through [Router](https://router.com), a gateway that fronts OpenAI, Groq, Gemini, Anthropic, Cohere, Mistral, and more behind a single API. Set `RAMP_ROUTER_API_KEY` in your environment to use any of those models; which ones are available to your account shows up in the model selector automatically.
+ 
+ ### Ollama
+ 
+@@ -39,9 +29,8 @@ You can also use models available to [Ollama](https://ollama.com).  [Install Oll
+ The following command would forward the specified API keys from your shell environment and tell Docker to use the Ollama instance running on your machine.
+ 
+ ```bash
+-export ANTHROPIC_API_KEY=xxx
+-export OPENAI_API_KEY=xxx
+-docker run --rm --name openui -p 7878:7878 -e OPENAI_API_KEY -e ANTHROPIC_API_KEY -e OLLAMA_HOST=http://host.docker.internal:11434 ghcr.io/wandb/openui
++export RAMP_ROUTER_API_KEY=xxx
++docker run --rm --name openui -p 7878:7878 -e RAMP_ROUTER_API_KEY -e OLLAMA_HOST=http://host.docker.internal:11434 ghcr.io/wandb/openui
+ ```
+ 
+ Now you can goto [http://localhost:7878](http://localhost:7878) and generate new UI's!
+@@ -53,40 +42,13 @@ Assuming you have git and [uv](https://github.com/astral-sh/uv) installed:
+ ```bash
+ git clone https://github.com/wandb/openui
+ cd openui/backend
+-uv sync --frozen --extra litellm
++uv sync --frozen
+ source .venv/bin/activate
+-# Set API keys for any LLM's you want to use
+-export OPENAI_API_KEY=xxx
++# Set your Router key to use any cloud model
++export RAMP_ROUTER_API_KEY=xxx
+ python -m openui
+ ```
+ 
+-## LiteLLM
+-
+-[LiteLLM](https://docs.litellm.ai/docs/) can be used to connect to basically any LLM service available.  We generate a config automatically based on your environment variables.  You can create your own [proxy config](https://litellm.vercel.app/docs/proxy/configs) to override this behavior.  We look for a custom config in the following locations:
+-
+-1. `litellm-config.yaml` in the current directory
+-2. `/app/litellm-config.yaml` when running in a docker container
+-3. An arbitrary path specified by the `OPENUI_LITELLM_CONFIG` environment variable
+-
+-For example to use a custom config in docker you can run:
+-
+-```bash
+-docker run -n openui -p 7878:7878 -v $(pwd)/litellm-config.yaml:/app/litellm-config.yaml ghcr.io/wandb/openui
+-```
+-
+-To use litellm from source you can run:
+-
+-```bash
+-pip install .[litellm]
+-export ANTHROPIC_API_KEY=xxx
+-export OPENAI_COMPATIBLE_ENDPOINT=http://localhost:8080/v1
+-python -m openui --litellm
+-```
+-
+-## Groq
+-
+-To use the super fast [Groq](https://groq.com) models, set `GROQ_API_KEY` to your Groq api key which you can [find here](https://console.groq.com/keys).  To use one of the Groq models, click the settings icon in the nav bar.
+-
+ ### Docker Compose
+ 
+ > **DISCLAIMER:** This is likely going to be very slow.  If you have a GPU you may need to change the tag of the `ollama` container to one that supports it.  If you're running on a Mac, follow the instructions above and run Ollama natively to take advantage of the M1/M2.
+@@ -98,7 +60,7 @@ docker-compose up -d
+ docker exec -it openui-ollama-1 ollama pull llava
+ ```
+ 
+-If you have your OPENAI_API_KEY set in the environment already, just remove `=xxx` from the `OPENAI_API_KEY` line. You can also replace `llava` in the command above with your open source model of choice *([llava](https://ollama.com/library/llava) is one of the only Ollama models that support images currently)*.  You should now be able to access OpenUI at [http://localhost:7878](http://localhost:7878).
++If you have your RAMP_ROUTER_API_KEY set in the environment already, just remove `=xxx` from the `RAMP_ROUTER_API_KEY` line. You can also replace `llava` in the command above with your open source model of choice *([llava](https://ollama.com/library/llava) is one of the only Ollama models that support images currently)*.  You should now be able to access OpenUI at [http://localhost:7878](http://localhost:7878).
+ 
+ *If you make changes to the frontend or backend, you'll need to run `docker-compose build` to have them reflected in the service.*
+ 
+@@ -110,7 +72,7 @@ A [dev container](https://github.com/wandb/openui/blob/main/.devcontainer/devcon
+ 
+ <img src="./assets/codespace.png" alt="New with options..." width="500" />
+ 
+-Choose more options when creating a Codespace, then select **New with options...**.  Select the US West region if you want a really fast boot time.  You'll also want to configure your OPENAI_API_KEY secret or just set it to `xxx` if you want to try Ollama *(you'll want at least 16GB of Ram)*.
++Choose more options when creating a Codespace, then select **New with options...**.  Select the US West region if you want a really fast boot time.  You'll also want to configure your RAMP_ROUTER_API_KEY secret or just set it to `xxx` if you want to try Ollama *(you'll want at least 16GB of Ram)*.
+ 
+ Once inside the code space you can run the server in one terminal: `python -m openui --dev`.  Then in a new terminal:
+ 
+@@ -138,7 +100,7 @@ On launch Open UI is automatically installed and launched.
+ Before you can use Gitpod:
+ 
+ * Make sure you have a Gitpod account.
+-* To use Open AI models set up the `OPENAI_API_KEY` environment variable in your Gitpod [User Account](https://gitpod.io/user/variables). Set the scope to `wandb/openui` (or your repo if you forked it).
++* To use cloud models set up the `RAMP_ROUTER_API_KEY` environment variable in your Gitpod [User Account](https://gitpod.io/user/variables). Set the scope to `wandb/openui` (or your repo if you forked it).
+ 
+ > NOTE: Other (local) models might also be used with a bigger Gitpod instance type. Required models are not preconfigured in Gitpod but can easily be added as documented above.
+ 
+diff --git a/backend/Dockerfile b/backend/Dockerfile
+index c157d13..ef51c22 100644
+--- a/backend/Dockerfile
++++ b/backend/Dockerfile
+@@ -8,12 +8,12 @@ ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1
+ RUN --mount=type=cache,target=/root/.cache/uv \
+     --mount=type=bind,source=uv.lock,target=uv.lock \
+     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+-    uv sync --frozen --extra litellm --no-install-project --no-dev
++    uv sync --frozen --no-install-project --no-dev
+ 
+ COPY . /app
+ 
+ RUN --mount=type=cache,target=/root/.cache/uv \
+-    uv sync --frozen --extra litellm --no-dev
++    uv sync --frozen --no-dev
+ 
+ # Copy the virtualenv into a distroless image
+ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+@@ -24,4 +24,4 @@ COPY --from=builder --chown=app:app /app /app
+ 
+ ENV PATH="/app/.venv/bin:$PATH"
+ 
+-ENTRYPOINT ["python", "-m", "openui", "--litellm"]
++ENTRYPOINT ["python", "-m", "openui"]
+diff --git a/backend/README.md b/backend/README.md
+index a6bd9a5..a3efef0 100644
+--- a/backend/README.md
++++ b/backend/README.md
+@@ -18,10 +18,10 @@ pip install .
+ 
+ ## Usage
+ 
+-You must set the `OPENAI_API_KEY` even if you just want to try Ollama models.  Just set it to `xxx` in that case like below.
++Set `RAMP_ROUTER_API_KEY` to use cloud models through [Router](https://router.com). It's not required if you only want to try Ollama models.
+ 
+ ```bash
+-OPENAI_API_KEY=xxx python -m openui
++RAMP_ROUTER_API_KEY=xxx python -m openui
+ ```
+ 
+ ### Docker
+@@ -30,7 +30,7 @@ You can build and run the docker file from the `/backend` directory:
+ 
+ ```bash
+ docker build . -t wandb/openui --load
+-docker run -p 7878:7878 -e OPENAI_API_KEY wandb/openui
++docker run -p 7878:7878 -e RAMP_ROUTER_API_KEY wandb/openui
+ ```
+ 
+ ## Development
+diff --git a/backend/openui/__main__.py b/backend/openui/__main__.py
+index 5716358..335c138 100644
+--- a/backend/openui/__main__.py
++++ b/backend/openui/__main__.py
+@@ -2,13 +2,10 @@ from pathlib import Path
+ from .logs import setup_logger
+ from . import server
+ from . import config
+-from .litellm import generate_config
+ import os
+ import uvicorn
+ from uvicorn import Config
+ import sys
+-import subprocess
+-import time
+ 
+ 
+ def is_running_in_docker():
+@@ -33,11 +30,6 @@ def is_running_in_docker():
+ 
+ if __name__ == "__main__":
+     ui = any([arg == "-i" for arg in sys.argv])
+-    litellm = (
+-        any([arg == "--litellm" for arg in sys.argv])
+-        or "OPENUI_LITELLM_CONFIG" in os.environ
+-        or os.path.exists("litellm-config.yaml")
+-    )
+     # TODO: only render in interactive mode?
+     print(
+         (Path(__file__).parent / "logo.ascii").read_text(), file=sys.stderr, flush=True
+@@ -77,31 +69,6 @@ if __name__ == "__main__":
+             logger.info("Running Terminal UI App")
+             app.run()
+     else:
+-        if litellm:
+-            config_path = "litellm-config.yaml"
+-            if "OPENUI_LITELLM_CONFIG" in os.environ:
+-                config_path = os.environ["OPENUI_LITELLM_CONFIG"]
+-            elif os.path.exists("/app/litellm-config.yaml"):
+-                config_path = "/app/litellm-config.yaml"
+-            else:
+-                config_path = generate_config()
+-
+-            logger.info(
+-                f"Starting LiteLLM in the background with config: {config_path}"
+-            )
+-            litellm_process = subprocess.Popen(
+-                ["litellm", "--config", config_path, "--port", "4000"],
+-                stdout=subprocess.PIPE,
+-                stderr=subprocess.PIPE,
+-                text=True,
+-            )
+-            # Ensure litellm stays up for 5 seconds
+-            for i in range(5):
+-                if litellm_process.poll() is not None:
+-                    stdout, stderr = litellm_process.communicate()
+-                    logger.error(f"LiteLLM failed to start:\n{stderr}")
+-                    break
+-                time.sleep(1)
+         logger.info("Running API Server")
+         mkcert_dir = Path.home() / ".vite-plugin-mkcert"
+ 
+diff --git a/backend/openui/config.py b/backend/openui/config.py
+index 933e5a0..f9b6735 100644
+--- a/backend/openui/config.py
++++ b/backend/openui/config.py
+@@ -39,9 +39,6 @@ if SESSION_KEY is None:
+         SESSION_KEY = secrets.token_hex(32)
+         with env_path.open("w") as f:
+             f.write(f"OPENUI_SESSION_KEY={SESSION_KEY}")
+-# Set the LITELLM_MASTER_KEY to a random value if it's not already set
+-if os.getenv("LITELLM_MASTER_KEY") is None:
+-    os.environ["LITELLM_MASTER_KEY"] = "sk-{SESSION_KEY}"
+ # GPT 3.5 is 0.0005 per 1k tokens input and 0.0015 output
+ # 700k puts us at a max of $1.00 spent per user over a 48 hour period
+ MAX_TOKENS = int(os.getenv("OPENUI_MAX_TOKENS", "700000"))
+@@ -60,10 +57,9 @@ CORS_ORIGINS = os.getenv(
+ 
+ # Model providers
+ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "xxx")
+-GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+-LITELLM_API_KEY = os.getenv("LITELLM_API_KEY", os.getenv("LITELLM_MASTER_KEY"))
+-LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://0.0.0.0:4000")
++# Router (https://router.com) proxies every cloud model provider (OpenAI, Groq,
++# Gemini, Anthropic, Cohere, Mistral, OpenAI-compatible endpoints, ...) behind
++# one OpenAI Responses-compatible API, so this app only ever holds Router's key.
++RAMP_ROUTER_BASE_URL = os.getenv("RAMP_ROUTER_BASE_URL", "https://api.router.com/v1")
++RAMP_ROUTER_API_KEY = os.getenv("RAMP_ROUTER_API_KEY")
+ PORT = int(os.getenv("PORT", 7878))
+diff --git a/backend/openui/litellm.py b/backend/openui/litellm.py
+index 9486a01..3d88502 100644
+--- a/backend/openui/litellm.py
++++ b/backend/openui/litellm.py
+@@ -1,130 +1,8 @@
+-import yaml
+-import os
+-import tempfile
+-import openai
+-from .logs import logger
+-
+-
+-def generate_config():
+-    models = []
+-    if "GEMINI_API_KEY" in os.environ:
+-        models.extend(
+-            [
+-                {
+-                    "model_name": "gemini-1.5-flash",
+-                    "litellm_params": {
+-                        "model": "gemini/gemini-1.5-flash-latest",
+-                    },
+-                },
+-                {
+-                    "model_name": "gemini-1.5-pro",
+-                    "litellm_params": {
+-                        "model": "gemini/gemini-1.5-pro-latest",
+-                    },
+-                },
+-            ]
+-        )
+-
+-    if "ANTHROPIC_API_KEY" in os.environ:
+-        models.extend(
+-            [
+-                {
+-                    "model_name": "claude-3-opus",
+-                    "litellm_params": {
+-                        "model": "claude-3-opus-20240229",
+-                    },
+-                },
+-                {
+-                    "model_name": "claude-3-5-sonnet",
+-                    "litellm_params": {
+-                        "model": "claude-3-5-sonnet-20240620",
+-                    },
+-                },
+-                {
+-                    "model_name": "claude-3-haiku",
+-                    "litellm_params": {
+-                        "model": "claude-3-haiku-20240307",
+-                    },
+-                },
+-            ]
+-        )
+-
+-    if "COHERE_API_KEY" in os.environ:
+-        models.extend(
+-            [
+-                {
+-                    "model_name": "command-r-plus",
+-                    "litellm_params": {
+-                        "model": "command-r-plus",
+-                    },
+-                },
+-                {
+-                    "model_name": "command-r",
+-                    "litellm_params": {
+-                        "model": "command-r",
+-                    },
+-                },
+-                {
+-                    "model_name": "command-light",
+-                    "litellm_params": {
+-                        "model": "command-light",
+-                    },
+-                },
+-            ]
+-        )
+-
+-    if "MISTRAL_API_KEY" in os.environ:
+-        models.extend(
+-            [
+-                {
+-                    "model_name": "mistral-small",
+-                    "litellm_params": {
+-                        "model": "mistral/mistral-small-latest",
+-                    },
+-                },
+-                {
+-                    "model_name": "mistral-medium",
+-                    "litellm_params": {
+-                        "model": "mistral/mistral-medium-latest",
+-                    },
+-                },
+-                {
+-                    "model_name": "mistral-large",
+-                    "litellm_params": {
+-                        "model": "mistral/mistral-large-latest",
+-                    },
+-                },
+-            ]
+-        )
+-
+-    if "OPENAI_COMPATIBLE_ENDPOINT" in os.environ:
+-        client = openai.OpenAI(
+-            api_key=os.getenv("OPENAI_COMPATIBLE_API_KEY"),
+-            base_url=os.getenv("OPENAI_COMPATIBLE_ENDPOINT"),
+-        )
+-        try:
+-            for model in client.models.list().data:
+-                models.append(
+-                    {
+-                        "model_name": model.id,
+-                        "litellm_params": {
+-                            "model": f"openai/{model.id}",
+-                            "api_key": os.getenv("OPENAI_COMPATIBLE_API_KEY"),
+-                            "base_url": os.getenv("OPENAI_COMPATIBLE_ENDPOINT"),
+-                        },
+-                    }
+-                )
+-        except Exception as e:
+-            logger.exception(
+-                f"Error listing models for {os.getenv('OPENAI_COMPATIBLE_ENDPOINT')}: %s",
+-                e,
+-            )
+-
+-    yaml_structure = {"model_list": models}
+-    with tempfile.NamedTemporaryFile(
+-        delete=False, mode="w", suffix=".yaml"
+-    ) as tmp_file:
+-        tmp_file.write(yaml.dump(yaml_structure, sort_keys=False))
+-        tmp_file_path = tmp_file.name
+-
+-    return tmp_file_path
++"""LiteLLM proxy support has been removed.
++
++This module used to generate a LiteLLM proxy config from per-provider keys
++(GEMINI_API_KEY, ANTHROPIC_API_KEY, COHERE_API_KEY, MISTRAL_API_KEY,
++OPENAI_COMPATIBLE_*) and spawn a local `litellm` proxy process. Router
++(see .config.RAMP_ROUTER_BASE_URL) now proxies all of those providers
++directly, so there's no local proxy to configure or run.
++"""
+diff --git a/backend/openui/openai.py b/backend/openui/openai.py
+index 27f71c4..6479d9b 100644
+--- a/backend/openui/openai.py
++++ b/backend/openui/openai.py
+@@ -1,8 +1,11 @@
+ import json
++import time
++import uuid
+ from openai import AsyncStream
+ from openai.types.chat import (
+     ChatCompletionChunk,
+ )
++from openai.types.responses import ResponseStreamEvent
+ from .db.models import Usage
+ 
+ 
+@@ -24,3 +27,79 @@ async def openai_stream_generator(
+         output_tokens=output_tokens * multiplier,
+     )
+     yield "data: [DONE]\n\n"
++
++
++def chat_messages_to_responses_input(messages):
++    """Converts Chat Completions `messages` into a Responses `input` list plus `instructions`."""
++    instructions = []
++    input_items = []
++    for message in messages:
++        role = message["role"]
++        content = message["content"]
++        if role == "system":
++            if isinstance(content, str):
++                instructions.append(content)
++            else:
++                instructions.append(
++                    " ".join(
++                        part["text"] for part in content if part.get("type") == "text"
++                    )
++                )
++            continue
++        text_type = "output_text" if role == "assistant" else "input_text"
++        if isinstance(content, str):
++            parts = [{"type": text_type, "text": content}]
++        else:
++            parts = []
++            for part in content:
++                if part["type"] == "text":
++                    parts.append({"type": text_type, "text": part["text"]})
++                elif part["type"] == "image_url":
++                    parts.append(
++                        {"type": "input_image", "image_url": part["image_url"]["url"]}
++                    )
++        input_items.append({"role": role, "content": parts})
++    return "\n\n".join(instructions), input_items
++
++
++def _responses_delta_chunk(delta: str, id):
++    data = {
++        "id": str(id),
++        "object": "chat.completion.chunk",
++        "created": int(time.time()),
++        "model": "router",
++        "system_fingerprint": None,
++        "choices": [
++            {
++                "index": 0,
++                "delta": {"content": delta},
++                "role": "assistant",
++                "logprobs": None,
++                "finish_reason": None,
++            }
++        ],
++    }
++    return ChatCompletionChunk.model_validate(data)
++
++
++async def responses_stream_generator(
++    subscription: AsyncStream[ResponseStreamEvent],
++    input_tokens: int,
++    user_id: str,
++    multiplier: int = 1,
++):
++    """Adapts a Router /v1/responses SSE stream into the chat-completion-chunk SSE
++    shape the frontend already expects, the same way ollama/dummy do for their streams."""
++    output_tokens = 0
++    id = uuid.uuid1()
++    async for event in subscription:
++        if event.type == "response.output_text.delta":
++            output_tokens += 1
++            chunk = _responses_delta_chunk(event.delta, id)
++            yield f"data: {chunk.model_dump_json()}\n\n"
++    Usage.update_tokens(
++        user_id=user_id,
++        input_tokens=input_tokens * multiplier,
++        output_tokens=output_tokens * multiplier,
++    )
++    yield "data: [DONE]\n\n"
+diff --git a/backend/openui/server.py b/backend/openui/server.py
+index 09f9e2c..32bdfb1 100644
+--- a/backend/openui/server.py
++++ b/backend/openui/server.py
+@@ -33,7 +33,11 @@ from .session import DBSessionStore, SessionData
+ from .logs import logger
+ from .models import count_tokens, ShareRequest, VoteRequest
+ from .ollama import ollama_stream_generator, openai_to_ollama
+-from .openai import openai_stream_generator
++from .openai import (
++    openai_stream_generator,
++    chat_messages_to_responses_input,
++    responses_stream_generator,
++)
+ from .dummy import DummyStreamGenerator
+ from .db.models import User, Usage, Vote, Component
+ from .util import storage
+@@ -69,18 +73,10 @@ app = FastAPI(
+     description="API for proxying LLM requests to different services",
+ )
+ 
+-openai = AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY)
+-
+-litellm = AsyncOpenAI(
+-    api_key=config.LITELLM_API_KEY,
+-    base_url=config.LITELLM_BASE_URL,
++router_client = AsyncOpenAI(
++    base_url=config.RAMP_ROUTER_BASE_URL, api_key=config.RAMP_ROUTER_API_KEY
+ )
+ 
+-if config.GROQ_API_KEY is not None:
+-    groq = AsyncOpenAI(base_url=config.GROQ_BASE_URL, api_key=config.GROQ_API_KEY)
+-else:
+-    groq = None
+-
+ ollama = AsyncClient()
+ ollama_openai = AsyncOpenAI(base_url=config.OLLAMA_HOST + "/v1", api_key="xxx")
+ router = APIRouter()
+@@ -130,51 +126,8 @@ async def chat_completions(
+         # TODO: we always assume 4096 max tokens (random fudge factor here)
+         data["max_tokens"] = 4096 - input_tokens - 20
+         # TODO: refactor all these blocks into one once Ollama supports vision
+-        # OpenAI Models
+-        if data.get("model").startswith("gpt"):
+-            if data["model"] == "gpt-4" or data["model"] == "gpt-4-32k":
+-                raise HTTPException(status=400, data="Model not supported")
+-            response: AsyncStream[
+-                ChatCompletionChunk
+-            ] = await openai.chat.completions.create(
+-                **data,
+-            )
+-            # gpt-4 tokens are 20x more expensive
+-            multiplier = 20 if "gpt-4" in data["model"] else 1
+-            return StreamingResponse(
+-                openai_stream_generator(response, input_tokens, user_id, multiplier),
+-                media_type="text/event-stream",
+-            )
+-        # Groq Models
+-        elif data.get("model").startswith("groq/"):
+-            data["model"] = data["model"].replace("groq/", "")
+-            if groq is None:
+-                raise HTTPException(status=500, detail="Groq API key is not set.")
+-            response: AsyncStream[
+-                ChatCompletionChunk
+-            ] = await groq.chat.completions.create(
+-                **data,
+-            )
+-            return StreamingResponse(
+-                openai_stream_generator(response, input_tokens, user_id, 1),
+-                media_type="text/event-stream",
+-            )
+-        # Litellm Models
+-        elif data.get("model").startswith("litellm/"):
+-            data["model"] = data["model"].replace("litellm/", "")
+-            if litellm is None:
+-                raise HTTPException(status=500, detail="LiteLLM API key is not set.")
+-            response: AsyncStream[
+-                ChatCompletionChunk
+-            ] = await litellm.chat.completions.create(
+-                **data,
+-            )
+-            return StreamingResponse(
+-                openai_stream_generator(response, input_tokens, user_id, 1),
+-                media_type="text/event-stream",
+-            )
+         # Ollama Time
+-        elif data.get("model").startswith("ollama/"):
++        if data.get("model").startswith("ollama/"):
+             data["model"] = data["model"].replace("ollama/", "")
+             data.pop("max_tokens")
+             data["messages"] = openai_to_ollama(data)
+@@ -205,7 +158,38 @@ async def chat_completions(
+             return StreamingResponse(
+                 DummyStreamGenerator(data), media_type="text/event-stream"
+             )
+-        raise HTTPException(status=404, detail="Invalid model")
++        # Everything else goes through Router, which proxies every other
++        # provider (OpenAI, Groq, Gemini, Anthropic, Cohere, Mistral, ...)
++        else:
++            model = data["model"]
++            # Strip legacy provider prefixes from before the Router migration
++            for legacy_prefix in ("groq/", "litellm/"):
++                if model.startswith(legacy_prefix):
++                    model = model[len(legacy_prefix) :]
++            if model == "gpt-4" or model == "gpt-4-32k":
++                raise HTTPException(status=400, data="Model not supported")
++            instructions, input_items = chat_messages_to_responses_input(
++                data["messages"]
++            )
++            responses_kwargs = {
++                "model": model,
++                "input": input_items,
++                "max_output_tokens": data["max_tokens"],
++                "stream": True,
++            }
++            if instructions:
++                responses_kwargs["instructions"] = instructions
++            if "temperature" in data:
++                responses_kwargs["temperature"] = data["temperature"]
++            response = await router_client.responses.create(**responses_kwargs)
++            # gpt-4 tokens are 20x more expensive
++            multiplier = 20 if "gpt-4" in model else 1
++            return StreamingResponse(
++                responses_stream_generator(
++                    response, input_tokens, user_id, multiplier
++                ),
++                media_type="text/event-stream",
++            )
+     except (ResponseError, APIStatusError) as e:
+         traceback.print_exc()
+         logger.exception("Known Error: %s", str(e))
+@@ -391,13 +375,11 @@ async def vote(request: Request, payload: VoteRequest):
+     return payload
+ 
+ 
+-async def get_openai_models():
++async def get_router_models():
+     try:
+-        await openai.models.list()
+-        # We only support 3.5 and 4 for now
+-        return ["gpt-3.5-turbo", "gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
++        return [m.id for m in (await router_client.models.list()).data]
+     except Exception:
+-        logger.warning("Couldn't connect to OpenAI at %s", config.OPENAI_BASE_URL)
++        logger.warning("Couldn't connect to Router at %s", config.RAMP_ROUTER_BASE_URL)
+         return []
+ 
+ 
+@@ -409,41 +391,19 @@ async def get_ollama_models():
+         return []
+ 
+ 
+-async def get_groq_models():
+-    try:
+-        return [
+-            d for d in (await groq.models.list()).data if not d.id.startswith("whisper")
+-        ]
+-    except Exception:
+-        logger.warning("Couldn't connect to Groq at %s", config.GROQ_BASE_URL)
+-        return []
+-
+-
+-async def get_litellm_models():
+-    try:
+-        return (await litellm.models.list()).data
+-    except Exception:
+-        logger.warning("Couldn't connect to LiteLLM at %s", config.LITELLM_BASE_URL)
+-        return []
+-
+-
+ @router.get("/v1/models", tags="openui/models")
+ async def models():
+     tasks = [
+-        get_openai_models(),
+-        get_groq_models(),
++        get_router_models(),
+         get_ollama_models(),
+-        get_litellm_models(),
+     ]
+-    openai_models, groq_models, ollama_models, litellm_models = await asyncio.gather(
+-        *tasks
+-    )
++    router_models, ollama_models = await asyncio.gather(*tasks)
+     return {
+         "models": {
+-            "openai": openai_models,
+-            "groq": groq_models,
++            "openai": router_models,
++            "groq": [],
+             "ollama": ollama_models,
+-            "litellm": litellm_models,
++            "litellm": [],
+         }
+     }
+ 
+diff --git a/docker-compose.yaml b/docker-compose.yaml
+index 0fe3869..712c552 100644
+--- a/docker-compose.yaml
++++ b/docker-compose.yaml
+@@ -17,9 +17,7 @@ services:
+       - "7878:7878"
+     environment:
+       - OLLAMA_HOST=http://ollama:11434
+-      - OPENAI_API_KEY
+-      - ANTHROPIC_API_KEY
+-      - GROQ_API_KEY
++      - RAMP_ROUTER_API_KEY
+     env_file:
+       - .env
+ 

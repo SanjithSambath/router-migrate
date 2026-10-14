@@ -1,0 +1,114 @@
+{
+ "repo": "chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "arm": "B_prime",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 2,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 3,
+   "ok": 3,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 263,
+ "test_files_edited": [],
+ "usd": 3.6273566,
+ "minutes": 12.4,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 3.6273566,
+  "turns": 88,
+  "final": "## Summary\n\nMigrated `chatgpt-telegram-bot`'s text/vision/function-calling LLM traffic from OpenAI Chat Completions to Router's Responses API.\n\n**Changed:**\n- `bot/main.py` \u2014 added `RAMP_ROUTER_API_KEY`/`RAMP_ROUTER_BASE_URL` to required config and `openai_config`.\n- `bot/openai_helper.py` \u2014 added a second client, `self.router_client` (`AsyncOpenAI` pointed at `config['router_base_url']` with `config['router_api_key']`), used for all chat/vision/function-calling/summarization calls. Converted all 4 `chat.completions.create` call sites to `responses.create`:\n  - `messages` \u2192 `input` (via a new `_to_responses_input()` translator: string content passes through, vision `text`/`image_url` parts become `input_text`/`input_image`, and function-call items pass through natively)\n  - first history message \u2192 `instructions`\n  - `max_tokens`/`max_completion_tokens` \u2192 `max_output_tokens`\n  - `presence_penalty`/`frequency_penalty` moved to `extra_body` (the installed SDK's typed `responses.create()` doesn't expose them as kwargs, though Router accepts them)\n  - `response.choices[0].message` \u2192 `response.output_text`; `usage.prompt_tokens`/`completion_tokens` \u2192 `usage.input_tokens`/`output_tokens`\n  - streaming: chat delta chunks \u2192 Responses SSE events (`response.output_text.delta`)\n  - function calling: Chat Completions' `functions`/`function_call` \u2192 Responses `tools`/`tool_choice`, with specs wrapped flat (`type:function`, `strict:false` since the plugin JSON schemas aren't strict-mode-compliant). Rewrote `__handle_function_call` to read `response.output` for a `function_call` item (peeking stream events for the non-streaming-equivalent early-exit), and rewrote history storage to append the matching `function_call`/`function_call_output` item pair (required so a follow-up call can reference the `call_id`) instead of a bare `role:\"function\"` message.\n  - Added `extra_body.metadata.feature` tags (`chat`, `vision`, `chat-function-call`, `chat-summarise`) for spend attribution.\n- `requirements.txt` \u2014 bumped `openai` to `1.109.1` (the pinned `1.58.1` predates the Responses API entirely).\n- `.env.example`, `README.md` \u2014 documented `RAMP_ROUTER_API_KEY`, and that `OPENAI_MODEL`/`VISION_MODEL` must now be Router model IDs from `GET /v1/models`.\n\n**Not migrated (kept on direct OpenAI, with `OPENAI_API_KEY` preserved):**\n- `images.generate` (`/image` command), `audio.speech.create` (TTS), `audio.transcriptions.create` (Whisper) \u2014 Router exposes no image or audio endpoints (confirmed by this repo's own prior measured report and by the task's route list being limited to `/v1/models` and `/v1/responses`).\n\n**Known limitation:** `N_CHOICES` > 1 no longer produces multiple candidate answers \u2014 the Responses API has no equivalent of Chat Completions' `n` parameter (the simulator explicitly 400s on it). Only a single answer is ever generated now, regardless of this setting. Documented in `README.md`.\n\n**Verification:** Ran the repo's own import/compile check (passes, before and after \u2014 it does no network I/O either way). Wrote a standalone script exercising every migrated code path \u2014 plain chat, streaming chat, function-calling with a direct-result plugin, function-calling with a follow-up round-trip (non-direct-result), no-tools-offered, vision, and history summarization \u2014 against `router-sim`: **17/17 requests valid**.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 160,
+   "cache_creation_input_tokens": 159278,
+   "cache_read_input_tokens": 11600923,
+   "output_tokens": 66974,
+   "output_tokens_details": {
+    "thinking_tokens": 33745
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 159278,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1301,
+     "cache_read_input_tokens": 197119,
+     "cache_creation_input_tokens": 829,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 829
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:25",
+ "routed_static": 4,
+ "inventory_prod_sites": 7,
+ "inventory_migrated": 4,
+ "inventory_handoff": 0,
+ "sites_moved": 4,
+ "sites_moved_correct": 4,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 7,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 4,
+ "reported_migrated_correct": 4,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 4,
+ "sites_moved_adj": 4,
+ "sites_moved_correct_adj": 4,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 1.0,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 4,
+ "reported_migrated_correct_adj": 4
+}

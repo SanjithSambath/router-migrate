@@ -1,0 +1,14 @@
+{"repo": "AI-Scientist", "answers": [
+  {"id": "Q1", "expected": "nonprod", "is_site": false, "ambiguous": false,
+   "why": "No separate call expression at ai_scientist/llm.py:166 (it is the closing bracket of new_msg_history); the only messages call in the file is client.messages.create at llm.py:167, which is Q2. A line-166 entry is a duplicate of that one site."},
+  {"id": "Q2", "expected": "flagged", "is_site": true, "ambiguous": false,
+   "why": "Rule 6. For claude-* ids, create_client returns anthropic.Anthropic() (llm.py:320): the default endpoint with ANTHROPIC_API_KEY from env, so rules 2 and 4 do not apply to the shipped default. The model is chosen at runtime (args.model, choices=AVAILABLE_LLMS; default claude-3-5-sonnet-20240620 at launch_scientist.py:51). None of the repo's Claude literals are catalog ids or dated equivalents: claude-3-5-sonnet-20240620/20241022 at llm.py:15-16, plus the bedrock/ and vertex_ai/ variants at llm.py:39-49, which reach the same call through AnthropicBedrock/AnthropicVertex."},
+  {"id": "Q3", "expected": "nonprod", "is_site": false, "ambiguous": true,
+   "why": "The repo has no Responses API call anywhere (grep finds no responses.create/stream/parse). llm.py:199 is the closing paren of the gpt-branch client.chat.completions.create that starts at llm.py:188. That call is a separate chat site, not asked about here. Ambiguous only in that this entry may be a mislocated reference to the 188 chat call rather than an extra site."},
+  {"id": "Q4", "expected": "kept", "is_site": true, "ambiguous": false,
+   "why": "Rule 2. This branch only runs for model in ['deepseek-chat','deepseek-coder'] (llm.py:232). Every production caller pairs the client with the model through create_client(args.model) (launch_scientist.py:339, generate_ideas.py:528, perform_writeup.py:539), and for these ids create_client returns openai.OpenAI(api_key=DEEPSEEK_API_KEY, base_url='https://api.deepseek.com') (llm.py:332-337), which is another vendor's host."},
+  {"id": "Q5", "expected": "kept", "is_site": true, "ambiguous": false,
+   "why": "Rule 2. The deepseek-reasoner branch (llm.py:247) is only reached with the client that create_client builds for that id: openai.OpenAI(base_url='https://api.deepseek.com', DEEPSEEK_API_KEY) (llm.py:332-337). That is another vendor's endpoint."},
+  {"id": "Q6", "expected": "kept", "is_site": true, "ambiguous": false,
+   "why": "Rule 2. The gemini branch (llm.py:260) gets openai.OpenAI(api_key=GEMINI_API_KEY, base_url='https://generativelanguage.googleapis.com/v1beta/openai/') from create_client (llm.py:344-349). That is Google's OpenAI-compatible host, a non-OpenAI base_url. Rule 2 comes before rule 7, so this is kept, not handoff."}
+]}

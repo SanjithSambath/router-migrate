@@ -1,0 +1,778 @@
+diff --git a/README.md b/README.md
+index 6d9b58e..1366343 100644
+--- a/README.md
++++ b/README.md
+@@ -78,68 +78,34 @@ pip install -r requirements.txt
+ 
+ ### Supported Models and API Keys
+ 
+-We support a wide variety of models, including open-weight and API-only models. In general, we recommend using only frontier models above the capability of the original GPT-4. To see a full list of supported models, see [here](https://github.com/SakanaAI/AI-Scientist/blob/main/ai_scientist/llm.py).
++Idea generation, novelty checking, paper review, and citation search all talk to models
++through Router, a gateway that exposes every provider behind one API. Router holds the
++provider credentials, so this codebase never sees a provider API key for these steps.
+ 
+-#### OpenAI API (GPT-4o, GPT-4o-mini, o1 models)
+-
+-By default, this uses the `OPENAI_API_KEY` environment variable.
+-
+-#### Anthropic API (Claude Sonnet 3.5)
+-
+-By default, this uses the `ANTHROPIC_API_KEY` environment variable.
+-
+-##### Claude Models via Bedrock
+-
+-For Claude models provided by [Amazon Bedrock](https://aws.amazon.com/bedrock/), please install these additional packages:
++Set:
+ 
+ ```bash
+-pip install anthropic[bedrock]
++export RAMP_ROUTER_API_KEY="YOUR ROUTER API KEY"
++export AI_SCIENTIST_MODEL="YOUR ROUTER MODEL ID"          # e.g. a value from GET /v1/models
++export AI_SCIENTIST_REVIEW_MODEL="YOUR ROUTER MODEL ID"   # optional, defaults to AI_SCIENTIST_MODEL
+ ```
+ 
+-Next, specify a set of valid [AWS Credentials](https://docs.aws.amazon.com/cli/v1/userguide/cli-configure-envvars.html) and the target [AWS Region](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-regions.html):
+-
+-Set the environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION_NAME`.
++Model IDs are account-specific — fetch the valid list from Router's `GET /v1/models` rather than
++guessing a provider's public model name. `--model` on each script overrides `AI_SCIENTIST_MODEL`
++for that run.
+ 
+-##### Claude Models via Vertex AI
+-
+-For Claude models provided by [Vertex AI Model Garden](https://cloud.google.com/model-garden?hl=en), please install these additional packages:
+-
+-```bash
+-pip install google-cloud-aiplatform
+-pip install anthropic[vertex]
+-```
+-
+-Next, set up valid authentication for a [Google Cloud project](https://cloud.google.com/vertex-ai/docs/authentication), for example by providing the region and project ID:
+-
+-```bash
+-export CLOUD_ML_REGION="REGION"           # for Model Garden call
+-export ANTHROPIC_VERTEX_PROJECT_ID="PROJECT_ID"  # for Model Garden call
+-export VERTEXAI_LOCATION="REGION"         # for Aider/LiteLLM call
+-export VERTEXAI_PROJECT="PROJECT_ID"      # for Aider/LiteLLM call
+-```
+-
+-#### DeepSeek API (deepseek-chat, deepseek-reasoner)
+-By default, this uses the `DEEPSEEK_API_KEY` environment variable.
+-
+-#### OpenRouter API (Llama3.1)
+-
+-By default, this uses the `OPENROUTER_API_KEY` environment variable.
+-
+-#### Google Gemini
+-We support Google Gemini models (e.g., "gemini-1.5-flash", "gemini-1.5-pro") via the [google-generativeai](https://pypi.org/project/google-generativeai) Python library. By default, it uses the environment variable:
+-
+-```bash
+-export GEMINI_API_KEY="YOUR GEMINI API KEY"
+-```
++> **Note:** the experiment-coding and LaTeX-writing steps are driven by
++> [aider](https://github.com/paul-gauthier/aider), which talks to providers directly via its own
++> LiteLLM-based client rather than through `ai_scientist/llm.py`. That path has **not** been
++> migrated to Router and still needs a provider API key (e.g. `OPENAI_API_KEY`,
++> `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`) matching whatever model string
++> you pass via `--model` for that step.
+ 
+ #### Semantic Scholar API (Literature Search)
+ 
+ Our code can also optionally use a Semantic Scholar API Key (`S2_API_KEY`) for higher throughput [if you have one](https://www.semanticscholar.org/product/api), though it should work without it in principle. If you have problems with Semantic Scholar, you can skip the literature search and citation phases of paper generation.
+ 
+-Be sure to provide the key for the model used for your runs, e.g.:
+-
+ ```bash
+-export OPENAI_API_KEY="YOUR KEY HERE"
+ export S2_API_KEY="YOUR KEY HERE"
+ ```
+ 
+@@ -238,9 +204,8 @@ This section provides instructions for setting up each of the three templates us
+ 
+ ```bash
+ conda activate ai_scientist
+-# Run the paper generation.
+-python launch_scientist.py --model "gpt-4o-2024-05-13" --experiment nanoGPT_lite --num-ideas 2
+-python launch_scientist.py --model "claude-3-5-sonnet-20241022" --experiment nanoGPT_lite --num-ideas 2
++# Run the paper generation. $AI_SCIENTIST_MODEL is a model ID from Router's GET /v1/models.
++python launch_scientist.py --model "$AI_SCIENTIST_MODEL" --experiment nanoGPT_lite --num-ideas 2
+ ```
+ 
+ If you have more than one GPU, use the `--parallel` option to parallelize ideas across multiple GPUs.
+@@ -248,11 +213,11 @@ If you have more than one GPU, use the `--parallel` option to parallelize ideas
+ ## Getting an LLM-Generated Paper Review
+ 
+ ```python
+-import openai
++from ai_scientist.llm import create_client
+ from ai_scientist.perform_review import load_paper, perform_review
+ 
+-client = openai.OpenAI()
+-model = "gpt-4o-2024-05-13"
++# model is a model ID from Router's GET /v1/models, e.g. $AI_SCIENTIST_MODEL
++client, model = create_client("YOUR ROUTER MODEL ID")
+ 
+ # Load paper from PDF file (raw text)
+ paper_txt = load_paper("report.pdf")
+@@ -375,19 +340,24 @@ You can use this image like this:
+ 
+ ```bash
+ # Endpoint Script
+-docker run -e OPENAI_API_KEY=$OPENAI_API_KEY -v `pwd`/templates:/app/AI-Scientist/templates <AI_SCIENTIST_IMAGE> \
+-  --model gpt-4o-2024-05-13 \
++docker run -e RAMP_ROUTER_API_KEY=$RAMP_ROUTER_API_KEY -e OPENAI_API_KEY=$OPENAI_API_KEY \
++  -v `pwd`/templates:/app/AI-Scientist/templates <AI_SCIENTIST_IMAGE> \
++  --model $AI_SCIENTIST_MODEL \
+   --experiment 2d_diffusion \
+   --num-ideas 2
+ ```
+ 
+ ```bash
+ # Interactive
+-docker run -it -e OPENAI_API_KEY=$OPENAI_API_KEY \
++docker run -it -e RAMP_ROUTER_API_KEY=$RAMP_ROUTER_API_KEY -e OPENAI_API_KEY=$OPENAI_API_KEY \
+   --entrypoint /bin/bash \
+   <AI_SCIENTIST_IMAGE>
+ ```
+ 
++`RAMP_ROUTER_API_KEY` covers idea generation, review, and citation search; `OPENAI_API_KEY`
++(or the relevant provider key) is still needed for the aider-driven experiment-coding and
++writeup steps described above.
++
+ ## ⚖️ License & Responsible Use
+ 
+ This project is licensed under **The AI Scientist Source Code License** (a derivative of the Responsible AI License). 
+diff --git a/ai_scientist/generate_ideas.py b/ai_scientist/generate_ideas.py
+index 7b53b81..589a686 100644
+--- a/ai_scientist/generate_ideas.py
++++ b/ai_scientist/generate_ideas.py
+@@ -7,7 +7,7 @@ from typing import List, Dict, Union
+ import backoff
+ import requests
+ 
+-from ai_scientist.llm import get_response_from_llm, extract_json_between_markers, create_client, AVAILABLE_LLMS
++from ai_scientist.llm import get_response_from_llm, extract_json_between_markers, create_client, DEFAULT_MODEL
+ 
+ S2_API_KEY = os.getenv("S2_API_KEY")
+ 
+@@ -508,9 +508,9 @@ if __name__ == "__main__":
+     parser.add_argument(
+         "--model",
+         type=str,
+-        default="gpt-4o-2024-05-13",
+-        choices=AVAILABLE_LLMS,
+-        help="Model to use for AI Scientist.",
++        default=DEFAULT_MODEL,
++        help="Model to use for AI Scientist. Defaults to $AI_SCIENTIST_MODEL. "
++             "Must be a valid model ID from Router's GET /v1/models.",
+     )
+     parser.add_argument(
+         "--skip-idea-generation",
+diff --git a/ai_scientist/llm.py b/ai_scientist/llm.py
+index 27c9eee..9b2e4f2 100644
+--- a/ai_scientist/llm.py
++++ b/ai_scientist/llm.py
+@@ -5,63 +5,35 @@ import re
+ import anthropic
+ import backoff
+ import openai
+-import google.generativeai as genai
+-from google.generativeai.types import GenerationConfig
+ 
+ MAX_NUM_TOKENS = 4096
+ 
++# Router (https://api.router.com/v1) holds every provider credential behind one
++# OpenAI Responses-compatible API, plus an Anthropic Messages-compatible surface.
++ROUTER_BASE_URL = os.environ.get("RAMP_ROUTER_BASE_URL", "https://api.router.com/v1")
++ROUTER_API_KEY = os.environ.get("RAMP_ROUTER_API_KEY")
++# The Anthropic SDK appends "/v1/messages" itself, unlike the OpenAI SDK, so
++# it needs the base URL without the trailing "/v1" that ROUTER_BASE_URL has.
++ROUTER_ANTHROPIC_BASE_URL = re.sub(r"/v1/?$", "", ROUTER_BASE_URL)
++
++# Valid model IDs are account-specific and come from Router's `GET /v1/models`.
++# They are configured here via env vars rather than hardcoded at call sites.
++DEFAULT_MODEL = os.environ.get("AI_SCIENTIST_MODEL")
++DEFAULT_REVIEW_MODEL = os.environ.get("AI_SCIENTIST_REVIEW_MODEL", DEFAULT_MODEL)
+ AVAILABLE_LLMS = [
+-    # Anthropic models
+-    "claude-3-5-sonnet-20240620",
+-    "claude-3-5-sonnet-20241022",
+-    # OpenAI models
+-    "gpt-4o-mini",
+-    "gpt-4o-mini-2024-07-18",
+-    "gpt-4o",
+-    "gpt-4o-2024-05-13",
+-    "gpt-4o-2024-08-06",
+-    "gpt-4.1",
+-    "gpt-4.1-2025-04-14",
+-    "gpt-4.1-mini",
+-    "gpt-4.1-mini-2025-04-14",
+-    "gpt-4.1-nano",
+-    "gpt-4.1-nano-2025-04-14",
+-    "o1",
+-    "o1-2024-12-17",
+-    "o1-preview-2024-09-12",
+-    "o1-mini",
+-    "o1-mini-2024-09-12",
+-    "o3-mini",
+-    "o3-mini-2025-01-31",
+-    # OpenRouter models
+-    "llama3.1-405b",
+-    # Anthropic Claude models via Amazon Bedrock
+-    "bedrock/anthropic.claude-3-sonnet-20240229-v1:0",
+-    "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0",
+-    "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0",
+-    "bedrock/anthropic.claude-3-haiku-20240307-v1:0",
+-    "bedrock/anthropic.claude-3-opus-20240229-v1:0",
+-    # Anthropic Claude models Vertex AI
+-    "vertex_ai/claude-3-opus@20240229",
+-    "vertex_ai/claude-3-5-sonnet@20240620",
+-    "vertex_ai/claude-3-5-sonnet-v2@20241022",
+-    "vertex_ai/claude-3-sonnet@20240229",
+-    "vertex_ai/claude-3-haiku@20240307",
+-    # DeepSeek models
+-    "deepseek-chat",
+-    "deepseek-coder",
+-    "deepseek-reasoner",
+-    # Google Gemini models
+-    "gemini-1.5-flash",
+-    "gemini-1.5-pro",
+-    "gemini-2.0-flash",
+-    "gemini-2.0-flash-lite",
+-    "gemini-2.0-flash-thinking-exp-01-21",
+-    "gemini-2.5-pro-preview-03-25",
+-    "gemini-2.5-pro-exp-03-25",
++    m.strip()
++    for m in os.environ.get("AI_SCIENTIST_AVAILABLE_MODELS", "").split(",")
++    if m.strip()
+ ]
+ 
+ 
++def _is_unsupported_temperature_error(e):
++    # Account-specific models vary in whether they accept a custom
++    # temperature (e.g. reasoning models usually don't); detect the specific
++    # rejection rather than guessing support from the model name up front.
++    return "temperature" in str(e) and "not supported" in str(e)
++
++
+ # Get N responses from a single message, used for ensembling.
+ @backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
+ def get_batch_responses_from_llm(
+@@ -77,55 +49,22 @@ def get_batch_responses_from_llm(
+     if msg_history is None:
+         msg_history = []
+ 
+-    if 'gpt' in model:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model=model,
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
++    # Router's Responses API has no equivalent of Chat Completions' `n` param,
++    # so every model (including those that used to rely on `n=`) samples via a
++    # loop of independent single-response calls.
++    content, new_msg_history = [], []
++    for _ in range(n_responses):
++        c, hist = get_response_from_llm(
++            msg,
++            client,
++            model,
++            system_message,
++            print_debug=False,
++            msg_history=None,
+             temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=n_responses,
+-            stop=None,
+-            seed=0,
+         )
+-        content = [r.message.content for r in response.choices]
+-        new_msg_history = [
+-            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+-        ]
+-    elif model == "llama-3-1-405b-instruct":
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model="meta-llama/llama-3.1-405b-instruct",
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=n_responses,
+-            stop=None,
+-        )
+-        content = [r.message.content for r in response.choices]
+-        new_msg_history = [
+-            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+-        ]
+-    else:
+-        content, new_msg_history = [], []
+-        for _ in range(n_responses):
+-            c, hist = get_response_from_llm(
+-                msg,
+-                client,
+-                model,
+-                system_message,
+-                print_debug=False,
+-                msg_history=None,
+-                temperature=temperature,
+-            )
+-            content.append(c)
+-            new_msg_history.append(hist)
++        content.append(c)
++        new_msg_history.append(hist)
+ 
+     if print_debug:
+         print()
+@@ -153,6 +92,8 @@ def get_response_from_llm(
+         msg_history = []
+ 
+     if "claude" in model:
++        # Already on the Anthropic Messages API shape; only the transport
++        # (base_url/api_key) changes to go through Router.
+         new_msg_history = msg_history + [
+             {
+                 "role": "user",
+@@ -164,13 +105,25 @@ def get_response_from_llm(
+                 ],
+             }
+         ]
+-        response = client.messages.create(
+-            model=model,
+-            max_tokens=MAX_NUM_TOKENS,
+-            temperature=temperature,
+-            system=system_message,
+-            messages=new_msg_history,
+-        )
++        try:
++            response = client.messages.create(
++                model=model,
++                max_tokens=MAX_NUM_TOKENS,
++                system=system_message,
++                messages=new_msg_history,
++                extra_body={"temperature": temperature},
++            )
++        except anthropic.BadRequestError as e:
++            if not _is_unsupported_temperature_error(e):
++                raise
++            # Some (account-specific) models, e.g. reasoning-enabled Claude
++            # models, reject a custom temperature; retry without it.
++            response = client.messages.create(
++                model=model,
++                max_tokens=MAX_NUM_TOKENS,
++                system=system_message,
++                messages=new_msg_history,
++            )
+         content = response.content[0].text
+         new_msg_history = new_msg_history + [
+             {
+@@ -183,96 +136,26 @@ def get_response_from_llm(
+                 ],
+             }
+         ]
+-    elif 'gpt' in model:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model=model,
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=1,
+-            stop=None,
+-            seed=0,
+-        )
+-        content = response.choices[0].message.content
+-        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif "o1" in model or "o3" in model:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model=model,
+-            messages=[
+-                {"role": "user", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=1,
+-            max_completion_tokens=MAX_NUM_TOKENS,
+-            n=1,
+-            seed=0,
+-        )
+-        content = response.choices[0].message.content
+-        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif model in ["meta-llama/llama-3.1-405b-instruct", "llama-3-1-405b-instruct"]:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model="meta-llama/llama-3.1-405b-instruct",
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=1,
+-            stop=None,
+-        )
+-        content = response.choices[0].message.content
+-        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif model in ["deepseek-chat", "deepseek-coder"]:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model=model,
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=1,
+-            stop=None,
+-        )
+-        content = response.choices[0].message.content
+-        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif model in ["deepseek-reasoner"]:
+-        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
+-            model=model,
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            n=1,
+-            stop=None,
+-        )
+-        content = response.choices[0].message.content
+-        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    elif "gemini" in model:
++    else:
++        # Every other model (OpenAI, DeepSeek, OpenRouter/Llama, Gemini, ...)
++        # goes through Router's OpenAI Responses-compatible API.
+         new_msg_history = msg_history + [{"role": "user", "content": msg}]
+-        response = client.chat.completions.create(
++        create_kwargs = dict(
+             model=model,
+-            messages=[
+-                {"role": "system", "content": system_message},
+-                *new_msg_history,
+-            ],
+-            temperature=temperature,
+-            max_tokens=MAX_NUM_TOKENS,
+-            n=1,
++            instructions=system_message,
++            input=new_msg_history,
++            max_output_tokens=MAX_NUM_TOKENS,
+         )
+-        content = response.choices[0].message.content
++        try:
++            response = client.responses.create(**create_kwargs, temperature=temperature)
++        except openai.BadRequestError as e:
++            if not _is_unsupported_temperature_error(e):
++                raise
++            # Some (account-specific) models, e.g. reasoning models, reject a
++            # custom temperature; retry without it rather than forcing one.
++            response = client.responses.create(**create_kwargs)
++        content = response.output_text
+         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+-    else:
+-        raise ValueError(f"Model {model} not supported.")
+ 
+     if print_debug:
+         print()
+@@ -315,37 +198,21 @@ def extract_json_between_markers(llm_output):
+ 
+ 
+ def create_client(model):
+-    if model.startswith("claude-"):
+-        print(f"Using Anthropic API with model {model}.")
+-        return anthropic.Anthropic(), model
+-    elif model.startswith("bedrock") and "claude" in model:
+-        client_model = model.split("/")[-1]
+-        print(f"Using Amazon Bedrock with model {client_model}.")
+-        return anthropic.AnthropicBedrock(), client_model
+-    elif model.startswith("vertex_ai") and "claude" in model:
+-        client_model = model.split("/")[-1]
+-        print(f"Using Vertex AI with model {client_model}.")
+-        return anthropic.AnthropicVertex(), client_model
+-    elif 'gpt' in model or "o1" in model or "o3" in model:
+-        print(f"Using OpenAI API with model {model}.")
+-        return openai.OpenAI(), model
+-    elif model in ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"]:
+-        print(f"Using OpenAI API with {model}.")
+-        return openai.OpenAI(
+-            api_key=os.environ["DEEPSEEK_API_KEY"],
+-            base_url="https://api.deepseek.com"
++    if not model:
++        raise ValueError(
++            "No model specified. Pass --model or set the AI_SCIENTIST_MODEL "
++            "environment variable to a valid model ID from Router's GET /v1/models."
++        )
++    if not ROUTER_API_KEY:
++        raise ValueError("RAMP_ROUTER_API_KEY environment variable is not set.")
++
++    if "claude" in model:
++        print(f"Using Router's Anthropic Messages API with model {model}.")
++        return anthropic.Anthropic(
++            api_key=ROUTER_API_KEY, base_url=ROUTER_ANTHROPIC_BASE_URL
+         ), model
+-    elif model == "llama3.1-405b":
+-        print(f"Using OpenAI API with {model}.")
+-        return openai.OpenAI(
+-            api_key=os.environ["OPENROUTER_API_KEY"],
+-            base_url="https://openrouter.ai/api/v1"
+-        ), "meta-llama/llama-3.1-405b-instruct"
+-    elif "gemini" in model:
+-        print(f"Using OpenAI API with {model}.")
++    else:
++        print(f"Using Router's Responses API with model {model}.")
+         return openai.OpenAI(
+-            api_key=os.environ["GEMINI_API_KEY"],
+-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
++            api_key=ROUTER_API_KEY, base_url=ROUTER_BASE_URL
+         ), model
+-    else:
+-        raise ValueError(f"Model {model} not supported.")
+diff --git a/ai_scientist/perform_writeup.py b/ai_scientist/perform_writeup.py
+index 8fe07cb..50a412e 100644
+--- a/ai_scientist/perform_writeup.py
++++ b/ai_scientist/perform_writeup.py
+@@ -8,7 +8,7 @@ import subprocess
+ from typing import Optional, Tuple
+ 
+ from ai_scientist.generate_ideas import search_for_papers
+-from ai_scientist.llm import get_response_from_llm, extract_json_between_markers, create_client, AVAILABLE_LLMS
++from ai_scientist.llm import get_response_from_llm, extract_json_between_markers, create_client, DEFAULT_MODEL
+ 
+ 
+ # GENERATE LATEX
+@@ -524,9 +524,9 @@ if __name__ == "__main__":
+     parser.add_argument(
+         "--model",
+         type=str,
+-        default="gpt-4o-2024-05-13",
+-        choices=AVAILABLE_LLMS,
+-        help="Model to use for AI Scientist.",
++        default=DEFAULT_MODEL,
++        help="Model to use for AI Scientist. Defaults to $AI_SCIENTIST_MODEL. "
++             "Must be a valid model ID from Router's GET /v1/models.",
+     )
+     parser.add_argument(
+         "--engine",
+diff --git a/experimental/launch_oe_scientist.py b/experimental/launch_oe_scientist.py
+index 529b923..407bbd7 100644
+--- a/experimental/launch_oe_scientist.py
++++ b/experimental/launch_oe_scientist.py
+@@ -1,7 +1,6 @@
+ import argparse
+ import json
+ import multiprocessing
+-import openai
+ import os
+ import os.path as osp
+ import shutil
+@@ -14,7 +13,7 @@ from aider.models import Model
+ from datetime import datetime
+ 
+ from ai_scientist.generate_ideas import generate_next_idea, check_idea_novelty
+-from ai_scientist.llm import create_client, AVAILABLE_LLMS
++from ai_scientist.llm import create_client, DEFAULT_MODEL, DEFAULT_REVIEW_MODEL
+ from ai_scientist.perform_experiments import perform_experiments
+ from ai_scientist.perform_review import perform_review, load_paper, perform_improvement
+ from ai_scientist.perform_writeup import perform_writeup, generate_latex
+@@ -38,9 +37,9 @@ def parse_arguments():
+     parser.add_argument(
+         "--model",
+         type=str,
+-        default="claude-3-5-sonnet-20240620",
+-        choices=AVAILABLE_LLMS,
+-        help="Model to use for AI Scientist.",
++        default=DEFAULT_MODEL,
++        help="Model to use for AI Scientist. Defaults to $AI_SCIENTIST_MODEL. "
++             "Must be a valid model ID from Router's GET /v1/models.",
+     )
+     parser.add_argument(
+         "--writeup",
+@@ -243,10 +242,11 @@ def do_idea(
+         if writeup == "latex":
+             try:
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}.pdf")
++                review_client, review_client_model = create_client(DEFAULT_REVIEW_MODEL)
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=review_client_model,
++                    client=review_client,
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+@@ -270,10 +270,11 @@ def do_idea(
+                     coder, folder_name, f"{folder_name}/{idea['Name']}_improved.pdf"
+                 )
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}_improved.pdf")
++                review_client, review_client_model = create_client(DEFAULT_REVIEW_MODEL)
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=review_client_model,
++                    client=review_client,
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+diff --git a/launch_scientist.py b/launch_scientist.py
+index 2fe7a49..96fca6c 100644
+--- a/launch_scientist.py
++++ b/launch_scientist.py
+@@ -1,7 +1,6 @@
+ import argparse
+ import json
+ import multiprocessing
+-import openai
+ import os
+ import os.path as osp
+ import shutil
+@@ -14,7 +13,7 @@ from aider.models import Model
+ from datetime import datetime
+ 
+ from ai_scientist.generate_ideas import generate_ideas, check_idea_novelty
+-from ai_scientist.llm import create_client, AVAILABLE_LLMS
++from ai_scientist.llm import create_client, DEFAULT_MODEL, DEFAULT_REVIEW_MODEL
+ from ai_scientist.perform_experiments import perform_experiments
+ from ai_scientist.perform_review import perform_review, load_paper, perform_improvement
+ from ai_scientist.perform_writeup import perform_writeup, generate_latex
+@@ -48,9 +47,9 @@ def parse_arguments():
+     parser.add_argument(
+         "--model",
+         type=str,
+-        default="claude-3-5-sonnet-20240620",
+-        choices=AVAILABLE_LLMS,
+-        help="Model to use for AI Scientist.",
++        default=DEFAULT_MODEL,
++        help="Model to use for AI Scientist. Defaults to $AI_SCIENTIST_MODEL. "
++             "Must be a valid model ID from Router's GET /v1/models.",
+     )
+     parser.add_argument(
+         "--writeup",
+@@ -265,10 +264,11 @@ def do_idea(
+         if writeup == "latex":
+             try:
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}.pdf")
++                review_client, review_client_model = create_client(DEFAULT_REVIEW_MODEL)
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=review_client_model,
++                    client=review_client,
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+@@ -291,10 +291,11 @@ def do_idea(
+                     coder, folder_name, f"{folder_name}/{idea['Name']}_improved.pdf"
+                 )
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}_improved.pdf")
++                review_client, review_client_model = create_client(DEFAULT_REVIEW_MODEL)
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=review_client_model,
++                    client=review_client,
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+diff --git a/requirements.txt b/requirements.txt
+index 8971848..77e755f 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -3,7 +3,6 @@ anthropic
+ aider-chat
+ backoff
+ openai
+-google-generativeai
+ # Viz
+ matplotlib
+ pypdf
+diff --git a/review_iclr_bench/iclr_analysis.py b/review_iclr_bench/iclr_analysis.py
+index 40eb031..0a9abdc 100644
+--- a/review_iclr_bench/iclr_analysis.py
++++ b/review_iclr_bench/iclr_analysis.py
+@@ -12,6 +12,7 @@ from ai_scientist.perform_review import (
+     reviewer_system_prompt_neg,
+     neurips_form,
+ )
++from ai_scientist.llm import create_client, DEFAULT_MODEL
+ import pathlib
+ import pandas as pd
+ import numpy as np
+@@ -29,16 +30,9 @@ def parse_arguments():
+     parser.add_argument(
+         "--model",
+         type=str,
+-        default="gpt-4o-2024-05-13",
+-        choices=[
+-            "gpt-4o-mini-2024-07-18",
+-            "gpt-4o-2024-05-13",
+-            "gpt-4o-2024-08-06",
+-            "llama-3-1-405b-instruct",
+-            "deepseek-coder-v2-0724",
+-            "claude-3-5-sonnet-20240620",
+-        ],
+-        help="Model to use for AI Scientist.",
++        default=DEFAULT_MODEL,
++        help="Model to use for AI Scientist. Defaults to $AI_SCIENTIST_MODEL. "
++             "Must be a valid model ID from Router's GET /v1/models.",
+     )
+ 
+     parser.add_argument(
+@@ -237,44 +231,7 @@ def review_single_paper(
+     num_paper_pages,
+ ):
+     # Setup client for LLM model
+-    if model == "claude-3-5-sonnet-20240620":
+-        import anthropic
+-
+-        client = anthropic.Anthropic()
+-    elif model.startswith("bedrock") and "claude" in model:
+-        import anthropic
+-
+-        model = model.split("/")[-1]
+-        client = anthropic.AnthropicBedrock()
+-    elif args.model.startswith("vertex_ai") and "claude" in args.model:
+-        import anthropic
+-
+-        # Expects: vertex_ai/<MODEL_ID>
+-        model = args.model.split("/")[-1]
+-        client = anthropic.AnthropicVertex()
+-    elif model in [
+-        "gpt-4o-2024-05-13",
+-        "gpt-4o-mini-2024-07-18",
+-        "gpt-4o-2024-08-06",
+-    ]:
+-        import openai
+-
+-        client = openai.OpenAI()
+-    elif model == "deepseek-coder-v2-0724":
+-        import openai
+-
+-        client = openai.OpenAI(
+-            api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com"
+-        )
+-    elif model == "llama-3-1-405b-instruct":
+-        import openai
+-
+-        client = openai.OpenAI(
+-            api_key=os.environ["OPENROUTER_API_KEY"],
+-            base_url="https://openrouter.ai/api/v1",
+-        )
+-    else:
+-        raise ValueError(f"Model {model} not supported.")
++    client, model = create_client(model)
+ 
+     rating = ore_ratings.iloc[idx]
+     if rating.name in llm_ratings.index:

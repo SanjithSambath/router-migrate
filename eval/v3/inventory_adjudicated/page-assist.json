@@ -1,0 +1,162 @@
+{
+ "repo": "n4ze3m/page-assist",
+ "commit": "70215d882fc670a85ac28c30661c16472172d06c",
+ "notes": "Browser extension (WXT, client-side only, no backend). Every provider (base URL + API key + model) is entered by the end user in the options UI and stored in IndexedDB/extension storage (db/dexie/openai.ts, services/tts.ts); presets in utils/oai-api-providers.ts include OpenAI, Anthropic, Google AI, Vertex, OpenRouter, Groq, DeepSeek, Ollama, LM Studio, vLLM and more. All chat/embedding models are obtained through the factories pageAssistModel (src/models/index.ts) and pageAssistEmbeddingModel (src/models/embedding.ts). CustomChatOpenAI, ChatAnthropic (CustomChatAnthropic.ts), ChatOllama, ChatChromeAI, OAIEmbedding and OllamaEmbeddingsPageAssist are in-repo LangChain-style wrappers, so the SDK/HTTP call expression inside each wrapper is counted (one site), not each construction. ChatGoogleAI extends @langchain/openai ChatOpenAI, so its construction is counted per the LangChain rule. Not counted (not generation endpoints): model listing in src/libs/openai.ts:55 (api.anthropic.com/v1/models), :116 (${baseUrl}/models), :126 (Google models list); Ollama management calls (services/ollama.ts /api/tags,/api/delete; services/model-capabilities.ts /api/show; utils/pull-ollama.ts; db/dexie/models.ts:493 ollama.com/api/tags); web search APIs (search-engines/perplexity-api.ts uses Perplexity /search, search-engines/ollama.ts uses Ollama web search); ElevenLabs TTS (not an LLM vendor); Mistral voice listing. No tests, examples or notebooks exist, so there are no nonprod sites.",
+ "sites": [
+  {
+   "file": "src/models/CustomChatOpenAI.ts",
+   "line": 938,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "chat",
+   "endpoint": "runtime-user-defined",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: the only chat.completions.create in the in-repo CustomChatOpenAI wrapper. All three constructions (src/models/index.ts:151 Vertex with a Google access token, :185 OpenRouter, :251 any other OpenAI-compatible provider) set baseURL from the user-defined provider record (providerInfo.baseUrl from IndexedDB), so the vendor is picked by the user at runtime. The key is also the user's own (providerInfo.apiKey), which would be rule 4. The model is modelInfo.model_id, chosen at runtime.",
+   "expected_inventory": "kept",
+   "adjudication": "Rule 2: CustomChatOpenAI's client (src/models/CustomChatOpenAI.ts:938, built at :949-968) is only constructed at src/models/index.ts:151 (Vertex), :185 (OpenRouter) and :251 (any other custom provider), all with baseURL: providerInfo.baseUrl from the user-added provider record (getOpenAIConfigById, src/db/dexie/openai.ts:67-184), so the endpoint is chosen from a user-defined object at runtime. The key is also the user's own (providerInfo.apiKey) and the model is modelInfo.model_id."
+  },
+  {
+   "file": "src/models/index.ts",
+   "line": 133,
+   "prod": true,
+   "sdk": "langchain-openai",
+   "surface": "chat",
+   "endpoint": "runtime-user-defined",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: new ChatGoogleAI(...), a subclass of @langchain/openai ChatOpenAI, used for the 'gemini' provider. baseURL is providerInfo.baseUrl (preset https://generativelanguage.googleapis.com/v1beta/openai), a user-defined object at runtime and a non-OpenAI host. The key comes from the user's provider record, and the model is modelInfo.model_id."
+  },
+  {
+   "file": "src/models/CustomChatAnthropic.ts",
+   "line": 355,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "messages",
+   "endpoint": "default",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": true,
+   "stateful_responses": false,
+   "expected": "flagged",
+   "why": "Rule 4: raw fetch to https://api.anthropic.com/v1/messages, streaming, in the in-repo ChatAnthropic class, constructed only at src/models/index.ts:174 for provider 'anthropic'. x-api-key is providerInfo.apiKey, which each end user enters in the extension (BYOK, not operator env/config). Rule 5 also applies: the call sends an 'anthropic-beta: interleaved-thinking-2025-05-14' header when budgetTokens is set, although the only construction never sets budgetTokens. Otherwise this would be handoff under rule 7 (raw HTTP to api.anthropic.com). The model is modelInfo.model_id at runtime; the class default 'claude-sonnet-4-5-20250929' is a listed dated equivalence of claude-sonnet-4-5, so rule 6 does not apply."
+  },
+  {
+   "file": "src/models/OAIEmbedding.ts",
+   "line": 158,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "embeddings",
+   "endpoint": "runtime-user-defined",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: client.embeddings.create, and Router has no embeddings endpoint. Constructed at src/models/embedding.ts:19 with baseURL and apiKey from the user's provider record (rule 2 too). The model is modelInfo.model_id; the class default is text-embedding-ada-002."
+  },
+  {
+   "file": "src/services/openai-tts.ts",
+   "line": 25,
+   "prod": true,
+   "sdk": "openai",
+   "surface": "audio",
+   "endpoint": "env-config",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: openai.audio.speech.create (TTS), and Router has no audio endpoint. baseURL, apiKey, model and voice come from user settings in extension storage; the base URL defaults to https://api.openai.com/v1 and the model to tts-1 (services/tts.ts)."
+  },
+  {
+   "file": "src/services/mistral-tts.ts",
+   "line": 79,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "audio",
+   "endpoint": "other:api.mistral.ai",
+   "key_source": "per-user",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: raw POST to ${baseURL}/audio/speech (Mistral TTS), an audio surface Router lacks. It is also another vendor (rule 2): the base URL setting defaults to https://api.mistral.ai/v1. The model setting defaults to voxtral-mini-tts-2603, and the key is user-entered."
+  },
+  {
+   "file": "src/models/utils/ollama.ts",
+   "line": 160,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "chat",
+   "endpoint": "other:ollama",
+   "key_source": "none",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: createOllamaStream's fetch, used for both ${baseUrl}/api/chat and ${baseUrl}/api/generate by the in-repo ChatOllama (constructed at src/models/index.ts:235 for the 'ollama2' provider and :296 for native Ollama models). The target is a user-configured Ollama server (default http://localhost:11434), not OpenAI or Anthropic. An optional Bearer key can come from the provider record."
+  },
+  {
+   "file": "src/models/OllamaEmbedding.ts",
+   "line": 219,
+   "prod": true,
+   "sdk": "raw-http",
+   "surface": "embeddings",
+   "endpoint": "other:ollama",
+   "key_source": "none",
+   "model": {
+    "value": null,
+    "static": false
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 1: raw POST to ${baseUrl}/api/embed on the user's Ollama server (embeddings; also another vendor, rule 2). Constructed at src/models/embedding.ts:31."
+  },
+  {
+   "file": "src/models/ChatChromeAi.ts",
+   "line": 124,
+   "prod": true,
+   "sdk": "other:chrome-prompt-api",
+   "surface": "chat",
+   "endpoint": "other:chrome-on-device",
+   "key_source": "none",
+   "model": {
+    "value": "chrome::gemini-nano::page-assist",
+    "static": true
+   },
+   "beta": false,
+   "stateful_responses": false,
+   "expected": "kept",
+   "why": "Rule 2: session.promptStreaming(...) on Chrome's built-in Prompt API (LanguageModel / window.ai, on-device Gemini Nano), with the session created in src/models/utils/chrome.ts. It is not an OpenAI or Anthropic endpoint and Router has no equivalent. Selected in src/models/index.ts:96-97 by the app-internal id chrome::gemini-nano::page-assist."
+  }
+ ]
+}

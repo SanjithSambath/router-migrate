@@ -1,0 +1,92 @@
+{
+ "repo": "openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "pristine": "/Users/sanjithsambath/code/router-migrate/eval/work/v3/pristine/openui",
+ "questions": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 155,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "client patched; model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it (repo names 7 openai model(s), 5 in the catalog, e.g. gpt-3.5-turbo) (base URL is config-driven: routed when it resolves to the provider default)"
+    },
+    {
+     "outcome": "kept",
+     "why": "groq AsyncOpenAI client (line 80) with base_url=config.GROQ_BASE_URL defaulting to https://api.groq.com/openai/v1; model is request model with 'groq/' prefix stripped."
+    }
+   ],
+   "id": "Q1"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 169,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "kept",
+     "why": "litellm AsyncOpenAI client (line 74) points at a local LiteLLM proxy (config.LITELLM_BASE_URL default http://0.0.0.0:4000) that fans out to Gemini/Anthropic/Cohere/Mistral/OpenAI-compatible backends."
+    },
+    {
+     "outcome": "migrated",
+     "why": "client patched; model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it (repo names 7 openai model(s), 5 in the catalog, e.g. gpt-3.5-turbo) (base URL is config-driven: routed when it resolves to the provider default)"
+    }
+   ],
+   "id": "Q2"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 196,
+   "surface": "chat",
+   "readings": [
+    {
+     "outcome": "migrated",
+     "why": "client patched; model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it (repo names 7 openai model(s), 5 in the catalog, e.g. gpt-3.5-turbo) (base URL is config-driven: routed when it resolves to the provider default)"
+    },
+    {
+     "outcome": "kept",
+     "why": "ollama_openai AsyncOpenAI client (line 85) with base_url=config.OLLAMA_HOST + '/v1' (local Ollama OpenAI-compat), api_key='xxx'."
+    }
+   ],
+   "id": "Q3"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 207,
+   "surface": "responses",
+   "readings": [
+    {
+     "outcome": "not a production LLM site / not inventoried",
+     "why": "absent from the inventory"
+    },
+    {
+     "outcome": "migrated",
+     "why": "client points at Router natively; model chosen at runtime; the runtime routes it when it is in the Router catalog, else the provider keeps it (repo names 6 openai model(s), 4 in the catalog, e.g. gpt-3.5-turbo)"
+    }
+   ],
+   "not_in_inventory": true,
+   "id": "Q4"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 396,
+   "surface": "models",
+   "readings": [
+    {
+     "outcome": "kept",
+     "why": "Router serves GET /v1/models but model lists here describe the provider's account; kept"
+    },
+    {
+     "outcome": "migrated",
+     "why": "(by extension): openai.models.list() on the same env-config default-OpenAI client as line 139; Router serves GET /v1/models so does not apply. Result is discarded (used as a connectivity probe, then a hard-coded list of catalog ids is returned)."
+    },
+    {
+     "outcome": "kept",
+     "why": "openai.models.list() checks connectivity/account access to the OpenAI account, then returns a hardcoded supported-model list; Router's GET /v1/models serves the Router catalog, not this account-connectivity check"
+    }
+   ],
+   "id": "Q5"
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+{
+ "agent": {
+  "exit": 0,
+  "usd": 3.5204197999999995,
+  "turns": 100,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`router-migrate finish .` passed. Summary of the migration:\n\n**Architecture**: this plugin registers ~15 selectable LLM providers (`LLMProviders/index.ts`), each its own LangChain wrapper class or raw-fetch \"Custom\" provider, picked by the user in Settings.\n\n**Outcomes (132 worklist items, all claimed):**\n- **`migrated` (7, unconfirmed by the local simulator but not overridden)**: OpenAI Chat, OpenAI Agent (thinking models), and Anthropic Chat providers \u2014 each is a vendor-branded LangChain class (`ChatOpenAI`/`ChatAnthropic`) defaulting to the vendor's own host with the operator's key; the \"Base Path\" field is an override valve, not a provider switchboard. Also the global `default-settings.ts` endpoint, which mirrors that OpenAI default.\n- **`kept R_OTHER_HOST` (22)**: Azure, Google (GenerativeAI/PaLM), Mistral, Together, Perplexity, Ollama, MiniMax (OpenAI/Anthropic-*compatible* but hosted by MiniMax), and the two generic \"Custom\"/\"Anthropic Legacy (Custom)\" providers whose endpoint is a free-text settings field meant for arbitrary hosts.\n- **`kept R_NO_ENDPOINT` (part of the 22)**: OpenAI Instruct (legacy Completions API) and the Whisper audio-transcription path \u2014 neither surface is served by Router.\n- **`handoff R_RAW_REQUESTS` (2)**: the two \"list available models\" helpers (`chatanthropic.tsx`, `utils.tsx`) that hit `/models` via Obsidian's raw `request()` API instead of an SDK or `fetch`.\n- **`not_a_site` (91)**: the static `AI_MODELS` pricing/token catalog (74 entries), local token-counting arithmetic in every provider's `calcTokens`/`calcPrice`, a one-time settings-migration helper, a test file, and a text-splitter import \u2014 none of these construct or send a request.\n\nNo code was edited \u2014 the floor's codemod found zero wrappable `new OpenAI(`/`new Anthropic(` constructions (this repo only uses LangChain wrapper classes and raw `fetch`), so every decision here was a judgment claim rather than a wrap.",
+  "finish_exit": 0
+ },
+ "minutes": 15.6
+}

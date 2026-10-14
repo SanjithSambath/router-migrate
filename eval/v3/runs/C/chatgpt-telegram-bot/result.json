@@ -1,0 +1,98 @@
+{
+ "repo": "chatgpt-telegram-bot",
+ "commit": "df4dcaa26923dee560ef8f9b4f18a682c9b059ad",
+ "arm": "C",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 1,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 5,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 9,
+ "test_files_edited": [],
+ "usd": 1.2968898000000004,
+ "minutes": 5.8,
+ "agent": {
+  "exit": 0,
+  "usd": 1.2968898000000004,
+  "turns": 45,
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "final": "`finish` exits clean. Migration complete.\n\n**Summary:**\n- **Wrapped** the `openai.AsyncOpenAI` client construction at `bot/openai_helper.py:113` \u2014 the scanner had conservatively flagged the 4 chat-completion call sites as per-tenant (`api_key` traced through a `config` parameter), but tracing it back confirmed `config['api_key']` is a single operator-wide key read once from `OPENAI_API_KEY` at startup (`main.py:34`), not per-request \u2014 so this was the standard client-factory case, not `R_PER_TENANT`.\n- **Migrated** (8 claims): the 4 chat-completion calls plus their \"unconfirmed\" shadow claims at the original pre-wrap line numbers (the finish gate's worklist tracks original scan coordinates, so each call needed a claim keyed to both its current and original line).\n- **Kept** (3, `R_NO_ENDPOINT`): `images.generate`, `audio.speech.create`, `audio.transcriptions.create` \u2014 Router has no images/audio endpoints, so these stay on the provider through the same wrapped client.\n- **Not a site** (15): model-name literal tables/checks in `openai_helper.py` and `main.py` (classification data, not calls), plus a DeepL plugin's `User-Agent` string that happened to match the \"chatgpt\" text pattern.\n- Dispatched a search agent to sweep the rest of the repo (plugins, configs, docs) for missed LLM calls \u2014 confirmed nothing else: no other SDKs, no raw HTTP to LLM hosts, and `OPENAI_BASE_URL` is documented but never actually wired into the client, so the real default host is `api.openai.com`.",
+  "finish_exit": 0
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:20:17",
+ "routed_static": 4,
+ "inventory_prod_sites": 7,
+ "inventory_migrated": 4,
+ "inventory_handoff": 0,
+ "sites_moved": 4,
+ "sites_moved_correct": 4,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 7,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 4,
+ "reported_migrated_correct": 4,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 4,
+ "sites_moved_adj": 4,
+ "sites_moved_correct_adj": 4,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 1.0,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 4,
+ "reported_migrated_correct_adj": 4,
+ "ledger": {
+  "result": {
+   "claims": {
+    "kept": 3,
+    "migrated": 8,
+    "not_a_site": 15
+   },
+   "conditional_unresolved": 0,
+   "migrated_confirmed_claims": 4,
+   "migrated_static": 4,
+   "migrated_unconfirmed_claims": 4,
+   "overridden_to_not_migrated": 0
+  },
+  "finish_attempts": 1,
+  "reverted": false,
+  "claims": 26,
+  "worklist": 19
+ }
+}

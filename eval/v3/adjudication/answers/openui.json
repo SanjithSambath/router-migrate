@@ -1,0 +1,40 @@
+{
+ "repo": "openui",
+ "answers": [
+  {
+   "id": "Q1",
+   "expected": "kept",
+   "is_site": true,
+   "ambiguous": false,
+   "why": "groq.chat.completions.create (backend/openui/server.py:155) uses the groq client AsyncOpenAI(base_url=config.GROQ_BASE_URL) (server.py:80). GROQ_BASE_URL defaults to https://api.groq.com/openai/v1 (config.py), which is another vendor's host, so rule 2 keeps it."
+  },
+  {
+   "id": "Q2",
+   "expected": "kept",
+   "is_site": true,
+   "ambiguous": false,
+   "why": "litellm.chat.completions.create (server.py:169) uses AsyncOpenAI(base_url=config.LITELLM_BASE_URL) (server.py:74). LITELLM_BASE_URL defaults to http://0.0.0.0:4000 (config.py), a local LiteLLM proxy server, so rule 2 (a non-OpenAI/Anthropic or local host) applies before any gateway handoff rule."
+  },
+  {
+   "id": "Q3",
+   "expected": "kept",
+   "is_site": true,
+   "ambiguous": false,
+   "why": "ollama_openai.chat.completions.create (server.py:196) uses AsyncOpenAI(base_url=config.OLLAMA_HOST + '/v1', api_key='xxx') (server.py:85). OLLAMA_HOST defaults to http://127.0.0.1:11434, a local Ollama server, so rule 2 keeps it."
+  },
+  {
+   "id": "Q4",
+   "expected": "nonprod",
+   "is_site": false,
+   "ambiguous": false,
+   "why": "The pristine backend/openui/server.py has no Responses API call: lines 205-208 are the dummy-model branch and the 'Invalid model' raise. A repo-wide search (excluding the bundled dist/ JS) finds no responses.create/stream/parse/retrieve. The only default-OpenAI generation call is chat.completions.create at server.py:139, which is a separate site. The 'points at Router natively' reading does not match this source."
+  },
+  {
+   "id": "Q5",
+   "expected": "migrated",
+   "is_site": true,
+   "ambiguous": true,
+   "why": "openai.models.list() (server.py:396) runs on the same module-level client as the chat site at server.py:139: AsyncOpenAI(base_url=config.OPENAI_BASE_URL, api_key=config.OPENAI_API_KEY), with defaults https://api.openai.com/v1 and an env key. Router serves GET /v1/models, so rule 1 does not apply, no rule 2-7 condition holds, and the result is discarded: it is only a connectivity probe for the endpoint the chat call uses (server.py:395-399). Ambiguous because rule 8's text names only chat/responses/messages, not the models surface."
+  }
+ ]
+}

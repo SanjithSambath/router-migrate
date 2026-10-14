@@ -1,0 +1,311 @@
+diff --git a/src/LLMProviders/index.ts b/src/LLMProviders/index.ts
+index 4f001ad..51e16e6 100644
+--- a/src/LLMProviders/index.ts
++++ b/src/LLMProviders/index.ts
+@@ -1,6 +1,7 @@
+ import CustomProvider from "./custom/custom";
+ import AnthropicCustomProvider from "./custom/anthropic";
+ 
++import LangchainRouterProvider from "./langchain/router";
+ import LangchainOpenAIChatProvider from "./langchain/openaiChat";
+ import LangchainMistralAIChatProvider from "./langchain/mistralaiChat";
+ import LangchainOpenAIInstructProvider from "./langchain/openaiInstruct";
+@@ -22,6 +23,9 @@ import LangchainMiniMaxOpenAIProvider, {
+ // import { LOCClone1, LOCClone2 } from "./langchain/clones";
+ 
+ export const defaultProviders = [
++  // router
++  LangchainRouterProvider,
++
+   // openai
+   LangchainOpenAIChatProvider,
+   LangchainOpenAIInstructProvider,
+diff --git a/src/LLMProviders/interface.ts b/src/LLMProviders/interface.ts
+index 77cda44..6840e23 100644
+--- a/src/LLMProviders/interface.ts
++++ b/src/LLMProviders/interface.ts
+@@ -93,4 +93,10 @@ export interface LLMConfig {
+   serviceTier?: "standard" | "priority";
+   /** Official API region selected in provider settings */
+   apiRegion?: "Global" | "China";
++
++  // ============= Router-only parameters =============
++  /** Raw JSON5 text edited in Settings; parsed into Router-only request fields
++   * (models, allow_flex_tier, provider_timeout, timeout_before_headers, metadata)
++   * and merged into the request body. */
++  routerOptions?: string;
+ }
+diff --git a/src/LLMProviders/langchain/router.test.ts b/src/LLMProviders/langchain/router.test.ts
+new file mode 100644
+index 0000000..d9b1ebe
+--- /dev/null
++++ b/src/LLMProviders/langchain/router.test.ts
+@@ -0,0 +1,68 @@
++import { describe, it, expect } from "vitest";
++
++const baseURL = "https://router.test/v1";
++
++describe("Router provider wiring", () => {
++  it("sends chat requests to POST {baseURL}/responses with a Router bearer token and no provider key", async () => {
++    const { ChatOpenAI } = await import("@langchain/openai");
++
++    let captured: { url: string; headers: Headers; body: Record<string, any> } | undefined;
++    const captureFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
++      captured = {
++        url: String(input),
++        headers: new Headers(init?.headers),
++        body: JSON.parse(String(init?.body || "{}")),
++      };
++      throw new Error("capture-complete");
++    };
++
++    const llm = new ChatOpenAI({
++      apiKey: "rm-router-test-key",
++      model: "claude-haiku-5-5",
++      maxTokens: 16,
++      maxRetries: 0,
++      useResponsesApi: true,
++      configuration: { baseURL, fetch: captureFetch, dangerouslyAllowBrowser: true },
++    });
++
++    try {
++      await llm.invoke("Hello");
++    } catch {
++      expect(captured).toBeDefined();
++    }
++
++    const request = captured!;
++    expect(request.url).toBe(`${baseURL}/responses`);
++    expect(request.headers.get("authorization")).toBe("Bearer rm-router-test-key");
++    expect(request.body).toMatchObject({
++      model: "claude-haiku-5-5",
++      max_output_tokens: 16,
++    });
++    expect(JSON.stringify(request.body)).not.toMatch(/sk-|anthropic|AIza/i);
++  });
++
++  it("lists models from GET {baseURL}/models with a Router bearer token", async () => {
++    const OpenAI = (await import("openai")).default;
++
++    let captured: { url: string; headers: Headers } | undefined;
++    const captureFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
++      captured = { url: String(input), headers: new Headers(init?.headers) };
++      return new Response(JSON.stringify({ data: [] }), {
++        status: 200,
++        headers: { "content-type": "application/json" },
++      });
++    };
++
++    const client = new OpenAI({
++      apiKey: "rm-router-test-key",
++      baseURL,
++      fetch: captureFetch as any,
++    });
++
++    await client.models.list();
++
++    const request = captured!;
++    expect(request.url).toBe(`${baseURL}/models`);
++    expect(request.headers.get("authorization")).toBe("Bearer rm-router-test-key");
++  });
++});
+diff --git a/src/LLMProviders/langchain/router.tsx b/src/LLMProviders/langchain/router.tsx
+new file mode 100644
+index 0000000..8a862de
+--- /dev/null
++++ b/src/LLMProviders/langchain/router.tsx
+@@ -0,0 +1,194 @@
++import React from "react";
++import LangchainBase from "./base";
++
++import LLMProviderInterface, { LLMConfig } from "../interface";
++import { ModelsHandler } from "../utils";
++import debug from "debug";
++import JSON5 from "json5";
++
++import { Input, SettingItem, useGlobal } from "../refs";
++
++const logger = debug("textgenerator:llmProvider:router");
++
++/** Router holds the provider credentials — the plugin never talks to
++ * OpenAI/Anthropic/Google/etc. directly through this provider, it only
++ * ever talks to Router's OpenAI-Responses-compatible surface. */
++function getEnv(name: string): string | undefined {
++  try {
++    // `process` isn't available on mobile Obsidian; guard for that.
++    return typeof process !== "undefined" ? process.env?.[name] : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++const default_values = {
++  basePath: getEnv("RAMP_ROUTER_BASE_URL") || "https://api.router.com/v1",
++  // Valid model ids are account-specific and come from GET /v1/models —
++  // there is no sane hardcoded default.
++  model: "",
++};
++
++export default class LangchainRouterProvider
++  extends LangchainBase
++  implements LLMProviderInterface {
++  static provider = "Langchain";
++  static id = "Router (Langchain)" as const;
++  static slug = "router" as const;
++  static displayName = "Router";
++
++  id = LangchainRouterProvider.id;
++  provider = LangchainRouterProvider.provider;
++  originalId = LangchainRouterProvider.id;
++
++  default_values = default_values;
++
++  async load() {
++    const { ChatOpenAI } = await import("@langchain/openai");
++    this.llmClass = ChatOpenAI;
++  }
++
++  /** Router's own key, never a provider key — settings field takes
++   * precedence when the user set one, otherwise fall back to the
++   * environment variable Router is configured through. */
++  private resolveApiKey(options: LLMConfig) {
++    return options.api_key || getEnv("RAMP_ROUTER_API_KEY") || "";
++  }
++
++  private parseRouterOptions(options: LLMConfig) {
++    if (!options.routerOptions) return {};
++    try {
++      const parsed = JSON5.parse(options.routerOptions);
++      return typeof parsed === "object" && parsed ? parsed : {};
++    } catch (e) {
++      console.error("Router: invalid Extra Request Options JSON", e);
++      return {};
++    }
++  }
++
++  getConfig(options: LLMConfig): any {
++    const apiKey = this.resolveApiKey(options);
++
++    return this.cleanConfig({
++      apiKey,
++      openAIApiKey: apiKey,
++
++      // Talk the OpenAI Responses schema, whichever provider Router routes to.
++      useResponsesApi: true,
++
++      modelKwargs: this.parseRouterOptions(options),
++      modelName: options.model,
++      maxTokens: +options.max_tokens,
++      temperature: +options.temperature,
++      n: options.n || 1,
++      stop: options.stop || undefined,
++      streaming: options.stream || false,
++      maxRetries: 3,
++      headers: options.headers || undefined,
++    });
++  }
++
++  async getLLM(_options: LLMConfig) {
++    // Guarantee Router's base URL even if the Settings UI was never opened
++    // (so `options.basePath` was never persisted).
++    const options = {
++      ..._options,
++      basePath: _options.basePath?.length
++        ? _options.basePath
++        : default_values.basePath,
++    };
++
++    return super.getLLM(options);
++  }
++
++  async calcPrice(): Promise<number> {
++    // Pricing for Router-served models is account-specific and not known
++    // to this plugin; cost estimation isn't available for this provider.
++    return 0;
++  }
++
++  RenderSettings(
++    props: Parameters<LLMProviderInterface["RenderSettings"]>[0]
++  ) {
++    const global = useGlobal();
++
++    const id = props.self.id;
++    const config = (global.plugin.settings.LLMProviderOptions[id] ??= {
++      ...default_values,
++    });
++
++    return (
++      <React.Fragment key={id}>
++        <div className="plug-tg-text-xs plug-tg-opacity-70">
++          Router holds the provider credentials for every model it serves.
++          If the <code>RAMP_ROUTER_API_KEY</code> environment variable is
++          set, it's used automatically — the field below is only needed when
++          that isn't available (e.g. on mobile).
++        </div>
++
++        <SettingItem
++          name="API Key"
++          description="Router API key. Leave blank to use RAMP_ROUTER_API_KEY from the environment."
++          register={props.register}
++          sectionId={props.sectionId}
++        >
++          <Input
++            type="password"
++            value={config.api_key || ""}
++            setValue={async (value) => {
++              config.api_key = value;
++              global.triggerReload();
++              global.plugin.encryptAllKeys();
++              await global.plugin.saveSettings();
++            }}
++          />
++        </SettingItem>
++
++        <SettingItem
++          name="Base Path"
++          description="Router's base URL"
++          register={props.register}
++          sectionId={props.sectionId}
++        >
++          <Input
++            value={config.basePath || default_values.basePath}
++            placeholder="Enter your Router Base Path"
++            setValue={async (value) => {
++              config.basePath = value || default_values.basePath;
++              global.triggerReload();
++              await global.plugin.saveSettings();
++            }}
++          />
++        </SettingItem>
++
++        <ModelsHandler
++          register={props.register}
++          sectionId={props.sectionId}
++          llmProviderId={props.self.originalId || id}
++          default_values={default_values}
++          config={config}
++        />
++
++        <SettingItem
++          name="Extra Request Options (JSON)"
++          description="Router-only fields merged into the request body: models, allow_flex_tier, provider_timeout, timeout_before_headers, metadata."
++          register={props.register}
++          sectionId={props.sectionId}
++        >
++          <textarea
++            className="plug-tg-resize-none plug-tg-w-full"
++            placeholder='{"metadata": {"feature": "writer"}, "provider_timeout": 30}'
++            defaultValue={config.routerOptions || ""}
++            onChange={async (e) => {
++              config.routerOptions = e.target.value;
++              global.triggerReload();
++              await global.plugin.saveSettings();
++            }}
++            spellCheck={false}
++            rows={4}
++          />
++        </SettingItem>
++      </React.Fragment>
++    );
++  }
++}

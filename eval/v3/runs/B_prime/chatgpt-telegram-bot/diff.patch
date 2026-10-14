@@ -1,0 +1,468 @@
+diff --git a/.env.example b/.env.example
+index 1144cc3..36d8751 100644
+--- a/.env.example
++++ b/.env.example
+@@ -1,6 +1,12 @@
+-# Your OpenAI API key
++# Your OpenAI API key. Still required directly: Router has no image/audio endpoints,
++# so image generation, TTS and transcription call OpenAI directly with this key.
+ OPENAI_API_KEY=XXX
+ 
++# Your Router API key. Used for chat, vision and function-calling, which go through
++# Router's OpenAI Responses-compatible API instead of talking to a provider directly.
++RAMP_ROUTER_API_KEY=XXX
++# RAMP_ROUTER_BASE_URL=https://api.router.com/v1
++
+ # Your Telegram bot token obtained using @BotFather
+ TELEGRAM_BOT_TOKEN=XXX
+ 
+diff --git a/README.md b/README.md
+index 153ee56..ef2a61b 100644
+--- a/README.md
++++ b/README.md
+@@ -61,7 +61,8 @@ Customize the configuration by copying `.env.example` and renaming it to `.env`,
+ 
+ | Parameter                   | Description                                                                                                                                                                                                                   |
+ |-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+-| `OPENAI_API_KEY`            | Your OpenAI API key, you can get it from [here](https://platform.openai.com/account/api-keys)                                                                                                                                 |
++| `OPENAI_API_KEY`            | Your OpenAI API key, you can get it from [here](https://platform.openai.com/account/api-keys). Still needed directly for image generation, TTS and transcription, since Router doesn't serve those surfaces.                |
++| `RAMP_ROUTER_API_KEY`       | Your Router API key. Chat, vision and function-calling go through Router instead of OpenAI directly.                                                                                                                          |
+ | `TELEGRAM_BOT_TOKEN`        | Your Telegram bot's token, obtained using [BotFather](http://t.me/botfather) (see [tutorial](https://core.telegram.org/bots/tutorial#obtain-your-bot-token))                                                                  |
+ | `ADMIN_USER_IDS`            | Telegram user IDs of admins. These users have access to special admin commands, information and no budget restrictions. Admin IDs don't have to be added to `ALLOWED_TELEGRAM_USER_IDS`. **Note**: by default, no admin (`-`) |
+ | `ALLOWED_TELEGRAM_USER_IDS` | A comma-separated list of Telegram user IDs that are allowed to interact with the bot (use [getidsbot](https://t.me/getidsbot) to find your user ID). **Note**: by default, *everyone* is allowed (`*`)                       |
+@@ -94,21 +95,21 @@ Check out the [Budget Manual](https://github.com/n3d1117/chatgpt-telegram-bot/di
+ | `PROXY`                             | Proxy to be used for OpenAI and Telegram bot (e.g. `http://localhost:8080`)                                                                                                                                                                                                             | -                                  |
+ | `OPENAI_PROXY`                      | Proxy to be used only for OpenAI (e.g. `http://localhost:8080`)                                                                                                                                                                                                                         | -                                  |
+ | `TELEGRAM_PROXY`                    | Proxy to be used only for Telegram bot (e.g. `http://localhost:8080`)                                                                                                                                                                                                                   | -                                  |
+-| `OPENAI_MODEL`                      | The OpenAI model to use for generating responses. You can find all available models [here](https://platform.openai.com/docs/models/)                                                                                                                                                    | `gpt-4o`                           |
++| `OPENAI_MODEL`                      | The Router model ID to use for generating responses. Must be one of the IDs returned by your Router account's `GET /v1/models`, not a raw provider model name.                                                                                                                          | `gpt-4o`                           |
+ | `OPENAI_BASE_URL`                   | Endpoint URL for unofficial OpenAI-compatible APIs (e.g., LocalAI or text-generation-webui)                                                                                                                                                                                             | Default OpenAI API URL             |
+ | `ASSISTANT_PROMPT`                  | A system message that sets the tone and controls the behavior of the assistant                                                                                                                                                                                                          | `You are a helpful assistant.`     |
+ | `SHOW_USAGE`                        | Whether to show OpenAI token usage information after each response                                                                                                                                                                                                                      | `false`                            |
+ | `STREAM`                            | Whether to stream responses. **Note**: incompatible, if enabled, with `N_CHOICES` higher than 1                                                                                                                                                                                         | `true`                             |
+ | `MAX_TOKENS`                        | Upper bound on how many tokens the ChatGPT API will return                                                                                                                                                                                                                              | `1200` for GPT-3, `2400` for GPT-4 |
+ | `VISION_MAX_TOKENS`                 | Upper bound on how many tokens vision models will return                                                                                                                                                                                                                                | `300` for gpt-4o                   |
+-| `VISION_MODEL`                      | The Vision to Speech model to use. Allowed values: `gpt-4o`                                                                                                                                                                                                                             | `gpt-4o`                           |
++| `VISION_MODEL`                      | The Router model ID to use for image interpretation, from `GET /v1/models`.                                                                                                                                                                                                             | `gpt-4o`                           |
+ | `ENABLE_VISION_FOLLOW_UP_QUESTIONS` | If true, once you send an image to the bot, it uses the configured VISION_MODEL until the conversation ends. Otherwise, it uses the OPENAI_MODEL to follow the conversation. Allowed values: `true` or `false`                                                                          | `true`                             |
+ | `MAX_HISTORY_SIZE`                  | Max number of messages to keep in memory, after which the conversation will be summarised to avoid excessive token usage                                                                                                                                                                | `15`                               |
+ | `MAX_CONVERSATION_AGE_MINUTES`      | Maximum number of minutes a conversation should live since the last message, after which the conversation will be reset                                                                                                                                                                 | `180`                              |
+ | `VOICE_REPLY_WITH_TRANSCRIPT_ONLY`  | Whether to answer to voice messages with the transcript only or with a ChatGPT response of the transcript                                                                                                                                                                               | `false`                            |
+ | `VOICE_REPLY_PROMPTS`               | A semicolon separated list of phrases (i.e. `Hi bot;Hello chat`). If the transcript starts with any of them, it will be treated as a prompt even if `VOICE_REPLY_WITH_TRANSCRIPT_ONLY` is set to `true`                                                                                 | -                                  |
+ | `VISION_PROMPT`                     | A phrase (i.e. `What is in this image`). The vision models use it as prompt to interpret a given image. If there is caption in the image sent to the bot, that supersedes this parameter                                                                                                | `What is in this image`            |
+-| `N_CHOICES`                         | Number of answers to generate for each input message. **Note**: setting this to a number higher than 1 will not work properly if `STREAM` is enabled                                                                                                                                    | `1`                                |
++| `N_CHOICES`                         | Number of answers to generate for each input message. **Note**: Router's Responses API has no equivalent of `n`, so only a single answer is generated regardless of this setting                                                                                                      | `1`                                |
+ | `TEMPERATURE`                       | Number between 0 and 2. Higher values will make the output more random                                                                                                                                                                                                                  | `1.0`                              |
+ | `PRESENCE_PENALTY`                  | Number between -2.0 and 2.0. Positive values penalize new tokens based on whether they appear in the text so far                                                                                                                                                                        | `0.0`                              |
+ | `FREQUENCY_PENALTY`                 | Number between -2.0 and 2.0. Positive values penalize new tokens based on their existing frequency in the text so far                                                                                                                                                                   | `0.0`                              |
+diff --git a/bot/main.py b/bot/main.py
+index a95984f..3393939 100644
+--- a/bot/main.py
++++ b/bot/main.py
+@@ -20,7 +20,9 @@ def main():
+     logging.getLogger("httpx").setLevel(logging.WARNING)
+ 
+     # Check if the required environment variables are set
+-    required_values = ['TELEGRAM_BOT_TOKEN', 'OPENAI_API_KEY']
++    # OPENAI_API_KEY is still needed directly: Router has no image/audio endpoints, so
++    # image generation, TTS and transcription keep calling OpenAI directly.
++    required_values = ['TELEGRAM_BOT_TOKEN', 'OPENAI_API_KEY', 'RAMP_ROUTER_API_KEY']
+     missing_values = [value for value in required_values if os.environ.get(value) is None]
+     if len(missing_values) > 0:
+         logging.error(f'The following environment values are missing in your .env: {", ".join(missing_values)}')
+@@ -32,6 +34,8 @@ def main():
+     max_tokens_default = default_max_tokens(model=model)
+     openai_config = {
+         'api_key': os.environ['OPENAI_API_KEY'],
++        'router_api_key': os.environ['RAMP_ROUTER_API_KEY'],
++        'router_base_url': os.environ.get('RAMP_ROUTER_BASE_URL', 'https://api.router.com/v1'),
+         'show_usage': os.environ.get('SHOW_USAGE', 'false').lower() == 'true',
+         'stream': os.environ.get('STREAM', 'true').lower() == 'true',
+         'proxy': os.environ.get('PROXY', None) or os.environ.get('OPENAI_PROXY', None),
+diff --git a/bot/openai_helper.py b/bot/openai_helper.py
+index 9fbe508..d598b07 100644
+--- a/bot/openai_helper.py
++++ b/bot/openai_helper.py
+@@ -67,6 +67,54 @@ def are_functions_available(model: str) -> bool:
+     return True
+ 
+ 
++def _functions_to_tools(specs):
++    """
++    Converts Chat Completions-style function specs (flat name/description/parameters)
++    into Responses API tool definitions. strict is left off (False) since the plugin
++    parameter schemas aren't written to satisfy strict-mode JSON schema rules.
++    """
++    return [
++        {
++            'type': 'function',
++            'name': spec['name'],
++            'description': spec.get('description', ''),
++            'parameters': spec.get('parameters') or {'type': 'object', 'properties': {}},
++            'strict': False,
++        }
++        for spec in specs
++    ]
++
++
++def _to_responses_input(messages):
++    """
++    Converts the stored Chat Completions-style conversation history (role/content dicts,
++    with vision turns using 'text'/'image_url' content parts) into Responses API input
++    items. Function-call items are already stored in native Responses item shape and are
++    passed through unchanged.
++    """
++    items = []
++    for message in messages:
++        if 'type' in message:
++            items.append(message)
++            continue
++        content = message['content']
++        if isinstance(content, str):
++            items.append({'role': message['role'], 'content': content})
++            continue
++        parts = []
++        for part in content:
++            if part['type'] == 'text':
++                parts.append({'type': 'input_text', 'text': part['text']})
++            elif part['type'] == 'image_url':
++                parts.append({
++                    'type': 'input_image',
++                    'image_url': part['image_url']['url'],
++                    'detail': part['image_url'].get('detail', 'auto'),
++                })
++        items.append({'role': message['role'], 'content': parts})
++    return items
++
++
+ # Load translations
+ parent_dir_path = os.path.join(os.path.dirname(__file__), os.pardir)
+ translations_file_path = os.path.join(parent_dir_path, 'translations.json')
+@@ -104,7 +152,13 @@ class OpenAIHelper:
+         :param plugin_manager: The plugin manager
+         """
+         http_client = httpx.AsyncClient(proxy=config['proxy']) if 'proxy' in config else None
++        # Router has no image/audio endpoints, so image generation, TTS and transcription
++        # keep talking to OpenAI directly with this client.
+         self.client = openai.AsyncOpenAI(api_key=config['api_key'], http_client=http_client)
++        # Chat, vision and function-calling go through Router's Responses-compatible API.
++        self.router_client = openai.AsyncOpenAI(
++            api_key=config['router_api_key'], base_url=config['router_base_url'], http_client=http_client
++        )
+         self.config = config
+         self.plugin_manager = plugin_manager
+         self.conversations: dict[int: list] = {}  # {chat_id: history}
+@@ -135,19 +189,10 @@ class OpenAIHelper:
+             if is_direct_result(response):
+                 return response, '0'
+ 
+-        answer = ''
+-
+-        if len(response.choices) > 1 and self.config['n_choices'] > 1:
+-            for index, choice in enumerate(response.choices):
+-                content = choice.message.content.strip()
+-                if index == 0:
+-                    self.__add_to_history(chat_id, role="assistant", content=content)
+-                answer += f'{index + 1}\u20e3\n'
+-                answer += content
+-                answer += '\n\n'
+-        else:
+-            answer = response.choices[0].message.content.strip()
+-            self.__add_to_history(chat_id, role="assistant", content=answer)
++        # The Responses API has no equivalent of Chat Completions' n_choices>1 (multiple
++        # candidate messages per request), so only a single answer is ever produced.
++        answer = response.output_text.strip()
++        self.__add_to_history(chat_id, role="assistant", content=answer)
+ 
+         bot_language = self.config['bot_language']
+         show_plugins_used = len(plugins_used) > 0 and self.config['show_plugins_used']
+@@ -155,8 +200,8 @@ class OpenAIHelper:
+         if self.config['show_usage']:
+             answer += "\n\n---\n" \
+                       f"💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}" \
+-                      f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)}," \
+-                      f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
++                      f" ({str(response.usage.input_tokens)} {localized_text('prompt', bot_language)}," \
++                      f" {str(response.usage.output_tokens)} {localized_text('completion', bot_language)})"
+             if show_plugins_used:
+                 answer += f"\n🔌 {', '.join(plugin_names)}"
+         elif show_plugins_used:
+@@ -180,12 +225,9 @@ class OpenAIHelper:
+                 return
+ 
+         answer = ''
+-        async for chunk in response:
+-            if len(chunk.choices) == 0:
+-                continue
+-            delta = chunk.choices[0].delta
+-            if delta.content:
+-                answer += delta.content
++        async for event in response:
++            if event.type == 'response.output_text.delta':
++                answer += event.delta
+                 yield answer, 'not_finished'
+         answer = answer.strip()
+         self.__add_to_history(chat_id, role="assistant", content=answer)
+@@ -241,24 +283,26 @@ class OpenAIHelper:
+                     logging.warning(f'Error while summarising chat history: {str(e)}. Popping elements instead...')
+                     self.conversations[chat_id] = self.conversations[chat_id][-self.config['max_history_size']:]
+ 
+-            max_tokens_str = 'max_completion_tokens' if self.config['model'] in O_MODELS else 'max_tokens'
+             common_args = {
+                 'model': self.config['model'] if not self.conversations_vision[chat_id] else self.config['vision_model'],
+-                'messages': self.conversations[chat_id],
++                'input': _to_responses_input(self.conversations[chat_id][1:]),
++                'instructions': self.conversations[chat_id][0]['content'],
+                 'temperature': self.config['temperature'],
+-                'n': self.config['n_choices'],
+-                max_tokens_str: self.config['max_tokens'],
+-                'presence_penalty': self.config['presence_penalty'],
+-                'frequency_penalty': self.config['frequency_penalty'],
+-                'stream': stream
++                'max_output_tokens': self.config['max_tokens'],
++                'stream': stream,
++                'extra_body': {
++                    'presence_penalty': self.config['presence_penalty'],
++                    'frequency_penalty': self.config['frequency_penalty'],
++                    'metadata': {'feature': 'chat'},
++                },
+             }
+ 
+             if self.config['enable_functions'] and not self.conversations_vision[chat_id]:
+                 functions = self.plugin_manager.get_functions_specs()
+                 if len(functions) > 0:
+-                    common_args['functions'] = self.plugin_manager.get_functions_specs()
+-                    common_args['function_call'] = 'auto'
+-            return await self.client.chat.completions.create(**common_args)
++                    common_args['tools'] = _functions_to_tools(functions)
++                    common_args['tool_choice'] = 'auto'
++            return await self.router_client.responses.create(**common_args)
+ 
+         except openai.RateLimitError as e:
+             raise e
+@@ -270,36 +314,27 @@ class OpenAIHelper:
+             raise Exception(f"⚠️ _{localized_text('error', bot_language)}._ ⚠️\n{str(e)}") from e
+ 
+     async def __handle_function_call(self, chat_id, response, stream=False, times=0, plugins_used=()):
+-        function_name = ''
+-        arguments = ''
+         if stream:
+-            async for item in response:
+-                if len(item.choices) > 0:
+-                    first_choice = item.choices[0]
+-                    if first_choice.delta and first_choice.delta.function_call:
+-                        if first_choice.delta.function_call.name:
+-                            function_name += first_choice.delta.function_call.name
+-                        if first_choice.delta.function_call.arguments:
+-                            arguments += first_choice.delta.function_call.arguments
+-                    elif first_choice.finish_reason and first_choice.finish_reason == 'function_call':
+-                        break
+-                    else:
+-                        return response, plugins_used
+-                else:
++            call_item = None
++            async for event in response:
++                if event.type == 'response.output_item.added' and event.item.type != 'function_call':
++                    # Not a function call: let the caller resume consuming this same
++                    # stream for the text deltas (we've only skipped non-text events so far).
+                     return response, plugins_used
++                if event.type in ('response.completed', 'response.incomplete'):
++                    call_item = next((item for item in event.response.output if item.type == 'function_call'), None)
++                    break
++            if call_item is None:
++                return response, plugins_used
+         else:
+-            if len(response.choices) > 0:
+-                first_choice = response.choices[0]
+-                if first_choice.message.function_call:
+-                    if first_choice.message.function_call.name:
+-                        function_name += first_choice.message.function_call.name
+-                    if first_choice.message.function_call.arguments:
+-                        arguments += first_choice.message.function_call.arguments
+-                else:
+-                    return response, plugins_used
+-            else:
++            call_item = next((item for item in response.output if item.type == 'function_call'), None)
++            if call_item is None:
+                 return response, plugins_used
+ 
++        function_name = call_item.name
++        arguments = call_item.arguments
++        call_id = call_item.call_id
++
+         logging.info(f'Calling function {function_name} with arguments {arguments}')
+         function_response = await self.plugin_manager.call_function(function_name, self, arguments)
+ 
+@@ -307,18 +342,22 @@ class OpenAIHelper:
+             plugins_used += (function_name,)
+ 
+         if is_direct_result(function_response):
+-            self.__add_function_call_to_history(chat_id=chat_id, function_name=function_name,
++            self.__add_function_call_to_history(chat_id=chat_id, call_id=call_id, function_name=function_name,
++                                                arguments=arguments,
+                                                 content=json.dumps({'result': 'Done, the content has been sent'
+                                                                               'to the user.'}))
+             return function_response, plugins_used
+ 
+-        self.__add_function_call_to_history(chat_id=chat_id, function_name=function_name, content=function_response)
+-        response = await self.client.chat.completions.create(
++        self.__add_function_call_to_history(chat_id=chat_id, call_id=call_id, function_name=function_name,
++                                            arguments=arguments, content=function_response)
++        response = await self.router_client.responses.create(
+             model=self.config['model'],
+-            messages=self.conversations[chat_id],
+-            functions=self.plugin_manager.get_functions_specs(),
+-            function_call='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
+-            stream=stream
++            input=_to_responses_input(self.conversations[chat_id][1:]),
++            instructions=self.conversations[chat_id][0]['content'],
++            tools=_functions_to_tools(self.plugin_manager.get_functions_specs()),
++            tool_choice='auto' if times < self.config['functions_max_consecutive_calls'] else 'none',
++            stream=stream,
++            extra_body={'metadata': {'feature': 'chat-function-call'}},
+         )
+         return await self.__handle_function_call(chat_id, response, stream, times + 1, plugins_used)
+ 
+@@ -435,16 +474,20 @@ class OpenAIHelper:
+                     self.conversations[chat_id] = self.conversations[chat_id][-self.config['max_history_size']:]
+ 
+             message = {'role':'user', 'content':content}
++            history = self.conversations[chat_id][:-1] + [message]
+ 
+             common_args = {
+                 'model': self.config['vision_model'],
+-                'messages': self.conversations[chat_id][:-1] + [message],
++                'input': _to_responses_input(history[1:]),
++                'instructions': history[0]['content'],
+                 'temperature': self.config['temperature'],
+-                'n': 1, # several choices is not implemented yet
+-                'max_tokens': self.config['vision_max_tokens'],
+-                'presence_penalty': self.config['presence_penalty'],
+-                'frequency_penalty': self.config['frequency_penalty'],
+-                'stream': stream
++                'max_output_tokens': self.config['vision_max_tokens'],
++                'stream': stream,
++                'extra_body': {
++                    'presence_penalty': self.config['presence_penalty'],
++                    'frequency_penalty': self.config['frequency_penalty'],
++                    'metadata': {'feature': 'vision'},
++                },
+             }
+ 
+ 
+@@ -453,10 +496,10 @@ class OpenAIHelper:
+             # if self.config['enable_functions']:
+             #     functions = self.plugin_manager.get_functions_specs()
+             #     if len(functions) > 0:
+-            #         common_args['functions'] = self.plugin_manager.get_functions_specs()
+-            #         common_args['function_call'] = 'auto'
+-            
+-            return await self.client.chat.completions.create(**common_args)
++            #         common_args['tools'] = _functions_to_tools(functions)
++            #         common_args['tool_choice'] = 'auto'
++
++            return await self.router_client.responses.create(**common_args)
+ 
+         except openai.RateLimitError as e:
+             raise e
+@@ -489,19 +532,8 @@ class OpenAIHelper:
+         #     if is_direct_result(response):
+         #         return response, '0'
+ 
+-        answer = ''
+-
+-        if len(response.choices) > 1 and self.config['n_choices'] > 1:
+-            for index, choice in enumerate(response.choices):
+-                content = choice.message.content.strip()
+-                if index == 0:
+-                    self.__add_to_history(chat_id, role="assistant", content=content)
+-                answer += f'{index + 1}\u20e3\n'
+-                answer += content
+-                answer += '\n\n'
+-        else:
+-            answer = response.choices[0].message.content.strip()
+-            self.__add_to_history(chat_id, role="assistant", content=answer)
++        answer = response.output_text.strip()
++        self.__add_to_history(chat_id, role="assistant", content=answer)
+ 
+         bot_language = self.config['bot_language']
+         # Plugins are not enabled either
+@@ -510,8 +542,8 @@ class OpenAIHelper:
+         if self.config['show_usage']:
+             answer += "\n\n---\n" \
+                       f"💰 {str(response.usage.total_tokens)} {localized_text('stats_tokens', bot_language)}" \
+-                      f" ({str(response.usage.prompt_tokens)} {localized_text('prompt', bot_language)}," \
+-                      f" {str(response.usage.completion_tokens)} {localized_text('completion', bot_language)})"
++                      f" ({str(response.usage.input_tokens)} {localized_text('prompt', bot_language)}," \
++                      f" {str(response.usage.output_tokens)} {localized_text('completion', bot_language)})"
+             # if show_plugins_used:
+             #     answer += f"\n🔌 {', '.join(plugin_names)}"
+         # elif show_plugins_used:
+@@ -540,12 +572,9 @@ class OpenAIHelper:
+         #         return
+ 
+         answer = ''
+-        async for chunk in response:
+-            if len(chunk.choices) == 0:
+-                continue
+-            delta = chunk.choices[0].delta
+-            if delta.content:
+-                answer += delta.content
++        async for event in response:
++            if event.type == 'response.output_text.delta':
++                answer += event.delta
+                 yield answer, 'not_finished'
+         answer = answer.strip()
+         self.__add_to_history(chat_id, role="assistant", content=answer)
+@@ -584,11 +613,17 @@ class OpenAIHelper:
+         max_age_minutes = self.config['max_conversation_age_minutes']
+         return last_updated < now - datetime.timedelta(minutes=max_age_minutes)
+ 
+-    def __add_function_call_to_history(self, chat_id, function_name, content):
++    def __add_function_call_to_history(self, chat_id, call_id, function_name, arguments, content):
+         """
+-        Adds a function call to the conversation history
++        Adds a function call and its result to the conversation history, as the pair of
++        Responses API items (function_call / function_call_output) a follow-up call needs.
+         """
+-        self.conversations[chat_id].append({"role": "function", "name": function_name, "content": content})
++        self.conversations[chat_id].append({
++            "type": "function_call", "call_id": call_id, "name": function_name, "arguments": arguments,
++        })
++        self.conversations[chat_id].append({
++            "type": "function_call_output", "call_id": call_id, "output": content,
++        })
+ 
+     def __add_to_history(self, chat_id, role, content):
+         """
+@@ -609,12 +644,13 @@ class OpenAIHelper:
+             {"role": "assistant", "content": "Summarize this conversation in 700 characters or less"},
+             {"role": "user", "content": str(conversation)}
+         ]
+-        response = await self.client.chat.completions.create(
++        response = await self.router_client.responses.create(
+             model=self.config['model'],
+-            messages=messages,
+-            temperature=1 if self.config['model'] in O_MODELS else 0.4
++            input=messages,
++            temperature=1 if self.config['model'] in O_MODELS else 0.4,
++            extra_body={'metadata': {'feature': 'chat-summarise'}},
+         )
+-        return response.choices[0].message.content
++        return response.output_text
+ 
+     def __max_model_tokens(self):
+         base = 4096
+diff --git a/requirements.txt b/requirements.txt
+index d6e3151..98ed13d 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,7 +1,7 @@
+ python-dotenv~=1.0.0
+ pydub~=0.25.1
+ tiktoken==0.7.0
+-openai==1.58.1
++openai==1.109.1
+ python-telegram-bot==21.9
+ requests~=2.32.3
+ tenacity==8.3.0

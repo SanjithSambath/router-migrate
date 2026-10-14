@@ -1,0 +1,146 @@
+{
+ "repo": "openui",
+ "commit": "42d7ab4ab6650433486dfb12eb3783c393a3e475",
+ "arm": "B_prime",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 3,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 5,
+   "ok": 3,
+   "stay_on_provider": 2,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "tests_after": {
+  "passed": 4,
+  "failed": 2,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 1
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 99,
+ "test_files_edited": [
+  "backend/openui/eval/evaluate.py",
+  "backend/openui/eval/evaluate_weave.py",
+  "backend/openui/eval/model.py",
+  "backend/openui/eval/prompt_to_img.py",
+  "backend/openui/eval/promptsearch.py",
+  "backend/openui/eval/synthesize.py"
+ ],
+ "usd": 2.2251803999999997,
+ "minutes": 8.1,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 2.2251803999999997,
+  "turns": 66,
+  "final": "All changes are in place (the `.router-migrate/` deletions were pre-existing before my session, not something I did).\n\n## Summary\n\n**Already in place (prior codemod), confirmed working:** `router_runtime.py` is vendored and `server.py`/`litellm.py` already wrap their `AsyncOpenAI` client constructions with `_router_wrap_openai`. The `openai` client (pointed at `api.openai.com`, used for all `gpt*` chat completions) is the one the runtime actually intercepts \u2014 it transparently translates Chat Completions \u2192 Router `/v1/responses` and translates the SSE stream back to `chat.completion.chunk` format, with no code change needed at that call site. I verified this live: a single streamed `gpt-4o-mini` request through `/v1/chat/completions` produced exactly one valid `POST /v1/responses` to the simulated Router and a correctly reconstructed SSE response.\n\n**What I migrated:**\n- Wrapped the remaining unwrapped OpenAI client constructions in `backend/openui/eval/*.py` (`model.py`, `evaluate.py`, `evaluate_weave.py`, `prompt_to_img.py`, `synthesize.py`) with `wrap_openai`, and `promptsearch.py` (which uses the module-level `openai.chat.completions.create(...)` convenience client) with `install_openai_module()` \u2014 same pattern already used in `server.py`/`litellm.py`.\n- `docker-compose.yaml`: replaced the `OPENAI_API_KEY` passthrough with `RAMP_ROUTER_API_KEY`, since OpenAI traffic is now served through Router and the app no longer needs that provider secret.\n- Moved the hardcoded OpenAI model list in `get_openai_models()` (server.py) into `config.OPENAI_MODELS`, an env-var-configurable list (`config.py`), instead of a literal list at the call site.\n- Verified: baseline test run (pytest + import smoke test) is bit-for-bit identical with and without Router active (2 pre-existing, unrelated test failures from a stub test file that doesn't match the real app's routes; not something I should fix per instructions).\n\n**Call sites I could not migrate, and why:**\n- **LiteLLM proxy (`litellm.py` \u2192 `litellm` CLI subprocess in `__main__.py`)**: this spawns `litellm` as a separate OS process that builds its own internal Gemini/Anthropic/Cohere/Mistral clients. The vendored runtime only patches httpx transports inside *this* Python process \u2014 it has no hook into a child process's interpreter. Left `ANTHROPIC_API_KEY`/`GEMINI_API_KEY`/`COHERE_API_KEY`/`MISTRAL_API_KEY` untouched in `docker-compose.yaml` and `litellm.py`, since removing them would just break that path rather than migrate it. Of those, only Anthropic is in Router's catalog at all, and this proxy's model entries (`claude-3-opus-20240229`, etc.) are outdated snapshot ids not in Router's dated-model map anyway.\n- **Groq** (`server.py`'s `groq` client, `api.groq.com`): Groq is not a provider in Router's catalog, so it stays on direct provider credentials (`GROQ_API_KEY` kept).\n- **Ollama** (`ollama_openai`/`ollama` clients): local, self-hosted models aren't in the account's Router catalog, so these correctly stay on the local Ollama server.\n- **`eval/model.py` / `eval/evaluate_weave.py`'s `gpt-4-vision-preview`**: deprecated OpenAI vision model id not present in Router's catalog/alias/dated maps, so `resolve_model()` returns `None` and the call falls through to OpenAI directly \u2014 correct behavior per the \"never invent a model id\" rule, but it means these specific calls aren't Router-served.\n- **`eval/evaluate_weave.py`'s `OpenUIScoringModel.predict`** (uses `seed=42`): the runtime's own Chat Completions translator explicitly treats `seed` as unsupported and leaves the request on the provider, by design.\n- **Frontend (`frontend/src/api/openai.ts`)**: not a migration target \u2014 its `OpenAI` client points at the OpenUI backend's own `/v1` route (same-origin), not at any real provider, so there's no transport to redirect; the actual Router hookup happens server-side.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 88,
+   "cache_creation_input_tokens": 143488,
+   "cache_read_input_tokens": 6247862,
+   "output_tokens": 40148,
+   "output_tokens_details": {
+    "thinking_tokens": 22134
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 143488,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1505,
+     "cache_read_input_tokens": 181682,
+     "cache_creation_input_tokens": 476,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 476
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:30",
+ "routed_static": 4,
+ "inventory_prod_sites": 11,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 4,
+ "sites_moved_correct": 1,
+ "sites_moved_wrong": 3,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.5,
+ "moved_precision": 0.25,
+ "reported_sites_matched": 10,
+ "reported_outcome_agreement": 0.4,
+ "reported_migrated": 4,
+ "reported_migrated_correct": 1,
+ "wrong_detail": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 155,
+   "expected": "kept",
+   "why": "Rule 2: groq AsyncOpenAI client (line 80) with base_url=config.GROQ_BASE_URL defaulting to https://api.groq.com/openai/v1; model is request model with 'groq/' p"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 169,
+   "expected": "kept",
+   "why": "Rule 2: litellm AsyncOpenAI client (line 74) points at a local LiteLLM proxy (config.LITELLM_BASE_URL default http://0.0.0.0:4000) that fans out to Gemini/Anthr"
+  },
+  {
+   "file": "backend/openui/server.py",
+   "line": 196,
+   "expected": "kept",
+   "why": "Rule 2: ollama_openai AsyncOpenAI client (line 85) with base_url=config.OLLAMA_HOST + '/v1' (local Ollama OpenAI-compat), api_key='xxx'."
+  }
+ ],
+ "missed_migrated": [
+  {
+   "file": "backend/openui/server.py",
+   "line": 396,
+   "why": "Rule 8 (by extension): openai.models.list() on the same env-config default-OpenAI client as line 139; Router serves GET /v1/models so rule 1 does not apply. Res"
+  }
+ ],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 4,
+ "sites_moved_correct_adj": 1,
+ "sites_moved_wrong_adj": 3,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.5,
+ "moved_precision_adj": 0.25,
+ "reported_outcome_agreement_adj": 0.4,
+ "reported_migrated_adj": 4,
+ "reported_migrated_correct_adj": 1
+}

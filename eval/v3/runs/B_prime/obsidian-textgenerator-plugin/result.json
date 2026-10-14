@@ -1,0 +1,136 @@
+{
+ "repo": "obsidian-textgenerator-plugin",
+ "commit": "2a11031d15c4af8be477d35a5c2de17672e946eb",
+ "arm": "B_prime",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 0,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 0,
+   "ok": 0,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 24,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 24,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": {
+  "exit": 2,
+  "errors": 85
+ },
+ "typecheck_after": {
+  "exit": 2,
+  "errors": 85
+ },
+ "diff_lines": 201,
+ "test_files_edited": [],
+ "usd": 5.7709458,
+ "minutes": 21.8,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 5.7709458,
+  "turns": 93,
+  "final": "Build and tests pass clean. Here's the summary:\n\n## What I found first\n\nThe task description said a deterministic codemod had already wrapped some OpenAI/Anthropic client constructions in a `routerRuntime.ts`. That file doesn't exist in this repo \u2014 `.router-migrate/apply.json` shows `\"edits\": [], \"runtime_files\": []`. The codemod's scanner only recognizes literal `new OpenAI(...)`/`new Anthropic(...)` calls, and this plugin has none: all real traffic goes through LangChain's `ChatOpenAI`/`OpenAI`/`ChatAnthropic` wrapper classes (three dependency layers down) or hand-rolled `fetch()` calls. So I did the full migration from scratch, using the recovered `HANDOFF.md`'s 3 flagged raw-fetch sites as one input, plus my own audit of the LangChain-based providers it couldn't see.\n\n## What I migrated\n\n**`src/router-config.ts`** (new) \u2014 reads `RAMP_ROUTER_API_KEY`/`RAMP_ROUTER_BASE_URL`, used everywhere else.\n\n**LangChain providers** (`src/LLMProviders/langchain/{base,openaiChat,openaiAgent,chatanthropic}.tsx`):\n- Added an opt-in `routerCompatible` flag on the shared base class, set only on `OpenAI Chat`, `OpenAI Agent`, and `Chat Anthropic` \u2014 so MiniMax/Perplexity/Together/Mistral/Google/Ollama (which also extend the same base) are untouched.\n- When Router is enabled, `configMerger()` swaps `api_key`/`basePath` to Router's, so the user's own OpenAI/Anthropic key is never sent.\n- `OpenAI Chat`/`OpenAI Agent` now set `useResponsesApi: true` unconditionally (Chat Completions \u2192 Responses, per the task's mapping) and send `reasoning: {effort}` / `maxTokens` as real constructor fields instead of the old `modelKwargs.reasoning_effort` / `bodyParams.max_completion_tokens` hack \u2014 the old fields are chat-completions-only and would have 400'd as unknown parameters on `/v1/responses`.\n- `Chat Anthropic` needed no schema change (already Messages-shaped); just repoints `anthropicApiUrl`/`anthropicApiKey` to Router, stripping the trailing `/v1` since the Anthropic SDK appends `/v1/messages` itself.\n\n**Raw-fetch \"Custom\" providers** (`src/LLMProviders/custom/{base,custom,anthropic}.tsx`) \u2014 the 3 sites the scanner flagged:\n- `Anthropic Legacy (Custom)`: default endpoint/auth now point at Router's `/v1/messages` compat surface with Bearer auth (body/response shape unchanged \u2014 already Anthropic Messages format).\n- `Default (Custom)`: default endpoint/body/response-parsing rewritten from Chat Completions (`messages`\u2192`choices[0].message`) to Responses (`input`\u2192`output`/`output_text`), including the streaming SSE parser (named `response.output_text.delta` events instead of unnamed chat deltas). These changes only affect the *out-of-the-box default* for a newly added Custom provider \u2014 a user who's already repointed `endpoint`/`custom_header`/`custom_body` at their own server (LM Studio, Ollama, etc.) is unaffected, since settings values always win over defaults.\n\n**Verified**: ran a standalone smoke test against the Router simulator \u2014 `ChatOpenAI` (plain + `o3-mini` reasoning), and `ChatAnthropic` all produced valid, accepted requests. Full `tsc --noEmit` (85 pre-existing unrelated errors, no new ones), production build, and the 24-test vitest suite all pass with Router both on and off.\n\n## Not migrated\n\n- **`OpenAI Instruct (Langchain)`** (`openaiInstruct.tsx`, `gpt-3.5-turbo-instruct`) \u2014 uses the legacy `/v1/completions` API, which Router doesn't expose at all, and \"instruct\" completion-only models generally aren't served through Responses APIs. No safe mapping without guessing.\n- **Azure OpenAI / Azure OpenAI Instruct** \u2014 these target a user's own Azure resource via deployment-specific addressing, orthogonal to Router's model-id catalog. Redirecting them would hijack a deliberate user choice to use their own Azure deployment.\n- **MiniMax, Perplexity, Together, Mistral, Google Gemini/PaLM, Ollama, HuggingFace** \u2014 third-party providers with their own protocols/catalogs; task scope was OpenAI/Anthropic traffic specifically, and Router's catalog for these isn'",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 170,
+   "cache_creation_input_tokens": 198775,
+   "cache_read_input_tokens": 15038385,
+   "output_tokens": 92444,
+   "output_tokens_details": {
+    "thinking_tokens": 67669
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 198775,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1973,
+     "cache_read_input_tokens": 250530,
+     "cache_creation_input_tokens": 630,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 630
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:01",
+ "routed_static": 0,
+ "inventory_prod_sites": 18,
+ "inventory_migrated": 3,
+ "inventory_handoff": 1,
+ "sites_moved": 0,
+ "sites_moved_correct": 0,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 0.0,
+ "moved_precision": null,
+ "reported_sites_matched": 1,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 0,
+ "reported_migrated_correct": 0,
+ "wrong_detail": [],
+ "missed_migrated": [
+  {
+   "file": "src/LLMProviders/langchain/openaiChat.tsx",
+   "line": 38,
+   "why": "Rule 8: ChatOpenAI on chat-completions. baseURL comes from the provider's Base Path setting, which defaults to https://api.openai.com/v1. Key comes from plugin "
+  },
+  {
+   "file": "src/LLMProviders/langchain/openaiAgent.tsx",
+   "line": 38,
+   "why": "Rule 8: ChatOpenAI (reasoning_effort via modelKwargs) with Base Path setting defaulting to api.openai.com/v1 and key from settings. Model is picked at runtime f"
+  },
+  {
+   "file": "src/LLMProviders/langchain/chatanthropic.tsx",
+   "line": 91,
+   "why": "Rule 8: ChatAnthropic on Messages. anthropicApiUrl comes from the Base Path setting (default https://api.anthropic.com/). Key comes from settings. Model is pick"
+  }
+ ],
+ "inventory_migrated_adj": 3,
+ "sites_moved_adj": 0,
+ "sites_moved_correct_adj": 0,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 0.0,
+ "moved_precision_adj": null,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 0,
+ "reported_migrated_correct_adj": 0
+}

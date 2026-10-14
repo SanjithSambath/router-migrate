@@ -1,0 +1,114 @@
+{
+ "repo": "sec-insights",
+ "commit": "a9b6da0f5c4bff52437a5285954ff17bc713f14f",
+ "arm": "B_prime",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 3,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 1,
+   "ok": 1,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 15,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 36,
+ "test_files_edited": [],
+ "usd": 2.0633054,
+ "minutes": 7.4,
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 2.0633054,
+  "turns": 57,
+  "final": "## Summary\n\nThis repo already had the deterministic codemod applied: both of its LLM call sites \u2014 `app/llama_index_settings.py` (the global `Settings.llm`/`Settings.embed_model`) and `app/chat/engine.py` (the per-conversation `chat_llm`) \u2014 construct their `llama_index.llms.openai.OpenAI` clients with `http_client=_router_http_client()` / `async_http_client=_router_async_http_client()` from the vendored `router_runtime.py`. That transport already does all the Chat-Completions\u2192Responses translation, metadata/feature tagging, and provider fallback, and the model name is already read from the `OPENAI_CHAT_LLM_NAME` env var rather than hardcoded. So there was no Chat Completions code to hand-convert \u2014 my job was to verify the wiring actually works end-to-end and fix what broke.\n\n**Bug found and fixed:** `app/chat/tools.py:152` did `Settings.llm.model_copy(update={...}, deep=True)` to give each per-document quantitative-query agent its own callback manager. With Router active, `Settings.llm` holds a live `httpx.AsyncClient`/`httpx.Client` (eagerly constructed, holding connection-pool locks); deep-copying that object crashed with `TypeError: cannot pickle '_thread.RLock' object`. Changed to `deep=False` \u2014 a shallow copy still produces a distinct LLM instance with its own `callback_manager` while safely sharing the underlying (stateless, reusable) HTTP client. This only matters when Router is active; it was silently masked before because llama_index builds its OpenAI client lazily when `http_client=None`.\n\n**Verified:**\n- Offline sanity script + full `pytest` suite: pass (7 passed) with Router inactive.\n- Same two checks against the Router simulator (`sim_test.py`): exit code 0, no rejected requests.\n- Manual single text-only request (`Settings.llm.complete(...)`) through the simulator: translated correctly to `POST /v1/responses` with `model=gpt-4o-mini`, validated.\n- Manual full agent round-trip (`OpenAIAgent.achat(...)` with a tool-bearing conversation, exercising both the top-level chat LLM and the `SubQuestionQueryEngine`'s question-generator LLM): both calls correctly reached `POST /v1/responses` on Router (2/2 valid). A later pydantic parse error is just the simulator's canned mock response not matching the app's expected structured-output schema \u2014 not a routing or migration defect.\n\n**Not changed / out of scope:**\n- `OPENAI_API_KEY` stays in env files and `app/core/config.py` \u2014 it's still required because `OpenAIEmbedding` (text-embedding-3-small) talks directly to OpenAI; embeddings aren't one of Router's two migrated routes, and `router_runtime.py` itself documents that the provider key must stay configured for exactly this reason.\n- No Anthropic, Chat Completions, or other LLM call sites exist elsewhere in the codebase (scripts/, alembic/, tests/ were checked \u2014 none construct LLM clients).\n- No CI config or secret manager references found beyond `render.yaml`/`.env.*`, which only hold `OPENAI_API_KEY`/`AWS_*`/`POLYGON_IO_API_KEY` (left as-is for the reason above).",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 114,
+   "cache_creation_input_tokens": 118022,
+   "cache_read_input_tokens": 6280347,
+   "output_tokens": 33492,
+   "output_tokens_details": {
+    "thinking_tokens": 12994
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 118022,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1139,
+     "cache_read_input_tokens": 156326,
+     "cache_creation_input_tokens": 366,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 366
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": false,
+ "scored_at": "2026-10-13T20:19:31",
+ "routed_static": 2,
+ "inventory_prod_sites": 3,
+ "inventory_migrated": 2,
+ "inventory_handoff": 0,
+ "sites_moved": 2,
+ "sites_moved_correct": 2,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 2,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 2,
+ "reported_migrated_correct": 2,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "inventory_migrated_adj": 2,
+ "sites_moved_adj": 2,
+ "sites_moved_correct_adj": 2,
+ "sites_moved_wrong_adj": 0,
+ "sites_moved_unmatched_adj": 0,
+ "moved_recall_adj": 1.0,
+ "moved_precision_adj": 1.0,
+ "reported_outcome_agreement_adj": 1.0,
+ "reported_migrated_adj": 2,
+ "reported_migrated_correct_adj": 2
+}

@@ -1,0 +1,238 @@
+diff --git a/ai_scientist/llm.py b/ai_scientist/llm.py
+index 27c9eee..928ec84 100644
+--- a/ai_scientist/llm.py
++++ b/ai_scientist/llm.py
+@@ -7,13 +7,37 @@ import backoff
+ import openai
+ import google.generativeai as genai
+ from google.generativeai.types import GenerationConfig
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import (
++        wrap_anthropic as _router_wrap_anthropic,
++        wrap_openai as _router_wrap_openai,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            wrap_anthropic as _router_wrap_anthropic,
++            wrap_openai as _router_wrap_openai,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ MAX_NUM_TOKENS = 4096
+ 
++# router-migrate: model used for the standalone review step in launch_scientist.py /
++# experimental/launch_oe_scientist.py. Configurable via env var instead of hardcoding it at
++# those call sites; defaults to the repo's original model so behavior is unchanged unless set.
++DEFAULT_REVIEWER_MODEL = os.environ.get("AI_SCIENTIST_REVIEWER_MODEL", "gpt-4o-2024-05-13")
++
+ AVAILABLE_LLMS = [
+     # Anthropic models
+     "claude-3-5-sonnet-20240620",
+     "claude-3-5-sonnet-20241022",
++    # Anthropic models available through Router's catalog (routable when RAMP_ROUTER_API_KEY is set)
++    "claude-opus-4-8",
++    "claude-sonnet-4-6",
++    "claude-sonnet-4-5",
++    "claude-haiku-4-5",
+     # OpenAI models
+     "gpt-4o-mini",
+     "gpt-4o-mini-2024-07-18",
+@@ -89,7 +113,6 @@ def get_batch_responses_from_llm(
+             max_tokens=MAX_NUM_TOKENS,
+             n=n_responses,
+             stop=None,
+-            seed=0,
+         )
+         content = [r.message.content for r in response.choices]
+         new_msg_history = [
+@@ -195,7 +218,6 @@ def get_response_from_llm(
+             max_tokens=MAX_NUM_TOKENS,
+             n=1,
+             stop=None,
+-            seed=0,
+         )
+         content = response.choices[0].message.content
+         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+@@ -210,7 +232,6 @@ def get_response_from_llm(
+             temperature=1,
+             max_completion_tokens=MAX_NUM_TOKENS,
+             n=1,
+-            seed=0,
+         )
+         content = response.choices[0].message.content
+         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+@@ -317,7 +338,7 @@ def extract_json_between_markers(llm_output):
+ def create_client(model):
+     if model.startswith("claude-"):
+         print(f"Using Anthropic API with model {model}.")
+-        return anthropic.Anthropic(), model
++        return _router_wrap_anthropic(anthropic.Anthropic()), model
+     elif model.startswith("bedrock") and "claude" in model:
+         client_model = model.split("/")[-1]
+         print(f"Using Amazon Bedrock with model {client_model}.")
+@@ -328,7 +349,7 @@ def create_client(model):
+         return anthropic.AnthropicVertex(), client_model
+     elif 'gpt' in model or "o1" in model or "o3" in model:
+         print(f"Using OpenAI API with model {model}.")
+-        return openai.OpenAI(), model
++        return _router_wrap_openai(openai.OpenAI()), model
+     elif model in ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"]:
+         print(f"Using OpenAI API with {model}.")
+         return openai.OpenAI(
+diff --git a/experimental/launch_oe_scientist.py b/experimental/launch_oe_scientist.py
+index 529b923..354329b 100644
+--- a/experimental/launch_oe_scientist.py
++++ b/experimental/launch_oe_scientist.py
+@@ -14,10 +14,17 @@ from aider.models import Model
+ from datetime import datetime
+ 
+ from ai_scientist.generate_ideas import generate_next_idea, check_idea_novelty
+-from ai_scientist.llm import create_client, AVAILABLE_LLMS
++from ai_scientist.llm import create_client, AVAILABLE_LLMS, DEFAULT_REVIEWER_MODEL
+ from ai_scientist.perform_experiments import perform_experiments
+ from ai_scientist.perform_review import perform_review, load_paper, perform_improvement
+ from ai_scientist.perform_writeup import perform_writeup, generate_latex
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ NUM_REFLECTIONS = 3
+ 
+@@ -245,8 +252,8 @@ def do_idea(
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}.pdf")
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=DEFAULT_REVIEWER_MODEL,
++                    client=_router_wrap_openai(openai.OpenAI()),
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+@@ -272,8 +279,8 @@ def do_idea(
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}_improved.pdf")
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=DEFAULT_REVIEWER_MODEL,
++                    client=_router_wrap_openai(openai.OpenAI()),
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+diff --git a/launch_scientist.py b/launch_scientist.py
+index 2fe7a49..9ec15af 100644
+--- a/launch_scientist.py
++++ b/launch_scientist.py
+@@ -14,10 +14,17 @@ from aider.models import Model
+ from datetime import datetime
+ 
+ from ai_scientist.generate_ideas import generate_ideas, check_idea_novelty
+-from ai_scientist.llm import create_client, AVAILABLE_LLMS
++from ai_scientist.llm import create_client, AVAILABLE_LLMS, DEFAULT_REVIEWER_MODEL
+ from ai_scientist.perform_experiments import perform_experiments
+ from ai_scientist.perform_review import perform_review, load_paper, perform_improvement
+ from ai_scientist.perform_writeup import perform_writeup, generate_latex
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ NUM_REFLECTIONS = 3
+ 
+@@ -267,8 +274,8 @@ def do_idea(
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}.pdf")
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=DEFAULT_REVIEWER_MODEL,
++                    client=_router_wrap_openai(openai.OpenAI()),
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+@@ -293,8 +300,8 @@ def do_idea(
+                 paper_text = load_paper(f"{folder_name}/{idea['Name']}_improved.pdf")
+                 review = perform_review(
+                     paper_text,
+-                    model="gpt-4o-2024-05-13",
+-                    client=openai.OpenAI(),
++                    model=DEFAULT_REVIEWER_MODEL,
++                    client=_router_wrap_openai(openai.OpenAI()),
+                     num_reflections=5,
+                     num_fs_examples=1,
+                     num_reviews_ensemble=5,
+diff --git a/review_iclr_bench/iclr_analysis.py b/review_iclr_bench/iclr_analysis.py
+index 40eb031..593cf15 100644
+--- a/review_iclr_bench/iclr_analysis.py
++++ b/review_iclr_bench/iclr_analysis.py
+@@ -3,6 +3,20 @@ python iclr_analysis.py --num_reviews 500  --batch_size 50 --num_fs_examples 0 -
+ """
+ 
+ import sys
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import (
++        wrap_anthropic as _router_wrap_anthropic,
++        wrap_openai as _router_wrap_openai,
++    )
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import (
++            wrap_anthropic as _router_wrap_anthropic,
++            wrap_openai as _router_wrap_openai,
++        )
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ sys.path.append("../")
+ 
+@@ -37,6 +51,11 @@ def parse_arguments():
+             "llama-3-1-405b-instruct",
+             "deepseek-coder-v2-0724",
+             "claude-3-5-sonnet-20240620",
++            # Router catalog ids (routable when RAMP_ROUTER_API_KEY is set)
++            "claude-opus-4-8",
++            "claude-sonnet-4-6",
++            "claude-sonnet-4-5",
++            "claude-haiku-4-5",
+         ],
+         help="Model to use for AI Scientist.",
+     )
+@@ -237,10 +256,15 @@ def review_single_paper(
+     num_paper_pages,
+ ):
+     # Setup client for LLM model
+-    if model == "claude-3-5-sonnet-20240620":
++    if model == "claude-3-5-sonnet-20240620" or model in [
++        "claude-opus-4-8",
++        "claude-sonnet-4-6",
++        "claude-sonnet-4-5",
++        "claude-haiku-4-5",
++    ]:
+         import anthropic
+ 
+-        client = anthropic.Anthropic()
++        client = _router_wrap_anthropic(anthropic.Anthropic())
+     elif model.startswith("bedrock") and "claude" in model:
+         import anthropic
+ 
+@@ -259,7 +283,7 @@ def review_single_paper(
+     ]:
+         import openai
+ 
+-        client = openai.OpenAI()
++        client = _router_wrap_openai(openai.OpenAI())
+     elif model == "deepseek-coder-v2-0724":
+         import openai
+ 
