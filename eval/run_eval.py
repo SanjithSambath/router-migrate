@@ -28,7 +28,17 @@ SETDIR = EVAL  # repos.json, recipes/, logs/ and the scoreboard of the repo set 
 WORK = os.path.join(EVAL, "work")
 LOGS = os.path.join(EVAL, "logs")
 SETS = {"dev": (EVAL, os.path.join(EVAL, "work")),
-        "heldout": (os.path.join(EVAL, "heldout"), os.path.join(EVAL, "work", "heldout"))}  # held-out: never used to tune the tool
+        "heldout": (os.path.join(EVAL, "heldout"), os.path.join(EVAL, "work", "heldout")),  # held-out: never used to tune the tool
+        "v3": (os.path.join(EVAL, "v3"), os.path.join(EVAL, "work", "v3"))}  # v3 fresh set: never seen by v1/v2 tuning
+
+
+def repos_file():
+    """repos.json of the current set (the v3 set names it REPOS.json)."""
+    for n in ("REPOS.json", "repos.json"):
+        p = os.path.join(SETDIR, n)
+        if os.path.exists(p) and n in os.listdir(SETDIR):
+            return p
+    return os.path.join(SETDIR, "repos.json")
 
 
 def contain(e):
@@ -220,7 +230,7 @@ def main():
     SETDIR, WORK = SETS[args.set]
     LOGS = os.path.join(SETDIR, "logs")
     os.makedirs(LOGS, exist_ok=True)
-    repos = json.load(open(os.path.join(SETDIR, "repos.json")))
+    repos = json.load(open(repos_file()))
     if args.only:
         keep = set(args.only.split(","))
         repos = [r for r in repos if r["name"] in keep]
@@ -246,7 +256,7 @@ def main():
         print("   %s" % json.dumps({k: prev[repo["repo"]].get(k) for k in ("sites_found", "migrated", "callsite_coverage", "weighted_coverage",
                                                                          "tests_before", "tests_after", "sim_valid_pct", "replay_unique_requests",
                                                                          "sim_requests_from_tests", "error")}), flush=True)
-        write_scoreboard([prev[r["repo"]] for r in json.load(open(os.path.join(SETDIR, "repos.json"))) if r["repo"] in prev])
+        write_scoreboard([prev[r["repo"]] for r in json.load(open(repos_file())) if r["repo"] in prev])
 
 
 def write_scoreboard(rows):

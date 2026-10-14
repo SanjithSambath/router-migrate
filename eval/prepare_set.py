@@ -25,7 +25,7 @@ def main():
     ap.add_argument("--no-setup", action="store_true", help="clone only")
     args = ap.parse_args()
     RE.SETDIR, RE.WORK = RE.SETS[args.set]
-    repos = json.load(open(os.path.join(RE.SETDIR, "repos.json")))
+    repos = json.load(open(RE.repos_file()))
     if args.only:
         keep = set(args.only.split(","))
         repos = [r for r in repos if r["name"] in keep]

@@ -125,3 +125,8 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   ts-morph); the baseline moved 32 sites in the repos it left intact (not 90); the 61 s Flex call was on gpt-5-nano (also
   fixed in WRITEUP.md and EMAIL_TO_KEDAR.md); the wrap takes effect at client construction, so rollout needs a restart.
 - **Flex/fallback conflict surfaced** (DECISIONS.md D12): cards, `apply --decisions` warning, runtime log, one new test (270 passing).
+
+## v3 Track 1
+- **T0 headless agent** (this commit): `claude -p` works with a long-lived OAuth token (the old OAuth session had expired:
+  "OAuth session expired and could not be refreshed"). Smoke result in eval/v3/smoke/t0_headless.json: `SMOKE_OK`, claude-sonnet-5.
+  The 10 fresh repos (eval/v3/REPOS.json: held-out candidates never used, inventoried or tuned on) are registered as eval set `v3`.
