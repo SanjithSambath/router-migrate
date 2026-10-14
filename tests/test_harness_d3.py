@@ -114,6 +114,17 @@ def test_claude_code_path_start_then_finish_builds_cards_from_proposals(fresh):
     fb = [c for c in rec["cards"] if c["rule"] in ("fallback.candidates", "agent.fallbacks") and c.get("origin", "").startswith("agent")]
     assert fb and fb[0]["rationale"].startswith("nightly"), [(c["rule"], c.get("origin")) for c in rec["cards"]]
     assert any(x["rule"] == "agent.model" and "not a Router catalog model" in x["reason"] for x in rec["considered_not_recommended"])
+    # the human's half: approve the fallback card, apply, and the policy carries it next to the automatic guardrails
+    assert rm("decide", fb[0]["id"], "approve", cwd=fresh).returncode == 0
+    r = rm("apply", ".", "--decisions", cwd=fresh)
+    assert r.returncode == 0 and "1 applied" in r.stdout, r.stdout + r.stderr
+    from router_migrate.runtime import router_runtime as RT
+    pol = json.load(open(fresh / "router.policy.json"))
+    eff = RT.policy_for("svc/direct.py:ask", pol)
+    # a background call: the approved fallbacks, and no tier pin or timeout (Flex stays Router's default for it)
+    assert eff.get("fallbacks") == ["gpt-4.1-mini"] and "service_tier" not in eff and "provider_timeout" not in eff, eff
+    r = rm("check", "--final", "--tests", cwd=fresh)
+    assert "check --final: OK" in r.stdout and "tests: passed" in r.stdout, r.stdout + r.stderr
 
 
 def test_check_final_skips_tests_unless_asked(repo):

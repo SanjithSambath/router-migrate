@@ -52,7 +52,7 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
     led = load(root, "ledger.json") or {}
     from . import proposals
     r = proposals.merge(r, led.get("proposals"), catalog)
-    r["cards"] += agent_cards(led) + tradeoff_cards(led)
+    r["cards"] += [dict(c, origin=c.get("origin") or "agent") for c in agent_cards(led) + tradeoff_cards(led)]
     dec = load(root, "decisions.json", {"cards": {}})
     # an applied unlock patches the client, which moves the call's line and so its site id and card id: match by feature
     unl = load(root, "unlocks.json", {"sites": {}})["sites"]

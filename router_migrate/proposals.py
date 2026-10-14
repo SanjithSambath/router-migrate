@@ -81,13 +81,33 @@ def _validate(p, rec, catalog):
 
 def _same_change(p, card, catalog):
     """A model proposal matches a model card only when both name the same model; other levers match by lever + feature."""
+    ch = p.get("change") if isinstance(p.get("change"), dict) else {}
+    if p.get("lever") == "fallbacks":  # the agent named other fallbacks: its own card, either/or with the rule's
+        ids = _as_list(ch.get("fallbacks") or ch.get("models"))
+        return not ids or ids == list((card.get("rule_inputs") or {}).get("candidates") or [])
     if p.get("lever") != "model":
         return True
-    ch = p.get("change") if isinstance(p.get("change"), dict) else {}
     to = ch.get("model") or ch.get("to")
     rid = catalog.resolve(to)[0] if to else None
     ins = card.get("rule_inputs") or {}
     return bool(rid) and rid in (ins.get("candidate"), ins.get("replacement"))
+
+
+EITHER_OR = ("tier.flex_background", "fallback.candidates", "agent.flex", "agent.fallbacks")
+
+
+def _link_either_or(cards, new):
+    """Fallbacks on a feature exclude Flex (Router serves a request with a models list without Flex, measured) and other
+    fallback lists: say so on both cards before anyone approves."""
+    if new["rule"] not in EITHER_OR:
+        return
+    for c in cards:
+        if c["rule"] in EITHER_OR and set(c["scope"]["features"]) & set(new["scope"]["features"]) and (
+                "fallback" in c["rule"] or "fallback" in new["rule"]):
+            c.setdefault("conflicts_with", []).append(new["id"])
+            new.setdefault("conflicts_with", []).append(c["id"])
+            new["conflict_note"] = c["conflict_note"] = ("Either this or %s for %s: approve one." % (
+                "the other card", ", ".join(new["scope"]["features"])))
 
 
 def merge(rec, proposals, catalog):
@@ -109,6 +129,7 @@ def merge(rec, proposals, catalog):
         card, reason = _validate(p, rec, catalog)
         if card:
             if not any(c["id"] == card["id"] for c in rec["cards"]):
+                _link_either_or(rec["cards"], card)
                 rec["cards"].append(card)
         else:
             rec["considered_not_recommended"].append({"rule": "agent." + str(p.get("lever")), "scope": {"features": [p["feature"]], "sites": [p["site"]]},

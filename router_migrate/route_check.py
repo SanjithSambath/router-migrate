@@ -345,6 +345,14 @@ _REPO_POLICY = object()
 
 
 def check_sites(root, sites=None, policy=_REPO_POLICY, hosts=None, models=None, simulate_all=False):
+    """Route check (see _check_sites); the runtime's one-time policy notes on stderr are for applications, not this report."""
+    import contextlib
+    import io
+    with contextlib.redirect_stderr(io.StringIO()):
+        return _check_sites(root, sites, policy, hosts, models, simulate_all)
+
+
+def _check_sites(root, sites=None, policy=_REPO_POLICY, hosts=None, models=None, simulate_all=False):
     """Route check every site (default: every production site the scanner + measure-only planner sees in the code as it
     stands). hosts / models: {site_id: host / model} overrides for where a site's requests really go and which model it
     sends (an eval passes inventory-derived ones; by default the code's own static base URL and literal model are used).

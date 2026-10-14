@@ -224,7 +224,9 @@ def _launch(root, prompt, model, timeout, resume=None):
         cmd += ["--resume", resume]
     if model:
         cmd += ["--model", model]
-    env = dict(os.environ, **DUMMY_KEYS)
+    # Provider keys are dummied so the agent's own test runs can't reach a real provider. ANTHROPIC_API_KEY is left alone:
+    # it may be how the agent CLI itself authenticates (a dummy one fails it with a 401); `check --run` dummies it anyway.
+    env = dict(os.environ, **{k: v for k, v in DUMMY_KEYS.items() if k != "ANTHROPIC_API_KEY"})
     env.pop("RAMP_ROUTER_API_KEY", None)
     env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate")) + os.pathsep + env.get("PATH", "")
     log = AG.sp(root, "agent_transcript.jsonl")
@@ -244,7 +246,8 @@ def _launch(root, prompt, model, timeout, resume=None):
         if ev.get("type") == "result":
             res = ev
     return {"exit": code, "usd": res.get("total_cost_usd"), "turns": res.get("num_turns"), "minutes": round((time.time() - t) / 60, 1),
-            "final": (res.get("result") or "")[:2000], "session": session, "api_error": str(res.get("result") or "").startswith("API Error")}
+            "final": (res.get("result") or "")[:2000], "session": session,
+            "api_error": bool(res.get("is_error")) or str(res.get("result") or "").startswith(("API Error", "Failed to authenticate", "Invalid API key"))}
 
 
 BACKGROUND_TESTS_SECS = 90  # a suite slower than this runs in the background after finish; Apply waits for it
@@ -341,9 +344,10 @@ def cmd_start(a):
     if AG._git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return AG.err(False, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first")
     _, prompt = setup(root, a, "min")
-    print(prompt)
-    print("\n## When you are done\nRun `router-migrate finish .` from the repository root. It runs the outside check, builds the "
-          "improvement cards and opens the dashboard. If it reports failures, fix exactly those and run it again.")
+    print(prompt.replace(" Then stop.", " Then run `router-migrate finish .` from the repository root.", 1))
+    print("\n## Finishing\n`router-migrate finish .` runs the outside check, builds the improvement cards and starts the "
+          "dashboard (it prints the URL). If it reports failures, fix exactly those and run it again; a second failure reverts "
+          "only the offending files.")
     return 0
 
 
@@ -396,6 +400,13 @@ def route_truth(root, led, sites, cinfo):
     verified = sorted({"%s:%s" % (r["file"], r["line"]) for r in moved} | set(led.get("confirmations") or {}))
     near = lambda loc, pool: any(v.rsplit(":", 1)[0] == loc.rsplit(":", 1)[0] and abs(int(v.rsplit(":", 1)[1]) - int(loc.rsplit(":", 1)[1])) <= 3 for v in pool)
     seen = cinfo.get("seen") or []
+    # a move the scanner can't see counts as verified when a `check --run` sent a valid Router request from its feature
+    probed = {r.get("feature") for p in (led.get("probes") or {}).values() for r in p.get("requests") or [] if r.get("valid")}
+    for s in sites or []:
+        if s["outcome"] == "migrated" and not near(s["site"], verified):
+            f, ln = AG.parse_loc(s["site"])
+            if AG._feature(root, f, ln) in probed:
+                verified.append(s["site"])
     claimed = [s["site"] for s in sites or [] if s["outcome"] == "migrated" and not near(s["site"], verified)]
     not_routing = [x for x in claimed if near(x, seen)]
     unverified = [x for x in claimed if x not in not_routing]
@@ -447,7 +458,7 @@ def finish(root, a, arm="min", resume=None, runs=None):
         pass
     record_report(root, led, sites)
     res = route_truth(root, led, sites, cinfo)
-    res.update({"arm": arm, "ok": ok, "sites_seen": cinfo.get("sites"), "tradeoffs": len(led.get("tradeoffs") or []),
+    res.update({"arm": arm, "ok": ok, "sites_seen": cinfo.get("sites"), "tradeoffs": len([t for t in led.get("tradeoffs") or [] if not t.get("undone")]),
                 "failures": [f["gate"] for f in fails], "reverted": reverted, "report_sites": len(sites or []),
                 "tests": {"baseline": led["baseline"].get("before"), "full": cinfo.get("tests") or {}}})
     led["result"] = res
@@ -475,7 +486,8 @@ def finish(root, a, arm="min", resume=None, runs=None):
     imp = AG.do_improve(root)
     r = imp["recommendations"]
     print("improve: %d card(s); %d lever(s) considered and not recommended (with reasons)" % (len(r["cards"]), len(r["considered_not_recommended"])))
-    return dashboard(root, a) if not getattr(a, "no_dashboard", False) else _report_only(root)
+    dashboard(root, a) if not getattr(a, "no_dashboard", False) else _report_only(root)
+    return 0 if ok or arm == "free" else 1
 
 
 def _report_only(root):
@@ -539,6 +551,9 @@ def run_d3(root, a):
     resume = (lambda facts: _launch(root, facts, getattr(a, "model", None), 900, resume=info["session"])) if info.get("session") and arm == "min" else None
     if resume is None:
         resume = lambda facts: {"minutes": 0, "exit": "no-session"}
+    if info.get("api_error") and (info.get("turns") or 0) <= 1 and not AG.changed_since(root, AG.load_ledger(root)["floor"]["tree"]):
+        print("agent: the session did not start: %s\n(check `claude auth status`; nothing was changed)" % (info.get("final") or "see .router-migrate/agent_transcript.jsonl"))
+        return 2
     rc = finish(root, a, arm, resume=resume, runs=runs)
     print("total %.1f min" % ((time.time() - t0) / 60))
     return rc

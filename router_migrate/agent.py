@@ -1129,7 +1129,7 @@ def cmd_unwrap(a):
     led["edits"].append({"by": "agent-unwrap", "file": rel, "line": line, "changed": True, "at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     _remap_lines(led, rel, before, after)
     save_ledger(root, led)
-    return out({"ok": True, "file": rel, "undone": done, "diff": d}, a.json, d + "next: the calls this client serves no longer route; claim them")
+    return out({"ok": True, "file": rel, "undone": done, "diff": d}, a.json, d + "next: the calls this client serves no longer route (`check` to confirm)")
 
 
 def cmd_probe(a):
@@ -1348,7 +1348,7 @@ def cmd_wrap(a):
         _remap_lines(led, rel, before, after)
     save_ledger(root, led)
     msg = (d or "already wrapped: nothing to change\n") + ("next: native clients have no runtime fallback: `probe` every site it serves"
-                                                          if native else "next: `check` the calls this client serves, then claim them")
+                                                          if native else "next: `check` the calls this client serves (`check --run CMD` for ones the scanner can't see)")
     return out({"ok": True, "file": rel, "changed": before != after, "diff": d}, a.json, msg)
 
 
@@ -1734,9 +1734,10 @@ def _client_of(root, rel, line, p):
     """(client record, construction FILE:LINE) for the site at rel:line, or for a construction at that line."""
     f = facts_for(root, rel, line, p)
     c = (p.get("clients") or {}).get(f.get("client") or "") if f.get("found") else None
-    if c is None:
-        cs = [x for x in (p.get("clients") or {}).values() if x["file"] == rel and abs(int(x["line"]) - line) <= 2]
-        c = cs[0] if cs else None
+    if c is None:  # a wrap's import block moves constructors down: take the nearest one below, or the file's only one
+        cs = sorted((x for x in (p.get("clients") or {}).values() if x["file"] == rel), key=lambda x: abs(int(x["line"]) - line))
+        near = [x for x in cs if -2 <= int(x["line"]) - line <= 12]
+        c = near[0] if near else cs[0] if len(cs) == 1 else None
     return c
 
 
@@ -1833,7 +1834,7 @@ def cmd_adapt(a):
         before = open(os.path.join(root, c["file"]), encoding="utf-8").read()
         f, why = _wrap_with(root, c, opts)
         if f is None:
-            return err(a.json, why, "or edit by hand, prove it with `probe`, and record it with `adapt %s:%d --loses ...`" % (rel, line))
+            return err(a.json, why, "or edit by hand, verify it with `check --run`, and record it with `adapt %s:%d --loses ...`" % (rel, line))
         files.append(f)
         after = open(os.path.join(root, f), encoding="utf-8").read()
         led = load_ledger(root)
@@ -1845,6 +1846,8 @@ def cmd_adapt(a):
         now = min((x for x in (current_plan(root).get("clients") or {}).values() if x["file"] == f),
                   key=lambda x: abs(int(x["line"]) - _shift(before, after, int(c["line"]))), default=c)
         lv["client"] = "%s:%s" % (f, now["line"])
+        if f == rel and _feature(root, rel, line).endswith(":<module>"):  # pointed at a construction the wrap moved
+            line = int(now["line"])
     led = load_ledger(root)
     feat = _feature(root, rel, line)
     tid = "T%d" % (len(led.get("tradeoffs") or []) + 1)
@@ -1860,7 +1863,7 @@ def cmd_adapt(a):
     save_ledger(root, led)
     what = ", ".join("%s=%s" % (k, v) for k, v in lv.items() if k != "client") or "hand edit"
     return out({"ok": True, "tradeoff": t, "files": files}, a.json,
-               "%s recorded for %s (%s); loses: %s\nnext: prove the site now routes (`probe %s:%d --cmd ...` or `check`), then claim it migrated"
+               "%s recorded for %s (%s); loses: %s\nnext: `check %s:%d` (or `check --run CMD`) to see it route; `adapt --undo` reverses it"
                % (tid, feat, what, a.loses, rel, line))
 
 
