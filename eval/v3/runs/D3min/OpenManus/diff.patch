@@ -1,0 +1,27 @@
+diff --git a/app/llm.py b/app/llm.py
+index 82ebe88..3946381 100644
+--- a/app/llm.py
++++ b/app/llm.py
+@@ -29,6 +29,13 @@ from app.schema import (
+     Message,
+     ToolChoice,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from .router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ REASONING_MODELS = ["o1", "o3-mini"]
+@@ -222,7 +229,7 @@ class LLM:
+             elif self.api_type == "aws":
+                 self.client = BedrockClient()
+             else:
+-                self.client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
++                self.client = _router_wrap_openai(AsyncOpenAI(api_key=self.api_key, base_url=self.base_url))
+ 
+             self.token_counter = TokenCounter(self.tokenizer)
+ 

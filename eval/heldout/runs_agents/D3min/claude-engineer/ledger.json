@@ -1,0 +1,624 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 9,
+   "seconds": 2.3
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/bin/python",
+  "test_cmd": "mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/tmp\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/tmp\" PYTHONDONTWRITEBYTECODE=1 /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/bin/python -c \"import glob; [compile(open(p).read(), p, \\\"exec\\\") for g in (\\\"*.py\\\", \\\"tools/*.py\\\", \\\"prompts/*.py\\\", \\\"Claude-Eng-v2/*.py\\\") for p in sorted(glob.glob(g))]; import ce3, importlib, pkgutil, tools; [importlib.import_module(\\\"tools.\\\" + m.name) for m in pkgutil.iter_modules(tools.__path__)]\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/tmp\" PYTHONDONTWRITEBYTECODE=1 /Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/bin/python -m pytest -q -p no:cacheprovider -o addopts= test.py",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "Claude-Eng-v2/main.py:1227": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "drop_betas prompt-caching-2024-07-31",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 1227,
+   "loses": "same as main.py:671 \u2014 legacy beta header dropped (no functional loss, caching is GA) and model mapped from claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "send_to_ai_for_executing: same retired-model and legacy-beta situation as the other MAINMODEL-family calls in this file. Verified ROUTES via check --all."
+  },
+  "Claude-Eng-v2/main.py:1503": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 1503,
+   "loses": "model identity: calls asking for claude-3-5-sonnet-20241022 (TOOLCHECKERMODEL) now get claude-sonnet-4-6.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "decide_retry: claude-3-5-sonnet-20241022 isn't in Router's catalog; claude-sonnet-4-6 is the closest current replacement. Verified ROUTES via check --all."
+  },
+  "Claude-Eng-v2/main.py:1755": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "drop_betas prompt-caching-2024-07-31",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 1755,
+   "loses": "legacy prompt-caching beta header dropped (caching itself is GA, cache_control blocks still apply); model mapped from claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "chat_with_claude (MAINMODEL call): same pattern as the other calls on this client. Verified ROUTES via check --all."
+  },
+  "Claude-Eng-v2/main.py:1886": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "drop_betas max-tokens-3-5-sonnet-2024-07-15",
+    "drop_betas prompt-caching-2024-07-31 (client-shared)",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6 (via decide_retry's TOOLCHECKERMODEL mapping)"
+   ],
+   "line": 1886,
+   "loses": "the max-tokens-3-5-sonnet-2024-07-15 beta (a legacy ceiling-raise for the retired 3.5 Sonnet) is dropped; claude-sonnet-4-6 supports a higher max_tokens natively so nothing is lost in practice. The client-wide prompt-caching beta drop also applies here (no functional effect, see above).",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "chat_with_claude (TOOLCHECKERMODEL call): both anthropic-beta headers are legacy opt-ins Router doesn't forward. Verified ROUTES via check --all after merging both drop_betas into the single client wrap call."
+  },
+  "Claude-Eng-v2/main.py:268": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "wrap Claude-Eng-v2/main.py:268"
+   ],
+   "line": 268,
+   "loses": "none at the client level; per-call trade-offs are listed separately for the 5 call sites this client serves (lines 664, 1227, 1503, 1755, 1886 pre-wrap; 671, 1234, 1510, 1762, 1893 post-wrap).",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Single module-level Anthropic client used by all 5 call sites in this file; wrapping it is the prerequisite for routing any of them."
+  },
+  "Claude-Eng-v2/main.py:671": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/main.py",
+   "levers": [
+    "drop_betas prompt-caching-2024-07-31",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 671,
+   "loses": "the anthropic-beta prompt-caching-2024-07-31 opt-in header is dropped (prompt caching is GA now, cache_control blocks are unaffected); model identity changes from the retired claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "generate_edit_instructions: Router doesn't forward this legacy beta header and doesn't serve the dated model id; both trade-offs are cost/identity only, not correctness. Verified ROUTES via check --all."
+  },
+  "Claude-Eng-v2/ollama-eng.py:322": {
+   "by": "agent",
+   "evidence": [],
+   "file": "Claude-Eng-v2/ollama-eng.py",
+   "levers": [],
+   "line": 322,
+   "loses": "n/a \u2014 not moved.",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "This call goes to a local Ollama endpoint serving mistral-nemo, a self-hosted model the app exists to use as a local/offline alternative. Router does not serve the Ollama endpoint or this model, and self-hosted/local models are explicitly out of scope per the migration guidance. A human would need to decide whether to drop local-model support entirely in favor of a Router-served model; no code change made."
+  },
+  "ce3.py:44": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ce3.py",
+   "levers": [
+    "wrap ce3.py:44",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 44,
+   "loses": "model identity: the retired claude-3-5-sonnet-20241022 snapshot is no longer honored exactly; calls now get claude-sonnet-4-6, Anthropic's current flagship and the closest capability match.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Client wrapped with the vendored runtime; claude-3-5-sonnet-20241022 isn't in Router's catalog so it's mapped to claude-sonnet-4-6. Verified with check --all (ROUTES) and an isolated check --run probe showing the unmapped model would otherwise fall back to the original provider."
+  },
+  "tools/toolcreator.py:32": {
+   "by": "agent",
+   "evidence": [],
+   "file": "tools/toolcreator.py",
+   "levers": [
+    "wrap tools/toolcreator.py:32",
+    "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"
+   ],
+   "line": 32,
+   "loses": "model identity: calls asking for claude-3-5-sonnet-20241022 now get claude-sonnet-4-6, Anthropic's current flagship and closest capability match.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "This tool's self-generated tool code requests used a retired model id not in Router's catalog. Verified ROUTES via check --all; test.py's 9 tests still pass after the change."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 8.6,
+  "agent_turns": 48,
+  "agent_usd": 1.4884916000000001,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:52:32",
+ "edits": [
+  {
+   "at": "2026-10-14T13:54:40",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "ce3.py",
+   "line": 44,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:54:43",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "Claude-Eng-v2/main.py",
+   "line": 268,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:54:45",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "tools/toolcreator.py",
+   "line": 32,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:56:53",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T1"
+  },
+  {
+   "at": "2026-10-14T13:56:56",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T2"
+  },
+  {
+   "at": "2026-10-14T13:56:59",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T3"
+  },
+  {
+   "at": "2026-10-14T13:57:16",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/main.py",
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T4"
+  },
+  {
+   "at": "2026-10-14T13:57:22",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/main.py",
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T5"
+  },
+  {
+   "at": "2026-10-14T13:57:28",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/main.py",
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T6"
+  },
+  {
+   "at": "2026-10-14T13:57:34",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/main.py",
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T7"
+  },
+  {
+   "at": "2026-10-14T13:57:59",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T8"
+  },
+  {
+   "at": "2026-10-14T13:58:02",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T9"
+  },
+  {
+   "at": "2026-10-14T13:58:05",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T10"
+  },
+  {
+   "at": "2026-10-14T13:58:45",
+   "by": "tradeoff",
+   "files": [
+    "Claude-Eng-v2/main.py",
+    "Claude-Eng-v2/router_policy.py",
+    "router.policy.json",
+    "router_policy.py",
+    "tools/router_policy.py"
+   ],
+   "id": "T11"
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T14:01:18",
+    "gates": [],
+    "info": {
+     "report_sites": 9,
+     "sites": 8,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 9,
+      "seconds": 2.3
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 9,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "5f8b722083e85ded2b3941f24cc9f9b0038e42d9"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:55:49",
+   "blocked": {},
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-claude-engineer/6a71b9a4-e4c1-4545-aef7-b84f63c731cf/scratchpad/probe_ce3.py",
+   "exit": 1,
+   "kept": [],
+   "requests": [],
+   "seconds": 2.0,
+   "tail": "Config.MODEL = claude-3-5-sonnet-20241022\nTraceback (most recent call last):\n  File \"/private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-claude-engineer/6a71b9a4-e4c1-4545-aef7-b84f63c731cf/scratchpad/probe_ce3.py\", line 9, in <module>\n    resp = client.messages.create(\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/_utils/_utils.py\", line 294, in wrapper\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\nTypeError: Messages.create() got an unexpected keyword argument 'temperature'\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:56:21",
+   "blocked": {
+    "api.anthropic.com:443": 3
+   },
+   "cmd": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/bin/python /private/tmp/claude-501/-Users-sanjithsambath-code-router-migrate-eval-work-heldout-trials-D3min-claude-engineer/6a71b9a4-e4c1-4545-aef7-b84f63c731cf/scratchpad/probe_ce3.py",
+   "exit": 1,
+   "kept": [
+    {
+     "client": "probe_ce3.py:<module>",
+     "feature": "probe_ce3.py:<module>",
+     "model": "claude-3-5-sonnet-20241022",
+     "n": 3,
+     "reason": "model 'claude-3-5-sonnet-20241022' is not in the Router catalog"
+    }
+   ],
+   "requests": [],
+   "seconds": 3.2,
+   "tail": "4f63c731cf/scratchpad/probe_ce3.py\", line 9, in <module>\n    resp = client.messages.create(\n           ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/_utils/_utils.py\", line 294, in wrapper\n    return func(*args, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/resources/messages/messages.py\", line 1029, in create\n    return self._post(\n           ^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/_base_client.py\", line 1557, in post\n    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))\n                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/_base_client.py\", line 1164, in request\n    response, prepared = self._attempt_request(\n                         ^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/envs/claude-engineer/lib/python3.11/site-packages/anthropic/_base_client.py\", line 1331, in _attempt_request\n    raise APIConnectionError(request=request) from err\nanthropic.APIConnectionError: Connection error.\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "ce3.py:44",
+   "Claude-Eng-v2/main.py:268",
+   "Claude-Eng-v2/main.py:1227",
+   "Claude-Eng-v2/main.py:1503",
+   "Claude-Eng-v2/main.py:1755",
+   "Claude-Eng-v2/main.py:1886",
+   "tools/toolcreator.py:32"
+  ],
+  "failures": [],
+  "moved": 7,
+  "moved_sites": [
+   "Claude-Eng-v2/main.py:1234",
+   "Claude-Eng-v2/main.py:1510",
+   "Claude-Eng-v2/main.py:1762",
+   "Claude-Eng-v2/main.py:1893",
+   "Claude-Eng-v2/main.py:671",
+   "ce3.py:345",
+   "tools/toolcreator.py:97"
+  ],
+  "ok": true,
+  "report_sites": 9,
+  "reverted": [],
+  "sites_seen": 8,
+  "tradeoffs": 11
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/heldout/trials/D3min/claude-engineer",
+ "tradeoff_policy": {
+  "**Claude-Eng-v2/main.py:chat_with_claude": [
+   "model_map"
+  ],
+  "**Claude-Eng-v2/main.py:decide_retry": [
+   "model_map"
+  ],
+  "**Claude-Eng-v2/main.py:generate_edit_instructions": [
+   "model_map"
+  ],
+  "**Claude-Eng-v2/main.py:send_to_ai_for_executing": [
+   "model_map"
+  ],
+  "**ce3.py:_get_completion": [
+   "model_map"
+  ],
+  "**tools/toolcreator.py:execute": [
+   "model_map"
+  ]
+ },
+ "tradeoffs": [
+  {
+   "at": "2026-10-14T13:56:53",
+   "evidence": [],
+   "feature": "ce3.py:_get_completion",
+   "file": "ce3.py",
+   "id": "T1",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 345,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "ce3.py:345",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:56:56",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:decide_retry",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T2",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 1510,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "Claude-Eng-v2/main.py:1510",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:56:59",
+   "evidence": [],
+   "feature": "tools/toolcreator.py:execute",
+   "file": "tools/toolcreator.py",
+   "id": "T3",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 97,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "tools/toolcreator.py:97",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:57:16",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:generate_edit_instructions",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T4",
+   "levers": {
+    "client": "Claude-Eng-v2/main.py:275",
+    "drop_betas": [
+     "prompt-caching-2024-07-31"
+    ]
+   },
+   "line": 671,
+   "loses": "nothing functional: prompt caching is GA on current Anthropic/Router models, cache_control blocks still apply; only the now-obsolete 2024-07-31 beta opt-in header itself is dropped",
+   "site": "Claude-Eng-v2/main.py:671",
+   "undone": false,
+   "why": "this anthropic-beta header is a legacy opt-in flag Router does not forward; caching behavior is unaffected since it's no longer gated by beta"
+  },
+  {
+   "at": "2026-10-14T13:57:22",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:send_to_ai_for_executing",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T5",
+   "levers": {
+    "client": "Claude-Eng-v2/main.py:275",
+    "drop_betas": [
+     "prompt-caching-2024-07-31"
+    ]
+   },
+   "line": 1234,
+   "loses": "nothing functional: prompt caching is GA on current Anthropic/Router models, cache_control blocks still apply; only the now-obsolete 2024-07-31 beta opt-in header itself is dropped",
+   "site": "Claude-Eng-v2/main.py:1234",
+   "undone": false,
+   "why": "this anthropic-beta header is a legacy opt-in flag Router does not forward; caching behavior is unaffected since it's no longer gated by beta"
+  },
+  {
+   "at": "2026-10-14T13:57:28",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:chat_with_claude",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T6",
+   "levers": {
+    "client": "Claude-Eng-v2/main.py:275",
+    "drop_betas": [
+     "prompt-caching-2024-07-31"
+    ]
+   },
+   "line": 1762,
+   "loses": "nothing functional: prompt caching is GA on current Anthropic/Router models, cache_control blocks still apply; only the now-obsolete 2024-07-31 beta opt-in header itself is dropped",
+   "site": "Claude-Eng-v2/main.py:1762",
+   "undone": false,
+   "why": "this anthropic-beta header is a legacy opt-in flag Router does not forward; caching behavior is unaffected since it's no longer gated by beta"
+  },
+  {
+   "at": "2026-10-14T13:57:34",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:chat_with_claude",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T7",
+   "levers": {
+    "client": "Claude-Eng-v2/main.py:275",
+    "drop_betas": [
+     "max-tokens-3-5-sonnet-2024-07-15"
+    ]
+   },
+   "line": 1893,
+   "loses": "nothing functional: this beta only raised the legacy claude-3-5-sonnet max_tokens ceiling; the call now targets claude-sonnet-4-6 (via the other adapt on this same TOOLCHECKERMODEL constant) which supports higher max_tokens natively",
+   "site": "Claude-Eng-v2/main.py:1893",
+   "undone": false,
+   "why": "performance/limit-only legacy beta flag for a retired model family; Router does not forward it and it is unneeded now"
+  },
+  {
+   "at": "2026-10-14T13:57:59",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:generate_edit_instructions",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T8",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 671,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "Claude-Eng-v2/main.py:671",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:58:02",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:send_to_ai_for_executing",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T9",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 1234,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "Claude-Eng-v2/main.py:1234",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:58:05",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:chat_with_claude",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T10",
+   "levers": {
+    "model_map": {
+     "claude-3-5-sonnet-20241022": "claude-sonnet-4-6"
+    }
+   },
+   "line": 1762,
+   "loses": "model identity: calls asking for the dated claude-3-5-sonnet-20241022 snapshot now get claude-sonnet-4-6 instead",
+   "site": "Claude-Eng-v2/main.py:1762",
+   "undone": false,
+   "why": "claude-3-5-sonnet-20241022 is retired/not in Router's catalog; claude-sonnet-4-6 is Anthropic's current flagship replacement, closest capability match"
+  },
+  {
+   "at": "2026-10-14T13:58:45",
+   "evidence": [],
+   "feature": "Claude-Eng-v2/main.py:chat_with_claude",
+   "file": "Claude-Eng-v2/main.py",
+   "id": "T11",
+   "levers": {
+    "client": "Claude-Eng-v2/main.py:275",
+    "drop_betas": [
+     "max-tokens-3-5-sonnet-2024-07-15",
+     "prompt-caching-2024-07-31"
+    ]
+   },
+   "line": 1893,
+   "loses": "nothing functional: prompt caching is GA (cache_control still applies) and the max-tokens beta only lifted a legacy claude-3-5-sonnet ceiling that claude-sonnet-4-6 doesn't need",
+   "site": "Claude-Eng-v2/main.py:1893",
+   "undone": false,
+   "why": "both anthropic-beta headers are legacy opt-ins Router does not forward; dropping them does not change behavior now that this call targets claude-sonnet-4-6"
+  }
+ ],
+ "version": 5,
+ "worklist": []
+}

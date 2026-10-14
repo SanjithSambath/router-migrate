@@ -1,0 +1,341 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 5,
+   "seconds": 1.6
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python",
+  "test_cmd": "export OPENAI_API_KEY=sk-dummy TELEGRAM_BOT_TOKEN=000000:dummy; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/tmp\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/pycache\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/tmp\" PYTHONPYCACHEPREFIX=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/pycache\" PYTHONPATH=bot OPENAI_API_KEY=sk-dummy TELEGRAM_BOT_TOKEN=000000:dummy /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c 'import compileall, importlib, sys, time, traceback\nt = time.time(); p = f = 0\nif compileall.compile_dir(\"bot\", quiet=1): p += 1\nelse: f += 1; print(\"FAILED compileall bot\")\nfor m in (\"openai_helper\", \"plugin_manager\", \"telegram_bot\", \"main\"):\n    try: importlib.import_module(m); p += 1\n    except BaseException: f += 1; print(\"FAILED import \" + m); traceback.print_exc()\nprint((f\"{f} failed, \" if f else \"\") + f\"{p} passed in {time.time() - t:.2f}s\")\nsys.exit(1 if f else 0)\n'",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "bot/openai_helper.py:268": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [
+    "wrap:bot/openai_helper.py:107",
+    "model_map:bot/openai_helper.py:107"
+   ],
+   "line": 268,
+   "loses": "Legacy/retired model ids configured via OPENAI_MODEL (e.g. gpt-4-32k, gpt-3.5-turbo-0301, o1-preview) are served by Router's closest current catalog model (e.g. gpt-4, gpt-3.5-turbo, o1) instead of the exact literal id; sampling knobs Router rejects (seed, logprobs) and n>1 fall back transparently to the original OpenAI endpoint per-request via the vendored runtime, so no behavior changes there.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Main chat-completion call (__common_get_chat_response). Default model gpt-4o is in the Router catalog and routes unchanged. Verified with check --run against the simulator (valid /v1/responses request)."
+  },
+  "bot/openai_helper.py:329": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [
+    "wrap:bot/openai_helper.py:107",
+    "model_map:bot/openai_helper.py:107"
+   ],
+   "line": 329,
+   "loses": "Same model-id substitution as above for non-default OPENAI_MODEL configs.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Plugin function-calling follow-up call (__handle_function_call). Initially failed against Router's Responses translation because the app never appended the assistant's function_call message to history before the function-result message, so Router's chat->responses translator had no function_call item to pair the function_call_output with (400: 'No tool call found for function call output'). This was a genuine spec-compliance gap in the app (OpenAI's own legacy-functions docs require including that assistant turn) that OpenAI's Chat Completions endpoint tolerated but Router's Responses-API translation does not. Fixed by appending the assistant function_call message to conversation history in __handle_function_call before invoking the plugin (bot/openai_helper.py, both the stream and non-stream branches converge on this before the `logging.info('Calling function...')` line). Re-verified with check --run (valid request, function executed, response returned) and the repo's own compileall/import smoke test."
+  },
+  "bot/openai_helper.py:346": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [],
+   "line": 346,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "images.generate (DALL-E). Router has no image-generation endpoint (hard limit). Kept pointed at OpenAI directly; no change needed since this client is a different call surface than chat.completions and the images endpoint is untouched by the wrap."
+  },
+  "bot/openai_helper.py:374": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [],
+   "line": 374,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "audio.speech.create (TTS). Router has no audio endpoint (hard limit). Stays on OpenAI directly."
+  },
+  "bot/openai_helper.py:395": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [],
+   "line": 395,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "audio.transcriptions.create (Whisper). Router has no audio endpoint (hard limit). Stays on OpenAI directly."
+  },
+  "bot/openai_helper.py:472": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [
+    "wrap:bot/openai_helper.py:107",
+    "model_map:bot/openai_helper.py:107"
+   ],
+   "line": 472,
+   "loses": "Same model-id substitution as above if VISION_MODEL is set to a non-catalog id (default gpt-4o is unaffected).",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Vision chat-completion call (__common_get_chat_response_vision). image_url content is supported by Router's chat->responses translation. Verified with check --run (valid /v1/responses request, image+text content, correct answer returned)."
+  },
+  "bot/openai_helper.py:625": {
+   "by": "agent",
+   "evidence": [],
+   "file": "bot/openai_helper.py",
+   "levers": [
+    "wrap:bot/openai_helper.py:107",
+    "model_map:bot/openai_helper.py:107"
+   ],
+   "line": 625,
+   "loses": "Same model-id substitution as above for non-default OPENAI_MODEL configs.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "History-summarization call (__summarise), a small non-user-facing housekeeping call on the same model. Verified with check --run (valid /v1/responses request)."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 6.1,
+  "agent_turns": 36,
+  "agent_usd": 1.0695608,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:33:38",
+ "edits": [
+  {
+   "at": "2026-10-14T13:34:06",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "bot/openai_helper.py",
+   "line": 107,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:38:28",
+   "by": "tradeoff",
+   "files": [
+    "bot/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T1"
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:39:55",
+    "gates": [],
+    "info": {
+     "report_sites": 7,
+     "sites": 7,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 5,
+      "seconds": 3.5
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 5,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "a9ddc9268ee27ed1cdd6edea339183a7ae403bad"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:34:32",
+   "blocked": {},
+   "cmd": "PYTHONPATH=bot /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c \"\nimport asyncio, sys\nsys.path.insert(0, 'bot')\nfrom openai_helper import OpenAIHelper\nfrom plugin_manager import PluginManager\n\nconfig = {\n    'api_key': 'sk-dummy', 'model': 'gpt-4o-mini', 'vision_model': 'gpt-4o',\n    'temperature': 0.5, 'n_choices': 1, 'max_tokens': 100, 'vision_max_tokens': 100,\n    'presence_penalty': 0, 'frequency_penalty': 0, 'bot_language': 'en',\n    'enable_functions': False, 'functions_max_consecutive_calls': 5,\n    'max_history_size': 10, 'max_conversation_age_minutes': 60,\n    'assistant_prompt': 'You are a helpful assistant.', 'show_usage': False,\n    'show_plugins_used': False, 'plugins': [],\n}\npm = PluginManager(config={'plugins': []})\nhelper = OpenAIHelper(config=config, plugin_manager=pm)\n\nasync def main():\n    try:\n        answer, tokens = await helper.get_chat_response(1, 'hello there')\n        print('CHAT OK', answer[:50], tokens)\n    except Exception as e:\n        print('CHAT ERR', e)\n\nasyncio.run(main())\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": null,
+     "feature": "bot/openai_helper.py:__common_get_chat_response",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 2.6,
+   "tail": "CHAT OK pong 30\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:34:46",
+   "blocked": {},
+   "cmd": "PYTHONPATH=bot /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c \"\nimport asyncio, sys\nsys.path.insert(0, 'bot')\nfrom openai_helper import OpenAIHelper\nfrom plugin_manager import PluginManager\n\nconfig = {\n    'api_key': 'sk-dummy', 'model': 'gpt-4o-mini', 'vision_model': 'gpt-4o',\n    'temperature': 0.5, 'n_choices': 1, 'max_tokens': 100, 'vision_max_tokens': 100,\n    'presence_penalty': 0, 'frequency_penalty': 0, 'bot_language': 'en',\n    'enable_functions': True, 'functions_max_consecutive_calls': 5,\n    'max_history_size': 10, 'max_conversation_age_minutes': 60,\n    'assistant_prompt': 'You are a helpful assistant.', 'show_usage': False,\n    'show_plugins_used': False, 'plugins': [], 'vision_detail': 'low',\n    'vision_prompt': 'describe', 'enable_vision_follow_up_questions': True,\n}\npm = PluginManager(config={'plugins': []})\nhelper = OpenAIHelper(config=config, plugin_manager=pm)\n\nasync def main():\n    # trigger summarise path directly\n    try:\n        summary = await helper._OpenAIHelper__summarise([{'role':'user','content':'hi'}])\n        print('SUMMARY OK', summary[:50])\n    except Exception as e:\n        print('SUMMARY ERR', repr(e))\n    # trigger vision path\n    import io\n    from PIL import Image\n    buf = io.BytesIO()\n    Image.new('RGB', (10,10)).save(buf, format='PNG')\n    buf.seek(0)\n    try:\n        answer, tokens = await helper.interpret_image(2, buf, prompt='what is this')\n        print('VISION OK', answer[:50], tokens)\n    except Exception as e:\n        print('VISION ERR', repr(e))\n\nasyncio.run(main())\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": null,
+     "feature": "bot/openai_helper.py:__summarise",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    },
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": null,
+     "feature": "bot/openai_helper.py:__common_get_chat_response_vision",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 2.9,
+   "tail": "SUMMARY OK pong\nVISION OK pong 84\n"
+  },
+  "PR3": {
+   "at": "2026-10-14T13:34:57",
+   "blocked": {},
+   "cmd": "PYTHONPATH=bot /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c \"\nimport asyncio, sys\nsys.path.insert(0, 'bot')\nfrom openai_helper import OpenAIHelper\nfrom plugin_manager import PluginManager\n\nconfig = {\n    'api_key': 'sk-dummy', 'model': 'gpt-4o-mini', 'vision_model': 'gpt-4o',\n    'temperature': 0.5, 'n_choices': 1, 'max_tokens': 100, 'vision_max_tokens': 100,\n    'presence_penalty': 0, 'frequency_penalty': 0, 'bot_language': 'en',\n    'enable_functions': True, 'functions_max_consecutive_calls': 5,\n    'max_history_size': 10, 'max_conversation_age_minutes': 60,\n    'assistant_prompt': 'You are a helpful assistant.', 'show_usage': False,\n    'show_plugins_used': False, 'plugins': [],\n}\npm = PluginManager(config={'plugins': []})\nhelper = OpenAIHelper(config=config, plugin_manager=pm)\nhelper.conversations[5] = [{'role':'system','content':'sys'}]\nhelper.conversations_vision[5] = False\n\nclass FakeFuncCall:\n    name = 'noop'\n    arguments = '{}'\nclass FakeMsg:\n    function_call = FakeFuncCall()\n    content = None\nclass FakeChoice:\n    message = FakeMsg()\nclass FakeResp:\n    choices = [FakeChoice()]\n\nasync def main():\n    try:\n        resp, used = await helper._OpenAIHelper__handle_function_call(5, FakeResp())\n        print('FUNC OK', used)\n    except Exception as e:\n        print('FUNC ERR', repr(e))\n\nasyncio.run(main())\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": "No tool call found for function call output with call_id call_legacy.",
+     "feature": "bot/openai_helper.py:__handle_function_call",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": false
+    }
+   ],
+   "seconds": 1.6,
+   "tail": "FUNC ERR BadRequestError(\"Error code: 400 - {'error': {'message': 'No tool call found for function call output with call_id call_legacy.', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_request_error'}}\")\n"
+  },
+  "PR4": {
+   "at": "2026-10-14T13:36:25",
+   "blocked": {},
+   "cmd": "PYTHONPATH=bot /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c \"\nimport asyncio, sys\nsys.path.insert(0, 'bot')\nfrom openai_helper import OpenAIHelper\nfrom plugin_manager import PluginManager\n\nconfig = {\n    'api_key': 'sk-dummy', 'model': 'gpt-4o-mini', 'vision_model': 'gpt-4o',\n    'temperature': 0.5, 'n_choices': 1, 'max_tokens': 100, 'vision_max_tokens': 100,\n    'presence_penalty': 0, 'frequency_penalty': 0, 'bot_language': 'en',\n    'enable_functions': True, 'functions_max_consecutive_calls': 5,\n    'max_history_size': 10, 'max_conversation_age_minutes': 60,\n    'assistant_prompt': 'You are a helpful assistant.', 'show_usage': False,\n    'show_plugins_used': False, 'plugins': [],\n}\npm = PluginManager(config={'plugins': []})\nhelper = OpenAIHelper(config=config, plugin_manager=pm)\nhelper.conversations[5] = [{'role':'system','content':'sys'}]\nhelper.conversations_vision[5] = False\n\nclass FakeFuncCall:\n    name = 'noop'\n    arguments = '{}'\nclass FakeMsg:\n    function_call = FakeFuncCall()\n    content = None\nclass FakeChoice:\n    message = FakeMsg()\nclass FakeResp:\n    choices = [FakeChoice()]\n\nasync def main():\n    try:\n        resp, used = await helper._OpenAIHelper__handle_function_call(5, FakeResp())\n        print('FUNC OK', used)\n    except Exception as e:\n        print('FUNC ERR', repr(e))\n\nasyncio.run(main())\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": null,
+     "feature": "bot/openai_helper.py:__handle_function_call",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 8.1,
+   "tail": "FUNC OK ('noop',)\n"
+  },
+  "PR5": {
+   "at": "2026-10-14T13:38:42",
+   "blocked": {},
+   "cmd": "PYTHONPATH=bot /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/chatgpt-telegram-bot/bin/python -c \"\nimport asyncio, sys\nsys.path.insert(0, 'bot')\nfrom openai_helper import OpenAIHelper\nfrom plugin_manager import PluginManager\n\nconfig = {\n    'api_key': 'sk-dummy', 'model': 'gpt-4-32k', 'vision_model': 'chatgpt-4o-latest',\n    'temperature': 0.5, 'n_choices': 1, 'max_tokens': 100, 'vision_max_tokens': 100,\n    'presence_penalty': 0, 'frequency_penalty': 0, 'bot_language': 'en',\n    'enable_functions': False, 'functions_max_consecutive_calls': 5,\n    'max_history_size': 10, 'max_conversation_age_minutes': 60,\n    'assistant_prompt': 'You are a helpful assistant.', 'show_usage': False,\n    'show_plugins_used': False, 'plugins': [],\n}\npm = PluginManager(config={'plugins': []})\nhelper = OpenAIHelper(config=config, plugin_manager=pm)\n\nasync def main():\n    try:\n        answer, tokens = await helper.get_chat_response(1, 'hello there')\n        print('CHAT OK', answer[:50], tokens)\n    except Exception as e:\n        print('CHAT ERR', e)\n\nasyncio.run(main())\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "bot/openai_helper.py:__init__",
+     "error": null,
+     "feature": "bot/openai_helper.py:__common_get_chat_response",
+     "model": "gpt-4",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 2.2,
+   "tail": "CHAT OK pong 30\nrouter-migrate policy 0915317d\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 4,
+  "moved_sites": [
+   "bot/openai_helper.py:268",
+   "bot/openai_helper.py:329",
+   "bot/openai_helper.py:472",
+   "bot/openai_helper.py:625"
+  ],
+  "ok": true,
+  "report_sites": 7,
+  "reverted": [],
+  "sites_seen": 7,
+  "tradeoffs": 1
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/chatgpt-telegram-bot",
+ "tradeoff_policy": {
+  "**bot/openai_helper.py:__init__": [
+   "model_map"
+  ]
+ },
+ "tradeoffs": [
+  {
+   "at": "2026-10-14T13:38:28",
+   "evidence": [],
+   "feature": "bot/openai_helper.py:__init__",
+   "file": "bot/openai_helper.py",
+   "id": "T1",
+   "levers": {
+    "model_map": {
+     "chatgpt-4o-latest": "gpt-4o",
+     "gpt-3.5-turbo-0301": "gpt-3.5-turbo",
+     "gpt-3.5-turbo-0613": "gpt-3.5-turbo",
+     "gpt-3.5-turbo-1106": "gpt-3.5-turbo",
+     "gpt-3.5-turbo-16k": "gpt-3.5-turbo",
+     "gpt-3.5-turbo-16k-0613": "gpt-3.5-turbo",
+     "gpt-4-0125-preview": "gpt-4-turbo",
+     "gpt-4-0314": "gpt-4",
+     "gpt-4-1106-preview": "gpt-4-turbo",
+     "gpt-4-32k": "gpt-4",
+     "gpt-4-32k-0314": "gpt-4",
+     "gpt-4-32k-0613": "gpt-4",
+     "gpt-4-turbo-preview": "gpt-4-turbo",
+     "o1-mini": "o3-mini",
+     "o1-preview": "o1"
+    }
+   },
+   "line": 107,
+   "loses": "exact retired/dated model id is not preserved end-to-end; Router serves the closest current catalog model instead (e.g. gpt-4-32k -> gpt-4, o1-preview -> o1), so responses come from a different (usually newer/better) checkpoint than the literal id an operator configured via OPENAI_MODEL/VISION_MODEL",
+   "site": "bot/openai_helper.py:107",
+   "undone": false,
+   "why": "these ids are legacy entries in GPT_ALL_MODELS/O_MODELS; most are already sunset by OpenAI itself, and the ones that still work gain Router's routing/observability by mapping to their nearest catalog equivalent instead of silently bypassing Router"
+  }
+ ],
+ "version": 5,
+ "worklist": []
+}

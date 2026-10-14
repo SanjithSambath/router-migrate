@@ -101,6 +101,18 @@ def agent_cards(led):
                     "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "proposed by the migration agent from the code; unmeasured"},
                     "risk": 3 if ac["kind"] in ("model_swap", "per_user_key") else 2, "effort": "low", "options": [], "etag": etag,
                     "state": "new", "applies": True})
+    for key, c in sorted((led.get("claims") or {}).items()):  # D3: the agent's "needs your decision" report entries
+        if c.get("origin") != "report" or c.get("reason_code") != "needs_decision":
+            continue
+        why = c.get("why") or ""
+        etag = _h.sha1(json.dumps([key, why], sort_keys=True).encode()).hexdigest()[:12]
+        out.append({"id": "rec_decision_%s" % _h.sha1(key.encode()).hexdigest()[:8], "rule": "decision.needs_human",
+                    "lever_group": "decision", "title": "Your call: %s" % key, "scope": {"sites": ["agent:" + key], "features": [], "latency_class": None},
+                    "model_owner": None, "change": {"kind": "note", "diff": "; ".join(str(x) for x in c.get("levers") or []) or "see why"},
+                    "loses": [c["loses"]] if c.get("loses") else [], "rule_inputs": {"site": key},
+                    "evidence": {"level": "agent", "results": [{"level": "agent", "fact": why, "source": key}]},
+                    "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "the migration agent judged this a product decision"},
+                    "risk": 2, "effort": "low", "options": [], "etag": etag, "state": "new", "applies": False})
     return out
 
 
@@ -663,7 +675,13 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
         tests = {"before": (led.get("baseline") or {}).get("before"), "after": last}  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
     ledger, moved = None, None
     tradeoffs = (led or {}).get("tradeoffs") or []
-    if led:  # v4 headline: production calls on Router (plan_v3 carries the agent's claims), how many at a stated cost, how many stay
+    if led and led.get("version") == 5 and led.get("result"):  # D3: the outside check's verified result plus the agent's report
+        res, rep = led["result"], [c for c in (led.get("claims") or {}).values() if c.get("origin") == "report"]
+        lossy = {t.get("site") for t in tradeoffs if not t.get("undone")} | {"%s:%s" % (c["file"], c["line"]) for c in rep if c.get("levers") and c.get("outcome") == "migrated"}
+        moved = {"moved": res.get("moved") or 0, "with_tradeoffs": len(lossy), "unverified": len(res.get("claimed_unverified") or []),
+                 "needs_decision": sum(1 for c in rep if c.get("reason_code") == "needs_decision"),
+                 "stay": sum(1 for c in rep if c.get("outcome") == "kept")}
+    elif led:  # v4 headline: production calls on Router (plan_v3 carries the agent's claims), how many at a stated cost, how many stay
         n = sum(1 for s in prod if s["outcome"] == "migrated" or s["id"] in unlocks["sites"])
         moved = {"moved": n, "with_tradeoffs": len({t.get("site") for t in tradeoffs if not t.get("undone")}), "stay": len(prod) - n}
     if led:

@@ -1,0 +1,53 @@
+{
+  "sites": [
+    {
+      "site": "gptcli/providers/openai.py:27",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable: calls already used store=False and no previous_response_id/conversations, and `oai-compat:`/`oai-azure:` traffic keeps a different base_url/host so it is untouched by the host-scoped runtime and still goes straight to its own endpoint.",
+      "why": "Pure OpenAI Responses API traffic (gptcli/providers/openai.py:62,91, reached via gptcli/providers/openai.py:55,84 before wrapping) to api.openai.com with no server-side state. Wrapping the client construction routes it through Router whenever RAMP_ROUTER_API_KEY is set, with provider fallback preserved. Verified with `check --all` (ROUTES) and `check --run` against the simulator (valid /v1/responses request, model gpt-4.1)."
+    },
+    {
+      "site": "gptcli/providers/anthropic.py:24",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable: no stateful Responses usage here (Anthropic Messages API only); a `claude-3-7` thinking_budget request would still need testing against Router's live Messages endpoint but is structurally translated like any other.",
+      "why": "Anthropic Messages API traffic (gptcli/providers/anthropic.py:93,116, reached via :86,109 before wrapping) to api.anthropic.com. Wrapped the client factory so it routes through Router when active, with fallback to Anthropic on any Router-side refusal. Verified with `check --all` (ROUTES) and `check --run` against the simulator (valid /v1/messages request, model claude-sonnet-4-5)."
+    },
+    {
+      "site": "gptcli/providers/azure_openai.py:9",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Dynamically built AzureOpenAI client (missed by the scanner; it overwrites self.client after OpenAICompletionProvider.__init__ runs). It targets the operator's own Azure OpenAI deployment (its own host/base_url, api_version), not api.openai.com, so Router's host-scoped runtime would not touch it even if wrapped. Router has no Azure-deployment equivalent for this account, so there is nothing to move it to; left as-is."
+    },
+    {
+      "site": "gptcli/providers/google.py:60",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "google-genai SDK call to Google's own endpoint (Gemini/Gemma models). Router does not serve this vendor's endpoint with the shared key. Needs a human decision only if Ramp adds first-party Gemini support to Router; no action possible today."
+    },
+    {
+      "site": "gptcli/providers/google.py:74",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Same as gptcli/providers/google.py:60 (non-streaming branch of the same call)."
+    },
+    {
+      "site": "gptcli/providers/cohere.py:38",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Cohere's own Chat API (command-r/command-r-plus), not OpenAI- or Anthropic-compatible and not in Router's catalog. The scanner does not even flag this as a routable LLM call shape. No move possible."
+    },
+    {
+      "site": "gptcli/providers/llama.py:78",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "In-process llama.cpp inference against a local model file on disk. This is a local/self-hosted model the feature exists to use (bring-your-own-weights offline chat) — exactly the case Router is not meant to replace. Kept as-is."
+    }
+  ]
+}

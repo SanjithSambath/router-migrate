@@ -554,7 +554,8 @@ def improvements_view(b, root, post_blocks):
         out.append({
             "id": c["id"], "rule": c["rule"], "lever": "tradeoff" if c["rule"].startswith("tradeoff.") else LEVER.get(c["rule"], "other"), "title": title, "summary": summary,
             "tool_title": c.get("title"), "features": feats, "fn": short(f)[1] if f else ("%d features" % len(feats) if feats else ""),
-            "kind": "tradeoff" if c["rule"].startswith("tradeoff.") else "model" if c.get("lever_group") == "model" or c.get("applies") is False
+            "kind": "tradeoff" if c["rule"].startswith("tradeoff.") else "decision" if c["rule"].startswith("decision.")
+            else "model" if c.get("lever_group") == "model" or c.get("applies") is False
             else "unlock" if c["rule"].startswith("unlock.") else "same",
             "impact": _impact(c), "request": _request(c, f, model, b),
             "code": _code_change(c, f, root, post_blocks, judgments, applied), "assumptions": assumptions,

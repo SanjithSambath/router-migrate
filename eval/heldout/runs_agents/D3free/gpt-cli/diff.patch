@@ -1,0 +1,57 @@
+diff --git a/gptcli/providers/anthropic.py b/gptcli/providers/anthropic.py
+index 71aecc5..89189bf 100644
+--- a/gptcli/providers/anthropic.py
++++ b/gptcli/providers/anthropic.py
+@@ -13,6 +13,13 @@ from gptcli.completion import (
+     UsageEvent,
+     ThinkingDeltaEvent,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_anthropic as _router_wrap_anthropic
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_anthropic as _router_wrap_anthropic
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_anthropic = lambda c, *a, **k: c  # noqa: E731
+ 
+ api_key = os.environ.get("ANTHROPIC_API_KEY")
+ 
+@@ -21,7 +28,7 @@ def get_client():
+     if not api_key:
+         raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+ 
+-    return anthropic.Anthropic(api_key=api_key)
++    return _router_wrap_anthropic(anthropic.Anthropic(api_key=api_key))
+ 
+ 
+ class AnthropicCompletionProvider(CompletionProvider):
+diff --git a/gptcli/providers/openai.py b/gptcli/providers/openai.py
+index addaca9..030eeac 100644
+--- a/gptcli/providers/openai.py
++++ b/gptcli/providers/openai.py
+@@ -16,6 +16,13 @@ from gptcli.completion import (
+     ToolCallEvent,
+     UsageEvent,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
+ 
+ 
+ def is_reasoning_model(model: str) -> bool:
+@@ -24,9 +31,9 @@ def is_reasoning_model(model: str) -> bool:
+ 
+ class OpenAICompletionProvider(CompletionProvider):
+     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
+-        self.client = OpenAI(
++        self.client = _router_wrap_openai(OpenAI(
+             api_key=api_key or openai.api_key, base_url=base_url or openai.base_url
+-        )
++        ))
+ 
+     def complete(
+         self, messages: List[Message], args: dict, stream: bool = False

@@ -1,0 +1,60 @@
+{
+  "sites": [
+    {
+      "site": "app/llm.py:421",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none",
+      "why": "self.client.chat.completions.create() on the AsyncOpenAI branch (app/llm.py:225, api_type not azure/aws) now routes through Router; wrapped the AsyncOpenAI construction with router_runtime.wrap_openai(). When this LLM instance is configured for api_type=='azure' or 'aws' instead, this same line runs against AsyncAzureOpenAI or BedrockClient, which stay on their original endpoints (see app/llm.py:217 and app/bedrock.py)."
+    },
+    {
+      "site": "app/llm.py:438",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none",
+      "why": "Same wrapped AsyncOpenAI client as app/llm.py:421 (streaming path of LLM.ask); routes through Router when api_type is the default/openai branch."
+    },
+    {
+      "site": "app/llm.py:593",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none",
+      "why": "Same wrapped AsyncOpenAI client (LLM.ask_with_images, non-streaming path); routes through Router when api_type is the default/openai branch."
+    },
+    {
+      "site": "app/llm.py:603",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none",
+      "why": "Same wrapped AsyncOpenAI client (LLM.ask_with_images, streaming path); routes through Router when api_type is the default/openai branch."
+    },
+    {
+      "site": "app/llm.py:732",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "none",
+      "why": "Same wrapped AsyncOpenAI client (LLM.ask_tool); routes through Router when api_type is the default/openai branch. Verified live: a probe script constructing LLM with api_type='' and model='gpt-4o-mini' produced a valid /v1/responses request against the Router simulator (router-migrate check --run)."
+    },
+    {
+      "site": "app/llm.py:217",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a",
+      "why": "AsyncAzureOpenAI client construction (api_type=='azure' branch). `router-migrate wrap` reported no deterministic wrap for azure-openai, and router_runtime.wrap_openai() itself declines to touch Azure clients (it checks _is_openai() and leaves Azure deployments on their configured endpoint). Azure addresses models by deployment name against a tenant-specific endpoint rather than a Router catalog model id, so there is no safe automatic mapping; a human would need to decide whether to re-point a specific Azure deployment at a Router catalog model (model-map) or leave Azure traffic on Azure."
+    },
+    {
+      "site": "app/bedrock.py:210",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Amazon Bedrock Converse API call (boto3 bedrock-runtime client), not an OpenAI/Anthropic-shaped request. Router does not serve this vendor's endpoint with the shared key; kept on Bedrock."
+    },
+    {
+      "site": "app/bedrock.py:235",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Amazon Bedrock Converse (streaming) API call, same as app/bedrock.py:210. Router does not serve this vendor's endpoint with the shared key; kept on Bedrock."
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "sites": [
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/oai.py:67",
+      "outcome": "migrated",
+      "levers": [
+        "rewrote raw `requests.post` to api.openai.com/v1/chat/completions onto the OpenAI SDK so the runtime's httpx transport can see the call",
+        "wrap_openai(..., operator_key_only=True)",
+        "model_map gpt-4o-2024-11-20 -> gpt-4o (router.policy.json)"
+      ],
+      "loses": "Dated gpt-4o snapshot pinning is dropped (served by Router's current gpt-4o alias instead, via model_map). When an end user pastes their own OpenAI key into the UI (this app is bring-your-own-key: the operator's OPENAI_API_KEY is just the textbox default), their calls are not routed and keep hitting OpenAI directly, so they are billed on their own key as before.",
+      "why": "run_oai_interleaved (used by APIVLMPlanner for the 'gpt-4o' planner option) was raw HTTP, invisible to the vendored runtime; rewriting it onto the OpenAI SDK is a small, low-risk change (same request/response shape) that lets routing apply. gpt-4o-2024-11-20 isn't an exact Router catalog id but gpt-4o is its closest active match. operator_key_only keeps the Router migration from silently redirecting and re-billing a user's own key through the operator's Router account. Verified end-to-end with `router-migrate check --run`: a call made with the operator's key reaches router-sim as a valid /v1/responses request (model=gpt-4o); the identical call made with a different ('end user') key is correctly kept on the provider."
+    },
+    {
+      "site": "computer_use_demo/gui_agent/actor/uitars_agent.py:55",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "This OpenAI-SDK client is pointed at a user-supplied, self-hosted UI-TARS GUI-grounding server (ui_tars_url, set from the app's UI, no default), not api.openai.com - it is one of this app's pluggable actor backends, not a hosted-vendor call. Even if wrapped, the model id 'ui-tars' is not in Router's catalog and the host would need an explicit --unlock-host, which only makes sense for other vendors' hosted OpenAI-compatible endpoints, not an arbitrary self-hosted inference server the product exists to let users point at. Matches the 'local/self-hosted model the app exists to use' exclusion. A human could decide to keep this unrouted permanently, or map specific self-hosted deployments that happen to also serve a catalog model via --unlock-host on a case-by-case basis."
+    },
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/oai.py:174",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "run_ssh_llm_interleaved (scanner misses it - raw `requests.post` to an operator/user-supplied ssh_host:ssh_port, not an OpenAI/Anthropic client) talks to a self-hosted Qwen VLM reachable over an SSH-tunnelled port the user configures in the UI. Same 'self-hosted model the app exists to use' exclusion as uitars_agent.py; Router has no endpoint for an arbitrary private inference server."
+    },
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/qwen.py:52",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "run_qwen (scanner misses it - uses Alibaba's `dashscope` SDK, not an OpenAI/Anthropic client) calls `dashscope.MultiModalConversation.call` directly against Alibaba's native DashScope protocol. Router serves `/v1/responses` and `/v1/messages` (OpenAI/Anthropic-shaped request/response); it does not serve DashScope's native API, and this code path doesn't go through an OpenAI/Anthropic-compatible HTTP surface the vendored runtime (or a Router-direct call) could intercept or translate. Rewriting it onto DashScope's separate OpenAI-compatible compatible-mode endpoint would change the request/response/usage shape and auth entirely - out of scope for a reasonable move here; flagging for a human to decide if that rewrite is wanted."
+    },
+    {
+      "site": "computer_use_demo/gui_agent/planner/anthropic_agent.py:118",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a - not moved",
+      "why": "Every call from AnthropicActor carries betas=[\"computer-use-2024-10-22\"] and uses the beta-gated tool types computer_20241022/bash_20241022/text_editor_20241022 (see computer_use_demo/tools/computer.py, bash.py, edit.py) - this is literally the 'computer use' feature the app (computer_use_demo) is built around, not an incidental flag. Dropping the beta (as the scanner's hint suggests is mechanically possible via --drop-betas) would be exactly the 'beta that *is* the feature' case this migration should leave in place, so it was not attempted. The client was left unwrapped since every request it makes carries this beta and would stay on Anthropic regardless."
+    }
+  ]
+}

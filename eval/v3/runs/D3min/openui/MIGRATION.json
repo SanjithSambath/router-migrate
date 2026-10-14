@@ -1,0 +1,74 @@
+{
+  "sites": [
+    {
+      "site": "backend/openui/server.py:154",
+      "outcome": "migrated",
+      "levers": ["wrap backend/openui/server.py:1"],
+      "loses": "nothing observable: requests for catalog models (gpt-* etc.) now go through Router's single deployment key instead of the operator's own OPENAI_API_KEY; any model Router doesn't carry falls back to the original OpenAI endpoint unchanged.",
+      "why": "This is the operator's primary OpenAI key, used for the app's main gpt-* chat/vision completion path. It is the single biggest and most straightforward slice of this app's LLM traffic, and the runtime's per-request fallback makes the move risk-free."
+    },
+    {
+      "site": "backend/openui/server.py:170",
+      "outcome": "migrated",
+      "levers": ["wrap backend/openui/server.py:95"],
+      "loses": "if a Groq-hosted model id happens to also exist in Router's catalog, that request would be served by Router's backend for that model instead of Groq's purpose-built LPU hardware, trading Groq's inference speed for whatever backend Router uses. In practice Groq's model-name strings (e.g. llama3-70b-8192) are unlikely to collide with Router's catalog ids, so most/all traffic here falls back to Groq unchanged.",
+      "why": "Groq is just another vendor's OpenAI-compatible chat/completions endpoint, and the wrap is safe-by-construction (falls back to the real Groq endpoint for anything Router can't serve), so the default is to take the move and flag the trade-off for the dashboard."
+    },
+    {
+      "site": "backend/openui/server.py:184",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a — not moved",
+      "why": "This `litellm` client talks to a self-hosted LiteLLM proxy (backend/openui/litellm.py builds its config from GEMINI_API_KEY/ANTHROPIC_API_KEY/COHERE_API_KEY/MISTRAL_API_KEY/OPENAI_COMPATIBLE_ENDPOINT) that the app itself stood up to multiplex many providers under one OpenAI-compatible surface. It is the app's own proxy, explicitly called out as a case to leave alone: moving it would silently reroute model ids like `claude-3-opus` away from the operator's configured proxy (with its own key management and provider selection) to Router, changing which backend actually serves the request without the operator choosing that. A human should decide this with full visibility into what the self-hosted proxy is doing, not have it silently rerouted."
+    },
+    {
+      "site": "backend/openui/server.py:211",
+      "outcome": "kept",
+      "levers": [],
+      "loses": "n/a — not moved",
+      "why": "This is the local Ollama OpenAI-compatible client (config.OLLAMA_HOST, default http://127.0.0.1:11434) for self-hosted/local models — exactly the 'local model the app exists to use' case the guidance says not to move. Router cannot serve a user's local Ollama models at all, and wrapping it would add no value since none of its model ids are Router catalog ids."
+    },
+    {
+      "site": "backend/openui/litellm.py:106",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Hard limit: this is an OpenAI `models.list()` call (used to auto-discover models on an operator-configured OPENAI_COMPATIBLE_ENDPOINT for the self-hosted LiteLLM proxy config). Router has no `/v1/models` endpoint."
+    },
+    {
+      "site": "backend/openui/server.py:404",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Hard limit: `openai.models.list()` used only to probe OpenAI connectivity before returning a hardcoded model list. Router has no models endpoint."
+    },
+    {
+      "site": "backend/openui/server.py:423",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Hard limit: `groq.models.list()` used to enumerate available Groq models for the UI. Router has no models endpoint."
+    },
+    {
+      "site": "backend/openui/server.py:432",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Hard limit: `litellm.models.list()` used to enumerate models exposed by the self-hosted LiteLLM proxy for the UI. Router has no models endpoint."
+    },
+    {
+      "site": "frontend/src/api/openai.ts:184",
+      "outcome": "needs_decision",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Not an independent external LLM call: this browser-side OpenAI client is constructed with baseURL `${window.location origin}/v1` and a fake API key — it always talks back to this same openui backend's own `/v1/chat/completions` route (see backend/openui/server.py:112), which in turn dispatches to the OpenAI/Groq/LiteLLM/Ollama clients already decided above. There is no separate upstream provider call to move here. A human should confirm this reading (that the frontend never calls an external LLM host directly) rather than have it silently left alone on that assumption."
+    },
+    {
+      "site": "frontend/src/api/openai.ts:245",
+      "outcome": "needs_decision",
+      "levers": [],
+      "loses": "n/a",
+      "why": "Same client/call path as frontend/src/api/openai.ts:184 (the `convert` function reuses the same browser-side client that proxies to this app's own backend). See that entry's rationale."
+    }
+  ]
+}

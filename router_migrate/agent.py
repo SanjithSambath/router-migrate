@@ -836,10 +836,39 @@ def plan_for_improve(root):
             if out_ != s["outcome"]:  # the agent overrode the tool: its reason replaces the tool's
                 s["outcome"], s["reason"] = out_, "agent: " + s["agent_note"]
             # same outcome: keep the tool's reason (rules such as unlock.vendor_endpoint read it)
+    if led.get("version") == 5:  # one source of truth for "migrated": what actually routes, not what the code looks like
+        _apply_route_truth(root, led, p)
     v1 = json.load(open(sp(root, "plan.json"))) if os.path.exists(sp(root, "plan.json")) else {}
     p["patches"] = v1.get("patches") or []
     p["summary"] = planmod.summarize(p["sites"])
     return p
+
+
+def _apply_route_truth(root, led, p):
+    """Set each site's outcome from evidence: migrated when route_check sees it route or a probe / Router-on run confirmed
+    it, or when the agent reported it migrated and no check can see it (a dynamically built client, shown as unverified);
+    a wrapped site the check sees staying on its provider is kept, with the check's reason (e.g. an untranslatable field)."""
+    from .route_check import check_sites
+    try:
+        rows = check_sites(root)
+    except Exception:
+        return
+    conf = led.get("confirmations") or {}
+    claims = [c for c in (led.get("claims") or {}).values() if c.get("origin") == "report" and c.get("outcome") == "migrated"]
+    near = lambda f, l, items: any(x[0] == f and abs(int(x[1]) - int(l)) <= 3 for x in items)
+    seen = [(r["file"], r["line"]) for r in rows]
+    for s in p["sites"]:
+        if not s.get("prod") or s["kind"] not in ("call", "module_client", "client"):
+            continue
+        r = next((x for x in rows if x["file"] == s["file"] and abs(int(x["line"]) - int(s["line"])) <= 3), None)
+        confirmed = near(s["file"], s["line"], [k.rsplit(":", 1) for k in conf])
+        claimed = near(s["file"], s["line"], [(c["file"], c["line"]) for c in claims])
+        if (r and r.get("routes")) or confirmed:
+            s["outcome"], s["verified"] = "migrated", True
+        elif claimed and not near(s["file"], s["line"], seen):
+            s["outcome"], s["verified"] = "migrated", False
+        elif r and s["outcome"] == "migrated":
+            s["outcome"], s["reason"] = "kept", "stays on its provider: %s" % (r.get("reason") or "")[:200]
 
 
 def do_improve(root):

@@ -1,0 +1,67 @@
+{
+  "sites": [
+    {
+      "site": "ce3.py:44",
+      "outcome": "migrated",
+      "levers": ["wrap ce3.py:44", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "model identity: the retired claude-3-5-sonnet-20241022 snapshot is no longer honored exactly; calls now get claude-sonnet-4-6, Anthropic's current flagship and the closest capability match.",
+      "why": "Client wrapped with the vendored runtime; claude-3-5-sonnet-20241022 isn't in Router's catalog so it's mapped to claude-sonnet-4-6. Verified with check --all (ROUTES) and an isolated check --run probe showing the unmapped model would otherwise fall back to the original provider."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:268",
+      "outcome": "migrated",
+      "levers": ["wrap Claude-Eng-v2/main.py:268"],
+      "loses": "none at the client level; per-call trade-offs are listed separately for the 5 call sites this client serves (lines 664, 1227, 1503, 1755, 1886 pre-wrap; 671, 1234, 1510, 1762, 1893 post-wrap).",
+      "why": "Single module-level Anthropic client used by all 5 call sites in this file; wrapping it is the prerequisite for routing any of them."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:671",
+      "outcome": "migrated",
+      "levers": ["drop_betas prompt-caching-2024-07-31", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "the anthropic-beta prompt-caching-2024-07-31 opt-in header is dropped (prompt caching is GA now, cache_control blocks are unaffected); model identity changes from the retired claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+      "why": "generate_edit_instructions: Router doesn't forward this legacy beta header and doesn't serve the dated model id; both trade-offs are cost/identity only, not correctness. Verified ROUTES via check --all."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1227",
+      "outcome": "migrated",
+      "levers": ["drop_betas prompt-caching-2024-07-31", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "same as main.py:671 — legacy beta header dropped (no functional loss, caching is GA) and model mapped from claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+      "why": "send_to_ai_for_executing: same retired-model and legacy-beta situation as the other MAINMODEL-family calls in this file. Verified ROUTES via check --all."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1503",
+      "outcome": "migrated",
+      "levers": ["model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "model identity: calls asking for claude-3-5-sonnet-20241022 (TOOLCHECKERMODEL) now get claude-sonnet-4-6.",
+      "why": "decide_retry: claude-3-5-sonnet-20241022 isn't in Router's catalog; claude-sonnet-4-6 is the closest current replacement. Verified ROUTES via check --all."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1755",
+      "outcome": "migrated",
+      "levers": ["drop_betas prompt-caching-2024-07-31", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "legacy prompt-caching beta header dropped (caching itself is GA, cache_control blocks still apply); model mapped from claude-3-5-sonnet-20241022 to claude-sonnet-4-6.",
+      "why": "chat_with_claude (MAINMODEL call): same pattern as the other calls on this client. Verified ROUTES via check --all."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1886",
+      "outcome": "migrated",
+      "levers": ["drop_betas max-tokens-3-5-sonnet-2024-07-15", "drop_betas prompt-caching-2024-07-31 (client-shared)", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6 (via decide_retry's TOOLCHECKERMODEL mapping)"],
+      "loses": "the max-tokens-3-5-sonnet-2024-07-15 beta (a legacy ceiling-raise for the retired 3.5 Sonnet) is dropped; claude-sonnet-4-6 supports a higher max_tokens natively so nothing is lost in practice. The client-wide prompt-caching beta drop also applies here (no functional effect, see above).",
+      "why": "chat_with_claude (TOOLCHECKERMODEL call): both anthropic-beta headers are legacy opt-ins Router doesn't forward. Verified ROUTES via check --all after merging both drop_betas into the single client wrap call."
+    },
+    {
+      "site": "Claude-Eng-v2/ollama-eng.py:322",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a — not moved.",
+      "why": "This call goes to a local Ollama endpoint serving mistral-nemo, a self-hosted model the app exists to use as a local/offline alternative. Router does not serve the Ollama endpoint or this model, and self-hosted/local models are explicitly out of scope per the migration guidance. A human would need to decide whether to drop local-model support entirely in favor of a Router-served model; no code change made."
+    },
+    {
+      "site": "tools/toolcreator.py:32",
+      "outcome": "migrated",
+      "levers": ["wrap tools/toolcreator.py:32", "model_map claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "model identity: calls asking for claude-3-5-sonnet-20241022 now get claude-sonnet-4-6, Anthropic's current flagship and closest capability match.",
+      "why": "This tool's self-generated tool code requests used a retired model id not in Router's catalog. Verified ROUTES via check --all; test.py's 9 tests still pass after the change."
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+ "repo": "gpt-cli",
+ "commit": "bff5d87311abf00a900fb17595d443953750e29c",
+ "arm": "B",
+ "broken": false,
+ "broken_gate_checks": false,
+ "independent_check": {
+  "import_smoke": {
+   "checked": 5,
+   "regressed": []
+  },
+  "replay": {
+   "unique_requests": 2,
+   "ok": 2,
+   "stay_on_provider": 0,
+   "failed": 0,
+   "failures": []
+  },
+  "broken": false
+ },
+ "tests_before": {
+  "passed": 14,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "tests_after": {
+  "passed": 14,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 0,
+  "exit": 0
+ },
+ "typecheck_before": null,
+ "typecheck_after": null,
+ "diff_lines": 148,
+ "test_files_edited": [],
+ "usd": 2.0488,
+ "minutes": 7.0,
+ "agent_minutes": 7.0,
+ "cost_source": "result",
+ "agent": {
+  "exit": 0,
+  "is_error": false,
+  "usd": 2.0487556,
+  "turns": 61,
+  "final": "## Summary\n\nThis is `gpt-cli`, a terminal chat client that dispatches to a different SDK per model-name prefix (OpenAI, Azure OpenAI, Anthropic, Google, Cohere, local LLaMA). I migrated the two call sites that have a Router-compatible surface and left the rest native, since Router only exposes OpenAI-Responses and Anthropic-Messages compatibility.\n\n**Migrated:**\n- **`gptcli/providers/openai.py`** \u2014 already used the Responses API (`client.responses.create`), so only the client construction changed: it now builds `OpenAI(api_key=RAMP_ROUTER_API_KEY, base_url=RAMP_ROUTER_BASE_URL or https://api.router.com/v1)` instead of using the global `openai.api_key`/`openai.base_url`. All request/response handling (reasoning, streaming, tool events, usage) is untouched.\n- **`gptcli/providers/azure_openai.py`** \u2014 deleted. Azure was just a differently-authenticated OpenAI client; since Router is now the single credential holder, `oai-azure:`-prefixed models route through the same Router-backed `OpenAICompletionProvider` (dispatch in `assistant.py` updated accordingly).\n- **`gptcli/providers/anthropic.py`** \u2014 per the instructions, code already on the Anthropic Messages API doesn't need rewriting to Responses. I only repointed the `anthropic.Anthropic` client at Router's `/v1/messages` surface (`api_key=RAMP_ROUTER_API_KEY`, `base_url` = Router base **without** the trailing `/v1`, since the Anthropic SDK appends `/v1/messages` itself \u2014 confirmed this by hand against the Router simulator, which 404'd until I stripped it).\n- **`gptcli/config.py` / `gptcli/gpt.py`** \u2014 removed `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, and the Azure API-version setting, along with the per-assistant `openai_base_url_override`/`openai_api_key_override` escape hatch (that let an assistant send an arbitrary API key to an arbitrary endpoint, which conflicts with \"the application must never send provider API keys\").\n- Verified end-to-end against the Router simulator with a single text-only request on each migrated path \u2014 both returned valid `pong` responses with usage data before I ran the full suite (14/14 pass, unaffected since they mock the provider layer).\n- Updated README to describe `RAMP_ROUTER_API_KEY` instead of the removed provider keys/overrides.\n\n**Could not migrate (left on native provider SDKs, call sites unchanged):**\n- **`gptcli/providers/google.py`** (Gemini) and **`gptcli/providers/cohere.py`** \u2014 both use proprietary non-OpenAI, non-Anthropic request/response schemas. Router only documents OpenAI-Responses and Anthropic-Messages compatibility surfaces, so migrating these would mean guessing whether/how Router exposes Gemini or Cohere models and under what model ID, which the instructions explicitly forbid (\"never invent one or reuse a provider's public model name\"). Their native API keys (`GOOGLE_API_KEY`, `COHERE_API_KEY`) are intentionally left in `config.py` since they're still required.\n- **`gptcli/providers/llama.py`** \u2014 runs `llama_cpp` in-process against a local model file; there's no network call at all, so there's nothing to route through Router.",
+  "model": [
+   "claude-sonnet-5"
+  ],
+  "usage": {
+   "input_tokens": 96,
+   "cache_creation_input_tokens": 114796,
+   "cache_read_input_tokens": 6011948,
+   "output_tokens": 38699,
+   "output_tokens_details": {
+    "thinking_tokens": 22383
+   },
+   "server_tool_use": {
+    "web_search_requests": 0,
+    "web_fetch_requests": 0
+   },
+   "service_tier": "standard",
+   "cache_creation": {
+    "ephemeral_1h_input_tokens": 114796,
+    "ephemeral_5m_input_tokens": 0
+   },
+   "inference_geo": "global",
+   "iterations": [
+    {
+     "input_tokens": 2,
+     "output_tokens": 1202,
+     "cache_read_input_tokens": 153071,
+     "cache_creation_input_tokens": 395,
+     "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 395
+     },
+     "type": "message"
+    }
+   ],
+   "speed": "standard"
+  },
+  "terminal_reason": "completed"
+ },
+ "inventory_leak_in_transcript": true,
+ "invalid": null,
+ "scored_at": "2026-10-14T13:52:25",
+ "routed_static": 2,
+ "inventory_prod_sites": 9,
+ "inventory_migrated": 2,
+ "inventory_handoff": 2,
+ "sites_moved": 2,
+ "sites_moved_correct": 2,
+ "sites_moved_wrong": 0,
+ "sites_moved_unmatched": 0,
+ "file_level_matches": 0,
+ "moved_recall": 1.0,
+ "moved_precision": 1.0,
+ "reported_sites_matched": 4,
+ "reported_outcome_agreement": 1.0,
+ "reported_migrated": 2,
+ "reported_migrated_correct": 2,
+ "wrong_detail": [],
+ "missed_migrated": [],
+ "moved_v4": {
+  "sites_moved": 2,
+  "movable_total": 8,
+  "sites_moved_movable": 2,
+  "sites_moved_wrong": 0,
+  "sites_moved_old_gt": 2,
+  "old_gt_total": 2,
+  "tradeoffs": 0,
+  "claimed_migrated": 2
+ }
+}

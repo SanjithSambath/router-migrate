@@ -1,0 +1,711 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 10,
+   "seconds": 7.3
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/bin/python",
+  "test_cmd": "export OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy DEEPSEEK_API_KEY=dummy OPENROUTER_API_KEY=dummy GEMINI_API_KEY=dummy LITELLM_LOCAL_MODEL_COST_MAP=True WANDB_MODE=disabled HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MPLBACKEND=Agg; mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/tmp\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/pycache\" && HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/tmp\" PYTHONPYCACHEPREFIX=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/pycache\" PYTHONPATH=. OPENAI_API_KEY=sk-dummy ANTHROPIC_API_KEY=sk-ant-dummy DEEPSEEK_API_KEY=dummy OPENROUTER_API_KEY=dummy GEMINI_API_KEY=dummy LITELLM_LOCAL_MODEL_COST_MAP=True WANDB_MODE=disabled HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 MPLBACKEND=Agg /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/AI-Scientist/bin/python -c 'import sys,time,compileall,importlib,traceback\nt=time.time(); ok=0; bad=0\nfor d in [\"ai_scientist\",\"launch_scientist.py\",\"experimental\",\"review_iclr_bench\"]:\n    r = compileall.compile_file(d,quiet=1) if d.endswith(\".py\") else compileall.compile_dir(d,quiet=1)\n    if r: ok+=1; print(\"PASSED compileall\", d)\n    else: bad+=1; print(\"FAILED compileall\", d)\nfor m in [\"ai_scientist.llm\",\"ai_scientist.generate_ideas\",\"ai_scientist.perform_experiments\",\"ai_scientist.perform_review\",\"ai_scientist.perform_writeup\",\"launch_scientist\"]:\n    try:\n        importlib.import_module(m); ok+=1; print(\"PASSED import\", m)\n    except BaseException:\n        bad+=1; print(\"FAILED import\", m); traceback.print_exc()\ndt=time.time()-t\nprint((str(bad)+\" failed, \" if bad else \"\")+str(ok)+\" passed in \"+format(dt,\".2f\")+\"s\")\nsys.exit(1 if bad else 0)'",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "ai_scientist/llm.py:100": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 100,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "llama branch of get_batch_responses_from_llm (model 'meta-llama/llama-3.1-405b-instruct' via OpenRouter). `check --all` confirms the model is not in Router's catalog. The only available substitute (e.g. gpt-3.5) is a completely different model family/architecture, not a dated snapshot of the same model -- the kind of forced substitution a reasonable engineer would reject rather than silently accept, since llama-3.1-405b is explicitly selected by name as one of this tool's benchmarked backends."
+  },
+  "ai_scientist/llm.py:167": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 167,
+   "loses": "None: a lossless migration. The request uses no Router-incompatible parameters.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Claude branch of get_response_from_llm (client.messages.create). Confirmed ROUTES by `router-migrate check --all` once the client at llm.py:320 was wrapped. No untranslatable params in this call."
+  },
+  "ai_scientist/llm.py:188": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap",
+    "drop seed"
+   ],
+   "line": 188,
+   "loses": "Dropped seed=0 (Router rejects the seed param); same reproducibility loss as the batch branch above.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "gpt branch of get_response_from_llm (chat.completions.create, seed=0). Same reasoning as the batch gpt branch; both live under the same feature policy (ai_scientist/llm.py:get_response_from_llm)."
+  },
+  "ai_scientist/llm.py:204": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap",
+    "drop seed"
+   ],
+   "line": 204,
+   "loses": "Dropped seed=0 (Router rejects the seed param); same reproducibility loss as the other OpenAI branches.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "o1/o3 branch of get_response_from_llm (chat.completions.create, seed=0). Covered by the same drop_params=[seed] policy recorded for ai_scientist/llm.py:get_response_from_llm (applies per-function, not per-branch)."
+  },
+  "ai_scientist/llm.py:219": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 219,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "llama branch of get_response_from_llm (same OpenRouter model). Same reasoning as the batch-response llama branch; both read from the same OpenRouter-backed client at ai_scientist/llm.py:354."
+  },
+  "ai_scientist/llm.py:234": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "model-map (available, not applied)"
+   ],
+   "line": 234,
+   "loses": "Same as llm.py:346: would require substituting a different DeepSeek model generation to route.",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "deepseek-chat/deepseek-coder branch of get_response_from_llm. Same catalog gap as the client construction at llm.py:346; this is the call site actually blocked by it."
+  },
+  "ai_scientist/llm.py:249": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "model-map (available, not applied)"
+   ],
+   "line": 249,
+   "loses": "Would require mapping deepseek-reasoner to Router's deepseek-v4-pro-0813 (a reasoning-capable v4 model) -- again a different model generation actually answering the request.",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "deepseek-reasoner branch of get_response_from_llm. Not a Router catalog id (verified against the catalog and with `check --run`, which showed the request held at the provider rather than routing)."
+  },
+  "ai_scientist/llm.py:262": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 262,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Gemini branch of get_response_from_llm. Router's catalog carries no Google Gemini model at all (verified against Router's own catalog JSON and with a live `check --run`, which showed gemini-1.5-flash held at the provider rather than reaching Router). There is no catalog id to map to; this traffic physically cannot move."
+  },
+  "ai_scientist/llm.py:320": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 320,
+   "loses": "None: a lossless client wrap. Requests already use no Router-incompatible parameters, so behavior is unchanged other than traffic now going to Router instead of directly to Anthropic.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "create_client()'s direct anthropic.Anthropic() construction, wrapped with router_runtime.wrap_anthropic(); claude-3-5-sonnet-* calls route to Router's /v1/messages unchanged."
+  },
+  "ai_scientist/llm.py:335": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 335,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "model.startswith('bedrock') branch, anthropic.AnthropicBedrock(). `router-migrate wrap` itself refuses this client ('AnthropicBedrock (bedrock) has no deterministic wrap'). Bedrock calls are authenticated via AWS SigV4 against a bedrock-runtime.*.amazonaws.com host, not a portable API key over HTTPS to api.anthropic.com -- Router has no endpoint that can serve this transport."
+  },
+  "ai_scientist/llm.py:338": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 338,
+   "loses": "None: a lossless client wrap. The seed=0 knob used by the branches this client feeds is handled separately below (llm.py:82/188/204).",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "create_client()'s direct openai.OpenAI() construction for the gpt/o1/o3 branches, wrapped with router_runtime.wrap_openai()."
+  },
+  "ai_scientist/llm.py:339": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 339,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "model.startswith('vertex_ai') branch, anthropic.AnthropicVertex(). Same reasoning as Bedrock: Vertex AI authenticates via GCP ADC against a *-aiplatform.googleapis.com host, a different transport Router cannot serve."
+  },
+  "ai_scientist/llm.py:346": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap",
+    "model-map (available, not applied)"
+   ],
+   "line": 346,
+   "loses": "If a human approves mapping deepseek-chat/deepseek-coder -> Router's deepseek-v4-flash: the exact DeepSeek v3-generation model this code names is no longer what answers the request -- a different (newer) model generation serves it instead. That is a real identity/behavior change for a tool whose job is partly to compare specific named LLMs.",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "deepseek-chat/deepseek-coder client construction in create_client (openai.OpenAI(base_url=api.deepseek.com)). Client wrapped and ready, but `check --run` proved the literal ids 'deepseek-chat'/'deepseek-coder' are not in Router's catalog (confirmed against Router's own catalog JSON: only deepseek-v4-flash, deepseek-v4-flash-0731, deepseek-v4-pro-0813, deepseek-v4.1-flash exist), so today the call stays on the DeepSeek provider unchanged. A model-map to a v4 model would route it, but swaps which model actually answers -- a judgment call for a human given this is a model-comparison research tool, not an incidental backend choice."
+  },
+  "ai_scientist/llm.py:354": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [],
+   "line": 354,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "llama3.1-405b client construction (openai.OpenAI(base_url=openrouter.ai)). Left unwrapped: the model it serves is not in Router's catalog (see above), so wrapping would be a pure no-op. Kept as-is rather than adding dead code."
+  },
+  "ai_scientist/llm.py:360": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 360,
+   "loses": "None beyond the structural fact that Router has no Gemini model, so wrapping is a no-op safety net here, not an actual migration of traffic -- see llm.py:262 for why this call does not currently route.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Gemini client construction in create_client (openai.OpenAI(base_url=generativelanguage.googleapis.com)), wrapped for consistency/future-proofing (harmless: wrap_openai forwards anything Router can't serve to the original provider unchanged)."
+  },
+  "ai_scientist/llm.py:82": {
+   "by": "agent",
+   "evidence": [],
+   "file": "ai_scientist/llm.py",
+   "levers": [
+    "wrap",
+    "drop seed"
+   ],
+   "line": 82,
+   "loses": "Dropped seed=0 (Router rejects the seed param). Output is no longer bit-reproducible across identical calls, matching how this code's non-OpenAI branches already behave (they never passed seed).",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "gpt branch of get_batch_responses_from_llm (chat.completions.create). seed is a provider-only reproducibility knob with no Router equivalent; nothing in this codebase relies on deterministic replay, only on getting a response. Verified ROUTES via `check --all` and a live `check --run` (gpt-4o-mini produced a valid /v1/responses request)."
+  },
+  "experimental/launch_oe_scientist.py:249": {
+   "by": "agent",
+   "evidence": [],
+   "file": "experimental/launch_oe_scientist.py",
+   "levers": [
+    "wrap",
+    "model-map"
+   ],
+   "line": 249,
+   "loses": "Same as launch_scientist.py above: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Identical client=openai.OpenAI()/perform_review pattern in the experimental open-ended launcher. Wrapped the same way and covered by the same ai_scientist/llm.py model-map/drop-seed policies."
+  },
+  "experimental/launch_oe_scientist.py:276": {
+   "by": "agent",
+   "evidence": [],
+   "file": "experimental/launch_oe_scientist.py",
+   "levers": [
+    "wrap",
+    "model-map"
+   ],
+   "line": 276,
+   "loses": "Same as above: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Second identical call site in the experimental launcher (post-improvement review pass)."
+  },
+  "launch_scientist.py:209": {
+   "by": "agent",
+   "evidence": [],
+   "file": "launch_scientist.py",
+   "levers": [],
+   "line": 209,
+   "loses": "Unknown without the human making an explicit choice: this traffic (the actual code-generation agent for running experiments) runs entirely inside the third-party `aider` package's own model resolution (ultimately LiteLLM), never constructing an OpenAI/Anthropic client in this repository. `router-migrate wrap` was tried at the file level and found no client construction to hook, consistent with that.",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "aider Coder.create(main_model=Model(...)) call for the code-writing/experiment step. This is a real, likely high-volume production LLM call path, but it is owned entirely by a third-party dependency (aider/litellm), not by this repo's source. Routing it would mean reconfiguring aider/litellm's own base_url/model-provider settings to point at Router -- which only serves /v1/responses and /v1/messages, not the chat/completions shape litellm's default OpenAI provider expects -- and was judged too deep into third-party internals to do blindly. A human should decide whether to pursue a litellm-level Router integration for this path or accept it stays on the original providers. The same pattern recurs at launch_scientist.py:245, experimental/launch_oe_scientist.py:191 and experimental/launch_oe_scientist.py:225."
+  },
+  "launch_scientist.py:271": {
+   "by": "agent",
+   "evidence": [],
+   "file": "launch_scientist.py",
+   "levers": [
+    "wrap",
+    "model-map"
+   ],
+   "line": 271,
+   "loses": "gpt-4o-2024-05-13 (retired by OpenAI, not in Router's catalog) is served by Router's current 'gpt-4o' catalog entry instead of that exact dated snapshot. Behavior should be equivalent or better since gpt-4o has since been updated by OpenAI itself, but byte-for-byte reproducibility against the old snapshot specifically is lost.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "client=openai.OpenAI() passed into perform_review(model='gpt-4o-2024-05-13'); a second, independent openai.OpenAI() construction outside ai_scientist/llm.py (the scanner only sees llm.py), wrapped by hand with router_runtime.wrap_openai(). The call itself happens inside ai_scientist.perform_review -> get_response_from_llm/get_batch_responses_from_llm, so it is covered by the model-map (gpt-4o-2024-05-13 -> gpt-4o) and drop-seed policies recorded against ai_scientist/llm.py. Verified with a live `check --run`: gpt-4o-2024-05-13 now produces a valid /v1/responses request for model=gpt-4o."
+  },
+  "launch_scientist.py:304": {
+   "by": "agent",
+   "evidence": [],
+   "file": "launch_scientist.py",
+   "levers": [
+    "wrap",
+    "model-map"
+   ],
+   "line": 304,
+   "loses": "Same as launch_scientist.py:271: gpt-4o-2024-05-13 -> gpt-4o dated-snapshot substitution.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Second, identical client=openai.OpenAI()/perform_review(model='gpt-4o-2024-05-13') call site (the post-improvement review pass). Wrapped and covered the same way."
+  },
+  "review_iclr_bench/iclr_analysis.py:243": {
+   "by": "agent",
+   "evidence": [],
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "levers": [
+    "wrap"
+   ],
+   "line": 243,
+   "loses": "None: a lossless client wrap, same as ai_scientist/llm.py:320.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "claude-3-5-sonnet-20240620 branch of a standalone client factory (does not import ai_scientist.llm.create_client) duplicating the same branches; wrapped by hand with router_runtime.wrap_anthropic(). Feeds ai_scientist.perform_review -> get_response_from_llm, same as the direct Claude path."
+  },
+  "review_iclr_bench/iclr_analysis.py:244": {
+   "by": "agent",
+   "evidence": [],
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "levers": [],
+   "line": 244,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Bedrock branch. Same AWS transport limitation as ai_scientist/llm.py's Bedrock branch -- no Router endpoint for this auth/host."
+  },
+  "review_iclr_bench/iclr_analysis.py:249": {
+   "by": "agent",
+   "evidence": [],
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "levers": [],
+   "line": 249,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Vertex AI branch. Same GCP transport limitation as ai_scientist/llm.py's Vertex branch -- no Router endpoint for this auth/host."
+  },
+  "review_iclr_bench/iclr_analysis.py:263": {
+   "by": "agent",
+   "evidence": [],
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "levers": [],
+   "line": 263,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "deepseek-coder-v2-0724 branch. Not in Router's catalog, same gap as the equivalent DeepSeek branches in ai_scientist/llm.py. Left unwrapped (would be a no-op)."
+  },
+  "review_iclr_bench/iclr_analysis.py:269": {
+   "by": "agent",
+   "evidence": [],
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "levers": [],
+   "line": 269,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "llama-3-1-405b-instruct branch via OpenRouter. Not in Router's catalog, same gap as the equivalent Llama branches in ai_scientist/llm.py. Left unwrapped (would be a no-op)."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 14.4,
+  "agent_turns": 62,
+  "agent_usd": 2.6729129,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:33:51",
+ "edits": [
+  {
+   "at": "2026-10-14T13:34:22",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "ai_scientist/llm.py",
+   "line": 320,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:34:36",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "ai_scientist/llm.py",
+   "line": 338,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:34:46",
+   "by": "agent-wrap",
+   "changed": false,
+   "file": "ai_scientist/llm.py",
+   "line": 346,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:36:42",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "ai_scientist/llm.py",
+   "line": 350,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:37:01",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "ai_scientist/llm.py",
+   "line": 360,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:37:31",
+   "by": "tradeoff",
+   "files": [
+    "ai_scientist/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T1"
+  },
+  {
+   "at": "2026-10-14T13:37:43",
+   "by": "tradeoff",
+   "files": [
+    "ai_scientist/router_policy.py",
+    "router.policy.json"
+   ],
+   "id": "T2"
+  },
+  {
+   "at": "2026-10-14T13:40:57",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "launch_scientist.py",
+   "line": 271,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:41:07",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "launch_scientist.py",
+   "line": 304,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:41:14",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "experimental/launch_oe_scientist.py",
+   "line": 249,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:42:02",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "line": 243,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:42:10",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "review_iclr_bench/iclr_analysis.py",
+   "line": 269,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:43:38",
+   "by": "tradeoff",
+   "files": [
+    "ai_scientist/router_policy.py",
+    "experimental/router_policy.py",
+    "review_iclr_bench/router_policy.py",
+    "router.policy.json",
+    "router_policy.py"
+   ],
+   "id": "T3"
+  },
+  {
+   "at": "2026-10-14T13:43:43",
+   "by": "tradeoff",
+   "files": [
+    "ai_scientist/router_policy.py",
+    "experimental/router_policy.py",
+    "review_iclr_bench/router_policy.py",
+    "router.policy.json",
+    "router_policy.py"
+   ],
+   "id": "T4"
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:48:55",
+    "gates": [],
+    "info": {
+     "report_sites": 27,
+     "sites": 9,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 10,
+      "seconds": 15.2
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 10,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "81d14e6c62f7445b5a78f77d4a23dcb628d2407c"
+ },
+ "probes": {
+  "PR1": {
+   "at": "2026-10-14T13:39:12",
+   "blocked": {
+    "api.deepseek.com:443": 3,
+    "generativelanguage.googleapis.com:443": 3
+   },
+   "cmd": "python -c \"\nimport os\nos.environ['DEEPSEEK_API_KEY']='dummy'\nos.environ['GEMINI_API_KEY']='dummy'\nos.environ['OPENROUTER_API_KEY']='dummy'\nos.environ['OPENAI_API_KEY']='sk-dummy'\nos.environ['ANTHROPIC_API_KEY']='sk-ant-dummy'\nimport sys; sys.path.insert(0,'.')\nfrom ai_scientist.llm import create_client, get_response_from_llm\nfor model in ['gpt-4o-mini','claude-3-5-sonnet-20241022','deepseek-chat','gemini-1.5-flash']:\n    try:\n        client, m = create_client(model)\n        get_response_from_llm('hello', client, m, 'be nice')\n    except Exception as e:\n        print(model, 'ERR', type(e).__name__, e)\n\"",
+   "exit": 0,
+   "kept": [
+    {
+     "client": "ai_scientist/llm.py:create_client",
+     "feature": "ai_scientist/llm.py:get_response_from_llm",
+     "model": "deepseek-chat",
+     "n": 3,
+     "reason": null
+    },
+    {
+     "client": "ai_scientist/llm.py:create_client",
+     "feature": "ai_scientist/llm.py:get_response_from_llm",
+     "model": "gemini-1.5-flash",
+     "n": 3,
+     "reason": null
+    }
+   ],
+   "requests": [
+    {
+     "client": "ai_scientist/llm.py:create_client",
+     "error": null,
+     "feature": "ai_scientist/llm.py:get_response_from_llm",
+     "model": "gpt-4o-mini",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 6.4,
+   "tail": "Using OpenAI API with model gpt-4o-mini.\nUsing Anthropic API with model claude-3-5-sonnet-20241022.\nclaude-3-5-sonnet-20241022 ERR TypeError Messages.create() got an unexpected keyword argument 'temperature'\nUsing OpenAI API with deepseek-chat.\ndeepseek-chat ERR APIConnectionError Connection error.\nUsing OpenAI API with gemini-1.5-flash.\ngemini-1.5-flash ERR APIConnectionError Connection error.\n/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/AI-Scientist/ai_scientist/llm.py:8: FutureWarning: \n\nAll support for the `google.generativeai` package has ended. It will no longer be receiving \nupdates or bug fixes. Please switch to the `google.genai` package as soon as possible.\nSee README for more details:\n\nhttps://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md\n\n  import google.generativeai as genai\nrouter-migrate policy 1306cfd5\n"
+  },
+  "PR2": {
+   "at": "2026-10-14T13:43:53",
+   "blocked": {},
+   "cmd": "python -c \"\nimport os\nos.environ['DEEPSEEK_API_KEY']='dummy'\nos.environ['GEMINI_API_KEY']='dummy'\nos.environ['OPENROUTER_API_KEY']='dummy'\nos.environ['OPENAI_API_KEY']='sk-dummy'\nos.environ['ANTHROPIC_API_KEY']='sk-ant-dummy'\nimport sys; sys.path.insert(0,'.')\nfrom ai_scientist.llm import create_client, get_response_from_llm\nclient, m = create_client('gpt-4o-mini')\ntry:\n    get_response_from_llm('hello', client, 'gpt-4o-2024-05-13', 'be nice')\nexcept Exception as e:\n    print('ERR', type(e).__name__, e)\n\"",
+   "exit": 0,
+   "kept": [],
+   "requests": [
+    {
+     "client": "ai_scientist/llm.py:create_client",
+     "error": null,
+     "feature": "ai_scientist/llm.py:get_response_from_llm",
+     "model": "gpt-4o",
+     "path": "/v1/responses",
+     "valid": true
+    }
+   ],
+   "seconds": 5.6,
+   "tail": "Using OpenAI API with model gpt-4o-mini.\n/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/D3min/AI-Scientist/ai_scientist/llm.py:8: FutureWarning: \n\nAll support for the `google.generativeai` package has ended. It will no longer be receiving \nupdates or bug fixes. Please switch to the `google.genai` package as soon as possible.\nSee README for more details:\n\nhttps://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md\n\n  import google.generativeai as genai\nrouter-migrate policy dac42acf\n"
+  }
+ },
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [
+   "ai_scientist/llm.py:320",
+   "ai_scientist/llm.py:167",
+   "ai_scientist/llm.py:338",
+   "ai_scientist/llm.py:82",
+   "ai_scientist/llm.py:188",
+   "ai_scientist/llm.py:360",
+   "launch_scientist.py:271",
+   "launch_scientist.py:304",
+   "experimental/launch_oe_scientist.py:249",
+   "experimental/launch_oe_scientist.py:276",
+   "review_iclr_bench/iclr_analysis.py:243",
+   "review_iclr_bench/iclr_analysis.py:269"
+  ],
+  "failures": [],
+  "moved": 7,
+  "moved_sites": [
+   "ai_scientist/llm.py:181",
+   "ai_scientist/llm.py:202",
+   "ai_scientist/llm.py:218",
+   "ai_scientist/llm.py:248",
+   "ai_scientist/llm.py:263",
+   "ai_scientist/llm.py:276",
+   "ai_scientist/llm.py:96"
+  ],
+  "ok": true,
+  "report_sites": 27,
+  "reverted": [],
+  "sites_seen": 9,
+  "tradeoffs": 4
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/AI-Scientist",
+ "tradeoff_policy": {
+  "**ai_scientist/llm.py:get_batch_responses_from_llm": [
+   "drop_params",
+   "model_map"
+  ],
+  "**ai_scientist/llm.py:get_response_from_llm": [
+   "drop_params",
+   "model_map"
+  ]
+ },
+ "tradeoffs": [
+  {
+   "at": "2026-10-14T13:37:31",
+   "evidence": [],
+   "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+   "file": "ai_scientist/llm.py",
+   "id": "T1",
+   "levers": {
+    "drop_params": [
+     "seed"
+    ]
+   },
+   "line": 96,
+   "loses": "Dropped seed=0 (Router rejects the seed param); output is no longer bit-reproducible across identical calls, matching how this code's other LLM branches already behave",
+   "site": "ai_scientist/llm.py:96",
+   "undone": false,
+   "why": "seed is a provider-specific reproducibility knob with no Router equivalent; the task never relies on deterministic replay, only on getting a response"
+  },
+  {
+   "at": "2026-10-14T13:37:43",
+   "evidence": [],
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "file": "ai_scientist/llm.py",
+   "id": "T2",
+   "levers": {
+    "drop_params": [
+     "seed"
+    ]
+   },
+   "line": 202,
+   "loses": "Dropped seed=0 (Router rejects the seed param); output is no longer bit-reproducible across identical calls",
+   "site": "ai_scientist/llm.py:202",
+   "undone": false,
+   "why": "seed is a provider-specific reproducibility knob with no Router equivalent; the code never depends on deterministic replay"
+  },
+  {
+   "at": "2026-10-14T13:43:38",
+   "evidence": [],
+   "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+   "file": "ai_scientist/llm.py",
+   "id": "T3",
+   "levers": {
+    "model_map": {
+     "gpt-4o-2024-05-13": "gpt-4o"
+    }
+   },
+   "line": 94,
+   "loses": "A 2024-05-13 dated snapshot of gpt-4o is served by the current gpt-4o catalog entry instead of the exact retired snapshot; output quality/behavior should be equivalent or better since gpt-4o has since been updated, but byte-for-byte reproducibility against the old snapshot is lost",
+   "site": "ai_scientist/llm.py:94",
+   "undone": false,
+   "why": "gpt-4o-2024-05-13 was retired by OpenAI and is not a Router catalog id; gpt-4o is the maintained successor in the same family"
+  },
+  {
+   "at": "2026-10-14T13:43:43",
+   "evidence": [],
+   "feature": "ai_scientist/llm.py:get_response_from_llm",
+   "file": "ai_scientist/llm.py",
+   "id": "T4",
+   "levers": {
+    "model_map": {
+     "gpt-4o-2024-05-13": "gpt-4o"
+    }
+   },
+   "line": 200,
+   "loses": "Same dated-snapshot substitution as the batch-response branch: gpt-4o-2024-05-13 -> gpt-4o",
+   "site": "ai_scientist/llm.py:200",
+   "undone": false,
+   "why": "gpt-4o-2024-05-13 was retired by OpenAI and is not a Router catalog id; gpt-4o is the maintained successor in the same family"
+  }
+ ],
+ "version": 5,
+ "worklist": []
+}

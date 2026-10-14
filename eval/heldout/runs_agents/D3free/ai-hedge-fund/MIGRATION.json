@@ -1,0 +1,53 @@
+{
+  "sites": [
+    {
+      "site": "hedge_fund/llm/client.py:285",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable: Router serves /v1/messages for this catalog model id (claude-opus-5-5) with no dropped params.",
+      "why": "`router-migrate wrap` installed the runtime hook around ChatAnthropic(); verified with `check --all` (ROUTES) and `check --run` (valid /v1/messages request to the simulator). Falls back to Anthropic directly whenever RAMP_ROUTER_API_KEY is unset or Router can't take a given request."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:289",
+      "outcome": "migrated",
+      "levers": ["wrap"],
+      "loses": "nothing observable: Router serves /v1/responses for this catalog model id (gpt-6-sol) with no dropped params.",
+      "why": "`router-migrate wrap` installed the runtime hook around ChatOpenAI(). A user-set OPENAI_API_BASE pointing elsewhere is unaffected -- Router only takes traffic to api.openai.com (or an explicitly unlocked host), so a custom base_url silently keeps going to its own endpoint. Verified with `check --all` (ROUTES) and `check --run` (valid /v1/responses request)."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:298-306 (Kimi/Moonshot branch, ChatOpenAI against api.moonshot.ai)",
+      "outcome": "migrated",
+      "levers": ["unlock-host"],
+      "loses": "nothing observable: kimi-k3 is a Router catalog id, so this is a straight host unlock, not a lossy adaptation.",
+      "why": "Moonshot speaks the OpenAI wire format, so Router can serve it once its host is unlocked, per the task's guidance that another vendor's OpenAI-compatible endpoint can move when the model is in Router's catalog (kimi-k3 is). The CLI's `wrap`/`adapt --unlock-host` couldn't thread unlock_hosts through a LangChain ChatOpenAI wrapper (its `wrap_langchain` helper doesn't accept that option), and a `check --run` proved the CLI-only wrap left it un-routed (still hit api.moonshot.ai in the sandboxed run). So this was done by hand, calling router_runtime.wrap_openai(..., unlock_hosts=['api.moonshot.ai']) directly on every underlying openai.OpenAI client langchain-openai builds for this ChatOpenAI instance (it builds two -- root_client and a separate one behind the chat.completions resource -- both must be unlocked, mirroring router_runtime.wrap_langchain's own attribute traversal). Verified live with `check --run`: a valid /v1/responses request reached the Router simulator for model kimi-k3. The static `check --all` scanner now shows this site as 'stays' because it no longer recognizes the hand-written wrap pattern -- that is a scanner limitation, not an actual regression; the dynamic check is the ground truth here."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:293-297 (xAI branch, ChatXAI against api.x.ai)",
+      "outcome": "migrated",
+      "levers": ["unlock-host"],
+      "loses": "nothing observable: grok-4.7 is a Router catalog id (owned_by xai), so this is a straight host unlock.",
+      "why": "The scanner never listed this site (ChatXAI isn't a constructor pattern the CLI's wrap/adapt recognize), but ChatXAI is a langchain_openai.BaseChatOpenAI subclass underneath -- it builds a plain openai.OpenAI client against api.x.ai, same shape as the Kimi case. Hand-wrapped with the same _router_unlock_vendor_host(chat, 'api.x.ai') helper (calls router_runtime.wrap_openai(..., unlock_hosts=['api.x.ai']) on every client instance it builds). Verified live with `check --run`: a valid /v1/responses request reached the Router simulator for model grok-4.7, confirming this dynamically-built client actually routes (the static scanner still doesn't see this site at all)."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:283-288 (DeepSeek branch, ChatDeepSeek against api.deepseek.com)",
+      "outcome": "needs_decision",
+      "levers": ["unlock-host"],
+      "loses": "n/a yet -- the host is unlocked and ready, but the current model id doesn't resolve so no traffic moves today.",
+      "why": "Also never listed by the scanner, and also a BaseChatOpenAI subclass (same shape as xAI/Kimi), so it was hand-wrapped the same way with api.deepseek.com unlocked. But this app's registry only offers the model id 'deepseek-flash', which is not in Router's current DeepSeek catalog (which has deepseek-v4-flash, deepseek-v4.1-flash, deepseek-v4-pro-0813, deepseek-v4p1-flash, confirmed via `check --run`: the runtime explicitly reports model 'deepseek-flash' is not in the Router catalog and keeps it on api.deepseek.com). A human who owns the model registry (hedge_fund/llm/api_models.json) needs to decide whether to re-point the picker's DeepSeek entry at one of Router's actual catalog ids (e.g. deepseek-v4.1-flash) -- a model-identity change with behavior implications beyond this migration's scope -- or leave it a deliberately provider-only choice. The transport-level work (host unlock) is already done and ships at no cost either way."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:290-292 (Google branch, ChatGoogleGenerativeAI)",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a -- not attempted.",
+      "why": "ChatGoogleGenerativeAI does not build an openai.OpenAI or anthropic.Anthropic client (confirmed via MRO inspection: it subclasses langchain_google_genai's own base, using Google's native SDK/wire format, not the OpenAI-compatible chat-completions shape the vendored runtime can intercept). Router's catalog also carries no Gemini model ids today. Moving this would require swapping the client class to something OpenAI-compatible (e.g. Gemini's own OpenAI-compatible beta endpoint) -- a wire-protocol change beyond wrapping/unlocking, and a bigger decision than this migration should make unasked. Left untouched."
+    },
+    {
+      "site": "hedge_fund/llm/client.py:138-204 (JevLLM / TypeSafe, api.typesafe.ai/v1/systemone)",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a -- not attempted.",
+      "why": "Bespoke HTTP contract (custom JSON request/response shape via plain `requests.post`, see hedge_fund/llm/contract.py), not an OpenAI Chat Completions/Responses or Anthropic Messages wire format. Router serves only /v1/responses, /v1/messages (+count_tokens) and /v1/models -- it has no endpoint that speaks TypeSafe's contract, so there is nothing to wrap, unlock, or adapt. This is the 'Router physically can't serve it' case."
+    }
+  ]
+}

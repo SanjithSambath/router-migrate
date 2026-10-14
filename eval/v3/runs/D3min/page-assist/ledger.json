@@ -1,0 +1,149 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": null,
+   "exit": 2,
+   "failed": null,
+   "passed": null,
+   "seconds": 5.6
+  },
+  "python": null,
+  "test_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false",
+  "typecheck_before": {
+   "errors": 16,
+   "exit": 2
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p . --incremental false"
+ },
+ "cards": [],
+ "claims": {
+  "src/libs/openai.ts:43": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/libs/openai.ts",
+   "levers": [],
+   "line": 43,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "GET /v1/models against api.anthropic.com, used to list available models for the user's configured Anthropic provider in Settings. Router has no models-list endpoint, so this physically can't move."
+  },
+  "src/models/CustomChatAnthropic.ts:355": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/models/CustomChatAnthropic.ts",
+   "levers": [],
+   "line": 355,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Raw fetch to api.anthropic.com/v1/messages using `apiKey` taken directly from the user's own per-provider settings (src/models/index.ts:173-182, providerInfo.apiKey) \u2014 Page Assist is a browser extension with no backend and no operator-held credential anywhere in the codebase; every request is the end user's own key hitting the provider they chose. Router is one key per deployment: wrapping this would mean the extension's operator (whoever builds/ships it with RAMP_ROUTER_API_KEY set) silently substitutes their own Router credential for the user's own Anthropic account on any request, which breaks the BYOK guarantee that is the point of this settings screen. This is the 'end user's own key where the app has no operator key' case called out as a keep."
+  },
+  "src/models/CustomChatOpenAI.ts:938": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/models/CustomChatOpenAI.ts",
+   "levers": [],
+   "line": 938,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Generic OpenAI-compatible client (client constructed at CustomChatOpenAI.ts:968) shared by every BYOK/custom provider the user adds in Settings \u2014 plain OpenAI, Azure, Gemini-as-OpenAI-compat, Vertex, OpenRouter, DeepSeek, and arbitrary local/self-hosted OpenAI-compatible servers (see isGeminiProvider/isDeepSeekProvider helpers and src/models/index.ts:132-270) \u2014 all keyed and pointed at a baseURL the end user supplies, with no operator key in this codebase. Wrapping it would let an operator's single RAMP_ROUTER_API_KEY silently intercept and re-home any request whose model id happens to match the Router catalog, overriding the user's own chosen account/endpoint \u2014 including requests meant for a locally-hosted model server, which this app exists to support directly from the browser with no middleman. Same 'BYOK, no operator key' / 'local model the app exists to use' keep as CustomChatAnthropic.ts."
+  },
+  "src/models/OAIEmbedding.ts:158": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/models/OAIEmbedding.ts",
+   "levers": [],
+   "line": 158,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "openai.embeddings.create \u2014 Router has no embeddings endpoint. Hard limit."
+  },
+  "src/services/openai-tts.ts:25": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/services/openai-tts.ts",
+   "levers": [],
+   "line": 25,
+   "loses": "",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "openai.audio (TTS) \u2014 Router has no audio endpoint. Hard limit."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 3.9,
+  "agent_turns": 26,
+  "agent_usd": 0.6243024000000001,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:50:35",
+ "edits": [],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:54:48",
+    "gates": [],
+    "info": {
+     "report_sites": 5,
+     "sites": 5,
+     "tests": {
+      "errors": null,
+      "exit": 2,
+      "failed": null,
+      "passed": null,
+      "seconds": 5.3
+     },
+     "tests_router_on": {
+      "errors": null,
+      "exit": 2,
+      "failed": null,
+      "passed": null,
+      "requests": 0,
+      "valid": 0
+     },
+     "typecheck": {
+      "errors": 16,
+      "exit": 2
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "168352627405121b60711179bfe02ecc4cc09202"
+ },
+ "probes": {},
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 0,
+  "moved_sites": [],
+  "ok": true,
+  "report_sites": 5,
+  "reverted": [],
+  "sites_seen": 5,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/page-assist",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

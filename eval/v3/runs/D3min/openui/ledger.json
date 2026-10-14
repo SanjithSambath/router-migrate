@@ -1,0 +1,240 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 1,
+   "failed": 2,
+   "passed": 4,
+   "seconds": 15.5
+  },
+  "python": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/bin/python",
+  "test_cmd": "export OPENAI_API_KEY=sk-dummy; cd backend && mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/tmp\" && export HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/tmp\" PYTHONPATH=. PYTHONPYCACHEPREFIX=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/tmp/pycache\" OPENAI_API_KEY=sk-dummy && { /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/bin/python -m pytest -q -p no:cacheprovider tests/; rc=$?; /Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/openui/bin/python -c 'import compileall, importlib, sys, time\nt = time.time(); ok = 0; bad = []\nif compileall.compile_dir(\"openui\", quiet=1, force=True): ok += 1\nelse: bad.append(\"compileall openui\")\nfor m in (\"openui.server\", \"openui.litellm\", \"openui.__main__\"):\n    try: importlib.import_module(m); ok += 1\n    except Exception as e: bad.append(m + \": \" + repr(e))\nfor b in bad: print(\"SMOKE FAILED \" + b)\nprint(\"%d passed%s in %.2fs\" % (ok, \", %d failed\" % len(bad) if bad else \"\", time.time() - t))\nsys.exit(1 if bad else 0)'; s=$?; exit $(( rc > s ? rc : s )); }",
+  "typecheck_cmd": null
+ },
+ "cards": [],
+ "claims": {
+  "backend/openui/litellm.py:106": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/litellm.py",
+   "levers": [],
+   "line": 106,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Hard limit: this is an OpenAI `models.list()` call (used to auto-discover models on an operator-configured OPENAI_COMPATIBLE_ENDPOINT for the self-hosted LiteLLM proxy config). Router has no `/v1/models` endpoint."
+  },
+  "backend/openui/server.py:154": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [
+    "wrap backend/openui/server.py:1"
+   ],
+   "line": 154,
+   "loses": "nothing observable: requests for catalog models (gpt-* etc.) now go through Router's single deployment key instead of the operator's own OPENAI_API_KEY; any model Router doesn't carry falls back to the original OpenAI endpoint unchanged.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "This is the operator's primary OpenAI key, used for the app's main gpt-* chat/vision completion path. It is the single biggest and most straightforward slice of this app's LLM traffic, and the runtime's per-request fallback makes the move risk-free."
+  },
+  "backend/openui/server.py:170": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [
+    "wrap backend/openui/server.py:95"
+   ],
+   "line": 170,
+   "loses": "if a Groq-hosted model id happens to also exist in Router's catalog, that request would be served by Router's backend for that model instead of Groq's purpose-built LPU hardware, trading Groq's inference speed for whatever backend Router uses. In practice Groq's model-name strings (e.g. llama3-70b-8192) are unlikely to collide with Router's catalog ids, so most/all traffic here falls back to Groq unchanged.",
+   "origin": "report",
+   "outcome": "migrated",
+   "reason_code": null,
+   "why": "Groq is just another vendor's OpenAI-compatible chat/completions endpoint, and the wrap is safe-by-construction (falls back to the real Groq endpoint for anything Router can't serve), so the default is to take the move and flag the trade-off for the dashboard."
+  },
+  "backend/openui/server.py:184": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [],
+   "line": 184,
+   "loses": "n/a \u2014 not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "This `litellm` client talks to a self-hosted LiteLLM proxy (backend/openui/litellm.py builds its config from GEMINI_API_KEY/ANTHROPIC_API_KEY/COHERE_API_KEY/MISTRAL_API_KEY/OPENAI_COMPATIBLE_ENDPOINT) that the app itself stood up to multiplex many providers under one OpenAI-compatible surface. It is the app's own proxy, explicitly called out as a case to leave alone: moving it would silently reroute model ids like `claude-3-opus` away from the operator's configured proxy (with its own key management and provider selection) to Router, changing which backend actually serves the request without the operator choosing that. A human should decide this with full visibility into what the self-hosted proxy is doing, not have it silently rerouted."
+  },
+  "backend/openui/server.py:211": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [],
+   "line": 211,
+   "loses": "n/a \u2014 not moved",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "This is the local Ollama OpenAI-compatible client (config.OLLAMA_HOST, default http://127.0.0.1:11434) for self-hosted/local models \u2014 exactly the 'local model the app exists to use' case the guidance says not to move. Router cannot serve a user's local Ollama models at all, and wrapping it would add no value since none of its model ids are Router catalog ids."
+  },
+  "backend/openui/server.py:404": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [],
+   "line": 404,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Hard limit: `openai.models.list()` used only to probe OpenAI connectivity before returning a hardcoded model list. Router has no models endpoint."
+  },
+  "backend/openui/server.py:423": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [],
+   "line": 423,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Hard limit: `groq.models.list()` used to enumerate available Groq models for the UI. Router has no models endpoint."
+  },
+  "backend/openui/server.py:432": {
+   "by": "agent",
+   "evidence": [],
+   "file": "backend/openui/server.py",
+   "levers": [],
+   "line": 432,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Hard limit: `litellm.models.list()` used to enumerate models exposed by the self-hosted LiteLLM proxy for the UI. Router has no models endpoint."
+  },
+  "frontend/src/api/openai.ts:184": {
+   "by": "agent",
+   "evidence": [],
+   "file": "frontend/src/api/openai.ts",
+   "levers": [],
+   "line": 184,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "Not an independent external LLM call: this browser-side OpenAI client is constructed with baseURL `${window.location origin}/v1` and a fake API key \u2014 it always talks back to this same openui backend's own `/v1/chat/completions` route (see backend/openui/server.py:112), which in turn dispatches to the OpenAI/Groq/LiteLLM/Ollama clients already decided above. There is no separate upstream provider call to move here. A human should confirm this reading (that the frontend never calls an external LLM host directly) rather than have it silently left alone on that assumption."
+  },
+  "frontend/src/api/openai.ts:245": {
+   "by": "agent",
+   "evidence": [],
+   "file": "frontend/src/api/openai.ts",
+   "levers": [],
+   "line": 245,
+   "loses": "n/a",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "Same client/call path as frontend/src/api/openai.ts:184 (the `convert` function reuses the same browser-side client that proxies to this app's own backend). See that entry's rationale."
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 5.2,
+  "agent_turns": 26,
+  "agent_usd": 0.7262027999999999,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:45:46",
+ "edits": [
+  {
+   "at": "2026-10-14T13:47:10",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "backend/openui/server.py",
+   "line": 1,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:47:24",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "backend/openui/server.py",
+   "line": 82,
+   "native": false
+  },
+  {
+   "at": "2026-10-14T13:47:33",
+   "by": "agent-unwrap",
+   "changed": true,
+   "file": "backend/openui/server.py",
+   "line": 89
+  },
+  {
+   "at": "2026-10-14T13:47:45",
+   "by": "agent-wrap",
+   "changed": true,
+   "file": "backend/openui/server.py",
+   "line": 95,
+   "native": false
+  }
+ ],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:51:31",
+    "gates": [],
+    "info": {
+     "report_sites": 10,
+     "sites": 10,
+     "tests": {
+      "errors": 0,
+      "exit": 1,
+      "failed": 2,
+      "passed": 4,
+      "seconds": 15.5
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 1,
+      "failed": 2,
+      "passed": 4,
+      "requests": 0,
+      "valid": 0
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "18a13c313991f410b099fce3f65179457b068098"
+ },
+ "probes": {},
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 2,
+  "moved_sites": [
+   "backend/openui/server.py:154",
+   "backend/openui/server.py:170"
+  ],
+  "ok": true,
+  "report_sites": 10,
+  "reverted": [],
+  "sites_seen": 10,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/openui",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

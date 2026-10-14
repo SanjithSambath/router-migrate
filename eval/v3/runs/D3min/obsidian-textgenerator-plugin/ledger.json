@@ -1,0 +1,329 @@
+{
+ "arm": "min",
+ "baseline": {
+  "before": {
+   "errors": 0,
+   "exit": 0,
+   "failed": 0,
+   "passed": 24,
+   "seconds": 8.8
+  },
+  "python": null,
+  "test_cmd": "mkdir -p \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-textgenerator-plugin/home\" \"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-textgenerator-plugin/tmp\" && export HOME=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-textgenerator-plugin/home\" TMPDIR=\"/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/envs/obsidian-textgenerator-plugin/tmp\" && node esbuild.config.mjs production && ./node_modules/.bin/vitest run",
+  "typecheck_before": {
+   "errors": 85,
+   "exit": 2
+  },
+  "typecheck_cmd": "./node_modules/.bin/tsc --noEmit -p ."
+ },
+ "cards": [],
+ "claims": {
+  "src/LLMProviders/custom/anthropic.tsx:30": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/custom/anthropic.tsx",
+   "levers": [],
+   "line": 30,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "This is the 'Anthropic Legacy' Custom provider: endpoint, headers and body are Handlebars templates the user can rewrite freely in settings, and the response is parsed by a user-authored sandboxed JS 'sanatization_response' function. default_values.endpoint (api.anthropic.com/v1/messages) is only the pre-filled example, not a fixed call shape. Rewriting this onto the Anthropic SDK so the Router runtime applies would force every request/response through a fixed SDK-shaped schema, which breaks the provider for any user who has pointed it at a different endpoint, a non-Anthropic-shaped API, or a custom response format \u2014 i.e. it removes the reason this 'Custom' provider type exists (the app already has a dedicated, SDK-based Anthropic provider at langchain/chatanthropic.tsx for the standard case). Loss would be the product itself, so left unchanged."
+  },
+  "src/LLMProviders/custom/base.tsx:17": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/custom/base.tsx",
+   "levers": [],
+   "line": 17,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "Same reasoning as anthropic.tsx:30: this is the base class for the generic 'Custom' provider (raw fetch in request(), arbitrary Handlebars-templated endpoint/headers/body, arbitrary sandboxed JS response/stream sanitizers). default_values.endpoint (api.openai.com/v1/chat/completions) is just the shipped example; the entire point of this provider is to let users hit endpoints Router can't serve (self-hosted/local servers, proprietary gateways, odd response shapes). Forcing it onto a fixed SDK call to get Router coverage would delete that flexibility. Kept as-is."
+  },
+  "src/LLMProviders/custom/custom.tsx:47": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/custom/custom.tsx",
+   "levers": [],
+   "line": 47,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "DefaultCustomProvider, the settings-UI-facing subclass of base.tsx's CustomProvider \u2014 same BYOE (bring-your-own-endpoint) templated request/response machinery, same default-is-just-an-example situation, same conclusion: rewriting onto a fixed SDK shape would remove the customizability that is this provider's purpose. Kept as-is."
+  },
+  "src/LLMProviders/langchain/azureOpenAIChat.tsx:139": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/azureOpenAIChat.tsx",
+   "levers": [],
+   "line": 139,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "AzureChatOpenAI client against the user's own Azure OpenAI resource/deployment (api-key auth, instance + deployment name instead of a catalog model id). Each user's Azure deployment is effectively private infrastructure they provisioned themselves, not a Router catalog model, and Router's documented auth doesn't cover Azure's api-key/instance/deployment scheme."
+  },
+  "src/LLMProviders/langchain/azureOpenAIInstruct.tsx:134": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/azureOpenAIInstruct.tsx",
+   "levers": [],
+   "line": 134,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "AzureOpenAI legacy completions client against the user's own Azure OpenAI resource (api-key auth, instance/deployment naming, api-version query param \u2014 not Router catalog model ids). Blocked both by legacy-completions (Router doesn't serve it) and by Azure's per-user private deployment, which is architecturally closer to a self-hosted endpoint than a catalog model."
+  },
+  "src/LLMProviders/langchain/base.tsx:74": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/base.tsx",
+   "levers": [],
+   "line": 74,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "Dynamically-built client the scanner misses: LangchainProvider.getLLM() does `new ChatOpenAI(llmConfig)` with a plugin-injected fetch/baseURL \u2014 a real OpenAI-SDK call Router could technically serve. But this whole plugin is BYOK: every provider's api_key is the end user's own key typed into their local Obsidian vault (see plugin.getApiKeys()); there is no operator-held key anywhere in the codebase. Router authenticates with exactly one key per deployment, so turning this on means whoever sets RAMP_ROUTER_API_KEY for this plugin build now has every installed user's AI traffic flow (and likely billing) through that single operator key, replacing the current zero-operator-cost, per-user-key model. That's a privacy/cost/business decision for the plugin maintainer, not a mechanical trade-off a dashboard undo can quietly absorb. A human needs to decide whether to provision a shared operator Router key and accept that shift before any of this provider's traffic can move."
+  },
+  "src/LLMProviders/langchain/chatanthropic.tsx:91": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/chatanthropic.tsx",
+   "levers": [],
+   "line": 91,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "Dynamically-built ChatAnthropic client (api.anthropic.com, standard Messages API, optional extended-thinking budget \u2014 no previous_response_id/store state). Router serves /v1/messages directly, so this is a strong technical fit; blocked by the same BYOK/no-operator-key issue as base.tsx:74."
+  },
+  "src/LLMProviders/langchain/googleGenerativeAI.tsx:78": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/googleGenerativeAI.tsx",
+   "levers": [],
+   "line": 78,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Same as palm.tsx:51 \u2014 dedicated Google Gemini provider, native Google API shape, vendor not confirmed in Router's catalog."
+  },
+  "src/LLMProviders/langchain/hf.tsx:50": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/hf.tsx",
+   "levers": [],
+   "line": 50,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "HuggingFaceInference client \u2014 HF's Inference API shape, not OpenAI/Anthropic Responses/Messages, used with arbitrary/open HF model repo ids. No Router endpoint for this API."
+  },
+  "src/LLMProviders/langchain/minimaxChat.tsx:269": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/minimaxChat.tsx",
+   "levers": [],
+   "line": 269,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "MiniMax provider's OpenAI-compatible mode: ChatOpenAI pointed at MiniMax's openai-shaped endpoint. MiniMax is explicitly named as a vendor Router's catalog serves, so model coverage is the best-confirmed of any site here \u2014 the only blocker is the BYOK/no-operator-key issue described at base.tsx:74."
+  },
+  "src/LLMProviders/langchain/minimaxChat.tsx:315": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/minimaxChat.tsx",
+   "levers": [],
+   "line": 315,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "MiniMax provider's Anthropic-compatible mode: a ChatAnthropic subclass pointed at MiniMax's anthropic-shaped endpoint. Same reasoning as minimaxChat.tsx:269 \u2014 good catalog fit, blocked only by the BYOK/no-operator-key issue."
+  },
+  "src/LLMProviders/langchain/mistralaiChat.tsx:76": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/mistralaiChat.tsx",
+   "levers": [],
+   "line": 76,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Uses `@langchain/mistralai`'s own MistralAI client/transport (not the OpenAI or Anthropic SDK the Router runtime instruments), against api.mistral.ai. Mistral isn't among the vendors confirmed in Router's catalog, and there's no documented Router hook for this SDK's HTTP client."
+  },
+  "src/LLMProviders/langchain/ollama.tsx:53": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/ollama.tsx",
+   "levers": [],
+   "line": 53,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": null,
+   "why": "ChatOllama talking to the user's own local Ollama server. This provider exists specifically to reach a self-hosted/local model the user runs on their own machine \u2014 Router can't reach localhost, and routing it elsewhere would defeat the provider's purpose. Loss would be the product itself."
+  },
+  "src/LLMProviders/langchain/openaiAgent.tsx:38": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/openaiAgent.tsx",
+   "levers": [],
+   "line": 38,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "'OpenAI Agent (Thinking Models)' provider \u2014 also a plain ChatOpenAI client (o1-mini, reasoning_effort via modelKwargs, no Assistants/Responses server-side state despite the name). Same BYOK gate as base.tsx:74 is the only blocker; otherwise Router-shaped."
+  },
+  "src/LLMProviders/langchain/openaiChat.tsx:38": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/openaiChat.tsx",
+   "levers": [],
+   "line": 38,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "Same dynamically-built ChatOpenAI client / BYOK gate as base.tsx:74 (this is the 'OpenAI Chat' provider pointed at api.openai.com). Technically Router-shaped; blocked only by the no-operator-key architecture described there."
+  },
+  "src/LLMProviders/langchain/openaiInstruct.tsx:54": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/openaiInstruct.tsx",
+   "levers": [],
+   "line": 54,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Uses langchain's `OpenAI` (legacy text-completions) class against api.openai.com's legacy completions endpoint. Router explicitly does not serve legacy completions \u2014 only /v1/responses and /v1/messages. Hard technical block."
+  },
+  "src/LLMProviders/langchain/palm.tsx:51": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/palm.tsx",
+   "levers": [],
+   "line": 51,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "ChatGoogleGenerativeAI (Google Gemini) client using Google's native API shape. Google/Gemini isn't among the vendors Router is documented to serve, and the transport isn't the OpenAI/Anthropic SDK the Router runtime wraps."
+  },
+  "src/LLMProviders/langchain/perplexityChat.tsx:36": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/perplexityChat.tsx",
+   "levers": [],
+   "line": 36,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "flagged",
+   "reason_code": "needs_decision",
+   "why": "ChatOpenAI pointed at api.perplexity.ai (another vendor's OpenAI-compatible endpoint, which is usually a good Router candidate). Perplexity isn't among the vendors confirmed in Router's catalog (only DeepSeek, xAI, MiniMax were confirmed), and the BYOK/no-operator-key gate from base.tsx:74 applies regardless. A human would need to confirm Perplexity model coverage in Router's catalog in addition to deciding the operator-key question."
+  },
+  "src/LLMProviders/langchain/replica.tsx:42": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/replica.tsx",
+   "levers": [],
+   "line": 42,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "Constructs `@langchain/community`'s Replicate client directly (not an OpenAI/Anthropic-shaped call) against arbitrary Replicate model slugs the user supplies. Router has no Replicate endpoint and doesn't serve arbitrary community model ids."
+  },
+  "src/LLMProviders/langchain/togetherChat.tsx:36": {
+   "by": "agent",
+   "evidence": [],
+   "file": "src/LLMProviders/langchain/togetherChat.tsx",
+   "levers": [],
+   "line": 36,
+   "loses": "n/a \u2014 no change made",
+   "origin": "report",
+   "outcome": "kept",
+   "reason_code": "cannot_route",
+   "why": "ChatOpenAI pointed at api.together.xyz, a host whose entire purpose is letting users pick arbitrary open-source/community model ids Together hosts. Those model ids are not catalog entries Router would recognize, so this is functionally the 'self-hosted/open model the app exists to use' case even though the transport is OpenAI-shaped. (Also subject to the BYOK gate described at base.tsx:74.)"
+  }
+ },
+ "confirmations": {},
+ "cost": {
+  "agent_exit": 0,
+  "agent_minutes": 6.9,
+  "agent_turns": 25,
+  "agent_usd": 0.9719481999999998,
+  "api_error": false,
+  "resumed": false
+ },
+ "created": "2026-10-14T13:42:07",
+ "edits": [],
+ "finish": {
+  "attempts": 0,
+  "history": [
+   {
+    "at": "2026-10-14T13:49:27",
+    "gates": [],
+    "info": {
+     "report_sites": 20,
+     "sites": 3,
+     "tests": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 24,
+      "seconds": 7.5
+     },
+     "tests_router_on": {
+      "errors": 0,
+      "exit": 0,
+      "failed": 0,
+      "passed": 24,
+      "requests": 0,
+      "valid": 0
+     },
+     "typecheck": {
+      "errors": 85,
+      "exit": 2
+     }
+    },
+    "ok": true
+   }
+  ]
+ },
+ "floor": {
+  "applied": false,
+  "migrated": 0,
+  "tree": "3a43b9bba0724892561d7211923bab37ee447982"
+ },
+ "probes": {},
+ "proposals": [],
+ "result": {
+  "arm": "min",
+  "claimed_unverified": [],
+  "failures": [],
+  "moved": 0,
+  "moved_sites": [],
+  "ok": true,
+  "report_sites": 20,
+  "reverted": [],
+  "sites_seen": 3,
+  "tradeoffs": 0
+ },
+ "root": "/Users/sanjithsambath/code/router-migrate-v4/eval/work/v3/trials/D3min/obsidian-textgenerator-plugin",
+ "tradeoffs": [],
+ "version": 5,
+ "worklist": []
+}

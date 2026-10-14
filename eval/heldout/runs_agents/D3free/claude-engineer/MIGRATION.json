@@ -1,0 +1,60 @@
+{
+  "sites": [
+    {
+      "site": "ce3.py:345",
+      "outcome": "migrated",
+      "levers": ["wrap:ce3.py:44", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "The exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6 for the CLI assistant's main completion.",
+      "why": "Client wrapped with router_runtime.wrap_anthropic. Config.MODEL is a retired dated snapshot not in Router's catalog; claude-sonnet-4-6 is the closest current catalog equivalent. Applied the model-map defensively because the model value is read through a config attribute the static checker could not fully resolve (check --all reported ROUTES even before the map was applied); check --run on this call hit an unrelated pre-existing bug (installed anthropic SDK 1.13.0 no longer accepts the 'temperature' kwarg this call still passes), so live confirmation wasn't obtainable, but router-migrate check --all and --final both report this site routing after the map."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:671",
+      "outcome": "migrated",
+      "levers": ["wrap:Claude-Eng-v2/main.py:268", "drop_betas:prompt-caching-2024-07-31", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "Prompt-cache discount on repeated system/tool tokens is lost (billed at full price); the exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6.",
+      "why": "Router has no legacy anthropic-beta prompt-caching-2024-07-31 header and does not serve the retired 2024-10-22 dated snapshot. Dropping the beta only affects cost (no caching discount), not correctness; claude-sonnet-4-6 is the closest current catalog model. Verified routing via router-migrate check --all/--final."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1234",
+      "outcome": "migrated",
+      "levers": ["wrap:Claude-Eng-v2/main.py:268", "drop_betas:prompt-caching-2024-07-31", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "Prompt-cache discount on repeated system tokens is lost (billed at full price); the exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6.",
+      "why": "Same rationale as main.py:671 (code-execution-analysis call in the same file, same shared client). Verified routing via check --all/--final."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1510",
+      "outcome": "migrated",
+      "levers": ["wrap:Claude-Eng-v2/main.py:268", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "The exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6 for the retry-decision call.",
+      "why": "claude-3-5-sonnet-20241022 is a retired dated snapshot not in Router's catalog; claude-sonnet-4-6 is the closest current catalog equivalent. No beta headers on this call. Verified routing via check --all/--final."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1762",
+      "outcome": "migrated",
+      "levers": ["wrap:Claude-Eng-v2/main.py:268", "drop_betas:prompt-caching-2024-07-31", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "Prompt-cache discount on repeated system/tool-definition tokens is lost (billed at full price); the exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6.",
+      "why": "Main chat loop call (MAINMODEL), same rationale as main.py:671. Verified routing via check --all/--final."
+    },
+    {
+      "site": "Claude-Eng-v2/main.py:1893",
+      "outcome": "migrated",
+      "levers": ["wrap:Claude-Eng-v2/main.py:268", "drop_betas:max-tokens-3-5-sonnet-2024-07-15", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "The beta-gated higher max_tokens allowance for the old Sonnet 3.5 snapshot is dropped; the exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6.",
+      "why": "Router has no legacy anthropic-beta max-tokens-3-5-sonnet-2024-07-15 header; claude-sonnet-4-6 natively supports the requested max_tokens=8000 without it, so nothing is functionally lost once the model remap lands -- only the specific dated snapshot. The `adapt` CLI recorded this trade-off but only applied the first drop_betas flag to the shared client construction (Claude-Eng-v2/main.py:268); manually merged the second beta into that same wrap_anthropic(..., drop_betas=[...]) call since it is a single client shared by all 5 Anthropic calls in this file. Verified routing via check --all/--final after the manual merge."
+    },
+    {
+      "site": "tools/toolcreator.py:97",
+      "outcome": "migrated",
+      "levers": ["wrap:tools/toolcreator.py:32", "model_map:claude-3-5-sonnet-20241022=claude-sonnet-4-6"],
+      "loses": "The exact claude-3-5-sonnet-20241022 snapshot is replaced by claude-sonnet-4-6 for generated tool code.",
+      "why": "claude-3-5-sonnet-20241022 is a retired dated snapshot not in Router's catalog; claude-sonnet-4-6 is the closest current catalog equivalent. Verified routing via check --all/--final."
+    },
+    {
+      "site": "Claude-Eng-v2/ollama-eng.py:322",
+      "outcome": "cannot_route",
+      "levers": [],
+      "loses": "n/a (not moved)",
+      "why": "This is a standalone alternate entry point (run directly via `python ollama-eng.py`, not imported by app.py/ce3.py) built entirely on the ollama SDK against a local Ollama server, using model 'mistral-nemo' -- a self-hosted local model, not a Router catalog id, and Router does not serve the Ollama vendor endpoint under the shared key at all. Two further call sites on the same client exist at lines 804 and 898 (both `client.chat(...)`, same ollama.AsyncClient, same mistral-nemo model) that the scanner did not individually surface but share the identical determination. A human could decide to swap this engine to a hosted Claude/OpenAI model via Router, but that changes the product's local/offline-first value proposition, so this is left as-is per the 'local or self-hosted model the app exists to use' guidance."
+    }
+  ]
+}

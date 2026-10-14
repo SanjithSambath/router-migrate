@@ -13,6 +13,7 @@ Ground truth (mechanical, no LLM adjudication; `movable()` in score_moved.py): *
 | B2_r1 | 10 | 12 / 64 | 7 | 1 | 0 | 12 | 0/10 | 4 | 0 | 13.82 | 60 |
 | Cnf_r1 | 10 | 7 / 64 | 7 | 0 | 0 | 7 | 0/10 | 3 | 0 | 15.63 | 82 |
 | D_r1 | 3 | 0 / 64 | 0 | 0 | 0 | 0 | 0/3 | 0 | 0 | 5.11 | 32 |
+| D3min | 10 | 17 / 64 | 10 | 0 | 0 | 17 | 0/10 | 2 | 6 | 9.87 | 0 |
 | D_r2 | 9 (+1 invalid) | 21 / 64 | 11 | 0 | 1 | 21 | 0/9 | 1 | 14 | 17.79 | 180 |
 
 Invalid runs (not in any count above; "+N invalid" beside repos): D_r2 obsidian-textgenerator-plugin: the agent made no per-site decisions (agent exit timeout) ($7.60). An infrastructure failure (API error, no agent output) or an agent that made no per-site decisions is not a measurement of the arm; `eval/run.py` retries such runs.
@@ -21,18 +22,18 @@ Invalid runs (not in any count above; "+N invalid" beside repos): D_r2 obsidian-
 
 Cell: moved movable / wrong (b = broken repo). Header: movable sites (old GT should-move).
 
-| repo | movable (old) | A | B | B_prime | C | B2_r1 | Cnf_r1 | D_r1 | D_r2 |
-|---|---|---|---|---|---|---|---|---|---|
-| AI-Scientist | 17 (3) | 0/0 | 3/0 | 4/0 | 0/0 | 0/0 | 0/0 | 0/0 | 6/0 |
-| chatgpt-telegram-bot | 4 (4) | 0/0 | 3/0 | 4/0 | 4/0 | 4/0 | 4/0 | - | 4/0 |
-| computer_use_ootb | 3 (0) | 0/0 | 0/0 | 1/0 | 0/0 | 0/0 | 0/0 | 0/0 | 1/0 |
-| llmcord | 1 (0) | 1/0 | 1/0 | 1/0 | 0/0 | 0/0 | 0/0 | - | 1/0 |
-| obsidian-copilot | 14 (2) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | - | 1/0 |
-| obsidian-textgenerator-plugin | 13 (3) | 0/0 | 0/0 b | 0/0 | 0/0 | 0/0 | 0/0 | - | invalid |
-| OpenManus | 8 (0) | 5/0 | 5/0 | 5/0 | 0/0 | 5/0 | 0/0 | - | 5/0 |
-| openui | 2 (2) | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | - | 1/0 |
-| page-assist | 0 (0) | 0/1 | 0/0 | 0/1 | 0/0 | 0/1 | 0/0 | 0/0 | 0/0 |
-| sec-insights | 2 (2) | 2/0 | 0/0 | 2/0 | 2/0 | 2/0 | 2/0 | - | 2/0 |
+| repo | movable (old) | A | B | B_prime | C | B2_r1 | Cnf_r1 | D_r1 | D3min | D_r2 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| AI-Scientist | 17 (3) | 0/0 | 3/0 | 4/0 | 0/0 | 0/0 | 0/0 | 0/0 | 3/0 | 6/0 |
+| chatgpt-telegram-bot | 4 (4) | 0/0 | 3/0 | 4/0 | 4/0 | 4/0 | 4/0 | - | 4/0 | 4/0 |
+| computer_use_ootb | 3 (0) | 0/0 | 0/0 | 1/0 | 0/0 | 0/0 | 0/0 | 0/0 | 1/0 | 1/0 |
+| llmcord | 1 (0) | 1/0 | 1/0 | 1/0 | 0/0 | 0/0 | 0/0 | - | 1/0 | 1/0 |
+| obsidian-copilot | 14 (2) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | - | 0/0 | 1/0 |
+| obsidian-textgenerator-plugin | 13 (3) | 0/0 | 0/0 b | 0/0 | 0/0 | 0/0 | 0/0 | - | 0/0 | invalid |
+| OpenManus | 8 (0) | 5/0 | 5/0 | 5/0 | 0/0 | 5/0 | 0/0 | - | 5/0 | 5/0 |
+| openui | 2 (2) | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | 1/0 | - | 1/0 | 1/0 |
+| page-assist | 0 (0) | 0/1 | 0/0 | 0/1 | 0/0 | 0/1 | 0/0 | 0/0 | 0/0 | 0/0 |
+| sec-insights | 2 (2) | 2/0 | 0/0 | 2/0 | 2/0 | 2/0 | 2/0 | - | 2/0 | 2/0 |
 
 ## Wrapped and claimed migrated, but no valid Router traffic
 
@@ -65,6 +66,8 @@ Cell: moved movable / wrong (b = broken repo). Header: movable sites (old GT sho
 | Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:82` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:96 --drop seed --loses "..."` would route it |
 | Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:188` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:202 --drop seed --loses "..."` would route it |
 | Cnf_r1 | AI-Scientist | `ai_scientist/llm.py:204` | untranslatable: seed — `router-migrate adapt ai_scientist/llm.py:218 --drop seed --loses "..."` would route it |
+| D3min | AI-Scientist | `ai_scientist/llm.py:262` | host generativelanguage.googleapis.com not unlocked — `router-migrate adapt ai_scientist/llm.py:276 --unlock-host generativelanguage.googleapis.com --loses "... |
+| D3min | openui | `backend/openui/server.py:155` | host api.groq.com not unlocked — `router-migrate adapt backend/openui/server.py:170 --unlock-host api.groq.com --loses "..."` (only if that endpoint serves mode |
 | D_r2 | obsidian-copilot | `src/LLMProviders/ChatOpenRouter.ts:110` | stays on provider: its requests go to openrouter.ai, which the runtime does not route |
 
 ## Wrong moves

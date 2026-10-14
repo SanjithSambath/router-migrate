@@ -302,4 +302,8 @@ def run_d3(root, a):
         arm, "check passed" if ok else "check FAILED (%s)" % ", ".join(sorted({f["gate"] for f in fails})), len(moved),
         len(led.get("tradeoffs") or []), (time.time() - t0) / 60, led["cost"]["agent_usd"],
         "; reverted %s" % ", ".join(reverted[:5]) if reverted else ""))
-    return 0 if ok or arm == "free" else 1
+    rc = 0 if ok or arm == "free" else 1
+    if arm == "min" and not getattr(a, "skip_improve", False):
+        # step 5-6: Improve on what actually routes (cards, an agent judging latency/task), then REPORT.html + the dashboard
+        rc = AG._improve_phase(root, a) or rc
+    return rc

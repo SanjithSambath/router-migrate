@@ -1,0 +1,107 @@
+diff --git a/hedge_fund/llm/client.py b/hedge_fund/llm/client.py
+index 1d59a36..9bd7326 100644
+--- a/hedge_fund/llm/client.py
++++ b/hedge_fund/llm/client.py
+@@ -32,6 +32,31 @@ from hedge_fund.llm.registry import (
+     provider_for,
+     SUPPORTED_PROVIDERS,
+ )
++try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set
++    from ..router_runtime import wrap_langchain as _router_wrap_langchain, wrap_openai as _router_wrap_openai
++except ImportError:  # router-migrate: module executed as a script
++    try:
++        from router_runtime import wrap_langchain as _router_wrap_langchain, wrap_openai as _router_wrap_openai
++    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior
++        _router_wrap_langchain = lambda c, *a, **k: c  # noqa: E731
++        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731
++
++
++def _router_wrap_vendor_openai(chat, host):
++    """router-migrate: wrap_langchain(), plus unlocking `host` so this OpenAI-compatible vendor's traffic can
++    reach Router for models in Router's catalog. wrap_langchain() has no unlock_hosts parameter, so every SDK
++    client it would find (same attribute walk: langchain_xai/langchain_deepseek build `.client`'s embedded
++    OpenAI client separately from `.root_client` — both need unlocking) is unlocked directly here instead."""
++    _router_wrap_langchain(chat)
++    seen = []
++    for attr in ("root_client", "root_async_client", "_client", "_async_client", "client", "async_client"):
++        base = getattr(chat, attr, None)
++        for cand in (base, getattr(base, "_client", None)):
++            if cand is None or any(cand is x for x in seen):
++                continue
++            seen.append(cand)
++            _router_wrap_openai(cand, unlock_hosts=[host])
++    return chat
+ 
+ DEFAULT_MODEL = "claude-opus-5-5"
+ 
+@@ -254,32 +279,36 @@ def make_llm(
+ 
+     if provider == "Anthropic":
+         from langchain_anthropic import ChatAnthropic
+-        chat = ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
+-                             max_retries=1, max_tokens=max_tokens)
++        chat = _router_wrap_langchain(ChatAnthropic(model=model, api_key=api_key, timeout=timeout,
++                             max_retries=1, max_tokens=max_tokens))
+     elif provider == "OpenAI":
+         from langchain_openai import ChatOpenAI
+-        chat = ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
+-                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE"))
++        chat = _router_wrap_langchain(ChatOpenAI(model=model, api_key=api_key, timeout=timeout,
++                          max_retries=1, base_url=os.getenv("OPENAI_API_BASE")))
+     elif provider == "DeepSeek":
+         from langchain_deepseek import ChatDeepSeek
+-        chat = ChatDeepSeek(model=model, api_key=api_key, timeout=timeout,
+-                            max_retries=1)
++        chat = _router_wrap_vendor_openai(
++            ChatDeepSeek(model=model, api_key=api_key, timeout=timeout, max_retries=1),
++            "api.deepseek.com")
+     elif provider == "Google":
+         from langchain_google_genai import ChatGoogleGenerativeAI
+         chat = ChatGoogleGenerativeAI(model=model, api_key=api_key,
+                                       timeout=timeout, max_retries=1)
+     elif provider == "xAI":
+         from langchain_xai import ChatXAI
+-        chat = ChatXAI(model=model, api_key=api_key, timeout=timeout,
+-                       max_retries=1)
++        chat = _router_wrap_vendor_openai(
++            ChatXAI(model=model, api_key=api_key, timeout=timeout, max_retries=1),
++            "api.x.ai")
+     elif provider == "Kimi":
+         # Moonshot speaks the OpenAI wire format. Default to the international
+         # host; mainland users override with MOONSHOT_BASE_URL (v1 does the same).
++        # Only the default host is unlocked for Router — a mainland override stays
++        # on whatever endpoint the user pointed it at, unchanged.
+         from langchain_openai import ChatOpenAI
+-        chat = ChatOpenAI(
++        chat = _router_wrap_vendor_openai(ChatOpenAI(
+             model=model, api_key=api_key, timeout=timeout, max_retries=1,
+             base_url=(os.getenv("MOONSHOT_BASE_URL")
+-                      or "https://api.moonshot.ai/v1"))
++                      or "https://api.moonshot.ai/v1")), "api.moonshot.ai")
+     else:  # pragma: no cover - SUPPORTED_PROVIDERS is checked above
+         raise ValueError(f"Unhandled provider {provider}")
+ 
+diff --git a/router.policy.json b/router.policy.json
+new file mode 100644
+index 0000000..8532fdf
+--- /dev/null
++++ b/router.policy.json
+@@ -0,0 +1,18 @@
++{
++ "globs": {
++  "**llm/client.py:_router_wrap_vendor_openai": {
++   "model_map": {
++    "deepseek-flash": "deepseek-v4.1-flash"
++   }
++  },
++  "**llm/client.py:make_llm": {
++   "drop_params": [
++    "seed"
++   ],
++   "model_map": {
++    "deepseek-flash": "deepseek-v4.1-flash"
++   }
++  }
++ },
++ "version": 1
++}

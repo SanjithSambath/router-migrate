@@ -1,0 +1,337 @@
+diff --git a/README.md b/README.md
+index 84cc0a1..259091b 100644
+--- a/README.md
++++ b/README.md
+@@ -4,17 +4,16 @@ Command-line interface for chat LLMs.
+ 
+ ## Try now
+ ```
+-export ANTHROPIC_API_KEY=xcxc
++export RAMP_ROUTER_API_KEY=xcxc
+ uvx --from gpt-command-line gpt
+ ```
+ 
+ ## Supported providers
+ 
+-- OpenAI
+-- Anthropic
++- OpenAI and Anthropic (Claude), via [Router](https://router.com) — Router holds the provider
++  credentials, so this app never sees an OpenAI or Anthropic API key directly.
+ - Google Gemini
+ - Cohere
+-- Other APIs compatible with OpenAI (e.g. Together, OpenRouter, local models with LM Studio)
+ 
+ ![screenshot](https://github.com/kharvd/gpt-cli/assets/466920/ecbcccc4-7cfa-4c04-83c3-a822b6596f01)
+ 
+@@ -53,12 +52,12 @@ cd gpt-cli
+ pip install .
+ ```
+ 
+-Add the OpenAI API key to your `.bashrc` file (in the root of your home folder).
++Add your Router API key to your `.bashrc` file (in the root of your home folder).
+ In this example we use nano, you can use any text editor.
+ 
+ ```
+ nano ~/.bashrc
+-export OPENAI_API_KEY=<your_key_here>
++export RAMP_ROUTER_API_KEY=<your_key_here>
+ ```
+ 
+ Run the tool
+@@ -71,7 +70,8 @@ You can also use a `gpt.yml` file for configuration. See the [Configuration](REA
+ 
+ ## Usage
+ 
+-Make sure to set the `OPENAI_API_KEY` environment variable to your OpenAI API key (or put it in the `~/.config/gpt-cli/gpt.yml` file as described below).
++Make sure to set the `RAMP_ROUTER_API_KEY` environment variable to your Router API key. GPT and Claude
++models are both served through Router, so this is the only key `gpt-cli` needs for those models.
+ 
+ ```
+ usage: gpt [-h] [--no_markdown] [--model MODEL] [--temperature TEMPERATURE] [--top_p TOP_P]
+@@ -143,8 +143,6 @@ You can configure the assistants in the config file `~/.config/gpt-cli/gpt.yml`.
+ ```yaml
+ default_assistant: <assistant_name>
+ markdown: False
+-openai_api_key: <openai_api_key>
+-anthropic_api_key: <anthropic_api_key>
+ log_file: <path>
+ log_level: <DEBUG|INFO|WARNING|ERROR|CRITICAL>
+ assistants:
+@@ -169,7 +167,6 @@ Example:
+ ```yaml
+ default_assistant: dev
+ markdown: True
+-openai_api_key: <openai_api_key>
+ assistants:
+   pirate:
+     model: gpt-4
+@@ -192,7 +189,6 @@ You can read in files to the assistant's context with !include <file_path>.
+ ```yaml
+ default_assistant: dev
+ markdown: True
+-openai_api_key: <openai_api_key>
+ assistants:
+   pirate:
+     model: gpt-4
+@@ -201,52 +197,23 @@ assistants:
+       - { role: system, content: !include "pirate.txt" }
+ ```
+ 
+-### Customize OpenAI API URL
++### Model access via Router
+ 
+-If you are using other models compatible with the OpenAI Python SDK, you can configure them by modifying the `openai_base_url` setting in the config file or using the `OPENAI_BASE_URL` environment variable .
+-
+-Example:
+-
+-```
+-openai_base_url: https://your-custom-api-url.com/v1
+-```
+-
+-Use `oai-compat:` prefix for the model name to pass non-GPT model names to the API. For example, to chat with Llama3-70b on [Together](https://together.ai), use the following command:
++GPT and Claude models are both reached through [Router](https://router.com), which holds the
++provider credentials — `gpt-cli` never sends an OpenAI or Anthropic API key itself. Set
+ 
+ ```bash
+-OPENAI_API_KEY=$TOGETHER_API_KEY OPENAI_BASE_URL=https://api.together.xyz/v1 gpt general --model oai-compat:meta-llama/Llama-3-70b-chat-hf
++export RAMP_ROUTER_API_KEY=<your_router_api_key>
+ ```
+ 
+-The prefix is stripped before sending the request to the API.
+-
+-Similarly, use the `oai-azure:` model name prefix to use a model deployed via Azure Open AI. For example, `oai-azure:my-deployment-name`.
+-
+-With assistant configuration, you can override the base URL and API key for a specific assistant.
+-
+-```yaml
+-# ~/.config/gpt-cli/gpt.yml
+-assistants:
+-  llama:
+-    model: oai-compat:meta-llama/llama-3.3-70b-instruct
+-    openai_base_url_override: https://openrouter.ai/api/v1
+-    openai_api_key_override: $OPENROUTER_API_KEY
+-```
++and pick any model Router exposes for your account (see `GET /v1/models`) with `--model` or in an
++assistant's config, e.g. `--model gpt-4o` or `--model claude-sonnet-4-5`.
+ 
+ ## Other chat bots
+ 
+ ### Anthropic Claude
+ 
+-To use Claude, you should have an API key from [Anthropic](https://console.anthropic.com/) (currently there is a waitlist for API access). After getting the API key, you can add an environment variable
+-
+-```bash
+-export ANTHROPIC_API_KEY=<your_key_here>
+-```
+-
+-or a config line in `~/.config/gpt-cli/gpt.yml`:
+-
+-```yaml
+-anthropic_api_key: <your_key_here>
+-```
++Claude models are served through Router like GPT models — see [Model access via Router](#model-access-via-router) above. No separate Anthropic API key is needed.
+ 
+ Now you should be able to run `gpt` with `--model claude-3-(opus|sonnet|haiku)-<date>`.
+ 
+diff --git a/gptcli/assistant.py b/gptcli/assistant.py
+index 2553cb1..244f71b 100644
+--- a/gptcli/assistant.py
++++ b/gptcli/assistant.py
+@@ -14,14 +14,11 @@ from gptcli.providers.llama import LLaMACompletionProvider
+ from gptcli.providers.openai import OpenAICompletionProvider
+ from gptcli.providers.anthropic import AnthropicCompletionProvider
+ from gptcli.providers.cohere import CohereCompletionProvider
+-from gptcli.providers.azure_openai import AzureOpenAICompletionProvider
+ 
+ 
+ class AssistantConfig(TypedDict, total=False):
+     messages: List[Message]
+     model: str
+-    openai_base_url_override: Optional[str]
+-    openai_api_key_override: Optional[str]
+     temperature: float
+     top_p: float
+     thinking_budget: Optional[int]
+@@ -69,25 +66,18 @@ User's `uname`: {platform.uname()}. User's `$SHELL`: {os.environ.get('SHELL')}."
+ }
+ 
+ 
+-def get_completion_provider(
+-    model: str,
+-    openai_base_url_override: Optional[str] = None,
+-    openai_api_key_override: Optional[str] = None,
+-) -> CompletionProvider:
++def get_completion_provider(model: str) -> CompletionProvider:
+     if (
+         model.startswith("gpt")
+         or model.startswith("ft:gpt")
+         or model.startswith("oai-compat:")
++        or model.startswith("oai-azure:")
+         or model.startswith("chatgpt")
+         or model.startswith("o1")
+         or model.startswith("o3")
+         or model.startswith("o4")
+     ):
+-        return OpenAICompletionProvider(
+-            openai_base_url_override, openai_api_key_override
+-        )
+-    elif model.startswith("oai-azure:"):
+-        return AzureOpenAICompletionProvider()
++        return OpenAICompletionProvider()
+     elif model.startswith("claude"):
+         return AnthropicCompletionProvider()
+     elif model.startswith("llama"):
+@@ -127,11 +117,7 @@ class Assistant:
+ 
+     def complete_chat(self, messages, stream: bool = True) -> Iterator[CompletionEvent]:
+         model = self._param("model")
+-        completion_provider = get_completion_provider(
+-            model,
+-            self._param("openai_base_url_override"),
+-            self._param("openai_api_key_override"),
+-        )
++        completion_provider = get_completion_provider(model)
+ 
+         args = {
+             "model": model,
+diff --git a/gptcli/config.py b/gptcli/config.py
+index df5c065..53f5c5c 100644
+--- a/gptcli/config.py
++++ b/gptcli/config.py
+@@ -18,11 +18,6 @@ class GptCliConfig:
+     default_assistant: str = "general"
+     markdown: bool = True
+     show_price: bool = True
+-    api_key: Optional[str] = os.environ.get("OPENAI_API_KEY")
+-    openai_api_key: Optional[str] = os.environ.get("OPENAI_API_KEY")
+-    openai_base_url: Optional[str] = os.environ.get("OPENAI_BASE_URL")
+-    openai_azure_api_version: str = "2024-10-21"
+-    anthropic_api_key: Optional[str] = os.environ.get("ANTHROPIC_API_KEY")
+     google_api_key: Optional[str] = os.environ.get("GOOGLE_API_KEY")
+     cohere_api_key: Optional[str] = os.environ.get("COHERE_API_KEY")
+     log_file: Optional[str] = None
+diff --git a/gptcli/gpt.py b/gptcli/gpt.py
+index 751e016..c9cf465 100755
+--- a/gptcli/gpt.py
++++ b/gptcli/gpt.py
+@@ -8,12 +8,10 @@ if sys.version_info < MIN_PYTHON:
+ 
+ import os
+ from typing import cast
+-import openai
+ import argparse
+ import sys
+ import logging
+ import datetime
+-import gptcli.providers.anthropic
+ import gptcli.providers.cohere
+ import gptcli.providers.google as google
+ from gptcli.assistant import (
+@@ -183,20 +181,6 @@ def main():
+         # Disable overly verbose logging for markdown_it
+         logging.getLogger("markdown_it").setLevel(logging.INFO)
+ 
+-    if config.openai_base_url:
+-        openai.base_url = config.openai_base_url
+-
+-    if config.openai_azure_api_version:
+-        openai.api_version = config.openai_azure_api_version
+-
+-    if config.api_key:
+-        openai.api_key = config.api_key
+-    elif config.openai_api_key:
+-        openai.api_key = config.openai_api_key
+-
+-    if config.anthropic_api_key:
+-        gptcli.providers.anthropic.api_key = config.anthropic_api_key
+-
+     if config.cohere_api_key:
+         gptcli.providers.cohere.api_key = config.cohere_api_key
+ 
+diff --git a/gptcli/providers/anthropic.py b/gptcli/providers/anthropic.py
+index 71aecc5..fa3c580 100644
+--- a/gptcli/providers/anthropic.py
++++ b/gptcli/providers/anthropic.py
+@@ -14,14 +14,20 @@ from gptcli.completion import (
+     ThinkingDeltaEvent,
+ )
+ 
+-api_key = os.environ.get("ANTHROPIC_API_KEY")
++# Already on the Anthropic Messages API, so this stays as-is and just points
++# at Router's Anthropic-compatible surface instead of Anthropic directly.
++# The Anthropic SDK appends `/v1/messages` to base_url itself, so the base
++# passed here must not already end in `/v1`.
++_ROUTER_URL = os.environ.get("RAMP_ROUTER_BASE_URL") or "https://api.router.com/v1"
++ROUTER_BASE_URL = _ROUTER_URL[: -len("/v1")] if _ROUTER_URL.endswith("/v1") else _ROUTER_URL
++api_key = os.environ.get("RAMP_ROUTER_API_KEY")
+ 
+ 
+ def get_client():
+     if not api_key:
+-        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
++        raise ValueError("RAMP_ROUTER_API_KEY environment variable not set")
+ 
+-    return anthropic.Anthropic(api_key=api_key)
++    return anthropic.Anthropic(api_key=api_key, base_url=ROUTER_BASE_URL)
+ 
+ 
+ class AnthropicCompletionProvider(CompletionProvider):
+diff --git a/gptcli/providers/azure_openai.py b/gptcli/providers/azure_openai.py
+deleted file mode 100644
+index 12648ac..0000000
+--- a/gptcli/providers/azure_openai.py
++++ /dev/null
+@@ -1,13 +0,0 @@
+-import openai
+-from openai import AzureOpenAI
+-from gptcli.providers.openai import OpenAICompletionProvider
+-
+-
+-class AzureOpenAICompletionProvider(OpenAICompletionProvider):
+-    def __init__(self):
+-        super().__init__()
+-        self.client = AzureOpenAI(
+-            api_key=openai.api_key,
+-            base_url=openai.base_url,
+-            api_version=openai.api_version,
+-        )
+diff --git a/gptcli/providers/openai.py b/gptcli/providers/openai.py
+index addaca9..8247c0b 100644
+--- a/gptcli/providers/openai.py
++++ b/gptcli/providers/openai.py
+@@ -1,3 +1,4 @@
++import os
+ import re
+ from typing import Iterator, List, Optional, cast
+ import openai
+@@ -17,16 +18,26 @@ from gptcli.completion import (
+     UsageEvent,
+ )
+ 
++# Router holds the provider credentials; the app only ever talks to Router's
++# OpenAI Responses-compatible surface.
++ROUTER_BASE_URL = os.environ.get("RAMP_ROUTER_BASE_URL") or "https://api.router.com/v1"
++api_key = os.environ.get("RAMP_ROUTER_API_KEY")
++
++
++def get_client() -> OpenAI:
++    if not api_key:
++        raise ValueError("RAMP_ROUTER_API_KEY environment variable not set")
++
++    return OpenAI(api_key=api_key, base_url=ROUTER_BASE_URL)
++
+ 
+ def is_reasoning_model(model: str) -> bool:
+     return model.startswith("o1") or model.startswith("o3") or model.startswith("o4")
+ 
+ 
+ class OpenAICompletionProvider(CompletionProvider):
+-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
+-        self.client = OpenAI(
+-            api_key=api_key or openai.api_key, base_url=base_url or openai.base_url
+-        )
++    def __init__(self):
++        self.client = get_client()
+ 
+     def complete(
+         self, messages: List[Message], args: dict, stream: bool = False
