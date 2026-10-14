@@ -10,6 +10,9 @@ SPEC_V2.md). It has two tracks:
 - **Track 2 (section 6): the full v3.** What production-grade looks like after that, in priority order.
 
 An adversarial review of the first draft shaped this version; its findings are folded in (section 11 lists them).
+**Revision 2 (built):** building and measuring Track 1 changed several parts of this spec. Each change is marked
+"Built:" in place, and section 13 lists them with the reasons. Where this text and the code disagree, the code and
+DECISIONS.md D13 are right.
 
 ---
 
@@ -18,7 +21,7 @@ An adversarial review of the first draft shaped this version; its findings are f
 | What we measured | Where | What it says |
 |---|---|---|
 | Rules only (v1/v2): 48 of 170 dev sites moved, **0 of 15 repos broken**, median diff 11 lines | eval/SCOREBOARD.md | Deterministic transport is safe. Keep it. |
-| Agent + docs prompt only: 90 moved, **8 of 15 repos broken**, median diff 565 lines | eval/baseline.json, D9 | Unstructured agents over-edit and break things. |
+| Agent + docs prompt only: **8 of 15 repos broken**; in the 7 it left intact it moved 32 sites; median diff 565 lines | eval/baseline.json, README, D9 | Unstructured agents over-edit and break things. (An earlier revision said "90 moved"; nothing in the repo supports that figure.) |
 | Held-out (30 repos): discovery recall **71%** of Router-relevant sites | eval/heldout/AUDIT.md | Rules miss what a reader would find. |
 | Held-out: **53%** of "migrated" claims right; 32 wrong | same | Rules can't judge config, tenancy, dead code. |
 | v2 unlock rules moved **+1** site; 38 other-vendor, 7 Azure, 9 handoff and 16 flagged sites sit parked | eval/SCOREBOARD_V2.md | The traffic gain lives in the long tail, which needs code judgment. |
@@ -55,6 +58,18 @@ Two honest readings of that table:
 fresh repos (section 5.9).
 
 ## 1. Verdict on the agent-first thesis
+
+**The thesis, stated from first principles.** A migration has three kinds of work, and each belongs to whoever has an
+oracle for it:
+- **Facts** (does Router serve this request; does the runtime reroute this call in the code as it stands; did tests,
+  typecheck or imports get worse): tools decide, and the agent cannot override them.
+- **Judgments** (where a config value points in production; whose key this is; whether code is reachable): the agent
+  decides, citing lines a tool can resolve.
+- **Safe edits** (the one-line wrap): a codemod does them, deterministically, whoever asks.
+Everything else follows. Do the safe edits for everyone first (the floor), give the agent only the residue, give it
+tools for what it cannot know rather than tools for what it already does well (reading, searching, editing), gate the
+outcome once instead of policing keystrokes, and revert to the floor on failure so the agent can only add. Measure it on
+repos nobody tuned on, against an agent with the same abilities minus the toolkit.
 
 **Right:** the agent should orchestrate; our deterministic pieces become its tools; the parser is the first pass of
 discovery, not all of it; Router's docs prompt fails because it gives the agent no structure and no checks.
@@ -168,6 +183,10 @@ $ router-migrate run ./acme --agent claude
 - `run` = `up` (floor) → launch the agent headless (`claude -p` with `--plugin-dir`/`--settings` pointing at a temp copy
   of our plugin, `--allowedTools` limited to Read, Grep, Glob, Edit, and `Bash(router-migrate *)` plus the repo's test
   command) → `finish` → open the report.
+- **Built:** `router-migrate run PATH --test-cmd C [--typecheck-cmd C] --agent claude`. `run` itself is the floor (v1
+  scan → plan → apply → verify) plus the ledger; `up` stays the v2 dashboard flow. The agent's tools are Read, Grep,
+  Glob, Edit, `Bash(router-migrate:*)` and read-only shell (`ls`, `rg`, `cat`, `git diff`); **not** the test command:
+  `finish` runs the tests, and an agent re-running a slow suite in a loop is the most common waste we saw in arm B.
 - Interactive alternative: `claude` in the repo, then `/router-migrate` (same plugin).
 - Other agents (Codex): `AGENTS.md` gives the same loop; `finish` is the gate (exit code).
 - Targets to measure, not promise: ≤15 min and ≤$3 of agent spend per repo.
@@ -176,10 +195,10 @@ $ router-migrate run ./acme --agent claude
 
 | Command | What it does | Built from |
 |---|---|---|
-| `up` | The floor (exists). Now also writes the ledger, the residue list, and commits "floor". | v1/v2 |
+| `up` → **Built: `run`** | The floor. Writes the ledger and the residue list, and snapshots the floor as a git tree in a private index (**no commit and no index change** in the customer's repo). Idempotent: on a migrated repo it only shows the worklist. | v1/v2 |
 | `check <file:line>` | Facts for one site or client: surface, model resolution, stateful, betas, wrap status, tenant hints, and the three-valued **trace**. Concise JSON; `next` hint on every result. | plan.py `_classify` per site + runtime routing logic |
 | `wrap <file:line>` | Applies the deterministic wrap to the client construction at that location, including inside factories; idempotent; returns the diff and a patch id. | apply_py / ts/tool.mjs |
-| `claim <file:line> --outcome O --reason R --evidence F:L ...` | The only way the agent records an outcome or judgment. Validated immediately; rejects with the reason and the next step. Adds agent-found sites. | new |
+| `claim <file:line> --outcome O --reason R --evidence F:L ...` | The only way the agent records an outcome or judgment. Validated immediately; rejects with the reason and the next step. Adds agent-found sites (accepted as *unconfirmed* until `finish`'s Router-on run sees a request from that `file:function`). | new |
 | `finish [--audit]` | Gate: for each patch, cheapest first (parse → scope → typecheck → tests vs baseline → router-sim); drop failing patches (patch stack, not git revert); validate the ledger; write REPORT.html. Exit 0 only if every remaining claim validates. `--audit` adds the independent breakage check. | verify.py, router-sim, new |
 
 **Contracts:** JSON by default, ≤150 lines, semantic ids (`app/llm.py:42 chat.completions.create`), and every error carries
@@ -193,7 +212,9 @@ $ router-migrate run ./acme --agent claude
 - **wont_route:** with the reason (other host literal, per-request key, embeddings, beta header, stateful, model not in
   catalog).
 - **routes_if:** routing depends on a runtime value, stated as a condition: `OPENAI_BASE_URL unset`,
-  `LLM_PROVIDER=openai`, `model in catalog`. The agent may resolve the condition with evidence (`claim ... --evidence
+  `LLM_PROVIDER=openai`. **Built:** "model in catalog" is *not* a condition. The runtime already decides that per
+  request and falls back to the provider, so it never makes a report wrong; base URL and dispatch conditions caused 23 of
+  the 32 held-out precision errors. The agent may resolve the condition with evidence (`claim ... --evidence
   .env.example:4`); unresolved, the site is reported as **conditional**.
 
 Production truth needs no new code: the runtime already tags every Router request with
@@ -201,6 +222,12 @@ Production truth needs no new code: the runtime already tags every Router reques
 report tells the customer to check exactly that.
 
 ### 5.4 Edits as a patch stack
+
+**Built: one floor snapshot, not a patch stack.** `run` snapshots the floor as a git tree. `finish` gates the whole
+agent diff; after 3 failed runs it restores every file the agent changed to the floor and marks those sites
+`needs_human`. That keeps the property that matters (the result is never below the floor) with a fraction of the
+machinery. Per-patch dropping is Track 2, worth building only if runs show agents mixing good and bad edits in one
+session (the Track 1 runs did not).
 
 - Edits are keyed by **edit target** (a client construction, a factory, a dispatch function), not by site: one wrap serves
   many sites, which are listed as dependents.
@@ -243,6 +270,10 @@ Reason codes (enumerated): `R_NO_ENDPOINT` (embeddings, images, audio, files), `
 Stop hook: runs `router-migrate finish`; blocks with its first error and `next` hint. Escape: if the hook input says a
 stop hook is already active, or after 2 blocks, it lets the session end, and `finish` has already dropped failing patches.
 **Verify the exact hook fields against current Claude Code docs before relying on them.**
+**Built:** `finish --hook` prints `{"decision": "block", "reason": ...}` on failure and a `systemMessage` on success. The
+success path ran in every headless run (Claude Code 2.1.245); the block path is covered by unit tests but was never
+triggered live, because in every run the agent ran `finish` itself and fixed what it reported before stopping. The
+escape is the attempt cap: the third failed run reverts to the floor and lets the session end.
 
 ### 5.7 Independent breakage check (the agent never sees it)
 
@@ -254,6 +285,10 @@ checks the gate does not use:
   router-sim after the agent finishes, checking that requests are well-formed and responses parse in the SDK.
 
 A repo is **broken** if baseline tests, typecheck, the smoke or the held-back replay regress.
+**Built:** the import smoke imports every changed production Python module in the repo's own environment and compares
+with the same import on the pristine source (so pre-existing import failures don't count); changed JS files get
+`node --check`. The held-back replay rebuilds every site the code now routes from its literal arguments and sends it
+through the runtime to router-sim. Both run for every arm, including A.
 
 ### 5.8 What changes in the dashboard (minimal)
 
@@ -272,6 +307,8 @@ provenance, patch state; and a header line with floor vs agent counts, time and 
   - **A:** floor only (`up`).
   - **B′:** floor + Router's docs prompt + the same abilities as C (can run tests and router-sim). This isolates the
     toolkit from "the agent had a head start".
+  - **Built, added: B**, Router's docs prompt + the same abilities, from the untouched source: what a customer gets by
+    pasting the docs prompt into a coding agent today (the D9 baseline without its handicap).
   - **C:** `run --agent claude` (floor + toolkit).
 - **Trials:** k=1 per arm for Wednesday, reported as **indicative**, with a per-repo paired table and no p-values. k=3 is
   the first Track 2 item.

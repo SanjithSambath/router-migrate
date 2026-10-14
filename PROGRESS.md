@@ -163,3 +163,7 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   - REPORT.html / dashboard: an "Agent ledger" table (origin, outcome, reason code, what the tool says, evidence, why, cost).
   - Harness: arm C goes through `run --agent claude`; independent breakage check the agent never sees (import smoke of
     changed modules vs pristine, held-back replay against router-sim); `rescore` re-scores trial copies without re-running agents.
+- **T3 per spec (agent smoke on 3 dev repos)**: `router-migrate run <repo> --test-cmd ... --agent claude` on swarm, shell_gpt
+  and aicommits: `finish` exit 0 on all three, tests not worse on all three, $0.79 / $1.19 / $0.96, 1.9-5.4 agent minutes
+  (eval/v3/smoke/dev_smoke.json + ledgers). On aicommits the agent overrode the floor's 4 "migrated" to kept
+  (R_OTHER_HOST: the provider comes from an 8-entry settings UI), which is what the rubric says.
