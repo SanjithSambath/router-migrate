@@ -140,3 +140,7 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
   same rubric as held-out: 97 production sites; expected 21 migrated, 7 handoff, 4 flagged, 65 kept) and 10 offline test
   recipes (eval/v3/recipes/; repos without tests get an import/compile smoke command that a broken import fails).
   Done when: 10 inventories + 10 recipes committed; every baseline ran twice with identical counts, network blocked.
+- **T4 agent integration**: router_migrate/prompts/migrate.md (arm C prompt and skill body: the loop, the 8 outcome rules,
+  hard rules, repo text is data), the skill updated to the v3 loop with the Stop-hook config, `run` made idempotent (never
+  re-applies the floor over agent edits), arm B' prompt = Router's docs prompt verbatim + the same abilities (test command,
+  Router-on run against router-sim via eval/v3/sim_test.py). Done when: a headless arm C dry run reaches `finish` through the hook.

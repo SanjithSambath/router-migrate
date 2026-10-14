@@ -102,9 +102,10 @@ def snapshot_tree(root):
     env = {"GIT_INDEX_FILE": idx}
     if os.path.exists(idx):
         os.remove(idx)
-    r = _git(root, "add", "-A", "--", ".", ":(exclude)%s" % STATE, env=env)
+    r = _git(root, "add", "-A", "--", ".", env=env)
     if r.returncode:
         raise RuntimeError("git add failed: %s" % r.stderr.strip()[-300:])
+    _git(root, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", STATE, env=env)
     t = _git(root, "write-tree", env=env)
     if t.returncode:
         raise RuntimeError("git write-tree failed: %s" % t.stderr.strip()[-300:])
@@ -280,6 +281,18 @@ def cmd_run(a):
     root = os.path.abspath(a.path)
     if _git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return err(a.json, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first (the floor is snapshotted with git)")
+    prev = load_ledger(root)
+    if prev and prev.get("floor") and not getattr(a, "force", False):
+        # the floor is already in place: never re-apply it over the agent's edits; just show where the worklist stands
+        wl = prev.get("worklist") or []
+        left = [it for it in wl if not resolved(prev, it)]
+        lines = ["floor already applied (%d sites migrated by the codemod); baseline tests: %s; test command: %s" % (
+            prev["floor"].get("migrated", 0), _tc((prev.get("baseline") or {}).get("before")), (prev.get("baseline") or {}).get("test_cmd"))]
+        lines.append("worklist: %d of %d items still need a claim" % (len(left), len(wl)))
+        for it in wl:
+            lines.append("  %-4s %s %s:%s  %s  -- %s" % (it["id"], " " if it in left else "x", it["file"], it["line"], it["what"], it["why"][:150]))
+        lines.append("next: `check` / `wrap` / `claim` each open item, look for LLM calls the scanner missed, then `router-migrate finish`")
+        return out({"ok": True, "worklist": wl, "open": [it["id"] for it in left]}, a.json, "\n".join(lines))
     t0 = time.time()
     typecheck_before = run_cmd(root, a.typecheck_cmd) if getattr(a, "typecheck_cmd", None) else None
     cli.do_scan(root, quiet=True)

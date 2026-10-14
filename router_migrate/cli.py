@@ -280,6 +280,7 @@ def main(argv=None):
         if name == "run":
             sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
             sp.add_argument("--typecheck-cmd", help="v3: typecheck command; its error count is the baseline finish compares against")
+            sp.add_argument("--force", action="store_true", help="v3: re-apply the floor and reset the ledger's floor snapshot")
     s_up = sub.add_parser("up", help="v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
     s_up.add_argument("path", nargs="?", default=".")
     s_up.add_argument("--agent", action="store_true", help="no dashboard; print pending cards as JSON; exit 2 while any card is undecided")
