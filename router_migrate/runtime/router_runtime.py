@@ -17,7 +17,7 @@
 # disables it; it sends a repo-relative path and function name).
 # Env: RAMP_ROUTER_API_KEY (required to activate), RAMP_ROUTER_BASE_URL (default https://api.router.com),
 #      ROUTER_MIGRATE_DISABLE=1 (kill switch), ROUTER_MIGRATE_MODEL_MAP='{"old-model":"router-id"}',
-#      ROUTER_MIGRATE_SERVICE_TIER (default "default"; "auto" leaves the account default, which may be flex),
+#      ROUTER_MIGRATE_SERVICE_TIER (unset: Router's account default, Flex where offered; set a tier to force it everywhere),
 #      ROUTER_MIGRATE_FALLBACK=0 (surface Router errors instead of retrying on the provider).
 # The provider key (OPENAI_API_KEY / ANTHROPIC_API_KEY) must stay configured: SDK constructors require it, and requests
 # Router cannot serve still go to the provider.
@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from collections import OrderedDict
@@ -104,7 +105,8 @@ def resolve_model(name):
         return name
     if name in ALIASES:
         return ALIASES[name]
-    return DATED.get(name)
+    ci = next((k for k in CATALOG if k.lower() == name.lower()), None)  # e.g. MiniMax-M3 -> minimax-m3
+    return ci or DATED.get(name)
 
 
 def _feature():
@@ -173,7 +175,8 @@ def chat_to_responses(body, router_model, owned_by, feature):
     mot = body.get("max_completion_tokens") or body.get("max_tokens")
     if mot is not None and int(mot) < 16:
         unsupported.append("max_tokens<16")  # Responses minimum is 16; clamping would change output length
-    if any(isinstance(m, dict) and m.get("name") and m.get("role") != "function" for m in body.get("messages") or []):
+    # a participant name is model-visible; on a tool result it only repeats the tool's name (the output is keyed by call id)
+    if any(isinstance(m, dict) and m.get("name") and m.get("role") not in ("function", "tool") for m in body.get("messages") or []):
         unsupported.append("message name")
     tc0 = body.get("tool_choice")
     if isinstance(tc0, dict) and tc0.get("type") not in (None, "function"):
@@ -288,17 +291,18 @@ def chat_to_responses(body, router_model, owned_by, feature):
 
 
 def _service_tier(out):
-    """Default tier unless the caller chose one: the account-level flex default adds latency the original call never had [measured].
-    ROUTER_MIGRATE_SERVICE_TIER overrides; 'auto' leaves it to the account default."""
-    tier = (os.environ.get("ROUTER_MIGRATE_SERVICE_TIER") or "default").strip()
-    if "service_tier" not in out and tier != "auto":
+    """No tier is forced: Router's account default (Flex, where the model has it) applies. Latency guardrails come from the
+    compiled policy (provider_timeout; service_tier only where a feature's latency need was judged). ROUTER_MIGRATE_SERVICE_TIER
+    sets one tier for every routed call when the operator wants that ('auto' or unset: the account default)."""
+    tier = (os.environ.get("ROUTER_MIGRATE_SERVICE_TIER") or "").strip()
+    if "service_tier" not in out and tier and tier != "auto":
         out["service_tier"] = tier
 
 
 # ------------------------------------------------------------------------------------------------ v2 compiled policy
 # router.policy.json (repo root) is compiled by `router-migrate apply --decisions` into router_policy.py beside this file.
 # No compiled policy, an invalid one, or ROUTER_MIGRATE_POLICY=off => exactly v1 behaviour. Semantics: CONTRACTS.md section 1.
-_POLICY_KEYS = {"allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout"}
+_POLICY_KEYS = {"allow_flex_tier", "prompt_cache_key", "metadata", "fallbacks", "provider_timeout", "service_tier", "model_map", "drop_params"}
 _POLICY_STATE = {"loaded": False, "policy": None, "hash": None, "valid": False, "logged": set()}
 
 
@@ -323,6 +327,13 @@ def _valid_entry(e):
         t = e["provider_timeout"]
         if isinstance(t, bool) or not isinstance(t, (int, float)) or not 1 <= t <= 660:
             return False
+    if "service_tier" in e and e["service_tier"] not in ("default", "flex"):
+        return False
+    if "model_map" in e and not (isinstance(e["model_map"], dict) and e["model_map"] and
+                                 all(isinstance(k, str) and isinstance(v, str) and k and v for k, v in e["model_map"].items())):
+        return False
+    if "drop_params" in e and not (isinstance(e["drop_params"], list) and e["drop_params"] and all(isinstance(x, str) and x for x in e["drop_params"])):
+        return False
     return True
 
 
@@ -473,6 +484,8 @@ def _apply_policy(nb, caller_body, feature):
             nb["prompt_cache_key"] = key[:200]
     if eff.get("provider_timeout") and "provider_timeout" not in nb:
         nb["provider_timeout"] = eff["provider_timeout"]
+    if eff.get("service_tier") and caller_body.get("service_tier") is None and "allow_flex_tier" not in eff:
+        nb["service_tier"] = eff["service_tier"]
     caller_tier = caller_body.get("service_tier") is not None
     flex = eff.get("allow_flex_tier")
     if flex is True and not (CATALOG.get(nb.get("model")) or {}).get("c", {}).get("f"):
@@ -492,7 +505,7 @@ def _apply_policy(nb, caller_body, feature):
         if cands:
             nb["models"] = [nb.pop("model")] + cands
             if nb.pop("allow_flex_tier", None) is not None and not caller_tier:
-                _service_tier(nb)  # flex does not apply to a models list [measured]; keep v1's default tier
+                _service_tier(nb)  # flex does not apply to a models list [measured]
                 _policy_log("flexfb:%s" % fid, "allow_flex_tier dropped for %s: Router ignores Flex with a models list (fallbacks win)" % fid)
     return nb
 
@@ -785,9 +798,9 @@ def _provider_only_tools(tools):
 
 def _plan_responses(body, rid, owned, feature, opts):
     if opts.get("responses") is False:
-        return None  # this client uses stateful Responses features; router-migrate's planner kept it on the provider
+        return _kept("this client's /responses traffic is pinned to the provider (stateful use)")
     if body.get("conversation") or body.get("background") or body.get("store") is True or body.get("prompt"):
-        return None  # explicit storage, stored prompts, conversations: provider-side state Router does not keep [measured]
+        return _kept("provider-side state (store/conversation/background/prompt)")  # Router keeps none [measured]
     items = _as_items(body.get("input"))
     prev = body.get("previous_response_id")
     if prev:
@@ -800,12 +813,12 @@ def _plan_responses(body, rid, owned, feature, opts):
                                      "(router-migrate keeps the last %d chains in memory). Send the conversation inline, or set "
                                      "ROUTER_MIGRATE_DISABLE=1." % (prev, _CHAIN_MAX))
         else:
-            return None  # the provider issued this id; the chain stays where it started
+            return _kept("previous_response_id issued by the provider")  # the chain stays where it started
     why = _provider_only_input(items) or _provider_only_tools(body.get("tools"))
     if why:
         if prev:  # the provider never saw this chain, so sending it there cannot work either
             return _local_error(400, "This turn continues a conversation served by Router but needs provider-side state (%s)." % why)
-        return None
+        return _kept("provider-only input or tools: %s" % why)
     nb = dict(body, model=rid, input=items)
     for k in ("store", "previous_response_id"):
         nb.pop(k, None)
@@ -841,12 +854,106 @@ def _local_retrieve(req):
     return ("local", 200, full)
 
 
+def _operator_key_ok(req, vendor):
+    """operator_key_only (an approved per-user-keys card): route only requests that carry the operator's own provider key
+    (OPENAI_API_KEY / ANTHROPIC_API_KEY); a user's or tenant's key keeps the request on the provider, billed to them."""
+    want = os.environ.get("ANTHROPIC_API_KEY" if vendor == "anthropic" else "OPENAI_API_KEY") or ""
+    if not want:
+        return False
+    auth = req.headers.get("authorization") or ""
+    got = auth[7:].strip() if auth.lower().startswith("bearer ") else (req.headers.get("x-api-key") or "").strip()
+    return bool(got) and got == want
+
+
+def _fid(body, feature):
+    """Feature id for policy lookup: the caller's own metadata.feature, else the one derived from the call stack."""
+    return ((body.get("metadata") or {}).get("feature") if isinstance(body.get("metadata"), dict) else None) or feature
+
+
+_MAX_TOKEN_KEYS = ("max_tokens", "max_completion_tokens", "max_output_tokens")
+
+
+def _policy_key(key, body, feature, origin=None):
+    """A policy value for this request: by its feature, else by where its client was built (framework calls start in
+    library code, so their calling frame is not the site that was adapted)."""
+    p = _load_policy()
+    if not p:
+        return None
+    v = policy_for(_fid(body, feature), p).get(key)
+    return v if v or not origin else policy_for(origin, p).get(key)
+
+
+def _adapt(body, feature, origin=None):
+    """The Router-bound copy of a request with this feature's accepted trade-offs applied (policy drop_params): listed
+    parameters are dropped, a listed output cap is raised to Router's minimum of 16, and a listed `name` is folded into the
+    message text. The original request is untouched, so a fallback to the provider still sends exactly what the code built."""
+    drop = _policy_key("drop_params", body, feature, origin) or []
+    if not drop:
+        return body
+    b = dict(body)
+    for k in drop:
+        if k in _MAX_TOKEN_KEYS:
+            if isinstance(b.get(k), int) and b[k] < 16:
+                b[k] = 16
+        elif k == "name" and isinstance(b.get("messages"), list):
+            b["messages"] = [dict({kk: vv for kk, vv in m.items() if kk != "name"},
+                                  content=("%s: %s" % (m["name"], m["content"])) if isinstance(m.get("content"), str) else m.get("content"))
+                             if isinstance(m, dict) and m.get("name") and m.get("role") not in ("function", "tool") else m
+                             for m in b["messages"]]
+        else:
+            b.pop(k, None)
+    return b
+
+
+def _resolve_for(body, feature, origin=None):
+    """Router id for this request's model: an accepted model swap for this feature (policy model_map) first, else the catalog."""
+    name = body.get("model")
+    if isinstance(name, str):
+        to = (_policy_key("model_map", body, feature, origin) or {}).get(name)
+        if to and to in CATALOG:
+            return to
+        if to:
+            _policy_log("mm:%s" % to, "model_map target %s is not a Router catalog id: ignored" % to)
+    return resolve_model(name)
+
+
+_KEPT = threading.local()
+
+
+def _kept(reason):
+    """Return None (the provider serves the request unchanged), remembering why for ROUTER_MIGRATE_TRACE."""
+    _KEPT.reason = reason
+    return None
+
+
+def _trace(req, route, opts):
+    """ROUTER_MIGRATE_TRACE=<file> (off by default; router-migrate's probe sets it): one JSON line per LLM request saying
+    where it went and, when it stayed on the provider, why. It lets a probe tell a by-design fallback from an unrouted client."""
+    path = os.environ.get("ROUTER_MIGRATE_TRACE")
+    if not path:
+        return
+    try:
+        rec = {"host": req.url.host, "path": req.url.path, "to": "provider" if route is None else route[0],
+               "reason": getattr(_KEPT, "reason", None) if route is None else None, "feature": _feature(), "client": (opts or {}).get("origin")}
+        try:
+            rec["model"] = json.loads(req.content or b"{}").get("model")
+        except Exception:
+            pass
+        with open(path, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+
+
 def plan_request(req, opts=None):
     """Decide where a provider-bound request goes. Returns None (send to provider unchanged) or a routing tuple."""
+    _KEPT.reason = None
     try:
-        return _plan_request(req, opts or {})
-    except Exception:
-        return None  # anything unexpected: the provider gets the request exactly as before
+        route = _plan_request(req, opts or {})
+    except Exception as e:
+        route = _kept("unexpected %s" % type(e).__name__)  # anything unexpected: the provider gets the request exactly as before
+    _trace(req, route, opts)
+    return route
 
 
 def _plan_request(req, opts):
@@ -858,21 +965,23 @@ def _plan_request(req, opts):
     if req.method != "POST":
         return None
     if (host in _OPENAI_HOSTS or host in (opts.get("unlock_hosts") or ())) and (path.endswith("/chat/completions") or path.endswith("/responses")):
-        body = json.loads(req.content or b"{}")
-        rid = resolve_model(body.get("model"))
+        if opts.get("operator_key_only") and host in _OPENAI_HOSTS and not _operator_key_ok(req, "openai"):
+            return _kept("not the operator's key (operator_key_only)")
+        feature = _feature()
+        body = _adapt(json.loads(req.content or b"{}"), feature, opts.get("origin"))
+        rid = _resolve_for(body, feature, opts.get("origin"))
         prev = body.get("previous_response_id") if path.endswith("/responses") else None
         if (not rid or ("openai", rid) in _DENIED) and prev in _ROUTER_IDS:
             return _local_error(400, "previous_response_id %s was served by Router, but this turn's model %r cannot be served by Router."
                                 % (prev, body.get("model")))
         if not rid or ("openai", rid) in _DENIED:
-            return None
+            return _kept("model %r is not in the Router catalog" % body.get("model") if not rid else "model %r was refused by Router" % rid)
         owned = (CATALOG.get(rid) or {}).get("o")
-        feature = _feature()
         if path.endswith("/chat/completions"):
             try:
                 nb, ctx = chat_to_responses(body, rid, owned, feature)
-            except Untranslatable:
-                return None
+            except Untranslatable as e:
+                return _kept("untranslatable: %s" % e)
             _apply_policy(nb, body, feature)
             return ("chat", nb, ctx)
         return _plan_responses(body, rid, owned, feature, opts)
@@ -880,14 +989,17 @@ def _plan_request(req, opts):
         if req.headers.get("anthropic-beta"):
             betas = {b.strip() for b in req.headers["anthropic-beta"].split(",") if b.strip()}
             if not (opts.get("drop_betas") and betas <= set(opts["drop_betas"])):
-                return None  # beta features are unmeasured on Router; keep on Anthropic (unless every flag was approved to drop)
+                return _kept("anthropic-beta %s" % ",".join(sorted(betas)))  # unmeasured on Router; keep on Anthropic (unless approved to drop)
+        if opts.get("operator_key_only") and not _operator_key_ok(req, "anthropic"):
+            return _kept("not the operator's key (operator_key_only)")
         if _load_policy():
-            _policy_log("messages", "not applied on /v1/messages (Router-only fields are Responses-only)")
-        body = json.loads(req.content or b"{}")
-        rid = resolve_model(body.get("model"))
+            _policy_log("messages", "not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)")
+        feature = _feature()
+        body = _adapt(json.loads(req.content or b"{}"), feature, opts.get("origin"))
+        rid = _resolve_for(body, feature, opts.get("origin"))
         if not rid or ("anthropic", rid) in _DENIED:
-            return None
-        return ("messages", dict(body, model=rid), {"count": path.endswith("count_tokens")})
+            return _kept("model %r is not in the Router catalog" % body.get("model") if not rid else "model %r was refused by Router" % rid)
+        return ("messages", dict(body, model=rid), {"count": path.endswith("count_tokens"), "feature": feature})
     return None
 
 
@@ -902,11 +1014,20 @@ def _router_headers(req, anthropic=False):
     return h
 
 
-def _router_request(req, route, h):
+FEATURE_HEADER = "x-router-migrate-feature"  # the calling file:function on every Router request (Messages bodies can't carry it)
+CLIENT_HEADER = "x-router-migrate-client"  # the file:function that built this Router-wrapped client (framework calls start in library code)
+
+
+def _router_request(req, route, h, origin=None):
     kind, nb, ctx = route
     url = _base() + ("/v1/messages/count_tokens" if kind == "messages" and ctx.get("count") else "/v1/messages" if kind == "messages" else "/v1/responses")
-    return h.Request("POST", url, headers=_router_headers(req, anthropic=(kind == "messages")), content=json.dumps(nb).encode(),
-                     extensions=req.extensions)
+    hd = _router_headers(req, anthropic=(kind == "messages"))
+    feat = ctx.get("feature") or ((nb.get("metadata") or {}).get("feature") if isinstance(nb.get("metadata"), dict) else None)
+    if feat and _feature_tags_on():
+        hd[FEATURE_HEADER] = str(feat)[:200]
+    if origin and _feature_tags_on():
+        hd[CLIENT_HEADER] = str(origin)[:200]
+    return h.Request("POST", url, headers=hd, content=json.dumps(nb).encode(), extensions=req.extensions)
 
 
 def _fallback_ok(req, route, status, body):
@@ -1052,7 +1173,7 @@ def _classes(libname):
                 return self.inner.handle_request(request)
             if route[0] == "local":
                 return _local(route)
-            up = self.inner.handle_request(_router_request(request, route, h))
+            up = self.inner.handle_request(_router_request(request, route, h, self.opts.get("origin")))
             if up.status_code >= 400:
                 body = up.read()
                 up.close()
@@ -1078,7 +1199,7 @@ def _classes(libname):
                 return await self.inner.handle_async_request(request)
             if route[0] == "local":
                 return _local(route)
-            up = await self.inner.handle_async_request(_router_request(request, route, h))
+            up = await self.inner.handle_async_request(_router_request(request, route, h, self.opts.get("origin")))
             if up.status_code >= 400:
                 body = await up.aread()
                 await up.aclose()
@@ -1145,6 +1266,7 @@ def _install(hc, opts=None):
     is_async = isinstance(hc, h.AsyncClient)
     T = classes[1] if is_async else classes[0]
     opts = dict(opts or {})
+    opts.setdefault("origin", _feature())  # where the wrapped client was built: names framework sites, whose calls start in library code
 
     def wrap(t):
         if t is None:
@@ -1152,6 +1274,8 @@ def _install(hc, opts=None):
         if isinstance(t, T):
             if opts.get("responses") is False:
                 t.opts["responses"] = False  # the stricter setting wins when clients share one httpx client
+            if opts.get("operator_key_only"):
+                t.opts["operator_key_only"] = True
             for k in ("unlock_hosts", "drop_betas"):  # v2 unlocks accumulate across wraps of a shared httpx client
                 if opts.get(k):
                     t.opts[k] = sorted(set(t.opts.get(k) or []) | set(opts[k]))
@@ -1175,6 +1299,9 @@ def _make_client(libname, is_async, opts=None, **kwargs):
         kwargs.setdefault(k, v)
     hc = cls(**kwargs)  # no transport= here, so httpx still sets up env proxies (trust_env) as it normally would
     _install(hc, opts)
+    # Deep-copied configs (pydantic model_copy(deep=True) on a LlamaIndex/LangChain model) share this one client, as httpx
+    # clients are meant to be shared; copying it would fail on its locks where the original http_client=None copied fine.
+    hc.__deepcopy__ = lambda memo, _hc=hc: _hc
     return hc
 
 
@@ -1213,7 +1340,7 @@ def _is_openai(client):
     return _is(client, "openai", ("OpenAI", "AsyncOpenAI")) and not _is(client, "openai", ("AzureOpenAI", "AsyncAzureOpenAI"))
 
 
-def wrap_openai(client, responses=True, unlock_hosts=None):
+def wrap_openai(client, responses=True, unlock_hosts=None, operator_key_only=False):
     """OpenAI / AsyncOpenAI client (or subclass): its traffic goes through Router, in place; unchanged when RAMP_ROUTER_API_KEY
     is unset. responses=False keeps this client's Responses API traffic on OpenAI (stateful use: previous_response_id etc.).
     unlock_hosts (v2 unlock.vendor_endpoint, customer-approved): another vendor's OpenAI-compatible host whose requests go to
@@ -1223,18 +1350,23 @@ def wrap_openai(client, responses=True, unlock_hosts=None):
     opts = {"responses": responses}
     if unlock_hosts:
         opts["unlock_hosts"] = sorted(unlock_hosts)
+    if operator_key_only:
+        opts["operator_key_only"] = True
     return _with_client(client, opts)
 
 
-def wrap_anthropic(client, drop_betas=None):
+def wrap_anthropic(client, drop_betas=None, operator_key_only=False):
     """drop_betas (v2 unlock.stated_loss, customer-approved): Anthropic beta flags that may be dropped so the request can go to
     Router. A request carrying any other beta flag stays on Anthropic."""
     if not active() or not _is(client, "anthropic", ("Anthropic", "AsyncAnthropic")):
         return client  # Bedrock / Vertex clients and test doubles stay put
-    return _with_client(client, {"drop_betas": sorted(drop_betas)} if drop_betas else None)
+    opts = {"drop_betas": sorted(drop_betas)} if drop_betas else {}
+    if operator_key_only:
+        opts["operator_key_only"] = True
+    return _with_client(client, opts or None)
 
 
-def wrap_langchain(llm, responses=True):
+def wrap_langchain(llm, responses=True, operator_key_only=False):
     """LangChain ChatOpenAI / ChatAnthropic (or LlamaIndex-style objects holding SDK clients): wrap the SDK clients they built.
     Every request still goes through per-request planning and provider fallback, like a wrapped SDK client."""
     if not active():
@@ -1250,9 +1382,9 @@ def wrap_langchain(llm, responses=True):
                 continue
             seen.append(cand)
             if _is_openai(cand):
-                wrap_openai(cand, responses=responses)
+                wrap_openai(cand, responses=responses, operator_key_only=operator_key_only)
             elif _is(cand, "anthropic", ("Anthropic", "AsyncAnthropic")):
-                wrap_anthropic(cand)
+                wrap_anthropic(cand, operator_key_only=operator_key_only)
     return llm
 
 

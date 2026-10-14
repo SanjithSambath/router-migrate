@@ -49,12 +49,18 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
     if plan is None:
         raise SystemExit("no plan: run `router-migrate plan` (or `up`) first")
     r = rec_mod.build(root, plan, catalog, repo=repo, scan=scan, judgments=judgments, current_lines=current_lines)
+    led = load(root, "ledger.json") or {}
+    r["cards"] += agent_cards(led) + tradeoff_cards(led)
     dec = load(root, "decisions.json", {"cards": {}})
     # an applied unlock patches the client, which moves the call's line and so its site id and card id: match by feature
     unl = load(root, "unlocks.json", {"sites": {}})["sites"]
     unlocked = {(u["rule"], u.get("feature") or sid.split(":")[1]): u["card"] for sid, u in unl.items()}
     for c in r["cards"]:
         d = dec["cards"].get(c["id"])
+        if c["rule"].startswith("tradeoff."):  # already in the code; a current dismiss is an undo waiting for Apply
+            if c["state"] != "undone" and d and d["action"] == "dismiss" and d.get("etag") == c["etag"]:
+                c["state"] = "dismissed"
+            continue
         if not d and c["rule"].startswith("unlock."):
             prior = next((unlocked[k] for k in [(c["rule"], f) for f in c["scope"]["features"]] +
                           [(c["rule"], x.split(":")[1]) for x in c["scope"]["sites"]] if k in unlocked), None)
@@ -74,9 +80,84 @@ def recommend(root, catalog, repo=None, plan=None, judgments=None, current_lines
     return r
 
 
+AGENT_CARD_GROUP = {"model_swap": "model", "vendor_endpoint": "unlock", "per_user_key": "unlock", "beta_flags": "unlock"}
+AGENT_CARD_TITLE = {"model_swap": "Swap the model for %s", "vendor_endpoint": "Serve %s's vendor-endpoint traffic through Router",
+                    "per_user_key": "Route %s only when it uses the operator's key", "beta_flags": "Drop beta flags so %s can go to Router"}
+
+
+def agent_cards(led):
+    """v4: the migrate agent's proposals for lossy or business moves (ledger "cards"), in the recommendation card schema, so
+    the dashboard, `decide` and `apply --decisions` handle them like every other card. Nothing applies until approved."""
+    import hashlib as _h
+    out = []
+    for ac in led.get("cards") or []:
+        ch = ac["change"]
+        etag = _h.sha1(json.dumps([ac["site"], ch], sort_keys=True).encode()).hexdigest()[:12]
+        out.append({"id": "rec_agent_%s_%s" % (ac["kind"], _h.sha1(ac["site"].encode()).hexdigest()[:8]), "rule": "agent." + ac["kind"],
+                    "lever_group": AGENT_CARD_GROUP[ac["kind"]], "title": AGENT_CARD_TITLE[ac["kind"]] % ac["feature"],
+                    "scope": {"sites": ["agent:" + ac["site"]], "features": [ac["feature"]], "latency_class": None}, "model_owner": None,
+                    "change": ch, "loses": ac["loses"], "rule_inputs": {"agent_card": ac["id"], "kind": ac["kind"]},
+                    "evidence": {"level": "agent", "results": [{"level": "agent", "fact": ac["why"], "source": ", ".join(ac["evidence"])}]},
+                    "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "proposed by the migration agent from the code; unmeasured"},
+                    "risk": 3 if ac["kind"] in ("model_swap", "per_user_key") else 2, "effort": "low", "options": [], "etag": etag,
+                    "state": "new", "applies": True})
+    return out
+
+
+TRADEOFF_POLICY = ("drop_params", "model_map")  # levers compiled into router.policy.json
+TRADEOFF_CLIENT = ("unlock_hosts", "operator_key_only", "drop_betas")  # options on the client's wrap (levers["client"] = its FILE:LINE)
+
+
+def tradeoff_summary(lv):
+    """{"drop_params": ["seed"], "model_map": {"a": "b"}} -> 'drops seed; a -> b'"""
+    bits = []
+    if lv.get("drop_params"):
+        bits.append("drops " + ", ".join(lv["drop_params"]))
+    if lv.get("model_map"):
+        bits.append(", ".join("%s -> %s" % kv for kv in sorted(lv["model_map"].items())))
+    if lv.get("unlock_hosts"):
+        bits.append("%s through Router" % ", ".join(lv["unlock_hosts"]))
+    if lv.get("operator_key_only"):
+        bits.append("operator's key only")
+    if lv.get("drop_betas"):
+        bits.append("drops beta " + ", ".join(lv["drop_betas"]))
+    return "; ".join(bits) or "hand edit"
+
+
+def tradeoff_cards(led):
+    """v4 migrate-by-default: every move the agent took at a cost (ledger "tradeoffs"), as an already-applied card. Dismissing
+    one (the dashboard's Undo) reverses it on the next Apply (`agent.undo_tradeoff`); an undone one stays, marked undone."""
+    import hashlib as _h
+    out = []
+    for t in led.get("tradeoffs") or []:
+        lv = t.get("levers") or {}
+        pol_lv = {k: lv[k] for k in TRADEOFF_POLICY if lv.get(k)}
+        wrap = {k: lv[k] for k in TRADEOFF_CLIENT if lv.get(k)}
+        cfile, _, cline = (lv.get("client") or "%s:%s" % (t["file"], t["line"])).rpartition(":")
+        if pol_lv:
+            change = {"kind": "policy", "diff": json.dumps({"features": {t["feature"]: pol_lv}}, sort_keys=True)}
+        elif wrap:
+            change = {"kind": "code", "file": cfile, "line": int(cline),
+                      "diff": "client wrapped with %s" % ", ".join("%s=%s" % (k, json.dumps(v)) for k, v in sorted(wrap.items()))}
+        else:
+            change = {"kind": "code", "file": t["file"], "line": t["line"], "diff": "hand edit in %s — revert that hunk to undo" % t["file"]}
+        if pol_lv and wrap:
+            change.update(wrap=wrap, file=cfile, line=int(cline))
+        out.append({"id": "tradeoff:" + t["id"], "rule": "tradeoff." + next((k for k in lv if k in TRADEOFF_POLICY + TRADEOFF_CLIENT and lv[k]), "edit"),
+                    "lever_group": "tradeoff", "title": "Moved to Router: %s (%s)" % (t["feature"], tradeoff_summary(lv)),
+                    "scope": {"sites": [t["site"]], "features": [t["feature"]], "latency_class": None}, "model_owner": None,
+                    "change": change, "loses": [t["loses"]] if t.get("loses") else [], "rule_inputs": {"tradeoff": t["id"], "levers": lv},
+                    "evidence": {"level": "agent", "results": [{"level": "agent", "fact": t.get("why") or "",
+                                                                "source": ", ".join(t.get("evidence") or [])}]},
+                    "impact": {"per_call_pct": None, "monthly_usd": None, "ignores": "taken by the migration agent; undo it on the dashboard"},
+                    "risk": 2, "effort": "low", "options": [], "state": "undone" if t.get("undone") else "applied", "applies": False,
+                    "etag": _h.sha1(json.dumps([t["id"], t["site"], lv], sort_keys=True).encode()).hexdigest()[:12]})
+    return out
+
+
 def undecided(root):
     r, dec = load(root, "recommendations.json", {"cards": []}), load(root, "decisions.json", {"cards": {}})
-    return [c for c in r["cards"] if c.get("state") != "applied" and
+    return [c for c in r["cards"] if c.get("state") not in ("applied", "undone") and
             (c["id"] not in dec["cards"] or dec["cards"][c["id"]].get("etag") != c["etag"])]
 
 
@@ -160,15 +241,42 @@ def apply_decisions(root, catalog, dry_run=False):
     if r is None:
         raise SystemExit("no recommendations: run `router-migrate recommend` first")
     applied, skipped, files, already = [], [], [], []
+    # v4: undo the trade-offs the user dismissed, first (an undo pops policy keys, so the policy is read after it)
+    trades = {t["id"]: t for t in (load(root, "ledger.json") or {}).get("tradeoffs") or []}
+    for c in r["cards"]:
+        d = dec["cards"].get(c["id"])
+        if not c["rule"].startswith("tradeoff.") or not d or d["action"] != "dismiss":
+            continue
+        t = trades.get(c["id"].split(":", 1)[1])
+        if t is None:
+            skipped.append({"card": c["id"], "reason": "trade-off not in the ledger"})
+        elif t.get("undone") or d.get("applied_at"):
+            already.append(c["id"])
+        elif d.get("etag") != c["etag"]:
+            skipped.append({"card": c["id"], "reason": "stale: the trade-off changed since you chose to undo it; re-confirm"})
+        elif c["rule"] == "tradeoff.edit":  # nothing to reverse automatically: the ledger keeps it live until the hunk is reverted
+            skipped.append({"card": c["id"], "reason": "hand edit in %s: revert that hunk by hand to undo" % t.get("file")})
+        elif dry_run:
+            applied.append({"card": c["id"], "rule": c["rule"], "kind": "undo", "dry_run": True})
+        else:
+            from . import agent as _agent
+            changed = _agent.undo_tradeoff(root, t["id"]) or []
+            files += changed
+            applied.append({"card": c["id"], "rule": c["rule"], "kind": "undo", "files": changed})
     p, err = pol.load(root)
     if err:
         raise SystemExit("router.policy.json: %s (fix or delete it; nothing applied)" % err)
     unlocks = load(root, "unlocks.json", {"sites": {}})
     scan = load(root, "scan.json", {"sites": []})
     by_id = {s["id"]: s for s in scan["sites"]}
+    try:  # clients as the code stands now (card ids from `improve` carry current lines)
+        from . import agent as _agent
+        by_id.update({s["id"]: s for s in _agent._scan(root)["sites"] if s["kind"] == "client"})
+    except Exception:
+        pass
     for c in r["cards"]:
         d = dec["cards"].get(c["id"])
-        if not d or d["action"] != "approve":
+        if not d or d["action"] != "approve" or c["rule"].startswith("tradeoff."):  # approving a trade-off keeps it: nothing to do
             continue
         if d.get("etag") != c["etag"]:
             skipped.append({"card": c["id"], "reason": "stale: the code or catalog changed since approval; re-confirm"})
@@ -188,6 +296,24 @@ def apply_decisions(root, catalog, dry_run=False):
                     for name, entry in patch[kind].items():
                         p = pol.merge_entry(p, (kind, name), entry)
             applied.append({"card": c["id"], "rule": c["rule"], "kind": "policy"})
+        elif c["rule"].startswith("agent.") and c["change"]["kind"] == "code":
+            ch = c["change"]
+            if not ch["file"].endswith(".py"):
+                skipped.append({"card": c["id"], "reason": "TS/JS: apply by hand (%s), then run `finish`" % ch["diff"]})
+                continue
+            if dry_run:
+                applied.append({"card": c["id"], "rule": c["rule"], "kind": "code", "file": ch["file"], "dry_run": True})
+                continue
+            changed, done, sk, rt_rel = apply_py.patch_file(root, ch["file"], {(int(ch["line"]), None): (ch["wrap"], ch["opts"])}, set())
+            if sk or not done:
+                skipped.append({"card": c["id"], "reason": "; ".join(sk.values()) or "constructor not found at %s:%s" % (ch["file"], ch["line"])})
+                continue
+            if rt_rel and not os.path.exists(os.path.join(root, rt_rel)):
+                from .runtime import render
+                open(os.path.join(root, rt_rel), "w").write(render("router_runtime.py", catalog))
+                files.append(rt_rel)
+            files.append(ch["file"])
+            applied.append({"card": c["id"], "rule": c["rule"], "kind": "code", "file": ch["file"]})
         elif c["rule"] in ("unlock.vendor_endpoint", "unlock.stated_loss"):
             sig = r["signals"][c["scope"]["sites"][0]]
             u = sig.get("unlock") or {}
@@ -535,13 +661,18 @@ def bundle(root, repo=None, live_spend_usd=0.0, tests=None):
         hist = (led.get("finish") or {}).get("history") or []
         last = (hist[-1].get("info") or {}).get("tests") if hist else None
         tests = {"before": (led.get("baseline") or {}).get("before"), "after": last}  # v3: the agent's claims, worklist and gate history (absent for rules-only runs)
-    ledger = None
+    ledger, moved = None, None
+    tradeoffs = (led or {}).get("tradeoffs") or []
+    if led:  # v4 headline: production calls on Router (plan_v3 carries the agent's claims), how many at a stated cost, how many stay
+        n = sum(1 for s in prod if s["outcome"] == "migrated" or s["id"] in unlocks["sites"])
+        moved = {"moved": n, "with_tradeoffs": len({t.get("site") for t in tradeoffs if not t.get("undone")}), "stay": len(prod) - n}
     if led:
         ledger = {"claims": [dict(c, key=k) for k, c in sorted((led.get("claims") or {}).items())], "worklist": led.get("worklist") or [],
                   "result": led.get("result"), "cost": led.get("cost") or {},
                   "finish": {"attempts": (led.get("finish") or {}).get("attempts"), "reverted": bool((led.get("finish") or {}).get("reverted")),
                              "last_ok": bool(((led.get("finish") or {}).get("history") or [{}])[-1].get("ok"))}}
     b = {"repo": repo or plan.get("repo") or os.path.basename(os.path.abspath(root)), "root": os.path.abspath(root), "ledger": ledger,
+         "tradeoffs": tradeoffs, "moved": moved,
             "generated": time.strftime("%Y-%m-%dT%H:%M:%S"), "tool_version": "router-migrate v3" if v3 else "router-migrate v2-mvp",
             "stages": stages, "summary": sm,
             "funnel": {"all_gen_ai": len(prod), "router_servable": sm.get("router_eligible", 0), "moved": sm.get("migrated", 0),

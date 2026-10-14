@@ -48,6 +48,8 @@ def repo(tmp_path):
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
     r = rm("run", str(tmp_path), "--skip-verify", cwd=tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
+    from conftest import accept_proposals
+    accept_proposals(tmp_path, rm)  # v4: the agent accepts the rules' proposals (v3 applied them before the agent)
     return tmp_path
 
 
@@ -180,6 +182,8 @@ def test_applied_unlock_stays_applied_after_its_call_moves(tmp_path):
     g("add", "-A")
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
     assert rm("run", str(tmp_path), "--skip-verify", cwd=tmp_path).returncode == 0
+    from conftest import accept_proposals
+    accept_proposals(tmp_path, rm)
     rm("improve", ".", cwd=tmp_path)
     sys.path.insert(0, ROOT)
     from router_migrate import improve
@@ -202,7 +206,8 @@ def test_applied_unlock_stays_applied_after_its_call_moves(tmp_path):
 
 
 def test_unlock_on_an_already_wrapped_client_adds_its_option_once(tmp_path):
-    """In v3 the floor wraps every client; the stated-loss unlock must add drop_betas to that wrap, not wrap it again."""
+    """When the client is already wrapped (in v4: the agent wrapped it), the stated-loss unlock must add drop_betas to that
+    wrap, not wrap it again."""
     sys.path.insert(0, os.path.join(ROOT, "tests"))
     from test_v2 import FILES as V2
     for rel, src in list(V2.items()) + [("tests/test_smoke.py", "def test_ok():\n    assert True\n")]:
@@ -214,7 +219,11 @@ def test_unlock_on_an_already_wrapped_client_adds_its_option_once(tmp_path):
     g("add", "-A")
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
     assert rm("run", str(tmp_path), "--skip-verify", cwd=tmp_path).returncode == 0
-    assert "_router_wrap_anthropic(Anthropic())" in (tmp_path / "svc/agent.py").read_text()  # the floor wrapped it
+    from conftest import accept_proposals
+    accept_proposals(tmp_path, rm)
+    ln = next(i for i, l in enumerate((tmp_path / "svc/agent.py").read_text().splitlines(), 1) if l.startswith("client = Anthropic()"))
+    assert rm("wrap", "svc/agent.py:%d" % ln, cwd=tmp_path).returncode == 0  # v4: the beta-only client is wrapped by the agent
+    assert "_router_wrap_anthropic(Anthropic())" in (tmp_path / "svc/agent.py").read_text()
     rm("improve", ".", cwd=tmp_path)
     sys.path.insert(0, ROOT)
     from router_migrate import improve
@@ -225,3 +234,102 @@ def test_unlock_on_an_already_wrapped_client_adds_its_option_once(tmp_path):
     improve.apply_decisions(str(tmp_path), Catalog.load())
     line = next(l for l in (tmp_path / "svc/agent.py").read_text().splitlines() if l.startswith("client ="))
     assert line == "client = _router_wrap_anthropic(Anthropic(), drop_betas=['prompt-caching-2024-07-31'])", line
+
+
+def _with_tradeoffs(repo):
+    """v4 migrate-by-default: the agent took three moves at a cost (one later undone, one a hand edit) and recorded them."""
+    site = at(repo, "app/jobs.py", "completions.create")
+    led_p = repo / ".router-migrate" / "ledger.json"
+    led = json.load(open(led_p))
+    base = {"site": site, "file": "app/jobs.py", "line": int(site.split(":")[1]), "feature": "app/jobs.py:digest", "at": "2026-10-14T00:00:00"}
+    led["tradeoffs"] = [
+        dict(base, id="T1", levers={"drop_params": ["seed"]}, loses="seed: replies are no longer reproducible run to run",
+             why="Router rejects seed; nothing reads the seeded output", evidence=["app/jobs.py:8"], undone=False),
+        dict(base, id="T2", levers={}, loses="the retry wrapper's custom header", why="moved by hand", evidence=["app/jobs.py:9"], undone=False),
+        dict(base, id="T3", levers={"model_map": {"gpt-x": "gpt-5.4-mini"}}, loses="gpt-x", why="not in catalog", evidence=["PR2"], undone=True)]
+    json.dump(led, open(led_p, "w"))
+    rm("judge", site, "latency", "background", "--why", "cron", "--evidence", "app/cron.py:4", cwd=repo)
+    rm("judge", site, "task", "summarization", "--why", "digest", "--evidence", "app/jobs.py:3", cwd=repo)
+    rm("improve", ".", cwd=repo)
+    return {c["id"]: c for c in json.load(open(repo / ".router-migrate" / "recommendations.json"))["cards"]}
+
+
+def test_tradeoffs_become_applied_cards_and_reach_the_page(repo):
+    cards = _with_tradeoffs(repo)
+    t1, t2, t3 = cards["tradeoff:T1"], cards["tradeoff:T2"], cards["tradeoff:T3"]
+    assert t1["rule"] == "tradeoff.drop_params" and t1["lever_group"] == "tradeoff" and t1["state"] == "applied" and t1["applies"] is False
+    assert t1["title"] == "Moved to Router: app/jobs.py:digest (drops seed)" and t1["loses"] == ["seed: replies are no longer reproducible run to run"]
+    assert json.loads(t1["change"]["diff"]) == {"features": {"app/jobs.py:digest": {"drop_params": ["seed"]}}}
+    assert t1["evidence"]["results"][0]["source"] == "app/jobs.py:8"
+    assert t2["rule"] == "tradeoff.edit" and "hand edit in app/jobs.py" in t2["change"]["diff"]
+    assert t3["state"] == "undone"
+    sys.path.insert(0, ROOT)
+    from router_migrate import improve
+    assert not [c for c in improve.undecided(str(repo)) if c["rule"].startswith("tradeoff.")]  # already applied: nothing to decide
+    b = improve.bundle(str(repo))
+    assert [t["id"] for t in b["tradeoffs"]] == ["T1", "T2", "T3"]
+    assert b["moved"] == {"moved": 1, "with_tradeoffs": 1, "stay": 0}  # one site, two live trade-offs (T3 is undone)
+    imps = {i["id"]: i for i in b["view"]["improvements"]}
+    v1 = imps["tradeoff:T1"]
+    assert v1["kind"] == "tradeoff" and v1["lever"] == "tradeoff" and v1["tradeoffs"] == t1["loses"]
+    assert {"op": "del", "key": "seed", "v": "(dropped)"} in v1["request"]
+    assert v1["code"][0]["file"] == "router.policy.json" and v1["code"][0]["after"] == ['"drop_params": ["seed"]']
+    assert v1["why"].startswith("Router rejects seed") and v1["evidence"] == ["app/jobs.py:8"] and not v1["undone"]
+    assert imps["tradeoff:T2"]["hand_edit"] and imps["tradeoff:T3"]["undone"] and imps["tradeoff:T3"]["impact"]["label"] == "Undone"
+
+
+def test_dismissing_a_tradeoff_undoes_it_on_apply(repo, monkeypatch):
+    _with_tradeoffs(repo)
+    sys.path.insert(0, ROOT)
+    from router_migrate import agent, improve
+    from router_migrate.catalog import Catalog
+    calls = []
+
+    def undo(root, tid):  # stand-in for agent.undo_tradeoff: reverse the levers, mark it undone, return the files changed
+        calls.append(tid)
+        p = os.path.join(root, ".router-migrate", "ledger.json")
+        led = json.load(open(p))
+        t = next(x for x in led["tradeoffs"] if x["id"] == tid)
+        if not t["levers"]:
+            return []
+        t["undone"] = True
+        json.dump(led, open(p, "w"))
+        open(os.path.join(root, "app/jobs.py"), "a").write("# seed restored\n")
+        return ["app/jobs.py"]
+
+    monkeypatch.setattr(agent, "undo_tradeoff", undo, raising=False)
+    improve.decide(str(repo), "tradeoff:T1", "dismiss", reason="undo trade-off", by="ui")
+    improve.decide(str(repo), "tradeoff:T2", "dismiss", reason="undo trade-off", by="ui")
+    log = improve.apply_decisions(str(repo), Catalog.load())
+    assert calls == ["T1"]  # a hand edit is never handed to undo: nothing can reverse it automatically
+    assert {"card": "tradeoff:T1", "rule": "tradeoff.drop_params", "kind": "undo", "files": ["app/jobs.py"]} in log["applied"]
+    assert any(x["card"] == "tradeoff:T2" and "hand edit in app/jobs.py" in x["reason"] for x in log["skipped"])
+    led = json.load(open(repo / ".router-migrate" / "ledger.json"))
+    edit = [e for e in led["edits"] if e["by"] == "decisions"][-1]
+    assert "app/jobs.py" in edit["files"] and "tradeoff:T1" in edit["cards"]
+    again = improve.apply_decisions(str(repo), Catalog.load())  # undone once: never undone twice
+    assert "tradeoff:T1" in again["already_applied"] and calls.count("T1") == 1
+    rm("improve", ".", cwd=repo)
+    cards = {c["id"]: c for c in json.load(open(repo / ".router-migrate" / "recommendations.json"))["cards"]}
+    assert cards["tradeoff:T1"]["state"] == "undone" and cards["tradeoff:T2"]["state"] == "dismissed"
+
+
+def test_undo_reverses_a_real_adapt_end_to_end(repo):
+    """The agent drops seed with `adapt`; the dashboard's Undo (dismiss) + Apply takes it back out of the compiled policy."""
+    site = at(repo, "app/jobs.py", "completions.create")
+    r = rm("adapt", site, "--drop", "seed", "--loses", "seed: no reproducible replies", "--why", "Router rejects seed", "--evidence", site, "--json", cwd=repo)
+    assert r.returncode == 0, r.stdout + r.stderr
+    tid = json.loads(r.stdout)["tradeoff"]["id"]
+    rm("improve", ".", cwd=repo)
+    sys.path.insert(0, ROOT)
+    from router_migrate import improve
+    from router_migrate.catalog import Catalog
+    assert "seed" in (repo / "router.policy.json").read_text()
+    improve.decide(str(repo), "tradeoff:" + tid, "dismiss", reason="undo trade-off", by="ui")
+    log = improve.apply_decisions(str(repo), Catalog.load())
+    undo = next(x for x in log["applied"] if x["card"] == "tradeoff:" + tid)
+    assert undo["kind"] == "undo" and "router.policy.json" in undo["files"]
+    assert "seed" not in (repo / "router.policy.json").read_text()
+    led = json.load(open(repo / ".router-migrate" / "ledger.json"))
+    assert next(t for t in led["tradeoffs"] if t["id"] == tid)["undone"]
+    assert "tradeoff:" + tid in [e for e in led["edits"] if e["by"] == "decisions"][-1]["cards"]

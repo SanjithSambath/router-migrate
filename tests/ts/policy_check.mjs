@@ -101,6 +101,7 @@ for (const fx of fixtures) {
 await t("no policy / ROUTER_MIGRATE_POLICY=off / invalid policy => identical v1 bodies", async () => {
   const invalid = { version: 1, defaults: { model: "gpt-5-nano" } };
   for (const fx of fixtures) {
+    if (fx.expect.needs_policy) continue; // routes only because of its policy (e.g. a model swap from outside the catalog)
     setPolicy(null);
     const [, v1] = await send(fx.request_path, fx.request);
     if (fx.policy) {
@@ -124,7 +125,7 @@ await t("ROUTER_MIGRATE_POLICY=off disables an applicable policy", async () => {
   try {
     const [rec] = await withEnv({ ROUTER_MIGRATE_POLICY: "off" }, () => send(fx.request_path, fx.request));
     assert.ok(rec.valid);
-    assert.equal(rec.request.service_tier, "default");
+    assert.equal(rec.request.service_tier, undefined);
     assert.ok(!("allow_flex_tier" in rec.request));
     const [on] = await send(fx.request_path, fx.request); // same process, env back on: policy applies again
     assert.equal(on.request.allow_flex_tier, true);
@@ -150,7 +151,7 @@ await t("invalid policies are rejected whole", async () => {
     setPolicy(p);
     const [rec] = await send("/v1/chat/completions", req);
     assert.ok(!("allow_flex_tier" in rec.request), `accepted invalid policy ${JSON.stringify(p)}`);
-    assert.equal(rec.request.service_tier, "default");
+    assert.equal(rec.request.service_tier, undefined);
     assert.equal(rt.routerPolicyFor("src/app.py:ask"), null);
   }
   setPolicy({ version: 1, defaults: ok });
@@ -224,13 +225,13 @@ await t("fallbacks keep a caller service_tier; image input needs image-capable c
   }
 });
 
-await t("fallbacks restore v1's service_tier default when flex is dropped", async () => {
+await t("fallbacks drop flex without forcing a tier (the account default applies to a models list)", async () => {
   setPolicy({ version: 1, defaults: { allow_flex_tier: true, fallbacks: ["gpt-5-mini"] } });
   try {
     const [rec] = await send("/v1/responses", { model: "gpt-5-nano", input: "hi" });
     assert.ok(rec.valid, rec.error);
     assert.deepEqual(rec.request.models, ["gpt-5-nano", "gpt-5-mini"]);
-    assert.equal(rec.request.service_tier, "default");
+    assert.equal(rec.request.service_tier, undefined);
     assert.ok(!("allow_flex_tier" in rec.request));
   } finally {
     setPolicy(null);

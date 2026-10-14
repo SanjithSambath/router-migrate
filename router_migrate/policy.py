@@ -36,7 +36,7 @@ def load(root):
     except ValueError as e:
         return None, "invalid JSON: %s" % e
     if not policy_valid(p):
-        return None, "invalid policy (allowed keys: allow_flex_tier, prompt_cache_key, metadata, fallbacks, provider_timeout; version 1)"
+        return None, "invalid policy (allowed keys: allow_flex_tier, prompt_cache_key, metadata, fallbacks, provider_timeout, service_tier, model_map, drop_params; version 1)"
     return p, None
 
 

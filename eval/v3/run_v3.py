@@ -38,14 +38,19 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "eval"))
 import run_eval as RE  # noqa: E402
 
-RE.SETDIR, RE.WORK = RE.SETS["v3"]
+# RM_EVAL_SET=dev runs the same harness on the original 15 SPEC repos (eval/repos.json, eval/recipes/, prepared envs under
+# eval/work); their results go to eval/v3/runs_dev so they never mix with the v3 set. The dev set has no ground-truth inventory.
+EVAL_SET = os.environ.get("RM_EVAL_SET", "v3")
+if EVAL_SET not in ("v3", "dev"):
+    raise SystemExit("RM_EVAL_SET must be v3 or dev, got %r" % EVAL_SET)
+RE.SETDIR, RE.WORK = RE.SETS[EVAL_SET]
 RE.LOGS = os.path.join(RE.WORK, "logs")
 os.makedirs(RE.LOGS, exist_ok=True)
 import heldout_audit as HA  # noqa: E402
 from router_migrate import plan as planmod, scan_py  # noqa: E402
 from router_migrate.catalog import Catalog  # noqa: E402
 
-RUNS = os.path.join(HERE, "runs")
+RUNS = os.path.join(HERE, "runs" if EVAL_SET == "v3" else "runs_" + EVAL_SET)
 TRIALS = os.path.join(RE.WORK, "trials")
 RM = os.path.join(ROOT, "bin", "router-migrate")
 ARMS = ("A", "B", "B_prime", "C")
@@ -55,11 +60,11 @@ TOKEN_FILE = os.path.expanduser("~/.config/claude/oauth_token")
 
 
 def repos():
-    return {r["name"]: r for r in json.load(open(os.path.join(HERE, "REPOS.json")))}
+    return {r["name"]: r for r in json.load(open(RE.repos_file()))}  # eval/v3/REPOS.json, or eval/repos.json for the dev set
 
 
 def recipe(name):
-    r = json.load(open(os.path.join(HERE, "recipes", name + ".json")))
+    r = json.load(open(os.path.join(RE.SETDIR, "recipes", name + ".json")))
     r["name"] = name
     return r
 
@@ -152,8 +157,8 @@ def line_map(old_path, new_path):
 
 def inventory(name, adjudicated=False):
     p = os.path.join(HERE, "inventory_adjudicated" if adjudicated else "inventory", name + ".json")
-    if adjudicated and not os.path.exists(p):
-        return None
+    if EVAL_SET != "v3" or not os.path.exists(p):
+        return None  # no ground truth (dev set, or no adjudication): scoring reports what it can without it
     d = json.load(open(p))
     return [s for s in d["sites"] if s.get("prod")]
 
@@ -168,20 +173,7 @@ def score(name, measured, reported, adjudicated=False):
     rep_mig = [r for r in reported if r.get("outcome") == "migrated"]
     moved = [s for s in measured if s["outcome"] == "migrated" and
              any(r["file"] == s["file"] and abs(int(r["line"]) - int(s["line"])) <= 3 for r in rep_mig)]
-    pairs, missed, extra = HA.match(inv, moved)
-    # second pass for rewrites (an arm that consolidates or moves calls breaks line matching): pair leftover moved sites with
-    # leftover inventory sites in the same file and call family, ignoring the line. Applied to every arm; counted separately.
-    file_level = 0
-    openai_gen = {"chat", "responses"}  # an OpenAI chat call rewritten to Responses is the same site; Anthropic messages stay messages
-    for p in list(extra):
-        cands = [i for i in missed if i["file"] == p["file"] and (HA.fam(i.get("surface")) == HA.fam(p.get("surface")) or
-                                                                 {HA.fam(i.get("surface")), HA.fam(p.get("surface"))} <= openai_gen)]
-        if cands:
-            best = sorted(cands, key=lambda i: (i["expected"] not in ("migrated", "handoff"), abs(int(i["line"]) - int(p["line"]))))[0]
-            missed.remove(best)
-            extra.remove(p)
-            pairs.append((best, p))
-            file_level += 1
+    pairs, missed, extra, file_level = match_moved(inv, moved)
     good = {"migrated", "handoff"}
     correct = [(i, p) for i, p in pairs if i["expected"] in good]
     wrong = [(i, p) for i, p in pairs if i["expected"] not in good]
@@ -203,6 +195,25 @@ def score(name, measured, reported, adjudicated=False):
         "missed_migrated": [{"file": i["file"], "line": i["line"], "why": i.get("why", "")[:160]} for i in expected_movable
                             if not any(i is a for a, _ in correct)],
     }
+
+
+def match_moved(inv, moved):
+    """Moved sites vs inventory sites: HA.match (same file, call family, within 3 lines), then a second pass for rewrites (an
+    arm that consolidates or moves calls breaks line matching): leftover moved sites pair with leftover inventory sites in the
+    same file and call family, ignoring the line. Applied to every arm; counted separately. Returns (pairs, missed, extra, n)."""
+    pairs, missed, extra = HA.match(inv, moved)
+    file_level = 0
+    openai_gen = {"chat", "responses"}  # an OpenAI chat call rewritten to Responses is the same site; Anthropic messages stay messages
+    for p in list(extra):
+        cands = [i for i in missed if i["file"] == p["file"] and (HA.fam(i.get("surface")) == HA.fam(p.get("surface")) or
+                                                                 {HA.fam(i.get("surface")), HA.fam(p.get("surface"))} <= openai_gen)]
+        if cands:
+            best = sorted(cands, key=lambda i: (i["expected"] not in ("migrated", "handoff"), abs(int(i["line"]) - int(p["line"]))))[0]
+            missed.remove(best)
+            extra.remove(p)
+            pairs.append((best, p))
+            file_level += 1
+    return pairs, missed, extra, file_level
 
 
 def _same_bucket(expected, outcome):
@@ -492,10 +503,22 @@ def score_trial(arm, name):
         L = json.load(open(led))
         row["ledger"] = {"result": L.get("result"), "finish_attempts": (L.get("finish") or {}).get("attempts"),
                          "reverted": bool((L.get("finish") or {}).get("reverted")), "claims": len(L.get("claims") or {}),
-                         "worklist": len(L.get("worklist") or [])}
+                         "worklist": len(L.get("worklist") or []), "tradeoffs": len([t for t in L.get("tradeoffs") or [] if not t.get("undone")])}
+    # sites moved = real Router traffic, against the mechanical movable ground truth (eval/v3/score_moved.py; own file, so
+    # the fields above keep their old meaning)
+    try:
+        import score_moved
+        mv = score_moved.score_one(arm, name, dst=dst, measured=measured, reported=reported, broken=is_broken)
+        row["moved_v4"] = {k: mv.get(k) for k in ("sites_moved", "movable_total", "sites_moved_movable", "sites_moved_wrong",
+                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated")}
+    except Exception as e:
+        row["moved_v4"] = {"error": str(e)[:300]}
     json.dump(row, open(os.path.join(out_dir, "result.json"), "w"), indent=1, default=str)
-    print("%-8s %-30s broken=%s moved=%s (correct %s, wrong %s) usd=%.2f min=%s" % (
-        arm, name, is_broken, row["sites_moved"], row["sites_moved_correct"], row["sites_moved_wrong"], row["usd"], minutes), flush=True)
+    print("%-8s %-30s broken=%s moved=%s (correct %s, wrong %s) valid-traffic moved=%s/%s usd=%.2f min=%s" % (
+        arm, name, is_broken, row.get("sites_moved"), row.get("sites_moved_correct"), row.get("sites_moved_wrong"),
+        row["moved_v4"].get("sites_moved_movable") if row["moved_v4"].get("movable_total") is not None else row["moved_v4"].get("sites_moved"),
+        row["moved_v4"].get("movable_total") or "-",
+        row["usd"], minutes), flush=True)
     return row
 
 

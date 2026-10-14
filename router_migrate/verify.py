@@ -316,6 +316,7 @@ def sim_test_run(root, cmd, timeout, env=None):
                "invalid": [{"path": x["path"], "error": x.get("error"), "model": x.get("model"), "feature": x.get("feature")} for x in recs if not x.get("valid")][:20],
                "features": sorted({x.get("feature") for x in recs if x.get("feature")})[:50]}
         res.update(parse_counts(out))
+        res["tail"] = out[-1500:]
         return res
     finally:
         srv.shutdown()

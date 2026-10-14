@@ -16,7 +16,13 @@ def test_run_end_to_end(tmp_path, capsys, monkeypatch):
     shutil.copytree(os.path.join(HERE, "fixtures", "py", "openai_basic", "before"), work)
     (work / "test_app.py").write_text("import app\n\ndef test_client_exists():\n    assert app.client is not None\n")
     subprocess.run("git init -q && git add -A && git -c user.email=t@t -c user.name=t commit -qm init", shell=True, cwd=work, check=True)
+    # v4 `run` applies nothing: it records the baseline and proposes; the deterministic pipeline is apply -> verify -> report
     cli.main(["run", str(work), "--test-cmd", "%s -m pytest -q -p no:cacheprovider test_app.py" % sys.executable])
+    out = capsys.readouterr().out
+    assert "proposals:" in out and "nothing applied" in out and "_router_wrap_openai" not in open(work / "app.py").read()
+    cli.main(["apply", str(work)])
+    cli.main(["verify", str(work), "--test-cmd", "%s -m pytest -q -p no:cacheprovider test_app.py" % sys.executable])
+    cli.main(["report", str(work)])
     out = capsys.readouterr().out
     assert "migrated" in out and "verify:" in out
     v = json.load(open(work / ".router-migrate" / "verify.json"))

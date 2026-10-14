@@ -651,13 +651,23 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
       var st = s.outcome === "migrated" ? "lossless" : (s.outcome === "flagged" || s.outcome === "handoff") ? "decide" : "left";
       return {id: s.id, fn: base(s.feature || s.file), file: s.file, line: s.line, status: st, provider: s.sdk || "provider", why: s.reason || "", code: [], model: {}, routes: st === "lossless"};
     });
-    var imps = cards().map(function (c) { return {id: c.id, rule: c.rule, title: c.title, summary: "", lever: "other", kind: c.lever_group === "model" ? "model" : "same", impact: {}, request: [], code: [], assumptions: [], tradeoffs: arr(c.loses), features: arr(obj(c.scope).features), conflicts_with: []}; });
+    var imps = cards().map(function (c) { return {id: c.id, rule: c.rule, title: c.title, summary: "", lever: "other", kind: /^tradeoff\./.test(c.rule) ? "tradeoff" : c.lever_group === "model" ? "model" : "same", impact: {}, request: [], code: [], assumptions: [], tradeoffs: arr(c.loses), features: arr(obj(c.scope).features), conflicts_with: []}; });
     var counts = {total: calls.length}; STATUS_ORDER.forEach(function (k) { counts[k] = calls.filter(function (c) { return c.status === k; }).length; });
     counts.routed = counts.lossless + counts.agent + counts.unlocked;
     return {calls: calls, improvements: imps, assumptions: [], counts: counts, considered: [], steps: {}, levers: []};
   }
-  function imps() { return arr(V().improvements); }
-  function impById(id) { return imps().filter(function (x) { return x.id === id; })[0]; }
+  function allImps() { return arr(V().improvements); }
+  function imps() { return allImps().filter(function (i) { return i.kind !== "tradeoff"; }); }
+  function impById(id) { return allImps().filter(function (x) { return x.id === id; })[0]; }
+  // trade-offs: moves the agent already made at a stated cost. "kept" (live), "undo" (dismissed, undone on Apply) or "undone"
+  function trades() { return allImps().filter(function (i) { return i.kind === "tradeoff"; }); }
+  function tradeState(i) {
+    var c = cardById(i.id) || {}, d = decisionOf(i.id);
+    if (c.state === "undone" || i.undone) return "undone";
+    return d.action === "dismiss" && (!d.etag || !c.etag || d.etag === c.etag) ? "undo" : "kept";
+  }
+  function tradesLive() { return trades().filter(function (i) { return tradeState(i) !== "undone"; }); }
+  function undoPending() { return trades().filter(function (i) { return tradeState(i) === "undo"; }); }
   function calls() { return arr(V().calls); }
   function callById(id) { return calls().filter(function (c) { return c.id === id; })[0]; }
   function isModel(i) { return i.kind === "model"; }
@@ -670,7 +680,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function decided() { return imps().filter(function (i) { var s = stateOf(i.id); return s === "dismissed" || s === "postponed" || s === "shadow_first" || notChosen(i); }); }
   function safeOne(i) { var c = cardById(i.id) || {}; return i.kind === "same" && num(c.risk) != null && c.risk <= 1 && !arr(i.conflicts_with).length; }
   function judgmentCalls() { return calls().filter(function (c) { return c.status === "decide"; }); }
-  function todoCount() { return waiting().length + approved().length + judgmentCalls().length; }
+  function todoCount() { return waiting().length + approved().length + undoPending().length + judgmentCalls().length; }
   function setupItems() { return arr(B && B.setup); }
   function setupKey(it) { return "rm.setup." + ((B && B.repo) || "repo") + "." + it.id; }
   function setupDone(it) { var v = store(setupKey(it)); if (v === "1") return true; if (v === "0") return false; return !!it.done; }
@@ -795,7 +805,8 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     if (!LIVE || S.busy) return;
     S.busy = id; renderAll();
     var i = impById(id);
-    decide(id, action, extra).then(function () { toast(DONE[action] + ": " + (i ? i.title : id)); })
+    var done = i && i.kind === "tradeoff" ? (action === "dismiss" ? "Undo queued, Apply to undo" : "Kept") : DONE[action];
+    decide(id, action, extra).then(function () { toast(done + ": " + (i ? i.title : id)); })
       .catch(function (e) { toast("Couldn’t save the decision: " + e.message, true); })
       .then(function () { S.busy = null; renderAll(); refresh(true); });
   }
@@ -854,6 +865,9 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
 
   // ---------------- overview: where things stand ----------------
   function headline() {
+    var m = obj(B && B.moved), mv = num(m.moved) || 0, st = num(m.stay) || 0, tr = num(m.with_tradeoffs) || 0;
+    if (mv || st) return mv + " production LLM " + plural(mv, "call") + " moved to Router" + (tr ? ", " + tr + " with " + plural(tr, "a trade-off", "trade-offs") : "") +
+      "; " + st + " " + (st === 1 ? "stays on its" : "stay on their") + " provider.";
     var c = obj(V().counts), t = c.total || 0, r = c.routed || 0;
     if (!t) return "No production LLM calls were found in this repo.";
     if (r === t) return (t === 1 ? "Its one LLM call goes" : "All " + t + " LLM calls go") + " through Router.";
@@ -904,6 +918,9 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     if (nOther) bits.push([nOther, plural(nOther, "change") + " with a trade-off"]);
     if (nModel) bits.push([nModel, "model " + plural(nModel, "change") + " to test"]);
     if (jc.length) bits.push([jc.length, plural(jc.length, "call") + " for your judgment"]);
+    var tl = tradesLive().length, up = undoPending().length;
+    if (up) bits.unshift([up, plural(up, "undo", "undos") + " ready to apply"]);
+    if (tl - up) bits.push([tl - up, "moved with a trade-off (undo any)"]);
     var door3 = '<button class="door' + (todo ? " hot" : "") + '" type="button" data-tab="decisions"><div class="door-top"><span class="ic">' + icon("inbox") + '</span><div class="t"><div class="eyebrow">Your turn</div><h3>Decisions</h3></div></div>' +
       '<div class="door-big"><span class="v">' + fmtInt(todo) + '</span><span class="u">' + (todo ? "waiting on you" : "all clear") + "</span></div>" +
       '<div class="mini">' + (bits.length ? bits.map(function (b) { return "<span><b>" + b[0] + "</b>" + esc(b[1]) + "</span>"; }).join("") : "<span>Every change has been decided.</span>") + "</div>" +
@@ -1009,6 +1026,10 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
 
   // ---------------- improvement card (shared by Improve and Decisions) ----------------
   function stateBadge(i) {
+    if (i.kind === "tradeoff") {
+      var ts = tradeState(i);
+      return ts === "undone" ? '<span class="pill">Undone</span>' : ts === "undo" ? '<span class="pill solar">Undo pending · Apply to undo</span>' : '<span class="pill live">' + icon("check") + "On Router</span>";
+    }
     var s = stateOf(i.id), d = decisionOf(i.id);
     if (stale(i.id)) return '<span class="pill warn">' + icon("warn") + "Code changed · re-confirm</span>";
     if (s === "applied") return '<span class="pill live">' + icon("check") + "Live</span>";
@@ -1023,20 +1044,21 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function bodyHtml(i) {
     var code = arr(i.code).map(codeHtml).join(""), req = reqHtml(i.request);
     if (!code && !req) return "";
-    var lbl = isModel(i) ? "You would change" : i.kind === "unlock" ? "Code change" : "Policy change";
+    var lbl = i.kind === "tradeoff" ? "What moved" : isModel(i) ? "You would change" : i.kind === "unlock" ? "Code change" : "Policy change";
     return '<div class="imp-grid">' + (code ? '<div class="blk"><div class="lbl">' + lbl + "</div>" + code + "</div>" : "") + (req ? '<div class="blk"><div class="lbl">Each request to Router</div>' + req + "</div>" : "") + "</div>";
   }
   function impHtml(i, opts) {
     opts = opts || {};
     var s = stateOf(i.id), partner = partnerOf(i), h = [];
-    var cls = s === "applied" ? " is-live" : s === "approved" ? " is-ok" : "";
+    var cls = i.kind === "tradeoff" ? (tradeState(i) === "undo" ? " is-ok" : "") : s === "applied" ? " is-live" : s === "approved" ? " is-ok" : "";
     h.push('<article class="card imp' + cls + '" id="imp-' + esc(i.id) + '"><div class="imp-h"><span class="ic">' + icon(leverOf(i.lever)[2]) + '</span><div class="t"><h3>' + esc(i.title) +
       (opts.suggested ? '<span class="badge-sug">Suggested</span>' : "") + "</h3><p>" + esc(i.summary) + "</p></div>" + impactHtml(i) + "</div>");
     if (!opts.brief) h.push(bodyHtml(i));
     var notes = [];
     if (!opts.brief) {
       arr(i.assumptions).forEach(function (a) { notes.push('<div class="note agent">' + icon("agent") + "<div><b>Agent’s reading:</b> " + esc(a.text) + "." + evHtml(a.evidence) + "</div></div>"); });
-      arr(i.tradeoffs).forEach(function (t) { notes.push('<div class="note trade">' + icon("warn") + "<div><b>" + (i.kind === "unlock" ? "You give up:" : "Trade-off:") + "</b> " + esc(cap(t)) + "</div></div>"); });
+      arr(i.tradeoffs).forEach(function (t) { notes.push('<div class="note trade">' + icon("warn") + "<div><b>" + (i.kind === "unlock" || i.kind === "tradeoff" ? "You give up:" : "Trade-off:") + "</b> " + esc(cap(t)) + "</div></div>"); });
+      if (i.kind === "tradeoff" && (i.why || arr(i.evidence).length)) notes.push('<div class="note agent">' + icon("agent") + "<div><b>Why the agent took it:</b> " + esc(cap(i.why)) + evHtml(i.evidence) + "</div></div>");
       if (i.conflict_note && !opts.inPair && s === "new" && !notChosen(i)) notes.push('<div class="note trade">' + icon("branch") + "<div><b>Either/or:</b> " + esc(i.conflict_note) + "</div></div>");
     }
     if (notes.length) h.push('<div class="notes">' + notes.join("") + "</div>");
@@ -1048,6 +1070,15 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
   function footHtml(i, partner, opts) {
     var s = stateOf(i.id), dis = !LIVE || S.busy ? " disabled" : "", tip = LIVE ? "" : ' title="' + esc(FROZEN_NOTE) + '"';
     var h = ['<div class="imp-f">' + stateBadge(i) + '<span class="meta">' + esc(i.fn) + '</span><span class="sp"></span>'];
+    if (i.kind === "tradeoff") {  // already in the code: Undo records a dismiss, and Apply reverses the move
+      var ts = tradeState(i);
+      if (ts === "undone" || opts.readonly) h.push("");
+      else if (i.hand_edit) h.push('<span class="meta">Hand edit: revert that hunk to undo</span>');
+      else if (ts === "undo") h.push('<button class="btn ghost" type="button" data-act="decide" data-a="approve" data-id="' + esc(i.id) + '"' + dis + tip + ">" + busyLabel(i.id, "Keep it") + "</button>" +
+        '<button class="btn primary" type="button" data-act="apply"' + dis + tip + ">" + busyLabel("apply", "Apply now") + "</button>");
+      else h.push('<button class="btn" type="button" data-act="undo" data-id="' + esc(i.id) + '"' + dis + tip + ">" + busyLabel(i.id, "Undo") + "</button>");
+      return h.join("") + "</div>";
+    }
     if (s === "applied" || opts.readonly) { h.push("</div>"); return h.join(""); }
     if (s === "approved") {
       h.push('<button class="btn ghost" type="button" data-act="form" data-k="dismiss" data-id="' + esc(i.id) + '"' + dis + tip + ">Withdraw</button>");
@@ -1117,6 +1148,8 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     var h = [], w = waiting(), ap = approved(), jc = judgmentCalls(), n = todoCount();
     h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Your turn</div><h1>Decisions</h1><p class="sub">' + (n ? "Everything that waits on you, most useful first. Approving records your choice; Apply writes it to the code, and it moves to Improve." : "Nothing waits on you. Live changes are on Improve.") + "</p></div></header>");
     h.push(frozenBanner());
+    var tl = tradesLive();
+    if (tl.length) h.push(grp("Migrated with trade-offs", "The agent moved these to Router at a stated cost. Undo puts one back as it was when you Apply.", "var(--amber)", tl));
     var safe = w.filter(function (i) { return safeOne(i) && !isModel(i); }), pairs = [], seen = {}, trade = [], unl = [], models = [];
     w.forEach(function (i) {
       if (safe.indexOf(i) >= 0) return;
@@ -1138,7 +1171,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     if (jc.length) h.push('<div class="group"><div class="group-h" style="--c:var(--amber)"><span class="eyebrow">Calls for your judgment · ' + jc.length + "</span><p>The tool left these where they are; moving them would change who pays or what runs.</p></div>" +
       '<div class="panel">' + jc.map(function (c) { return '<div class="prow st st-decide"><span class="sdot"></span><div class="tx"><div class="tt">' + esc(c.fn) + ' <span class="mono" style="color:var(--text-3);font-weight:400">' + esc(base(c.file)) + ":" + esc(c.line) + "</span></div><div class=\"ss\">" + esc(c.why) + '</div></div><button class="link" type="button" data-go-call="' + esc(c.id) + '">See the call' + icon("arrow") + "</button></div>"; }).join("") + "</div></div>");
     if (!n) h.push('<div class="panel empty" style="margin-top:32px"><b>All clear.</b> ' + (live().length ? live().length + " " + plural(live().length, "improvement is", "improvements are") + " live. " : "") + '<button class="link" type="button" data-tab="improve">Open Improve' + icon("arrow") + "</button></div>");
-    var d = decided();
+    var d = decided().concat(trades().filter(function (i) { return tradeState(i) === "undone"; }));
     if (d.length) h.push('<div class="group">' + more("decided", "Decided earlier (" + d.length + ")", '<div class="stack">' + d.map(function (i) { return impHtml(i, {brief: true, readonly: true}); }).join("") + "</div>") + "</div>");
     return h.join("");
   }
@@ -1264,10 +1297,11 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
 
   // ---------------- sticky apply bar ----------------
   function renderSticky() {
-    var el = document.getElementById("sticky"), n = approved().length;
+    var el = document.getElementById("sticky"), a = approved().length, u = undoPending().length, n = a + u;
     if (!B || !n || S.tab === "setup" || S.tab === "audit") { el.innerHTML = ""; S.stickyN = 0; return; }
     var first = !S.stickyN; S.stickyN = n;
-    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + "</b> approved " + plural(n, "change") + " ready to apply</span><span class=\"sp\"></span>" +
+    var what = u ? (a ? a + " approved " + plural(a, "change") + " and " : "") + u + " " + plural(u, "undo", "undos") : "approved " + plural(a, "change");
+    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx">' + (u ? "<b>" + n + "</b> ready to apply: " + esc(what) : "<b>" + n + "</b> " + esc(what) + " ready to apply") + "</span><span class=\"sp\"></span>" +
       (LIVE ? "" : '<span class="tx" style="font-size:12.5px">Frozen report: apply from the live dashboard.</span>') +
       '<button class="btn primary lg" type="button" data-act="apply"' + (!LIVE || S.busy ? " disabled" : "") + ">" + busyLabel("apply", "Apply " + n + " " + plural(n, "change")) + "</button></div></div>";
   }
@@ -1318,6 +1352,7 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
     var a = t.getAttribute("data-act"), id = t.getAttribute("data-id");
     if (a === "filter") { S.filter = t.getAttribute("data-v"); renderAll(false); }
     else if (a === "decide") doDecide(id, t.getAttribute("data-a"));
+    else if (a === "undo") doDecide(id, "dismiss", {reason: "undo trade-off"});
     else if (a === "approve-safe") doApproveMany(waiting().filter(function (i) { return safeOne(i) && !isModel(i); }).map(function (i) { return i.id; }));
     else if (a === "apply") doApply();
     else if (a === "close-result") { S.applyResult = null; renderAll(false); }

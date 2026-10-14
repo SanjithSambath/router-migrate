@@ -508,7 +508,7 @@ class _Visitor(cst.CSTVisitor):
             if isinstance(op, (cst.SimpleString, cst.ConcatenatedString, cst.FormattedString)):
                 continue
             src = self.module.code_for_node(op)
-            if re.search(r"\b(os\.environ|getenv|environ\b|env\[|settings\.|config\.|CONFIG|SETTINGS)", src):
+            if re.search(r"\b(os\.environ|getenv|environ\b|env\[|settings[.\[]|config[.\[]|conf[.\[]|cfg[.\[]|CONFIG|SETTINGS)", src):
                 continue
             base = op
             while isinstance(base, (cst.Attribute, cst.Subscript)):

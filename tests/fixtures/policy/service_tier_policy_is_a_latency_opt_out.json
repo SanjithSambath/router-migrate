@@ -1,0 +1,39 @@
+{
+ "name": "service_tier_policy_is_a_latency_opt_out",
+ "policy": {
+  "version": 1,
+  "globs": {
+   "**src/app.py:ask": {
+    "service_tier": "default",
+    "provider_timeout": 30
+   }
+  }
+ },
+ "feature": "src/app.py:ask",
+ "request_path": "/v1/chat/completions",
+ "request": {
+  "model": "gpt-4o-mini",
+  "messages": [
+   {
+    "role": "user",
+    "content": "hi"
+   }
+  ],
+  "max_tokens": 32,
+  "metadata": {
+   "feature": "src/app.py:ask"
+  }
+ },
+ "expect": {
+  "router_path": "/v1/responses",
+  "body_has": {
+   "model": "gpt-4o-mini",
+   "service_tier": "default",
+   "provider_timeout": 30
+  },
+  "body_lacks": [
+   "allow_flex_tier",
+   "models"
+  ]
+ }
+}

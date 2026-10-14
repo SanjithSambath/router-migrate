@@ -311,6 +311,8 @@ def _pct(p):
 def _impact(c):
     im = c.get("impact") or {}
     p = im.get("per_call_pct")
+    if c["rule"].startswith("tradeoff."):
+        return {"label": "Undone" if c.get("state") == "undone" else "", "tone": "neutral"}  # the card's badge says it is on Router
     if c["rule"] == "cache.key":
         m = re.search(r"-(\d+)%", im.get("detail") or "")
         return {"label": "−%s%% on cached input" % m.group(1) if m else "Cheaper repeats", "tone": "save"}
@@ -339,6 +341,8 @@ def _request(c, f, model, b):
     except (ValueError, TypeError):
         patch = {}
     entry = ((patch.get("features") or {}).get(f) or {}) if f else {}
+    if r.startswith("tradeoff."):
+        return _tradeoff_request(ri.get("levers") or {}, m)
     if r == "tier.flex_background":
         return [{"op": "keep", "key": "model", "v": m}, {"op": "del", "key": "service_tier", "v": '"default"'},
                 {"op": "add", "key": "allow_flex_tier", "v": "true"}]
@@ -362,6 +366,22 @@ def _request(c, f, model, b):
         new = ri.get("candidate") or ri.get("replacement") or (re.findall(r"to ([\w.:-]+)$", c["change"].get("diff") or "") or [None])[0]
         return [{"op": "del", "key": "model", "v": m}, {"op": "add", "key": "model", "v": _q(new) if new else "…"}]
     return []
+
+
+def _tradeoff_request(lv, m):
+    """What a trade-off changed in each request (the levers the agent took)."""
+    out = []
+    for h in lv.get("unlock_hosts") or []:
+        out += [{"op": "del", "key": "endpoint", "v": h}, {"op": "add", "key": "endpoint", "v": "api.router.com"}]
+    if lv.get("drop_betas"):
+        out.append({"op": "del", "key": "anthropic-beta", "v": ", ".join(lv["drop_betas"])})
+    for old, new in sorted((lv.get("model_map") or {}).items()):
+        out += [{"op": "del", "key": "model", "v": _q(old)}, {"op": "add", "key": "model", "v": _q(new)}]
+    for k in lv.get("drop_params") or []:
+        out.append({"op": "del", "key": k, "v": "(dropped)"})
+    if lv.get("operator_key_only"):
+        out.append({"op": "keep", "key": "api key", "v": "only the operator's key goes to Router; other keys stay on the provider"})
+    return out
 
 
 def _policy_change(c, f):
@@ -409,6 +429,17 @@ def _wrap_preview(line, fn, kw):
 
 def _code_change(c, f, root, post_blocks, judgments, applied):
     r, ri = c["rule"], c.get("rule_inputs") or {}
+    if r.startswith("tradeoff."):
+        ch = c["change"]
+        out = [x for x in [_policy_change(c, f) if ch.get("kind") == "policy" else None] if x]
+        file_, _, line = (((c.get("scope") or {}).get("sites") or [""])[0]).rpartition(":")
+        file_, line = ch.get("file") or file_, ch.get("line") or (int(line) if line.isdigit() else 0)
+        if ch.get("kind") == "code" or ch.get("wrap"):
+            near = [b for b in _near(post_blocks.get(file_), line, 1) if abs(int(b["line"]) - int(line)) <= 20]
+            out += [{"file": file_, "line": b["line"], "before": _trim(b["before"]), "after": _trim(b["after"]), "by": "agent"} for b in near]
+            if not near:
+                out.append({"file": file_, "line": line, "before": [], "after": ["# " + ch.get("diff", "")], "by": "agent"})
+        return out
     if c["change"].get("kind") == "policy":
         pc = _policy_change(c, f)
         return [pc] if pc else []
@@ -461,6 +492,13 @@ def _plain_judgment(key, val):
 def _sentence(c, f, model, b):
     r, ri = c["rule"], c.get("rule_inputs") or {}
     _, fn = short(f)
+    if r.startswith("tradeoff."):
+        site = ((c.get("scope") or {}).get("sites") or [f])[0]
+        if c.get("state") == "undone":
+            return c["title"], "Undone: %s is back on its provider as it was." % site
+        if r == "tradeoff.edit":
+            return c["title"], "%s goes through Router after a hand edit by the agent; revert that hunk to undo it." % site
+        return c["title"], "%s goes through Router. The agent took the move and recorded what it costs; Undo reverses it." % site
     if r == "tier.flex_background":
         return "Run %s on Flex" % fn, "Half price per call for a job nobody waits on. Replies can take up to about a minute."
     if r == "fallback.candidates":
@@ -492,6 +530,7 @@ def improvements_view(b, root, post_blocks):
         sig_by_feat.setdefault(s.get("feature"), s)
     judgments = ((b.get("run") or {}).get("judgments")) or {}
     dec = (b.get("decisions") or {}).get("cards") or {}
+    trades = {t.get("id"): t for t in b.get("tradeoffs") or []}
     out = []
     for c in r.get("cards") or []:
         feats = (c.get("scope") or {}).get("features") or []
@@ -513,14 +552,19 @@ def improvements_view(b, root, post_blocks):
                 l = "a different model answers every request, so check quality on real traffic first (shadow it)"
             trade.append(l)
         out.append({
-            "id": c["id"], "rule": c["rule"], "lever": LEVER.get(c["rule"], "other"), "title": title, "summary": summary,
+            "id": c["id"], "rule": c["rule"], "lever": "tradeoff" if c["rule"].startswith("tradeoff.") else LEVER.get(c["rule"], "other"), "title": title, "summary": summary,
             "tool_title": c.get("title"), "features": feats, "fn": short(f)[1] if f else ("%d features" % len(feats) if feats else ""),
-            "kind": "model" if c.get("lever_group") == "model" or c.get("applies") is False else "unlock" if c["rule"].startswith("unlock.") else "same",
+            "kind": "tradeoff" if c["rule"].startswith("tradeoff.") else "model" if c.get("lever_group") == "model" or c.get("applies") is False
+            else "unlock" if c["rule"].startswith("unlock.") else "same",
             "impact": _impact(c), "request": _request(c, f, model, b),
             "code": _code_change(c, f, root, post_blocks, judgments, applied), "assumptions": assumptions,
             "facts": c.get("tool_facts") or [], "tradeoffs": trade, "conflicts_with": c.get("conflicts_with") or [],
             "conflict_note": c.get("conflict_note"), "suggested": c["rule"] == "tier.flex_background" and bool(c.get("conflicts_with")),
             "options": c.get("options") or []})
+        if c["rule"].startswith("tradeoff."):  # what moved, why the agent took it, and whether Undo can reverse it
+            t = trades.get((c.get("rule_inputs") or {}).get("tradeoff")) or {}
+            out[-1].update(why=t.get("why") or "", evidence=t.get("evidence") or [], site=t.get("site"), undone=c.get("state") == "undone",
+                           hand_edit=c["rule"] == "tradeoff.edit")
     return out
 
 
