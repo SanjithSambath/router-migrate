@@ -1,29 +1,32 @@
-"""router-migrate: move a codebase's production LLM calls onto Ramp's Router, without breaking it.
+"""router-migrate: move a codebase's production LLM traffic onto Ramp's Router, without breaking it. An agent does the work
+(migrate, improve, apply what you approve, undo what you reject); this CLI gives it facts, a sandbox, Router access and an
+outside check it can't influence.
 
 In Claude Code (any model): /router-migrate, or
-  router-migrate start  [PATH]        set up (map every LLM call, baseline in the background); print the agent's instructions
-  ...the session migrates with its own tools and the commands below, and writes .router-migrate/MIGRATION.json...
-  router-migrate finish [PATH]        the outside check, improvement cards, REPORT.html and the dashboard (prints its URL)
+  router-migrate start  [PATH]        clean tree required; branch router-migrate/migration; prints the agent's instructions
+  ...the session migrates and reviews improvements, commits, and writes .router-migrate/MIGRATION.json...
+  router-migrate finish [PATH]        the outside check on the migration and every improvement branch; the dashboard
+  router-migrate apply  [PATH]        hand your approvals and undos to the agent; it ends with `router-migrate apply --done`
 
 Headless (CI, evals):
-  router-migrate run PATH --agent claude [--model M]   start -> a headless agent session -> finish
+  router-migrate run PATH --agent claude [--model M]   start -> agent -> finish
+  router-migrate apply PATH --agent claude              the apply session, headless
 
 Agent tools (run from the repository root; FILE:LINE accepts a comma-separated list):
-  router-migrate check --all | FILE:LINE    does each call route to Router now, why not, and the fix
-  router-migrate check --run "CMD"          run CMD against a local Router simulator; which calls sent valid requests
+  router-migrate check --all | FILE:LINE    does each call route to Router now, and why not
+  router-migrate check --run "CMD" [--live] run CMD against the local Router simulator, or the real Router with the migration key
   router-migrate check --final [--tests]    dry run of the outside check
-  router-migrate levers [FILE:LINE]         model, Flex tier, price, and what the rules suggest or reject per migrated call
-  router-migrate wrap | unwrap FILE:LINE    exact codemods at a client construction
-  router-migrate adapt FILE:LINE --LEVER --loses "..."   take a trade-off (shown with an undo); adapt --undo T<n>
+  router-migrate levers [MODEL|FILE:LINE]   Router levers, catalog prices and same-family models (live with a key), hints
+  router-migrate wrap | unwrap FILE:LINE    exact codemods at a client construction (optional)
+  router-migrate adapt FILE:LINE --LEVER --loses "..."   a policy trade-off: drop a parameter, map a model (optional)
 
-Review and apply (or use the dashboard):
+Review (or use the dashboard):
   router-migrate dashboard [PATH]           REPORT.html + the live dashboard
-  router-migrate decide CARD approve|dismiss|postpone|shadow-first
-  router-migrate apply PATH --decisions     apply approved cards (policy compile / codemod options / trade-off undo)
-  router-migrate status [PATH]              effective policy per feature, hash check, undecided cards
+  router-migrate request ITEM apply|undo|dismiss|postpone
 
-Nothing changes at runtime until RAMP_ROUTER_API_KEY is set; ROUTER_MIGRATE_DISABLE=1 turns it off again.
-Earlier pipelines (scan, plan, verify, report, up, recommend, probe, claim, card, improve, judge) still run; see archive/README.md.
+The migration key (optional; enables live checks): ~/.config/router-migrate/key or ROUTER_MIGRATE_KEY. Never printed.
+Nothing changes in production until RAMP_ROUTER_API_KEY is set in the app's environment; ROUTER_MIGRATE_DISABLE=1 turns it off.
+Earlier pipelines (scan, plan, verify, report, up, recommend, decide, probe, claim, card, improve, judge) still run; see archive/README.md.
 """
 import argparse
 import difflib
@@ -268,10 +271,15 @@ def do_report(root, quiet=False):
 
 LEGACY_HELP = {"scan": "find LLM clients, call sites, raw HTTP and env usage (Python + TS/JS)",
                "plan": "bucket every site with exact reasons; dry-run diff",
-               "apply": "--decisions: apply approved cards (legacy: vendor the runtime and patch every client)",
+               "apply": "hand your approvals and undos to the agent (prints the session for Claude Code; --agent claude runs it; --done finishes it)",
                "verify": "tests before vs after, syntax/type checks, requests replayed against router-sim",
-               "report": "REPORT.md + report.json", "run": "start -> agent -> finish (--agent claude [--model M])"}
-HIDDEN = {"scan", "plan", "verify", "report", "up", "recommend", "probe", "claim", "card", "improve", "judge", "_baseline", "_fulltest"}
+               "report": "REPORT.md + report.json", "run": "headless: start -> agent -> finish (--agent claude [--model M])"}
+HIDDEN = {"scan", "plan", "verify", "report", "up", "recommend", "decide", "probe", "claim", "card", "improve", "judge", "_baseline", "_validate"}
+
+
+def _v6_ledger(path):
+    from . import agent as agentmod
+    return (agentmod.load_ledger(agentmod.ledger_root(path or ".")) or {}).get("version") == 6
 
 
 def main(argv=None):
@@ -292,7 +300,11 @@ def main(argv=None):
             sp.add_argument("--budget", type=float, default=0.25, help="USD cap for --live replay (default 0.25)")
             sp.add_argument("--timeout", type=int, default=1800)
         if name == "apply":
-            sp.add_argument("--decisions", action="store_true", help="apply approved cards from .router-migrate/decisions.json")
+            sp.add_argument("--decisions", action="store_true", help="legacy: apply approved v2 cards from .router-migrate/decisions.json")
+            sp.add_argument("--done", action="store_true", help="the apply session is finished: validate APPLY.json, re-check, log it")
+            sp.add_argument("--agent", choices=["claude"], help="run the apply session headless instead of printing it")
+            sp.add_argument("--model")
+            sp.add_argument("--agent-timeout", type=int, default=2700)
         if name == "run":
             sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
             sp.add_argument("--typecheck-cmd", help="typecheck command; its error count is the baseline finish compares against")
@@ -330,7 +342,7 @@ def main(argv=None):
     s_st.add_argument("--json", action="store_true")
     # the v5 surface, in the order a user meets it; earlier pipelines stay runnable but unadvertised
     import re as _re
-    order = ["start", "finish", "run", "check", "levers", "wrap", "unwrap", "adapt", "dashboard", "decide", "apply", "status"]
+    order = ["start", "finish", "run", "check", "levers", "wrap", "unwrap", "adapt", "dashboard", "request", "apply", "status"]
     acts = {x.dest: x for x in sub._choices_actions}
     for x in acts.values():
         x.help = _re.sub(r"^v\d( improve)?: ", "", x.help or "")
@@ -340,7 +352,12 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
-    if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve", "start", "levers", "dashboard", "_baseline", "_fulltest"):
+    if a.cmd == "apply" and not getattr(a, "decisions", False) and (getattr(a, "done", False) or getattr(a, "agent", None) or
+                                                                     _v6_ledger(a.path)):
+        from . import harness
+        return harness.cmd_apply(a)
+    if a.cmd in ("check", "wrap", "unwrap", "adapt", "probe", "claim", "card", "finish", "run", "judge", "improve", "start", "levers",
+                 "dashboard", "_baseline", "_validate", "request"):
         from . import agent as agentmod
         if a.cmd != "run" or not getattr(a, "dry_run", False):
             return agentmod.dispatch(a)

@@ -584,8 +584,7 @@ def cmd_run(a):
     root = os.path.abspath(a.path)
     if getattr(a, "arm", None) or getattr(a, "agent", None):
         from . import harness
-        a.arm = getattr(a, "arm", None) or "min"
-        return harness.run_d3(root, a)
+        return harness.run_v6(root, a)
     if _git(root, "rev-parse", "--is-inside-work-tree").returncode:
         return err(a.json, "%s is not a git repository" % root, "run `git init && git add -A && git commit -m base` first (the baseline is snapshotted with git)")
     prev = load_ledger(root)
@@ -1923,6 +1922,7 @@ def add_parsers(sub):
     s.add_argument("--run", help="shell command to run with the runtime pointed at router-sim (provider keys dummied, offline)")
     s.add_argument("--final", action="store_true", help="dry run of the final check that runs after the agent (tests skipped unless --tests)")
     s.add_argument("--tests", action="store_true", help="with --final: also run the test suite Router-on against the baseline")
+    s.add_argument("--live", action="store_true", help="with --run: the real Router, with the migration key injected into that command only")
     s.add_argument("--timeout", type=int, default=PROBE_TIMEOUT)
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
@@ -1953,24 +1953,34 @@ def add_parsers(sub):
     s.add_argument("--latency-critical", action="store_true", help="this call needs the default tier, not Flex (cite why in --why)")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
-    s = sub.add_parser("start", help="Claude Code: set up (map every LLM call, baseline in the background) and print the instructions")
+    s = sub.add_parser("start", help="clean tree required; branch router-migrate/migration; baseline in the background; prints the "
+                                     "migrate + improve instructions for the agent (Claude Code: your session)")
     s.add_argument("path", nargs="?", default=".")
     s.add_argument("--test-cmd")
     s.add_argument("--typecheck-cmd")
-    s = sub.add_parser("levers", help="improvement facts for migrated calls (Flex tier, price, suggested cards, why not)")
-    s.add_argument("loc", nargs="?", help="FILE:LINE[,...] (default: every migrated call)")
+    s = sub.add_parser("levers", help="Router facts for improvement work: the lever table, catalog rows and same-family alternatives "
+                                      "(live with a key), and the old rules' hints at a call site")
+    s.add_argument("loc", nargs="?", help="MODEL[,MODEL] and/or FILE:LINE[,...] (default: the catalog by vendor)")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
     s = sub.add_parser("dashboard", help="write REPORT.html and open the live dashboard (detached; prints its URL)")
     s.add_argument("path", nargs="?", default=".")
     s.add_argument("--serve", action="store_true", help=argparse_suppress())
     s.add_argument("--no-browser", action="store_true")
-    for hidden in ("_baseline", "_fulltest"):
+    for hidden in ("_baseline", "_validate"):
         s = sub.add_parser(hidden)
         s.add_argument("path")
         s.add_argument("--test-cmd")
         s.add_argument("--typecheck-cmd")
-    s = sub.add_parser("adapt", help="v4: take a trade-off so a site moves to Router, and record what it costs (shown on the dashboard with an undo)")
+    s = sub.add_parser("request", help="record what you want for an item: apply (an improvement), undo, dismiss, postpone (the "
+                                       "dashboard does the same); `router-migrate apply` then hands the list to the agent")
+    s.add_argument("item", help="item id from MIGRATION.json (shown on every dashboard card)")
+    s.add_argument("action", choices=["apply", "undo", "dismiss", "postpone"])
+    s.add_argument("--reason")
+    s.add_argument("--until", help="YYYY-MM-DD (postpone)")
+    s.add_argument("--path", default=".")
+    s.add_argument("--json", action="store_true")
+    s = sub.add_parser("adapt", help="optional helper: a policy trade-off (drop a parameter Router rejects, map a model) recorded with what it costs")
     s.add_argument("loc", nargs="?", help="FILE:LINE of the call site (or its client construction)")
     s.add_argument("--undo", metavar="T<n>", help="reverse trade-off T<n> (policy keys and client options; a hand edit you revert yourself)")
     s.add_argument("--drop", help="request parameters to drop on Router-bound requests (comma-separated); max_tokens is raised to 16, name folded into the text")
@@ -1993,8 +2003,9 @@ def add_parsers(sub):
     s.add_argument("--evidence", action="append")
     s.add_argument("--path", default=".")
     s.add_argument("--json", action="store_true")
-    s = sub.add_parser("finish", help="the outside check (parse, scope, typecheck, tests with Router on vs the baseline, route truth), "
-                                      "then improvement cards, REPORT.html and the dashboard; a second failure reverts the offending files")
+    s = sub.add_parser("finish", help="the outside check once, on the migration branch and every improvement branch (parse, "
+                                      "typecheck, tests with Router on vs the baseline, existing tests unchanged, route truth; "
+                                      "flags for you); then the dashboard. Never reverts anything")
     s.add_argument("path", nargs="?", default=".")
     s.add_argument("--hook", action="store_true", help="Claude Code Stop hook mode (JSON decision on stdout)")
     s.add_argument("--max-attempts", type=int, default=3)
@@ -2041,16 +2052,16 @@ def argparse_suppress():
 
 def dispatch(a):
     from . import harness
-    v5 = {"start": harness.cmd_start, "levers": harness.cmd_levers, "dashboard": harness.cmd_dashboard,
-          "_baseline": harness.cmd_baseline, "_fulltest": harness.cmd_fulltest}
-    if a.cmd in v5:
-        return v5[a.cmd](a)
-    if a.cmd == "finish" and (load_ledger(ledger_root(a.path)) or {}).get("version") == 5:
+    v6 = {"start": harness.cmd_start, "levers": harness.cmd_levers, "dashboard": harness.cmd_dashboard,
+          "_baseline": harness.cmd_baseline, "_validate": harness.cmd_validate, "request": harness.cmd_request}
+    if a.cmd in v6:
+        return v6[a.cmd](a)
+    if a.cmd == "finish" and (load_ledger(ledger_root(a.path)) or {}).get("version") == 6:
         return harness.cmd_finish(a)
-    if a.cmd == "check" and (getattr(a, "final", False)):
-        return harness.cmd_verify(a)
+    if a.cmd == "check" and (getattr(a, "final", False) or getattr(a, "live", False)):
+        return harness.cmd_check(a)
     if a.cmd == "check" and (getattr(a, "all", False) or getattr(a, "run", None) or not a.loc or "," in a.loc
-                             or (load_ledger(ledger_root(a.path)) or {}).get("version") == 5):
+                             or (load_ledger(ledger_root(a.path)) or {}).get("version") == 6):
         return harness.cmd_check(a)
     if a.cmd in ("wrap", "unwrap", "adapt") and "," in (a.loc or ""):
         return _each({"wrap": cmd_wrap, "unwrap": cmd_unwrap, "adapt": cmd_adapt}[a.cmd], a)

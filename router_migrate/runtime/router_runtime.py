@@ -967,7 +967,7 @@ def _plan_request(req, opts):
     if (host in _OPENAI_HOSTS or host in (opts.get("unlock_hosts") or ())) and (path.endswith("/chat/completions") or path.endswith("/responses")):
         if opts.get("operator_key_only") and host in _OPENAI_HOSTS and not _operator_key_ok(req, "openai"):
             return _kept("not the operator's key (operator_key_only)")
-        feature = _feature()
+        feature = req.headers.get(FEATURE_HEADER) or _feature()  # the app's own label when it passes one
         body = _adapt(json.loads(req.content or b"{}"), feature, opts.get("origin"))
         rid = _resolve_for(body, feature, opts.get("origin"))
         prev = body.get("previous_response_id") if path.endswith("/responses") else None
@@ -994,7 +994,7 @@ def _plan_request(req, opts):
             return _kept("not the operator's key (operator_key_only)")
         if _load_policy():
             _policy_log("messages", "not applied on /v1/messages (Router-only fields are Responses-only; model_map applies)")
-        feature = _feature()
+        feature = req.headers.get(FEATURE_HEADER) or _feature()  # the app's own label when it passes one
         body = _adapt(json.loads(req.content or b"{}"), feature, opts.get("origin"))
         rid = _resolve_for(body, feature, opts.get("origin"))
         if not rid or ("anthropic", rid) in _DENIED:

@@ -1101,7 +1101,9 @@ function planRequest(input: any, init: any, opts?: RouterOpts): Plan | null {
   }
   if (!plainObject(body)) return null;
   if (opts?.operatorKeyOnly && !unlocked && !operatorKeyOk(new Headers(init.headers || (typeof input === "object" ? input.headers : undefined)), isAnthropic)) return null;
-  const feat = featureTagOn() ? feature() : undefined;
+  // the app's own feature label when it passes one (x-router-migrate-feature on the request), else the calling file:function
+  const given = new Headers(init?.headers || (typeof input === "object" ? input.headers : undefined)).get("x-router-migrate-feature");
+  const feat = given ? given.slice(0, 200) : featureTagOn() ? feature() : undefined;
   body = adapt(body, feat, opts?.origin);
   let items: any[] | undefined;
   let chained = false;

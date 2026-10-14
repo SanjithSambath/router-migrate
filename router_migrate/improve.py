@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import re
+import subprocess
 import time
 
 from . import apply_py, policy as pol, recommend as rec_mod
@@ -203,6 +204,16 @@ def _ts_policy_import(root, runtime_rel):
     ext = os.path.splitext(runtime_rel)[1]
     if ext == ".ts":
         spec = "./routerPolicy"
+        # copy the convention of the import the agent wrote for the runtime (e.g. '../lib/routerRuntime.js' under NodeNext)
+        try:
+            used = subprocess.run(["git", "grep", "-h", "-E", r"""['"][^'"]*routerRuntime(\.js)?['"]"""], cwd=root,
+                                  capture_output=True, text=True, timeout=20).stdout
+            m = re.search(r"""['"][^'"]*routerRuntime(\.js)?['"]""", used)
+            if m:
+                return ('import "%s"; // router-migrate: compiled policy (router.policy.json)\n'
+                        % ("./routerPolicy.js" if m.group(1) else "./routerPolicy"), "routerPolicy.ts")
+        except (OSError, subprocess.SubprocessError):
+            pass
         try:
             pkg = json.load(open(os.path.join(root, "package.json")))
             ts = open(os.path.join(root, "tsconfig.json")).read().lower()

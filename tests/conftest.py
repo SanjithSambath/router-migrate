@@ -13,6 +13,14 @@ from router_migrate.runtime import render  # noqa: E402
 from router_migrate.sim.server import serve  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_real_migration_key(monkeypatch, tmp_path_factory):
+    """Tests never see a real migration key (this machine may have ~/.config/router-migrate/key)."""
+    monkeypatch.delenv("ROUTER_MIGRATE_KEY", raising=False)
+    monkeypatch.setenv("ROUTER_MIGRATE_KEY_FILE", str(tmp_path_factory.getbasetemp() / "no-migration-key"))
+    monkeypatch.setenv("ROUTER_MIGRATE_NO_BROWSER", "1")
+
+
 @pytest.fixture(scope="session")
 def sim():
     srv, s, base = serve()

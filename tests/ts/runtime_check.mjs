@@ -462,6 +462,10 @@ await t("L6 unexpected request shapes go to the provider unchanged", async () =>
     });
   }
 });
+await t("the app's own feature label (x-router-migrate-feature) wins over the stack", async () => {
+  await client.chat.completions.create({ model: "gpt-4o-mini", messages: HI }, { headers: { "x-router-migrate-feature": "composer" } });
+  const l = await lastReq(); assert.ok(l.valid); assert.equal(l.request.metadata.feature, "composer");
+});
 await t("feature tag off: no metadata.feature, no automatic prompt_cache_key", async () => {
   await withEnv({ ROUTER_MIGRATE_FEATURE_TAG: "off" }, async () => {
     await client.chat.completions.create({ model: "claude-haiku-4-5", messages: HI });
