@@ -1,34 +1,38 @@
 #!/usr/bin/env python3
-"""Sites moved = real Router traffic, scored against a mechanical "movable" ground truth (the migrate-by-default stance).
+"""Scorer v5: every ground-truth site in exactly one bucket; moved = real Router traffic (the migrate-by-default stance).
 
-A site counts as MOVED only if the arm reports it migrated AND it actually sends a valid Router request:
-  (a) dynamic evidence: the harness re-ran the agent's recorded probes on the final code against router-sim and saw a valid
-      request from the site's feature (ablation_b2.reverify); when the trial tree is gone, the ledger's `confirmations`; or
-  (b) static: the code routes it (run_v3.measure: wrapped client / client pointed at Router) AND a representative request
-      built from the site's static kwargs (verify.replay's shape: literal kwargs, literal model else a default) is routed by
-      the *current* vendored runtime's plan_request under the arm's compiled policy (router_policy.py / router.policy.json in
-      the trial tree; drop_params / model_map trade-offs apply), and router-sim accepts the request Router would get (a
-      Router rejection falls back to the provider in production, so it is not Router traffic). Sites on a client pointed at
-      Router by hand (no runtime) are sent to router-sim as written.
+Every movable site (movable(): mechanical, from the inventory fields) gets one bucket per run: moved_verified,
+moved_unverified, surfaced_for_decision, correctly_kept, claimed_not_routing or missed; a verified move of a site that is not
+movable is `wrong`. one_approval_away = moved_verified + surfaced_for_decision. The headline `moved` (sites_moved_movable)
+stays verified Router traffic: the arm claims the site AND
+  (a) dynamic: the harness re-ran the agent's recorded probes on the final code against router-sim right after the trial and
+      saw a valid request from the site or from the client it uses (reverify.json; ablation_b2.reverify); or
+  (b) static: the product's route check (router_migrate.route_check.check_sites, what the agent sees as `check --all`) sends
+      a representative request built from the call's static kwargs through the real vendored runtime with the trial tree's
+      compiled policy and wrap options, and router-sim accepts it (a Router rejection falls back to the provider in
+      production, so it is not Router traffic).
+Claims come from the arm's own report (raw_decisions: floor plan, ledger claims, MIGRATION_REPORT.json or MIGRATION.json), a
+decision naming the site or the client construction its call uses; with no such decision the code is the report (a call it
+sends through the runtime is claimed). Report lines are resolved against the pristine source both ways (current lines mapped
+back through the trial's diff hunks, or pristine lines: resolve_line). Destructive edits (removed provider-key references,
+deleted files, deleted classes/functions) come from each run's diff.patch.
 
-Ground truth (no LLM adjudication): movable(site) over the inventory fields. movable = prod AND an LLM generation call AND not
-a hard limit: Router has no endpoint (embeddings, images, audio/tts/transcription, files, moderation, legacy completions, model
-lists), provider-side state actually used, a local/self-hosted model, or the app's own proxy/gateway. Wrong move = a moved site
-that is not movable (hard limit, non-production, non-LLM); broken repos are reported beside it.
+Ground truth (no LLM adjudication): movable = prod AND an LLM generation call AND not a hard limit: Router has no endpoint
+(embeddings, images, audio/tts/transcription, files, moderation, legacy completions, model lists), provider-side state actually
+used, a local/self-hosted model, or the app's own proxy/gateway.
 
   .venv/bin/python eval/v3/score_moved.py classify                 # per-repo movable table + every not-movable site
   .venv/bin/python eval/v3/score_moved.py score [--arms A,C] [--only repo,..] [--jobs 4]
                                                                     # runs/<arm>/<repo>/sites_moved.json, then report
   .venv/bin/python eval/v3/score_moved.py report                   # eval/v3/SITES_MOVED.md + sites_moved.json
-RM_EVAL_SET=dev scores eval/v3/runs_dev (no inventory: moved = valid Router traffic only); RM_EVAL_SET=heldout2 scores
-eval/heldout2/runs against eval/heldout2/inventory (tables written beside it).
+  .venv/bin/python eval/v3/score_moved.py results                  # eval/RESULTS.md from both sets' report JSON
+RM_EVAL_SET=heldout scores eval/heldout/runs_agents (tables in eval/heldout/SITES_MOVED_HELDOUT.md); RM_EVAL_SET=dev scores
+eval/v3/runs_dev (no inventory: moved = valid Router traffic only); RM_EVAL_SET=heldout2 scores eval/heldout2/runs.
 
 Invalid runs are written (sites_moved.json with `invalid`) but never counted: an infrastructure failure (the transcript ends
-in an API error, or the agent produced no output) or an agent arm with a decision channel (ledger claims, B2's report, D3's
-MIGRATION.json) that decided nothing. Such a run is not scored from the rules' proposals or the code as it stands.
-Lines the agent edited map back to the pristine source through the trial's own diff (run_v3.PristineMap: the hunks of
-diff.patch), not a whole-file alignment; $ comes from the agent transcript (result total_cost_usd, or summed per-message
-usage at list prices when it timed out).
+in an API error, or the agent produced no output) or an agent arm with a decision channel that decided nothing. A run that
+never ran, was interrupted before scoring, or has no trial tree is `not_run` (run_status). $ comes from the agent transcript
+(result total_cost_usd, or summed per-message usage at list prices when it timed out); minutes from agent.json for every arm.
 """
 import argparse
 import glob
@@ -324,8 +328,9 @@ def resolve_line(pm, f, ln, anchors):
 
 
 def resolve_decisions(decs, pm, anchors):
-    """Pristine lines for every decision (anchors: {file: [pristine lines of known sites]}), then later decisions override
-    earlier ones at the same place (a claim overrides the floor plan's verdict on that site)."""
+    """Pristine lines for every decision (anchors: {file: [pristine lines of known sites]}), then a later channel's decision
+    overrides an earlier channel's at the same place (a claim overrides the floor plan's verdict on that site); entries of
+    one report never override each other (neighbouring branches are separate decisions)."""
     out = []
     for d in decs:
         d = dict(d)
@@ -333,7 +338,7 @@ def resolve_decisions(decs, pm, anchors):
             a, how = resolve_line(pm, d["file"], d["line"], anchors.get(d["file"], ()))
             b = a + (d["line_end"] - d["line"])
             d.update(line_raw=d["line"], line=a, line_end=b, reading=how)
-        out = [x for x in out if not (x["file"] == d["file"] and x["line"] - 3 <= d["line"] <= x["line_end"] + 3)]
+        out = [x for x in out if x["source"] == d["source"] or not (x["file"] == d["file"] and x["line"] - 3 <= d["line"] <= x["line_end"] + 3)]
         out.append(d)
     return out
 
@@ -446,9 +451,14 @@ class Coverage:
         """(decision, how) or (None, None). lines: the site's pristine line(s) (inventory line and its scanner call's)."""
         direct = [d for d in self.decs if any(_near(d, f, ln) for ln in lines)]
         if direct:
-            return sorted(direct, key=lambda d: min(abs(d["line"] - ln) for ln in lines))[0], "direct"
+            dist = lambda d: min(0 if d["line"] <= ln <= d["line_end"] else min(abs(d["line"] - ln), abs(d["line_end"] - ln)) for ln in lines)
+            return sorted(direct, key=lambda d: (dist(d), d["line_end"] - d["line"]))[0], "direct"
+        linked = bool(s is not None and _ids(s))
         ids = self.clients_for(f, lines[0], s)
-        via = [d for d in self.decs if d["_clients"] & ids]
+        # a claim (or a probe) credits only the calls the scanner links to the client; the same-class / only-client fallback
+        # for calls the scanner can't see only carries a keep or a needs-decision (an embeddings call beside a chat client in
+        # one file is not served by it)
+        via = [d for d in self.decs if d["_clients"] & ids and (linked or d["bucket"] != "migrated")]
         if via:
             return (next((d for d in via if d["bucket"] == "migrated"), via[0])), "client"
         # a move is only ever claimed for a named site or client: a claim on one branch of a function says nothing about
@@ -470,6 +480,15 @@ def _through(s):
         (s.get("kind") == "module_client" and s.get("installed"))
 
 
+def claimed_by(d, how, s, has_channel=True):
+    """Does the arm claim this site as moved? A decision naming the site or its client says so (migrated) or not (anything
+    else). With no such decision, the code is the report: a call the code sends through the runtime is claimed (for B /
+    B_prime, which have no report, that is the only rule). Function / group decisions never claim a move."""
+    if has_channel and d is not None and how in ("direct", "client"):
+        return d["bucket"] == "migrated"
+    return bool(s is not None and _through(s))
+
+
 KEEP_NEEDS_TRADEOFF = True  # a keep is correct on a movable site only when moving it takes a trade-off (movable()'s hint)
 
 
@@ -483,21 +502,20 @@ def classify(inv, static, clients, decisions, checks, dyn, scope=None, has_chann
     pairs, _, extra = HA.match(prod, static)
     np_pairs, _, extra = HA.match([i for i in inv if not i.get("prod")], extra)  # a moved test/script call is a wrong move too
     s_of = {id(i): s for i, s in pairs + np_pairs}
-    dyn_at = lambda f, lines, ids: next((x for x in dyn if any(x["file"] == f and abs(int(x["line"]) - ln) <= 3 for ln in lines) or
-                                         any(_near(dict(file=c["file"], line=c["line"]), x["file"], x["line"]) for c in clients
-                                             if c["id"] in ids)), None)
+    gen = {"chat", "responses", "messages"}
+    dyn_at = lambda f, lines, ids, surface: next((x for x in dyn if any(x["file"] == f and abs(int(x["line"]) - ln) <= 3 for ln in lines) or
+                                                  (HA.fam(surface) in gen and any(_near(dict(file=c["file"], line=c["line"]), x["file"], x["line"])
+                                                                                  for c in clients if c["id"] in ids))), None)
     rows = []
     for i in inv:
         mv, why_not, hint = movable(i, operator_key)
         s = s_of.get(id(i))
         lines = [int(i["line"])] + ([int(s["line"])] if s else [])
         d, how = cov.cover(i["file"], lines, s)
-        claimed = (d is not None and d["bucket"] == "migrated" and how in ("direct", "client")) if has_channel else \
-            bool(s is not None and _through(s))
+        claimed = claimed_by(d, how, s, has_channel)
         ck = checks.get(s["id"]) if s else None
         routes = bool(ck and ck.get("routes"))
-        ids = cov.clients_for(i["file"], lines[0], s)
-        dx = dyn_at(i["file"], lines, ids) if claimed else None
+        dx = dyn_at(i["file"], lines, _ids(s), i.get("surface")) if claimed else None  # a probe at a client: its scanner-linked calls
         visible = s is not None and (_through(s) or bool(_ids(s)) or s.get("kind") == "module_client")
         row = {"file": i["file"], "line": i["line"], "surface": i.get("surface"), "prod": bool(i.get("prod")), "movable": mv,
                "why_not_movable": why_not, "hint": hint, "expected_old": i.get("expected"),
@@ -531,7 +549,7 @@ def classify(inv, static, clients, decisions, checks, dyn, scope=None, has_chann
     openai_gen = {"chat", "responses"}
     for s in extra:
         d, how = cov.cover(s["file"], [int(s["line"])], s)
-        claimed = (d is not None and d["bucket"] == "migrated" and how in ("direct", "client")) if has_channel else _through(s)
+        claimed = claimed_by(d, how, s, has_channel)
         ck = checks.get(s["id"]) or {}
         if not (claimed and ck.get("routes")):
             continue
@@ -550,7 +568,7 @@ def classify(inv, static, clients, decisions, checks, dyn, scope=None, has_chann
         if id(s) in paired:
             continue
         d, how = cov.cover(s["file"], [int(s["line"])], s)
-        claimed = (d is not None and d["bucket"] == "migrated" and how in ("direct", "client")) if has_channel else _through(s)
+        claimed = claimed_by(d, how, s, has_channel)
         if claimed and (checks.get(s["id"]) or {}).get("routes"):
             unmatched.append({"file": s["file"], "line": s["line"], "surface": s.get("surface"), "evidence": "static: valid Router request"})
     counts = {b: sum(1 for r in rows if r["movable"] and r["bucket"] == b) for b in BUCKETS}
@@ -685,10 +703,18 @@ def score_one(arm, name, dst=None, measured=None, reported=None, broken=None):
         anchors.setdefault(x["file"], []).append(int(x["line"]))
     decisions = resolve_decisions(raw_decisions(arm, dst, name, out_dir), pm, anchors)
     # (a) dynamic evidence: the harness re-runs the agent's recorded probes (cached per run in reverify.json)
+    # The record the harness made right after the trial wins: re-running the probes later is not reproducible (a repo's
+    # shared env has its editable install re-pointed at whichever trial copy ran last, and the cache key moves once
+    # score_trial `git add`s the tree), so a fresh re-run happens only for a run that has no record.
     dyn, dyn_src = [], None
-    if led and (led.get("probes") or {}) and not fallback:
+    rv_p = os.path.join(out_dir, "reverify.json")
+    if led and (led.get("probes") or {}) and os.path.exists(rv_p):
+        rv = json.load(open(rv_p))
+        when = "after the trial" if str(rv.get("at") or "") <= str(res.get("scored_at") or "") else "at an earlier rescoring"
+        dyn, dyn_src = rv.get("sites") or [], "harness re-ran the agent's probes %s (reverify.json, %s)" % (when, rv.get("at"))
+    elif led and (led.get("probes") or {}) and not fallback:
         try:
-            dyn, dyn_src = B.reverify(dst, name), "harness re-ran the agent's probes"
+            dyn, dyn_src = B.reverify(dst, name), "harness re-ran the agent's probes at rescoring (no record from the trial)"
         except Exception as e:
             dyn_src = "reverify failed: %s" % str(e)[:200]
     elif led and led.get("confirmations"):
@@ -758,7 +784,7 @@ def score_one(arm, name, dst=None, measured=None, reported=None, broken=None):
         moved, lost = [], []
         for s in static:
             d, how = cov.cover(s["file"], [int(s["line"])], s)
-            claimed = (d is not None and d["bucket"] == "migrated" and how in ("direct", "client")) if has_ch else _through(s)
+            claimed = claimed_by(d, how, s, has_ch)
             if not claimed:
                 continue
             ck = checks.get(s["id"]) or {}
@@ -1032,6 +1058,209 @@ def _tests(t):
     return "exit %s" % t.get("exit")
 
 
+# ------------------------------------------------------------------------------------------------ eval/RESULTS.md (both sets)
+PRE_V5 = "c4ade05"  # the last commit scored by the pre-v5 scorer (the "before" column of the scorer change table)
+SETS_FOR_RESULTS = (("dev", "eval/v3/runs", "eval/v3/sites_moved.json", "eval/v3/SITES_MOVED.md"),
+                    ("held-out", "eval/heldout/runs_agents", "eval/heldout/sites_moved_heldout.json", "eval/heldout/SITES_MOVED_HELDOUT.md"))
+
+
+def _git(*args):
+    return subprocess.run(["git"] + list(args), cwd=R.ROOT, capture_output=True, text=True)
+
+
+def before_v5(runs_rel):
+    """Per arm, the pre-v5 scorer's totals over its valid runs (the sites_moved.json files saved at PRE_V5)."""
+    out = {}
+    for p in _git("ls-tree", "-r", "--name-only", PRE_V5, runs_rel).stdout.split():
+        if not p.endswith("/" + OUT_NAME):
+            continue
+        try:
+            r = json.loads(_git("show", "%s:%s" % (PRE_V5, p)).stdout)
+        except ValueError:
+            continue
+        if r.get("invalid"):
+            continue
+        t = out.setdefault(r["arm"], {"runs": 0, "moved": 0, "movable": 0, "wrong": 0, "usd": 0.0, "minutes": 0.0, "repos": {}})
+        t["runs"] += 1
+        t["moved"] += r.get("sites_moved_movable") or 0
+        t["movable"] += r.get("movable_total") or 0
+        t["wrong"] += r.get("sites_moved_wrong") or 0
+        t["usd"] += r.get("usd") or 0
+        t["minutes"] += r.get("minutes") or 0
+        t["repos"][r["repo"]] = r.get("sites_moved_movable")
+    return out
+
+
+def _arm_table(d):
+    L = ["| arm | runs scored | moved (verified) / movable | moved unverified | one approval away | surfaced | correctly kept | "
+         "claimed, not routing | missed | wrong | destructive edits (runs) | broken repos | $ | minutes |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for a in sorted(d["arms"], key=_arm_key):
+        t = d["arms"][a]
+        L.append("| %s | %s | **%d** / %d | %d | %d | %d | %d | %d | %d | %d | %d (%d) | %d/%d | %.2f | %s |" % (
+            a, _runs_cell(t), t["moved_verified"], t["movable"], t["moved_unverified"], t["one_approval_away"], t["surfaced_for_decision"],
+            t["correctly_kept"], t["claimed_not_routing"], t["missed"], t["wrong"], t["destructive"], t["destructive_runs"], t["broken"],
+            t["runs"], t["usd"], _min_cell(t)))
+    return L
+
+
+def _repo_table(d):
+    arms = sorted(d["arms"], key=_arm_key)
+    L = ["| repo | movable | " + " | ".join(arms) + " |", "|---|---|" + "---|" * len(arms)]
+    for n in d["repos"]:
+        cells = []
+        for a in arms:
+            st = d["status"][a][n]["status"]
+            r = d["per_repo"][a].get(n)
+            cells.append(_cell(r) if st == "scored" and r else {"invalid": "inv", "running": "running"}.get(st, "-"))
+        L.append("| %s | %d | %s |" % (n, d["movable_per_repo"].get(n, 0), " | ".join(cells)))
+    return L
+
+
+METHOD = """## Method
+
+**Ground truth.** Each repo's blind inventory (`eval/v3/inventory*/`, `eval/heldout/inventory/`) lists every LLM call site.
+`movable()` in `eval/v3/score_moved.py` classifies each one mechanically from the inventory's fields (no LLM judgment): a site
+is movable when it is production code, an LLM generation call, and not a hard limit (no Router endpoint: embeddings, images,
+audio, files, moderation, legacy completions, model lists; provider-side state actually used; a local/self-hosted model; the
+app's own proxy; an end user's own key in an app with no operator key). Movable sites whose move takes a trade-off (another
+vendor's endpoint, a per-user key, Azure/Bedrock hosting, beta flags, a raw-HTTP or other-SDK call) stay movable, with the
+trade-off recorded as a hint.
+
+**Moved** (the headline traffic metric) = the arm claims the site AND it sends a valid Router request: the scanner's call is
+sent, as a representative request built from its static kwargs, through the real vendored runtime with the trial tree's
+compiled policy (model_map / drop_params / drop_betas apply) to router-sim and accepted (the product's own route check,
+`router_migrate.route_check.check_sites`, i.e. what the agent sees as `check --all`); or the harness re-ran the agent's own
+recorded probes on the final code right after the trial and saw a valid request from that site or from the client it uses.
+Trial-tree lines map back to the pristine source through the trial's own diff hunks; a line in an arm's report is read both as
+a current and as a pristine line, and the reading that lands on a known site wins.
+
+**Claims.** A decision in the arm's report that names the site, or the client construction its call uses, says whether the
+arm claims it (migrated) or not (anything else). With no such decision the code is the report: a call the code sends through
+the runtime is claimed. Arms without a report (B, B_prime) are judged by their code only. A and the floor arms (C, B2) report
+through the floor plan plus the agent's claims / MIGRATION_REPORT.json; Cnf and D through ledger claims; D3 through
+MIGRATION.json.
+
+**Buckets.** Every movable site gets exactly one:
+
+| bucket | meaning |
+|---|---|
+| moved_verified | claimed and verified as above (the `moved` count) |
+| moved_unverified | claimed, but the scanner sees no client for the call and no probe re-verified it (hand-built / dynamic clients) |
+| surfaced_for_decision | the report hands it to a human: needs_decision / flagged / needs_human / handoff (a floor arm's plan flags count) |
+| correctly_kept | kept / cannot_route with a reason, on a site whose move takes a trade-off (port, vendor or model swap, per-user key, beta flags) |
+| claimed_not_routing | claimed, the static check sees the call, and the route check says it stays on the provider |
+| missed | none of the above: no decision, or a keep of a site that moves with no trade-off |
+
+`wrong` counts verified moves of sites that are not movable (hard limit, non-production). `one_approval_away` = moved +
+surfaced: what ships once a human answers the surfaced questions. A decision covers a site when it names the site (within 3
+lines of the mapped line, or inside a reported range: a call spans lines), names the client construction the call uses (the
+scanner's call-to-client link; for a call the scanner can't see, a client in the same class or the only client in the file),
+or, for keeps and needs-decision only, sits on no site in the same function, or is a group decision on no site in a file of 3+
+sites (a provider table). A move is only ever claimed for a named site or client.
+
+**Destructive edits** per run, from its diff.patch: provider-key references removed and not re-added anywhere in the diff
+(`*_API_KEY` names, `api_key` / `apiKey` config fields; distinct names), deleted files, and deleted classes/functions (not
+re-defined anywhere in the diff).
+
+**$** is the agent transcript's cost (result total_cost_usd, else per-message usage at list prices). **Minutes** is the
+harness's wall clock for the trial (agent.json, written by every arm), else result.json, else the ledger's agent minutes.
+**Broken** = a tests/typecheck regression against the baseline, or the independent check (import smoke + replay), at trial
+time.
+
+**Runs counted.** Invalid runs (an infrastructure failure, or an agent with a decision channel that decided nothing) and
+not-run runs (never started, interrupted before scoring, or no trial tree) are listed under each table and never counted.
+"""
+
+CHANGES = """What changed in the scorer (every change applies to every arm):
+
+1. **Line mapping.** Report lines are resolved both ways (as current lines mapped back through the trial's diff hunks, and as
+   pristine lines); the reading that lands on a known site wins. Before, every report line was read as a current line, so a
+   report mixing conventions (D3 on claude-engineer: `main.py:671` after its import block, `main.py:1227` before it) lost the
+   sites named in the other convention. Range entries (`client.py:283-288 (DeepSeek branch)`) now parse, and entries of one
+   report no longer override their neighbours (only a later channel overrides an earlier one: claims over the floor plan).
+2. **Route check on everything the code sends through the runtime.** Before, only calls the measure-only planner marked
+   `migrated` were route-checked, so a wrapped client whose model only routes under the tree's `model_map` (claude-engineer's
+   dated claude-3-5-sonnet ids; gpt-cli's runtime-chosen Anthropic model) never reached the check. Now every scanner call goes
+   through the product's own route check with the policy and the client's wrap options (drop_betas) applied.
+3. **Client-level credit.** A decision or a re-verified probe anchored at a client construction covers every call that uses
+   that client (gpt-cli `anthropic.py:24` -> the calls at :86 and :109).
+4. **Probe evidence is the record made right after the trial** (reverify.json). Re-running probes later is not reproducible:
+   a repo's shared env has its editable install re-pointed at whichever trial copy ran last.
+5. **Buckets, destructive edits and one_approval_away** are new; `moved` keeps its meaning (verified Router traffic).
+6. **Minutes and $** are read the same way for every arm (agent.json first). Before, D3 runs showed no minutes (the scorer read
+   result.json before the trial had written it) and one D_r2 run (obsidian-copilot) showed $0 and no minutes.
+7. **Coverage.** Runs that never ran, were interrupted before scoring, or have no trial tree are `not_run` and listed.
+"""
+
+NOTES = """## Notes and limits
+
+- **k = 1.** One trial per arm per repo. D_r1 and D_r2 are two replicates of the same arm (D_r1 ran 3 repos). Agent runs vary
+  from run to run; differences of a few sites between arms are within that noise. Read the per-repo cells, not just totals.
+- **The held-out set is partial.** Only the repos listed were attempted; several runs were interrupted (the runner was killed)
+  and are `not_run`; B has one scored held-out repo. Arms are compared on different repo subsets there: compare per repo, with
+  each arm's own denominator, not totals.
+- **The ground truth is mechanical and generous.** Another vendor's endpoint (Gemini, DeepSeek, Cohere, OpenRouter, Groq, ...)
+  counts as movable with a trade-off, so no arm reaches the total; a reasoned keep of such a site is `correctly_kept`, not a
+  miss. BYOK plugins (obsidian-copilot, obsidian-textgenerator-plugin, page-assist) count as movable where the app also holds
+  an operator key; moving an end user's own key is a product decision, so most arms surface or keep those.
+- **Static check limits.** The route check sends one representative request per call (literal kwargs, the literal model else a
+  catalog default); non-literal kwargs are invisible to it. Calls through dynamically built clients the scanner can't see are
+  `moved_unverified` unless a probe re-verified them.
+- **Report lines are the arm's.** When an arm's report names lines that match neither the current nor the pristine file (an
+  intermediate state), the nearest site wins; each per-site row in the SITES_MOVED files says which decision covered it and
+  how (`direct`, `client`, `function`, `group`), so any attribution can be checked by hand.
+- **Destructive edits** count removals in the diff, README/config examples included; they flag a run for review, they are not
+  proof of breakage (broken repos are measured separately).
+"""
+
+
+def results_md(path=None):
+    """eval/RESULTS.md from both sets' report JSON (run `RM_EVAL_SET=v3 ... report` and `RM_EVAL_SET=heldout ... report` first)."""
+    data = {}
+    for label, runs_rel, js, md in SETS_FOR_RESULTS:
+        p = os.path.join(R.ROOT, js)
+        if os.path.exists(p):
+            data[label] = (json.load(open(p)), runs_rel, md)
+    L = ["# Router migration eval: results (scorer v5)", "",
+         "Generated by `eval/v3/score_moved.py results` from the saved runs (rescored with `RM_EVAL_SET=v3|heldout "
+         "eval/v3/score_moved.py score`); no agent was re-run. Per-site rows: %s." % ", ".join("`%s`" % v[2] for v in data.values()), "",
+         METHOD]
+    for label, (d, runs_rel, md) in data.items():
+        L += ["## %s set: %d repo%s (%s)" % (label.capitalize(), len(d["repos"]), "s" if len(d["repos"]) != 1 else "",
+                                            "eval/v3/REPOS.json" if label == "dev" else "eval/heldout, only the repos any arm ran"), "",
+              "Movable sites in these repos: **%d**. Each arm's denominator is the movable sites of the repos it was scored on." % d["movable_total"], ""]
+        L += _arm_table(d)
+        gaps = [(a, n, x) for a in sorted(d["status"], key=_arm_key) for n, x in d["status"][a].items() if x["status"] != "scored"]
+        if gaps:
+            L += ["", "Not counted: " + "; ".join("%s %s (%s: %s)" % (a, n, x["status"], x["why"]) for a, n, x in gaps) + "."]
+        L += ["", "### Per repo (%s)" % label, "",
+              "Cell: moved verified / movable; u unverified, s surfaced, k correctly kept, n claimed but not routing, m missed, w wrong, "
+              "d destructive edits, b broken repo; `-` not run, `inv` invalid.", ""] + _repo_table(d)
+        de = [(a, n, r) for a in sorted(d["per_repo"], key=_arm_key) for n, r in sorted(d["per_repo"][a].items()) if r.get("destructive")]
+        if de:
+            L += ["", "Destructive edits (%s): " % label + "; ".join(
+                "%s %s: %s" % (a, n, _md("; ".join((r.get("destructive_examples") or [])[:3]))) for a, n, r in de) + "."]
+        L += [""]
+    L += ["## Scorer change: pre-v5 -> v5 (same saved runs)", "",
+          "Before = the pre-v5 scorer's sites_moved.json files at commit %s; after = v5. Same runs, same ground truth." % PRE_V5, ""]
+    for label, (d, runs_rel, md) in data.items():
+        old = before_v5(runs_rel)
+        L += ["| %s arm | runs before / after | moved before | moved after | wrong before / after | $ before / after | minutes before / after |" % label,
+              "|---|---|---|---|---|---|---|"]
+        for a in sorted(d["arms"], key=_arm_key):
+            o, t = old.get(a), d["arms"][a]
+            L.append("| %s | %s / %d | %s | %d / %d | %s / %d | %s / %.2f | %s / %.0f |" % (
+                a, o["runs"] if o else "-", t["runs"], ("%d / %d" % (o["moved"], o["movable"])) if o else "-", t["moved_verified"], t["movable"],
+                o["wrong"] if o else "-", t["wrong"], ("%.2f" % o["usd"]) if o else "-", t["usd"], ("%.0f" % o["minutes"]) if o else "-", t["minutes"]))
+        L += [""]
+    L += [CHANGES, NOTES]
+    path = path or os.path.join(R.ROOT, "eval", "RESULTS.md")
+    open(path, "w").write("\n".join(L) + "\n")
+    print("wrote %s" % path)
+    return path
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd")
@@ -1044,6 +1273,7 @@ def main():
     o.add_argument("arm")
     o.add_argument("name")
     sp.add_parser("report")
+    sp.add_parser("results", help="eval/RESULTS.md from both sets' report JSON")
     a = ap.parse_args()
     if a.cmd == "classify":
         cmd_classify(a)
@@ -1053,6 +1283,8 @@ def main():
         print(json.dumps({k: v for k, v in score_one(a.arm, a.name).items() if k != "site_buckets"}, indent=1, default=str)[:6000])
     elif a.cmd == "report":
         report()
+    elif a.cmd == "results":
+        results_md()
     else:
         ap.print_help()
 

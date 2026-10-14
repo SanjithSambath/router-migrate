@@ -272,3 +272,40 @@ def test_a_claim_on_one_branch_does_not_claim_the_rest_of_the_table():
     out = SM.classify(inv, [], [], decs, {}, [], scope)
     by = {r["line"]: r["bucket"] for r in out["sites"]}
     assert by == {136: "moved_unverified", 146: "moved_unverified", 165: "missed", 183: "missed"}
+
+
+def test_neighbouring_entries_of_one_report_are_separate_decisions():
+    """D3free on ai-hedge-fund: provider branches 4 lines apart, each with its own entry (ranges included)."""
+    f = "hedge_fund/llm/client.py"
+    raw = [dict(dec(f, 257, "migrated"), source="MIGRATION.json"), dict(dec(f, 261, "migrated"), source="MIGRATION.json"),
+           dict(dec(f, 262, "cannot_route", "Gemini", line_end=264), source="MIGRATION.json")]
+    decs = SM.resolve_decisions(raw, lambda f, n: n, {})
+    assert len(decs) == 3
+    out = SM.classify([inv_site(f, 257, "chat"), inv_site(f, 261, "chat")], [], [], decs, {}, [])
+    assert {r["line"]: r["decision"]["outcome"] for r in out["sites"]} == {257: "migrated", 261: "migrated"}
+    # a claim from a later channel still overrides the floor plan at the same place
+    plan = dict(dec(f, 257, "flagged"), source="plan")
+    assert [d["outcome"] for d in SM.resolve_decisions([plan, raw[0]], lambda f, n: n, {})] == ["migrated"]
+
+
+def test_with_no_decision_on_a_site_the_code_is_the_report():
+    f = "app/llm.py"
+    inv = [inv_site(f, 10), inv_site(f, 30)]
+    static = [call(f, 10, "s10", "cl", outcome="migrated"), call(f, 30, "s30", "cl", outcome="migrated")]
+    ok = {"routes": True, "reason": "valid Router request"}
+    out = SM.classify(inv, static, [], [dec(f, 30, "kept", "keep it")], {"s10": ok, "s30": ok}, [])
+    by = {r["line"]: r["bucket"] for r in out["sites"]}
+    assert by == {10: "moved_verified", 30: "missed"}  # an explicit keep overrides a harmless wrap
+
+
+def test_a_probe_at_a_chat_client_does_not_verify_an_embeddings_call_in_the_same_file():
+    """sec-insights: the only client the scanner sees in llama_index_settings.py is the LLM; the embeddings call beside it is
+    not served by it, so the LLM client's probe can't make the embeddings site a (wrong) move."""
+    f = "backend/app/llama_index_settings.py"
+    inv = [inv_site(f, 14, "chat", sdk="openai"), inv_site(f, 18, "embeddings", sdk="openai")]
+    clients = [{"id": "llm", "file": f, "line": 28, "wrapped": True}]
+    static = [call(f, 14, "s14", "llm", surface="chat")]
+    out = SM.classify(inv, static, clients, [dec(f, 28, "migrated")], {"s14": {"routes": False, "reason": "x"}}, [{"file": f, "line": 28}])
+    by = {r["line"]: r["bucket"] for r in out["sites"]}
+    assert by == {14: "moved_verified", 18: "not_movable"}
+    assert out["counts"]["wrong"] == 0

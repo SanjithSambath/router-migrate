@@ -733,7 +733,9 @@ def score_trial(arm, name):
         import score_moved
         mv = score_moved.score_one(arm, name, dst=dst, measured=measured, reported=reported, broken=is_broken)
         row["moved_v4"] = {k: mv.get(k) for k in ("sites_moved", "movable_total", "sites_moved_movable", "sites_moved_wrong",
-                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated")}
+                                                  "sites_moved_old_gt", "old_gt_total", "tradeoffs", "claimed_migrated", "buckets",
+                                                  "one_approval_away", "minutes")}
+        row["moved_v4"]["destructive"] = (mv.get("destructive") or {}).get("count")
         row["invalid"] = row["invalid"] or mv.get("invalid")
     except Exception as e:
         row["moved_v4"] = {"error": str(e)[:300]}
