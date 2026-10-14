@@ -142,7 +142,8 @@ svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
 .sec-h .t { flex: 1; min-width: 0; }
 .sec-h h2 { font-size: 19px; line-height: 26px; }
 .sec-h p { color: var(--text-2); margin-top: 4px; }
-.sec-h .n { font: 500 12px/18px var(--mono); color: var(--text-3); margin-left: 8px; }
+.sec-h .n, .group-h .n { font: 500 12px/18px var(--mono); color: var(--text-3); margin-left: 8px; }
+.group-h h2 { font-size: 17px; line-height: 24px; }
 .panel { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); }
 .empty { color: var(--text-2); padding: 24px; }
 .empty b { color: var(--text); font-weight: 500; }
@@ -346,9 +347,10 @@ details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
 .lat { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
 
 /* queue */
-.prow { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
 .prow:first-child { border-top: 0; }
-.prow .tx { flex: 1 1 260px; min-width: 0; }
+.prow .tx { min-width: 0; }
+.prow .pa { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
 .prow .ss { color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 3px; overflow-wrap: anywhere; }
 .atag { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; height: 24px; padding: 0 8px; border-radius: 5px; font: 500 11px/14px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); flex: none; }
 .applybar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 16px 18px; border-top: 1px solid var(--line); background: var(--raise); border-radius: 0 0 var(--r) var(--r); }
@@ -482,6 +484,8 @@ a.btn { text-decoration: none; }
   .glp > div { border-left: 0; border-top: 1px solid var(--line); }
   .glp > div:first-child { border-top: 0; }
   .card { padding: 18px 16px; }
+  .ifoot .sp { display: none; }
+  .ifoot .ref { flex: 1 1 100%; }
   .chk { grid-template-columns: minmax(0, 1fr); }
   .ev { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "r k s" "d d d"; gap: 0 8px; padding-bottom: 4px; }
   .ev .r { min-width: 0; }
@@ -508,7 +512,12 @@ a.btn { text-decoration: none; }
   .sess-sum { padding: 0 16px 14px; }
   .rrow { grid-template-columns: minmax(0, 1fr); }
   .rrow .rt { justify-content: flex-start; }
-  .prow { padding: 14px 16px; }
+  .prow { padding: 14px 16px; grid-template-columns: auto minmax(0, 1fr); }
+  .prow .pa { grid-column: 2; justify-content: flex-start; }
+  .prow .pa .btn.ghost { margin-left: -10px; }
+  .prow.dec { grid-template-columns: minmax(0, 1fr); }
+  .prow.dec .pa { grid-column: 1; }
+  .prow.dec > .sc { justify-self: start; }
   .applybar { padding: 14px 16px; }
   .applybar .btn { width: 100%; }
   .row > .lbl { min-width: 0; flex: 1 1 100%; }
@@ -716,9 +725,10 @@ a.btn { text-decoration: none; }
     var x = STATUS[it.status] || [cap(it.status), "neutral"], label = x[0], t = x[1], rq = obj(it.request);
     if (it.status === "postponed" && rq.until) label = it.due ? "Postponed · due " + fmtDate(rq.until) : "Postponed to " + fmtDate(rq.until);
     if (it.due) t = "solar";
+    if (it.in_session) { label = (rq.action === "undo" ? "Undoing" : "Applying") + " · session " + it.in_session; t = "blue"; }
     return [label, t];
   }
-  function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '"><span class="dot"></span>' + esc(s[0]) + "</span>"; }
+  function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '">' + (it.in_session ? '<span class="spin" style="width:10px;height:10px"></span>' : '<span class="dot"></span>') + esc(s[0]) + "</span>"; }
   function callRef(site) {
     var i = callIndex(site), c = i >= 0 ? calls()[i] : null;
     if (!c) return '<span class="cref" title="Not in the calls table">' + esc(site) + "</span>";
@@ -850,7 +860,7 @@ a.btn { text-decoration: none; }
   }
   function modelBox(it) {
     var sbs = arr(it.checked).filter(function (e) { return e.check === "side-by-side"; });
-    return '<div class="mc"><div class="mc-h">' + icon("swap") + '<div class="tx"><b>Answers will differ</b>A different model answers ' + (arr(it.calls).length === 1 ? "this call" : "these calls") + '. ' + (sbs.length ? "Compare the side-by-side results before you approve." : "No side-by-side results: the change is unverified.") + "</div></div>" +
+    return '<div class="mc"><div class="mc-h">' + icon("swap") + '<div class="tx"><b>Answers will differ</b>A different model answers ' + (arr(it.calls).length === 1 ? "this call" : "these calls") + '. ' + (sbs.some(function (e) { return e.result !== "not-run"; }) ? "Compare the side-by-side results before you approve." : "No side-by-side results: the change is unverified.") + "</div></div>" +
       (sbs.length ? '<ul class="evl">' + sbs.map(evRow).join("") + "</ul>" : "") + sbs.map(function (e) { return samplesHtml(e.samples); }).join("") + "</div>";
   }
   function flagsHtml(flags, withItems) {
@@ -869,7 +879,9 @@ a.btn { text-decoration: none; }
     return out ? '<div class="rel">' + out + "</div>" : "";
   }
   function requestNote(it) {
-    var r = it.request; if (!r || r.session) return "";
+    var r = it.request;
+    if (r && it.in_session) return '<div class="note tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><div class="tx"><b>Apply session ' + esc(it.in_session) + " is working on this.</b> The outside check runs when it finishes.</div></div>";
+    if (!r || r.session) return "";
     var what = {apply: "You approved this. It goes to the next apply session.", undo: "You asked to undo this. It goes to the next apply session.",
       dismiss: "You dismissed this.", postpone: "You postponed this" + (r.until ? " until " + fmtDate(r.until) : "") + "."}[r.action] || r.action;
     var t = {apply: "blue", undo: "amber", dismiss: "muted", postpone: it.due ? "solar" : "muted"}[r.action] || "neutral";
@@ -1102,7 +1114,7 @@ a.btn { text-decoration: none; }
     GROUPS.forEach(function (g) {
       var list = shown.filter(function (i) { return g[1].indexOf(i.kind) >= 0; });
       if (!list.length) return; any = true;
-      h.push('<section class="group"><div class="group-h"><h2 style="font-size:17px">' + esc(g[0]) + ' <span class="sec-h"><span class="n">' + list.length + "</span></span></h2><p>" + esc(g[2]) + '</p></div><div class="stack">' + list.map(card).join("") + "</div></section>");
+      h.push('<section class="group"><div class="group-h"><h2>' + esc(g[0]) + '<span class="n">' + list.length + "</span></h2><p>" + esc(g[2]) + '</p></div><div class="stack">' + list.map(card).join("") + "</div></section>");
     });
     var other = shown.filter(function (i) { return KIND_ORDER.indexOf(i.kind) < 0; });
     if (other.length) { any = true; h.push('<section class="group"><div class="stack">' + other.map(card).join("") + "</div></section>"); }
@@ -1127,7 +1139,7 @@ a.btn { text-decoration: none; }
     var t = r.action === "undo" ? ["Undo", "amber"] : ["Apply", "blue"];
     return '<div class="prow"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"pill tone-red\">not in the report</span>") +
       '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "from the CLI" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
-      (r.stale ? '<span class="pill tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div>";
+      '<div class="pa">' + (r.stale ? '<span class="pill tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div></div>";
   }
   function renderQueue() {
     var h = [], p = pend(), wi = waitingItems(), dec = decidedItems(), st = applyState();
@@ -1145,7 +1157,7 @@ a.btn { text-decoration: none; }
     h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Needs your decision<span class="n">' + wi.length + "</span></h2><p>Improvements to approve, dismiss or postpone; choices only you can make; anything the apply session declined.</p></div></div>" +
       (wi.length ? '<div class="stack">' + wi.map(card).join("") + "</div>" : '<div class="panel empty"><b>Nothing waits on you.</b> Every item is decided.</div>') + "</section>");
     if (dec.length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Decided earlier<span class="n">' + dec.length + "</span></h2><p>Dismissed or postponed. Withdraw to decide again.</p></div></div><div class=\"panel\">" +
-      dec.map(function (i) { var r = obj(i.request); return '<div class="prow">' + statusChip(i) + '<div class="tx">' + itemLink(i.id) + '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</div></div>" + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div>"; }).join("") + "</div></section>");
+      dec.map(function (i) { var r = obj(i.request); return '<div class="prow dec">' + statusChip(i) + '<div class="tx">' + itemLink(i.id) + '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</div></div>" + '<div class="pa">' + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div></div>"; }).join("") + "</div></section>");
     return h.join("");
   }
 
@@ -1301,7 +1313,11 @@ a.btn { text-decoration: none; }
   if (!PAGES.concat(MORE).some(function (x) { return x[0] === S.tab; })) S.tab = "overview";
   S.sig = sigOf(B);
   renderAll(true);
-  if (LIVE) { refresh(false); setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000); }
+  if (LIVE) {
+    refresh(false);
+    setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState !== "hidden") refresh(false); });
+  }
 })();
 </script>
 </body>

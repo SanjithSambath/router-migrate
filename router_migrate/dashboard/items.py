@@ -383,6 +383,8 @@ def bundle(root):
             checked.append({"check": "side-by-side", "result": "not-run", "source": "check", "label": None,
                             "detail": "answers will differ; no side-by-side samples" + ("" if live else " (no key: simulator only)")})
         due = status == "postponed" and bool(req) and _s(req.get("until")) and req["until"] <= time.strftime("%Y-%m-%d")
+        # a request a session has taken but not finished: item_status can't see it yet, so the card says it's in progress
+        in_session = req.get("session") if req and req.get("session") and req["session"] not in finished else None
         items.append({
             "id": iid, "kind": kind, "title": _s(it.get("title")), "summary": _s(it.get("summary")), "calls": calls,
             "gains": it.get("gains"), "loses": it.get("loses"), "price": it.get("price"), "why": it.get("why"),
@@ -392,8 +394,9 @@ def bundle(root):
             "status": status, "etag": etag, "request": req,
             "stale": bool(req and req.get("etag") and req.get("etag") != etag and not req.get("session")),
             "due": bool(due), "checked": checked, "flags": flags, "diff": diff, "results": results,
-            "model_change": model_change, "actions": actions_for(it, status, req, last),
-            "waiting": status in WAITING or (kind == "needs-decision" and status == "info") or bool(due),
+            "model_change": model_change, "in_session": in_session,
+            "actions": [] if in_session else actions_for(it, status, req, last),
+            "waiting": not in_session and (status in WAITING or (kind == "needs-decision" and status == "info") or bool(due)),
         })
     by_id = {i["id"]: i for i in items}
     unclaimed = [f for n, f in enumerate(mig_flags) if n not in claimed]

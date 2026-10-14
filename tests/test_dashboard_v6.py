@@ -287,6 +287,8 @@ def test_apply_when_clear_and_refusals(srv, monkeypatch):
     state(srv["root"], "requests.json", rq)
     st, b = req(srv, "GET", "/api/bundle")
     assert b["running"] == [{"session": "A3", "items": ["i2"]}] and b["launch"]["tail"] is None
+    i2 = [i for i in b["items"] if i["id"] == "i2"][0]
+    assert i2["in_session"] == "A3" and i2["actions"] == [] and not i2["waiting"]  # in progress, not "proposed"
     st, out = req(srv, "POST", "/api/apply", {})
     assert st == 409 and "A3" in out["error"]
     state(srv["root"], "requests.json", {"requests": {}})
