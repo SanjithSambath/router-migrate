@@ -1,6 +1,6 @@
 # Plan: v6, agent-forward migrate, improve, apply and undo
 
-Status: proposed (not implemented). Scope: a comprehensive MVP, not a production-grade system.
+Status: implemented as an MVP on 2026-10-14 (first runs: `eval/v6/RESULTS.md`; open items listed there). Scope: a comprehensive MVP, not a production-grade system.
 
 Why: in the agent.email test, migration worked but Improve produced nothing. The model sat behind a wrapper
 (`complete(args)` with constants in `models.ts`), the rules engine could not see it, and the agent had no way to hand

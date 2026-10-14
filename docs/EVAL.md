@@ -166,3 +166,9 @@ nohup .venv/bin/python eval/run.py --set heldout --arms D3min,D3free,B --repos a
 
 Runs are resumable. Each run writes `status.json` and a line to `DONE.txt`. Agent spend comes from the agent transcript.
 The eval needs Claude Code on `PATH` and no `RAMP_ROUTER_API_KEY` (the harness strips it).
+
+## v6
+
+The tables above score v5's migration step (D3). v6's first end-to-end runs (migrate, improve, finish, an agent-run
+apply/undo) are in [eval/v6/RESULTS.md](../eval/v6/RESULTS.md); they have not been scored against the frozen improve
+rubric yet ([plans/v6-improve-rubric.md](plans/v6-improve-rubric.md)).

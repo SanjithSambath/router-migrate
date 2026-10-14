@@ -73,3 +73,12 @@ not re-run over the eval sets.
 
 Docs: [README](README.md) · [Architecture](docs/ARCHITECTURE.md) · [Methodology](docs/METHODOLOGY.md) ·
 [Eval](docs/EVAL.md) · [Router facts](router_migrate/data/ROUTER.md)
+
+## v6 (current)
+
+v6 makes the agent do all of the work that takes understanding: it migrates, reviews the system for what Router makes
+possible and builds improvements as git branches, and later applies and undoes what a human approves; code keeps facts,
+a sandbox, live Router checks with a spend-capped key, the outside check and the runtime. First end-to-end runs on four
+repositories (three headless, one in Claude Code) all passed the outside check after migration and after agent-run
+apply/undo sessions; see [eval/v6/RESULTS.md](eval/v6/RESULTS.md) and the design in
+[docs/plans/v6-agent-first.md](docs/plans/v6-agent-first.md).

@@ -1,0 +1,65 @@
+{
+ "sessions": [
+  {
+   "id": "A1",
+   "started": "2026-10-14T18:22:28",
+   "finished": "2026-10-14T18:27:05",
+   "requests": [
+    "i1",
+    "m1"
+   ],
+   "summary": "Applied the chat agent's per-conversation prompt cache key and then undid the Router move the reviewer asked to take out, in that order. Because the undo removes what i1 depended on, i1 was kept in the adapted form that survives without Router: the chat LLM still sends prompt_cache_key=\"conversation_chat:<conversation id>\", which OpenAI's own Chat Completions API accepts, while all three LLM calls go straight to OpenAI again with no feature labels and no vendored runtime. The migration branch is now base 4efc8c1 plus that one cache key; 8 smoke steps and 11 pytest tests pass, including the 7 pre-existing ones unchanged, and the final check reports 0 calls routing.",
+   "results": [
+    {
+     "item": "i1",
+     "action": "apply",
+     "status": "done",
+     "commits": [
+      "66efa88",
+      "0b31a7b"
+     ],
+     "note": "Merged the branch cleanly in 66efa88, then kept it through the m1 undo in 0b31a7b by building the key in app/chat/engine.py instead of the deleted app/router.py; the key string is identical, so the chat agent still reads 1,152 of its 1,355-token prefix from cache on turn 2 instead of 0."
+    },
+    {
+     "item": "m1",
+     "action": "undo",
+     "status": "done",
+     "commits": [
+      "0b31a7b"
+     ],
+     "note": "Partial revert: the vendored runtime (1,422 lines), app/router.py and the three call sites' Router plumbing are gone, so all 3 LLM calls go to api.openai.com again with gpt-4o-mini and temperature 0 as on base 4efc8c1, and no spend is labelled per feature; only the i1 cache key, which is not Router-specific, was kept."
+    }
+   ],
+   "head_before": "dc4fe6ff082467fb583805c2eb35f1e3ee5ab139",
+   "head_after": "0b31a7b44c649ef72610966c5f15f55b70a2a268",
+   "check": {
+    "ok": true,
+    "failures": [],
+    "tests": {
+     "status": "passed",
+     "counts": {
+      "passed": 19,
+      "failed": 0,
+      "errors": 0,
+      "exit": 0,
+      "seconds": 6.2
+     },
+     "baseline": {
+      "passed": 15,
+      "failed": 0,
+      "errors": 0,
+      "exit": 0,
+      "seconds": 6.5
+     },
+     "requests": 0,
+     "valid": 0
+    },
+    "flags": []
+   },
+   "cost": {
+    "usd": 2.5433,
+    "minutes": 4.3
+   }
+  }
+ ]
+}

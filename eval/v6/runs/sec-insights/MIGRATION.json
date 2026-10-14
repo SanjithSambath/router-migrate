@@ -1,0 +1,206 @@
+{
+  "version": 6,
+  "summary": "All three of the backend's LLM calls — the streaming conversation agent, the SEC-document question answering that feeds it, and the per-filing financials agent — now go through Router behind the vendored runtime, unchanged in model and parameters and labelled with the feature each one serves. Text embeddings stay on OpenAI's own API because Router serves no embeddings endpoint. Reviewing the system on Router, the one change that paid for itself was a per-conversation prompt cache key for the chat agent, which turned a 1,355-token prefix that was being re-read at full price every turn into a 1,152-token cache hit.",
+  "reviewed": "Model choice per feature, Flex, prompt caching, fallbacks, timeouts and spend labels; the cheaper newer models all reject the temperature=0 this app pins, so only prompt caching was worth building.",
+  "calls": [
+    {
+      "site": "backend/app/chat/engine.py:275",
+      "feature": "conversation_chat",
+      "model": "gpt-4o-mini",
+      "task": "tool-calling chat agent, streamed",
+      "latency": "interactive",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "backend/app/llama_index_settings.py:19",
+      "feature": "sec_document_qa",
+      "model": "gpt-4o-mini",
+      "task": "sub-question generation and answer synthesis over filings",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "backend/app/chat/tools.py:153",
+      "feature": "sec_financials_agent",
+      "model": "gpt-4o-mini",
+      "task": "tool-calling agent over polygon.io financials",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "backend/app/llama_index_settings.py:25",
+      "feature": "none (unlabelled: not a Router request)",
+      "model": "text-embedding-3-small",
+      "task": "embedding of queries and of filing chunks",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Send the backend's model calls through Router",
+      "summary": "The two LlamaIndex OpenAI clients, and the per-filing agent that copies one of them, now send their requests to Router with their own feature labels.",
+      "calls": [
+        "backend/app/chat/engine.py:275",
+        "backend/app/llama_index_settings.py:19",
+        "backend/app/chat/tools.py:153"
+      ],
+      "gains": "All 3 model calls on Router: one key instead of an OpenAI key, and spend reported per feature under conversation_chat, sec_document_qa and sec_financials_agent",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Both OpenAI LLMs are built in app code (app/llama_index_settings.py for the default LLM, app/chat/engine.py for the streaming chat agent), and app/chat/tools.py copies the default LLM once per selected filing. Each construction now passes the vendored runtime's http clients, so the runtime sits under the OpenAI SDK and translates Chat Completions to Router's /v1/responses; app/router.py holds the feature names. It is dormant until RAMP_ROUTER_API_KEY is set, so with no key every request still goes to OpenAI with the same body. The model (gpt-4o-mini), temperature=0 and streaming are untouched, and gpt-4o-mini has no Flex tier on Router, so cost-efficient routing cannot slow the user-facing chat and no service_tier pin is needed. The app already knows what each LLM is for, so each one sends x-router-migrate-feature through LlamaIndex's additional_kwargs, which reach chat.completions.create as extra_headers and so survive the model_copy in app/chat/tools.py that the default-LLM label would not.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live driving all three LLMs with minimal inputs (S3, the vector store and polygon.io stubbed): 3 requests to Router, all 200 on /v1/responses, provider=openai, model=gpt-4o-mini, labelled sec_document_qa, sec_financials_agent and conversation_chat"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "the same driver under check --run: 3 of 3 requests reached router-sim and all 3 were valid Router requests; no provider traffic other than the embedding call, which was refused offline as expected"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "the repo's smoke imports plus pytest with Router on (simulator): 8 passed and 7 passed, the same as on base commit 4efc8c1"
+        }
+      ],
+      "commit": "dc4fe6f",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "Embeddings keep calling OpenAI directly",
+      "summary": "The text-embedding-3-small calls that index filings and embed queries stay on OpenAI's own API.",
+      "calls": [
+        "backend/app/llama_index_settings.py:25"
+      ],
+      "gains": "nothing; the capability is kept",
+      "loses": "This traffic is not on the Router key and does not appear in Router's spend reporting",
+      "price": "no change",
+      "why": "Router serves no /v1/embeddings endpoint (it returns 404), and there is no catalog model that produces vectors compatible with the pgvector table this app has already indexed. The runtime recognises embedding requests and leaves them on the provider untouched, so the OPENAI_API_KEY must stay configured for this path.",
+      "evidence": [
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run with the driver's --embed step: the embedding call never reached router-sim, it tried api.openai.com and was blocked offline, which is the intended provider path"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "ROUTER.md section 2: /v1/embeddings returns a plain-text 404 on Router"
+        }
+      ],
+      "commit": "dc4fe6f",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Keep the chat agent's prompt prefix cached",
+      "summary": "The conversation agent sends a prompt cache key scoped to its conversation, so the prefix it repeats every turn is read from cache.",
+      "calls": [
+        "backend/app/chat/engine.py:275"
+      ],
+      "gains": "1,152 of 1,355 input tokens read from cache on the second turn of a conversation instead of 0; about -42% on that turn's input cost, and more as the history grows",
+      "loses": "nothing",
+      "price": "gpt-4o-mini cached input at $0.075 per 1M instead of $0.15; output unchanged at $0.60 per 1M",
+      "why": "Every turn of the top-level agent re-sends the same prefix: the system prompt, both query-engine tool definitions and the whole chat history. Measured through Router, gpt-4o-mini cached none of that prefix without a prompt cache key. app/chat/engine.py already has the conversation, so the chat LLM now passes prompt_cache_key=\"conversation_chat:<conversation id>\", which the runtime forwards to /v1/responses. The other two features get no key on purpose: each sec_document_qa request carries its own retrieved chunks, so there is no shared prefix above the provider's ~1,024-token minimum, and the financials agent's prompt is a single short sentence. OpenAI's own API accepts prompt_cache_key too, so the no-key provider path gets the same benefit.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live on the app's own chat LLM, two turns of one conversation: both 200 on /v1/responses, turn 1 in=1355 cached=0, turn 2 in=1355 cached=1152"
+        },
+        {
+          "check": "side-by-side",
+          "result": "info",
+          "detail": "a chat-agent-shaped 1,795-token request sent twice without a key and twice with one, through Router: 0 cached tokens and $0.000305 per call without the key, 1,664 cached and $0.000180 with it"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "pytest with Router on (simulator): 12 passed — the 7 existing tests unchanged plus 5 new ones in backend/tests/app/test_router.py asserting the chat LLM carries the conversation-scoped key and that the document-QA LLM carries none"
+        }
+      ],
+      "commit": null,
+      "branch": "router-migrate/improve/chat-prompt-cache",
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Cheaper models reject this app's temperature",
+      "summary": "A move off gpt-4o-mini to a cheaper, newer catalog model was measured and dropped, because those models reject temperature.",
+      "calls": [
+        "backend/app/chat/engine.py:275",
+        "backend/app/llama_index_settings.py:19",
+        "backend/app/chat/tools.py:153"
+      ],
+      "gains": "nothing was changed",
+      "loses": "nothing",
+      "price": "the change considered was gpt-4o-mini $0.15/$0.60 to gpt-6-luna $0.10/$0.50 per 1M, with cached input $0.01 instead of $0.075",
+      "why": "gpt-6-luna is the obvious candidate: newer than gpt-4o-mini and cheaper on every axis. Live through Router it returned 400 \"Unsupported parameter: 'temperature' is not supported with this model\" on all 5 sample requests. This app pins temperature=0 on the chat agent and LlamaIndex sends its 0.1 default on the others; a financial-analysis assistant that grounds every answer in retrieved filing text wants that determinism, and the runtime would silently drop the parameter for such a model. The same applies to the other cheaper candidates: gpt-5-nano and gpt-5.4-nano are reasoning models and claude-haiku-5-5 is a *-5-5 model, all of which the catalog marks temperature: false. The open-weight ids that do take temperature (deepseek-v4-flash, nemotron-lightning) are a bigger bet, since both agents here depend on reliable function calling. If a reviewer decides answers may vary, gpt-6-luna is the model to try, pinned with service_tier \"default\" because it is Flex-eligible and a person is waiting.",
+      "evidence": [
+        {
+          "check": "side-by-side",
+          "result": "info",
+          "detail": "5 sec-insights-shaped prompts (3 synthesis, 2 tool-routing) through Router on both models: gpt-4o-mini 5 of 5 at 200 (0.85-1.3 s, $0.000044-$0.000076 each, correct tool chosen both times), gpt-6-luna 5 of 5 at 400 on temperature"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "router-migrate levers gpt-4o-mini, live catalog: gpt-4o-mini $0.15/$0.60, same-family gpt-5-mini $0.25/$2, gpt-4.1-mini $0.40/$1.60, gpt-5.4-mini $0.75/$4.50 — no cheaper same-family option that keeps temperature"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "A connection pool per message per filing",
+      "summary": "Every user message builds fresh http clients for the chat LLM and one more pair per selected filing, which was left as it is.",
+      "calls": [
+        "backend/app/chat/engine.py:275",
+        "backend/app/chat/tools.py:153"
+      ],
+      "gains": "nothing was changed",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "get_chat_engine runs per user message and builds a new OpenAI LLM, and get_api_query_engine_tool deep-copies the default LLM once per selected filing, so a three-filing conversation opens eight http clients per message, each with a cold connection to Router. This predates the migration — the OpenAI SDK was already building one client per LLM — and it is not worth changing on its own: sharing one client means sharing it across the deep copy in app/chat/tools.py, which is the line most likely to surprise a reviewer, and the saving is a handshake, not a request. Worth folding into any future change to how this app builds its LLMs.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "read of app/chat/engine.py get_chat_engine and app/chat/tools.py get_api_query_engine_tool; the deep copy of a routed httpx client was exercised live (3 of 3 requests 200 after the copy), so it is a cost, not a fault"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    }
+  ]
+}

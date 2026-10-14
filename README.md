@@ -9,9 +9,9 @@ Router checks with a spend-capped key, and an outside check it can't influence. 
 request in production: Router when Router can serve it, the original provider otherwise. Without `RAMP_ROUTER_API_KEY`
 it does nothing.
 
-> **Status:** working MVP, under active development. Python and TS/JS; OpenAI, Anthropic, LangChain, Vercel AI SDK,
-> LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be published here
-> once it is.
+> **Status:** working MVP (v6, agent-forward), under active development. Python and TS/JS; OpenAI, Anthropic, LangChain,
+> Vercel AI SDK, LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be
+> published here once it is. First v6 end-to-end runs: [eval/v6/RESULTS.md](eval/v6/RESULTS.md).
 
 ## Quickstart
 
