@@ -5,7 +5,11 @@
   router-migrate apply   PATH          vendor router_runtime + patch client constructions; write HANDOFF.md for agent tasks
   router-migrate verify  PATH          tests before vs after, syntax/type checks, requests replayed against router-sim, optional --live
   router-migrate report  PATH          REPORT.md + report.json (every site, outcome, reason, coverage)
-  router-migrate run     PATH          scan -> plan -> apply -> verify -> report
+  router-migrate run     PATH          scan -> plan -> apply -> verify -> report; v3: also snapshots the floor, writes the ledger and the agent worklist
+  router-migrate check   FILE:LINE     v3: tool facts for one site as the code stands now: does the runtime reroute it? why not? next step
+  router-migrate wrap    FILE:LINE     v3: the deterministic one-line wrap at any client construction (factories included); prints the diff
+  router-migrate claim   FILE:LINE OUT v3: record migrated|kept|flagged|handoff|needs_human|not_a_site with --why and --evidence FILE:LINE
+  router-migrate finish  PATH          v3: the gate (syntax, scope, typecheck, tests vs baseline, Router-on sim run, claims, worklist)
   router-migrate up      PATH          v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the dashboard (--agent: exit 2 while cards are undecided)
   router-migrate recommend PATH        v2: Improve cards (unlock, same-model policy, model recommendations) -> recommendations.json + RECOMMENDATIONS.md
   router-migrate decide  ID ACTION     v2: approve | dismiss --reason R | postpone --until DATE | shadow-first a card (writes decisions.json)
@@ -273,6 +277,9 @@ def main(argv=None):
             sp.add_argument("--timeout", type=int, default=1800)
         if name == "apply":
             sp.add_argument("--decisions", action="store_true", help="v2: apply approved cards from .router-migrate/decisions.json")
+        if name == "run":
+            sp.add_argument("--skip-verify", action="store_true", help="skip the baseline test runs (finish then has no test gate)")
+            sp.add_argument("--typecheck-cmd", help="v3: typecheck command; its error count is the baseline finish compares against")
     s_up = sub.add_parser("up", help="v2: scan -> plan -> apply (lossless) -> verify -> recommend -> report, then the local dashboard")
     s_up.add_argument("path", nargs="?", default=".")
     s_up.add_argument("--agent", action="store_true", help="no dashboard; print pending cards as JSON; exit 2 while any card is undecided")
@@ -291,6 +298,8 @@ def main(argv=None):
     s_dec.add_argument("--until", help="YYYY-MM-DD (postpone)")
     s_dec.add_argument("--path", default=".")
     s_dec.add_argument("--by", default="cli", choices=["cli", "agent", "ui"])
+    from . import agent as agentmod
+    agentmod.add_parsers(sub)
     s_st = sub.add_parser("status", help="v2: effective setup per feature, policy hash check, orphans; exit 1 if stale or orphaned")
     s_st.add_argument("path", nargs="?", default=".")
     s_st.add_argument("--json", action="store_true")
@@ -298,6 +307,10 @@ def main(argv=None):
     if not a.cmd:
         ap.print_help()
         return 0
+    if a.cmd in ("check", "wrap", "claim", "finish", "run"):
+        from . import agent as agentmod
+        if a.cmd != "run" or not getattr(a, "dry_run", False):
+            return agentmod.dispatch(a)
     if a.cmd in ("up", "recommend", "decide", "status"):
         from . import v2cli
         return v2cli.run(a)

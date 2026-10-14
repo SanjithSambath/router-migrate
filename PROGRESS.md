@@ -130,3 +130,9 @@ Milestones from SPEC.md. Each entry: what landed, how it was verified, and the d
 - **T0 headless agent** (this commit): `claude -p` works with a long-lived OAuth token (the old OAuth session had expired:
   "OAuth session expired and could not be refreshed"). Smoke result in eval/v3/smoke/t0_headless.json: `SMOKE_OK`, claude-sonnet-5.
   The 10 fresh repos (eval/v3/REPOS.json: held-out candidates never used, inventoried or tuned on) are registered as eval set `v3`.
+- **T1 facts for the code as it stands** (`git log` "v3 T1"): scanners mark wrapped constructions; measure-only plan counts them.
+  Done when: a floor-wrapped call measures as migrated (was "handoff"); 270 tests pass.
+- **T2 agent primitives + gate**: `run` (floor + git-tree snapshot + ledger + worklist of judgment sites and unexplained hotspots),
+  `check`, `wrap`, `claim` (evidence must resolve; a migrated claim the tool contradicts is rejected), `finish` (parse, scope,
+  typecheck and tests vs baseline, Router-on run vs the floor's Router-on run, claims re-checked, worklist resolved; reverts
+  to the floor after 3 failed runs; `--hook` speaks the Stop-hook protocol). Done when: tests/test_agent_v3.py (8) pass; 278 total.
