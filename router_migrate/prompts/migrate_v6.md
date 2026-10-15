@@ -5,7 +5,8 @@ priority, a different model, a step made deterministic or with no LLM at all, a 
 the product uses models. Rank what you'd change by value, each with a level (quick-win, change, rework) and who carries it
 out (code, a Router setting, or the human's product call); build and test what you're sure of, propose the rest with
 `"branch": null` for an apply session to build after approval; put the numbers you measure in `measured`. A human
-approves or undoes each decision on a dashboard.
+approves or undoes each decision on a dashboard: write every title and summary so they understand it at first glance
+(see "How to write" in the report format).
 
 {CONTEXT}
 

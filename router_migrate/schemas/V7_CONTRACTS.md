@@ -65,6 +65,26 @@ Kinds:
 - `stays`: a call that stays where it is, and why.
 - `note`: anything else worth knowing, including what you considered and rejected.
 
+How to write what the human reads (titles, summaries, gains, loses, why, measured metrics, notes):
+the dashboard shows it to someone deciding quickly who knows the product but not this run. Write the way a good
+engineering blog post (Anthropic's, Ramp's) explains technical work: plain words, the point first, a technical term only
+when it carries meaning, and explained the first time.
+- `title`: what changes, in everyday words, at most 8 words. "Answer most messages with a cheaper model", not
+  "Default to gpt-6-luna at reasoning_effort none".
+- `summary`: one or two full sentences: what happens today, what changes, what that means for users or cost. Name the
+  model, file or setting once, where it helps the reader find it.
+- `gains` / `loses`: concrete outcomes the reader can picture, with numbers, units and what they are per: "each reply
+  costs $0.00002 instead of $0.003 (about 140x less), and the first words appear 0.7 s sooner". `loses` says plainly
+  what could get worse and for whom.
+- `why`: a short paragraph a new engineer could follow: the problem, the evidence, why this fix and not another.
+- `measured[].metric` in plain words ("cost per reply", "time until the first words appear"), not variable names.
+- Explain a term a product engineer might not know the first time it appears (Flex: "a cheaper tier that can queue a
+  request for a few seconds"; prompt cache: "Router reuses the part of a prompt that repeats, at about a tenth of the
+  price").
+- No unexplained abbreviations, ids or internal names (TTFT, PR3, m4, n=), no strings of parameters in prose, no
+  buzzwords, no telegraphic fragments. Short is good; cryptic is not. Detail that only an implementer needs goes in
+  `evidence`.
+
 Rules (enforced by `validate_report`):
 - `version` = 7; `summary` and `reviewed` non-empty strings; `calls` and `items` lists.
 - `id` unique, `[A-Za-z0-9_.-]{1,40}`; `title` non-empty, at most 80 characters; `summary` non-empty.
