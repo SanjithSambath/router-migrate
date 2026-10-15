@@ -48,3 +48,38 @@ the fact sheet hurts. Takeaway: cutting *procedure* helps, cutting *facts* hurts
 
 Round 3 builds on ultra, with ultra as the pairwise reference: ultra (rerun, noise), ultra_levels (+ one line: rank by
 level, build what you're sure of, propose the rest unbuilt), ultra_nomap, ultra_nofacts.
+
+## Round 3 (interim): ultra vs one added line
+
+ultra_levels = ultra + "rank by level, build what you're sure of, propose the rest with branch null". Head-to-head vs
+ultra (both rubrics): **4-1**. It keeps ultra's verification and adds breadth (AI-Scientist: 14 improvements, 4 built;
+llmcord: 7 across all three levels). The one loss was against an ultra run that built six measured levers.
+ultra_nomap / ultra_nofacts still running.
+
+## Round 4 (interim): open scope
+
+User direction (2026-10-14): the agent was fenced to "tune the LLM calls". Four fences found and removed in one arm:
+the prompt's "on Router" framing; the fact sheet hiding most of Router's product (Jev, Switchyard, shadow models,
+Decisions/System One got one line calling them "account settings, not request fields"); the judge rewarding only
+Router leverage; and examples showing only small items.
+- `prompts/arms/cto_open.md`: CTO over the whole product, nothing out of scope (priority, model, deterministic, no
+  LLM, redesign), with levels and unbuilt proposals.
+- `data/ROUTER_open.md`: + section 1a, the rest of the product (tier as the priority dial, shadow models, Jev,
+  Switchyard, Decisions/System One, caps, labels), and "not every problem needs a model".
+- pairwise `--rubric open`: the CTO-redesign bar.
+
+open vs ultra_levels: **3-0 (all clear) on the original rubric, 4-0 (all clear) on the open rubric.** The judge's
+reason every time: open "attacks calls rather than just configuring them". E.g. sec-insights: deletes a one-tool inner
+agent (a decision call and a round trip per document), stops offering a question engine with no sources, stops
+rebuilding the chat engine per message, proposes collapsing the two-level agent so answers stream sooner, and
+considers and rejects Jev with a reason. chatgpt-telegram-bot: shadow models to pick the default model, Switchyard,
+charging users Router's reported price. ultra_facts2 (ultra_levels + new facts) and open_oldfacts (open prompt, old
+facts) are running to separate the prompt's effect from the facts'.
+
+Harness changes this round: `finish` requires `level` on improvements; the report format documents proposals; the
+apply prompt leaves account settings to the human (the note says what to switch on); experiments got per-tool removal
+switches (`no-<command>`), a fact-sheet override (`RM_FACTS`), per-round prepare dirs and a runner that stops its own
+agents (the first round-4 launch left five orphaned agents writing into reused trial dirs; those five runs were redone).
+
+Round 5 (running): open minus one tool each (policy, levers, adapt) and minus the budget line, on 3 repos.
+Round 6 (running): open vs the shipped v6 prompt on five repos never used in these experiments (held-out).
