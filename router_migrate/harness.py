@@ -545,7 +545,8 @@ FALLBACK_PROMPTS = {  # used only when the prompt files are missing from an inst
 
 def scaffold():
     """Experiment switches (RM_SCAFFOLD, comma-separated): nomap (no scanner map in the context), nofacts (no fact-sheet
-    line), nobudget (no budget line), notools (the agent's router-migrate is check only)."""
+    line), nobudget (no budget line), notools (the agent's router-migrate is check only),
+    no-<command> (that one tool removed, e.g. no-policy)."""
     return {x.strip() for x in (os.environ.get("RM_SCAFFOLD") or "").split(",") if x.strip()}
 
 
@@ -608,7 +609,8 @@ def setup(root, a):
     secs = (b.get("before") or {}).get("seconds") if b.get("status") == "done" else None
     sc = scaffold()
     ctx = ["## This repository",
-           "" if "nofacts" in sc else "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ROUTER.md"),
+           "" if "nofacts" in sc else "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
+                                                                     os.environ.get("RM_FACTS") or "ROUTER.md"),
            "Report format: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", "V6_CONTRACTS.md"),
            "Base commit %s; you are on branch %s (commit your work here; improvements go on branches %s<name>)."
            % ((base or "")[:9], MIGRATION_BRANCH, R.IMPROVE_PREFIX),
@@ -1018,7 +1020,8 @@ def _launch(root, prompt, model, timeout, resume=None):
     env = dict(os.environ, **{k: v for k, v in DUMMY_KEYS.items() if k != "ANTHROPIC_API_KEY"})
     for k in ("RAMP_ROUTER_API_KEY", "ROUTER_MIGRATE_KEY"):
         env.pop(k, None)
-    env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate"), ("check",) if "notools" in scaffold() else AGENT_COMMANDS) + os.pathsep + env.get("PATH", "")
+    env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate"), ("check",) if "notools" in scaffold() else
+                          tuple(c for c in AGENT_COMMANDS if "no-" + c not in scaffold())) + os.pathsep + env.get("PATH", "")
     log = AG.sp(root, "agent_transcript.jsonl")
     t = time.time()
     with open(log, "a") as fh:

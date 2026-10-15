@@ -69,7 +69,7 @@ def subst(s, rec, src):
 def prepare(repo, rec):
     """Fresh clone of the pristine checkout + dependencies reused from the recipe's prepared env (eval/work/base, envs)."""
     name = repo["name"]
-    src = os.path.join(WORK, "runs", name)
+    src = os.path.join(WORK, "runs", name + os.environ.get("RM_PREP_TAG", ""))  # a tag keeps concurrent experiment runners apart
     shutil.rmtree(src, ignore_errors=True)
     os.makedirs(os.path.dirname(src), exist_ok=True)
     code, out = sh("git clone -q %s %s && git -C %s checkout -q %s" % (shlex.quote(os.path.join(WORK, "pristine", name)), shlex.quote(src),

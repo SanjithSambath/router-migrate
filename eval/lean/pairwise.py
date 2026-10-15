@@ -26,21 +26,31 @@ rather ship and act on? Weigh traffic really moved, behaviour preserved, honesty
 and correctness of the system-level judgment (are the improvements the ones an expert would make for THIS app, ranked
 well, with real Router leverage, and are the claims right?).
 
-Answer with ONLY a JSON object: {"winner": "A" | "B" | "tie", "margin": "slight" | "clear" | "large",
+{EXTRA}Answer with ONLY a JSON object: {"winner": "A" | "B" | "tie", "margin": "slight" | "clear" | "large",
 "why": "two sentences", "A_best": "...", "B_best": "...", "A_worst": "...", "B_worst": "..."}"""
 
 
-def pair(rnd, arm, ref, repo):
+OPEN = """The bar for the system-level judgment is a CTO redesigning the product for production on Router, not a
+migration tune-up: did the engineer use every Router capability and surface that applies (tier as priority, model
+choice, fallbacks, caching, spend labels and caps, shadow models, Jev, Switchyard), and question whether each LLM call
+should exist at all (a smaller model, a deterministic function, a cache, or no model), at every scale from quick wins
+to rework? Proposals need not be built, but they must be specific to this product and correct.
+
+"""
+RUBRIC = {"base": "", "open": OPEN}
+
+
+def pair(rnd, arm, ref, repo, rubric="base"):
     out_dir = os.path.join(HERE, "runs", rnd, "pairs")
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, "%s__%s__%s.json" % (arm, ref, repo))
+    out = os.path.join(out_dir, "%s__%s__%s%s.json" % (arm, ref, repo, "" if rubric == "base" else "__" + rubric))
     if os.path.exists(out) and "winner" in json.load(open(out)):
         return json.load(open(out))
     da, db = (os.path.join(HERE, "runs", rnd, x, repo) for x in (arm, ref))
     swap = int(hashlib.sha1(out.encode()).hexdigest(), 16) % 2  # which side the arm sits on
     first, second = (db, da) if swap else (da, db)
     cut = lambda s: s[:40000]
-    prompt = PROMPT + "\n\n# ENGINEER A\n" + cut(judge.bundle(first)) + "\n\n# ENGINEER B\n" + cut(judge.bundle(second))
+    prompt = PROMPT.replace("{EXTRA}", RUBRIC[rubric]) + "\n\n# ENGINEER A\n" + cut(judge.bundle(first)) + "\n\n# ENGINEER B\n" + cut(judge.bundle(second))
     j = {}
     for _ in range(3):
         r = subprocess.run(["claude", "-p", prompt, "--output-format", "json"], capture_output=True, text=True, timeout=1800)
@@ -72,13 +82,14 @@ def main():
     ap.add_argument("--round", required=True)
     ap.add_argument("--ref", required=True)
     ap.add_argument("--parallel", type=int, default=6)
+    ap.add_argument("--rubric", default="base", choices=sorted(RUBRIC))
     a = ap.parse_args()
     arms = sorted(os.path.basename(p) for p in glob.glob(os.path.join(HERE, "runs", a.round, "*"))
                   if os.path.isdir(p) and os.path.basename(p) not in ("pairs", a.ref))
     jobs = [(arm, repo) for arm in arms for repo in sorted(os.listdir(os.path.join(HERE, "runs", a.round, arm)))
             if valid(a.round, arm, repo) and valid(a.round, a.ref, repo)]
     with cf.ThreadPoolExecutor(a.parallel) as ex:
-        res = list(ex.map(lambda j: pair(a.round, j[0], a.ref, j[1]), jobs))
+        res = list(ex.map(lambda j: pair(a.round, j[0], a.ref, j[1], a.rubric), jobs))
     w = {"slight": 1, "clear": 2, "large": 3}
     L = ["# Round %s: each arm vs %s, head-to-head (blind, order randomised)" % (a.round, a.ref), "",
          "| arm | repo | result | margin | why |", "|---|---|---|---|---|"]
@@ -91,7 +102,7 @@ def main():
         net = sum((w.get(r.get("margin"), 0) if r.get("result") == "win" else -w.get(r.get("margin"), 0) if r.get("result") == "loss" else 0) for r in rs)
         L.append("| %s | %d | %d | %d | %+d |" % (arm, sum(r.get("result") == "win" for r in rs), sum(r.get("result") == "tie" for r in rs),
                                                sum(r.get("result") == "loss" for r in rs), net))
-    open(os.path.join(HERE, "runs", a.round, "PAIRS.md"), "w").write("\n".join(L) + "\n")
+    open(os.path.join(HERE, "runs", a.round, "PAIRS%s.md" % ("" if a.rubric == "base" else "_" + a.rubric)), "w").write("\n".join(L) + "\n")
     print("\n".join(L))
 
 

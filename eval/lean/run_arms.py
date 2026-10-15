@@ -7,6 +7,7 @@ Arms are defined in ARMS below (RM_PROMPT = prompt file, RM_SCAFFOLD = switches;
 Results: eval/lean/runs/<round>/<arm>/<repo>/."""
 import argparse
 import concurrent.futures as cf
+import fcntl
 import json
 import os
 import shutil
@@ -42,7 +43,8 @@ def load_arms():
 def one(rnd, arm, name, model):
     env_arm = load_arms()[arm]
     trial = "L_%s_%s" % (rnd, arm)
-    with PREP:
+    with PREP, open(os.path.join(HERE, ".prep_%s.lock" % name), "w") as lk:  # one prepare per repo, across runners too
+        fcntl.flock(lk, fcntl.LOCK_EX)
         dst, rec = run_v3.fresh_copy(name, trial)
     out = os.path.join(HERE, "runs", rnd, arm, name)
     shutil.rmtree(out, ignore_errors=True)
@@ -79,6 +81,7 @@ def main():
     ap.add_argument("--parallel", type=int, default=4)
     ap.add_argument("--jobs", help="explicit arm:repo,... (overrides --arms/--repos)")
     a = ap.parse_args()
+    os.environ.setdefault("RM_PREP_TAG", "_" + a.round)
     jobs = [tuple(j.split(":")) for j in a.jobs.split(",")] if a.jobs else \
         [(arm, repo) for arm in a.arms.split(",") for repo in a.repos.split(",")]
     with cf.ThreadPoolExecutor(a.parallel) as ex:
