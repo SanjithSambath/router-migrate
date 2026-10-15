@@ -74,14 +74,18 @@ def one(rnd, arm, name, model):
                             start_new_session=True)  # its own group, so stopping the runner stops the agent too
     LIVE.add(proc)
     try:
-        out, _ = proc.communicate(timeout=7200)
+        text, _ = proc.communicate(timeout=7200)
     except subprocess.TimeoutExpired:
         os.killpg(proc.pid, signal.SIGTERM)
-        out, _ = proc.communicate()
+        text, _ = proc.communicate()
     LIVE.discard(proc)
-    r = subprocess.CompletedProcess(args, proc.returncode, out, "")
-    info = {"arm": arm, "repo": name, "env": env_arm, "exit": r.returncode, "seconds": round(time.time() - t), "trial": dst,
-            "out": (r.stdout + r.stderr)[-5000:]}
+    return collect(arm, name, env_arm, dst, out, proc.returncode, round(time.time() - t), text)
+
+
+def collect(arm, name, env_arm, dst, out, code, secs, text):
+    """Save a finished trial's state for the judges (also run on its own: --collect, for a run whose runner died)."""
+    os.makedirs(out, exist_ok=True)
+    info = {"arm": arm, "repo": name, "env": env_arm, "exit": code, "seconds": secs, "trial": dst, "out": (text or "")[-5000:]}
     for f in STATE:
         p = os.path.join(dst, ".router-migrate", f)
         if os.path.exists(p):
@@ -91,7 +95,7 @@ def one(rnd, arm, name, model):
     info["invalid"] = any('"is_error":true' in l and "API Error" in l for l in errs if '"type":"result"' in l)  # an outage, not a result
     info["branches"] = subprocess.run(["git", "branch", "--list", "router-migrate/*"], cwd=dst, capture_output=True, text=True).stdout.split()
     json.dump(info, open(os.path.join(out, "run.json"), "w"), indent=1)
-    return arm, name, r.returncode, info["seconds"]
+    return arm, name, code, secs
 
 
 def main():
@@ -102,10 +106,19 @@ def main():
     ap.add_argument("--model")
     ap.add_argument("--parallel", type=int, default=4)
     ap.add_argument("--jobs", help="explicit arm:repo,... (overrides --arms/--repos)")
+    ap.add_argument("--collect", help="arm:repo,...: save already-finished trials' state (exit unknown)")
     a = ap.parse_args()
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     os.environ.setdefault("RM_PREP_TAG", "_" + a.round)
+    if a.collect:
+        for arm, repo in (j.split(":") for j in a.collect.split(",")):
+            dst = os.path.join(run_v3.TRIALS, "L_%s_%s" % (a.round, arm), repo)
+            tr = os.path.join(dst, ".router-migrate", "agent_transcript.jsonl")
+            res = [json.loads(l) for l in open(tr, errors="replace") if '"type":"result"' in l] if os.path.exists(tr) else []
+            secs = round(sum(r.get("duration_ms") or 0 for r in res) / 1000) or None  # agent time only
+            print(*collect(arm, repo, load_arms()[arm], dst, os.path.join(HERE, "runs", a.round, arm, repo), None, secs, ""))
+        return
     jobs = [tuple(j.split(":")) for j in a.jobs.split(",")] if a.jobs else \
         [(arm, repo) for arm in a.arms.split(",") for repo in a.repos.split(",")]
     with cf.ThreadPoolExecutor(a.parallel) as ex:

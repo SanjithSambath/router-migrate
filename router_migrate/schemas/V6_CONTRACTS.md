@@ -9,7 +9,8 @@ files is `router_migrate.report_v6.validate_report(doc) -> list[str]` (empty = v
 - It records the starting commit as `ledger.base` and creates/checks out branch `router-migrate/migration` from HEAD.
   (If that branch already exists and is checked out, `start` reuses it and keeps `ledger.base`.)
 - The migration agent commits on `router-migrate/migration`, one commit per decision a human might want to reverse.
-- Each improvement is a branch `router-migrate/improve/<name>` created from the migration branch.
+- A built improvement is a branch `router-migrate/improve/<name>` created from the migration branch; a proposed one
+  has no branch until an apply session builds it.
 - The apply session works on `router-migrate/migration` (merging improvement branches, reverting commits, editing).
 - `finish` requires the working tree clean (everything committed) and the migration branch checked out.
 - The tool never merges into the user's own branches.
@@ -42,7 +43,9 @@ files is `router_migrate.report_v6.validate_report(doc) -> list[str]` (empty = v
      "why": "A short paragraph.",
      "evidence": [{"check": "tests|typecheck|router-live|simulator|side-by-side|price|other",
                    "result": "pass|fail|info|not-run", "detail": "what ran and against what"}],
-     "commit": "abc1234", "branch": null, "depends_on": [], "excludes": []}
+     "commit": "abc1234", "branch": null, "depends_on": [], "excludes": []},
+    {"id": "i1", "kind": "improvement", "level": "change", "title": "Fail over to Claude when OpenAI is down",
+     "summary": "One sentence.", "gains": "…", "loses": "…", "why": "…", "branch": null}
   ]
 }
 ```
@@ -52,7 +55,8 @@ Rules (enforced by `validate_report`):
 - `kind` in `move | trade-off | port | stays | needs-decision | improvement | note`.
 - `id` unique, `[A-Za-z0-9_.-]{1,40}`; `title` non-empty, at most 80 characters; `summary` non-empty.
 - `trade-off`, `port`: `loses` non-empty and not "nothing".
-- `improvement`: `branch` set and starting with `router-migrate/improve/`; `gains`, `loses`, `why` non-empty.
+- `improvement`: `level` in `quick-win | change | rework`; `branch` either `router-migrate/improve/<name>` (built and
+  tested) or null (proposed: an apply session builds it after approval); `gains`, `loses`, `why` non-empty.
 - `note`, `stays`, `needs-decision`: no `branch`.
 - `evidence[].check` and `.result` from the sets above; `detail` a string.
 - `depends_on` / `excludes` reference existing ids.

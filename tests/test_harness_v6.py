@@ -69,7 +69,7 @@ def migrate(repo):
          "evidence": [{"check": "simulator", "result": "pass", "detail": "check --all: routes"}]},
         {"id": "s1", "kind": "stays", "title": "Embeddings stay on OpenAI", "summary": "Router has no embeddings endpoint.",
          "calls": [at(repo, "svc/emb.py", "embeddings")]},
-        {"id": "i1", "kind": "improvement", "title": "Newer mini model for ask", "summary": "ask moves to gpt-4.1-mini.",
+        {"id": "i1", "kind": "improvement", "level": "quick-win", "title": "Newer mini model for ask", "summary": "ask moves to gpt-4.1-mini.",
          "calls": [site], "gains": "newer model", "loses": "a different model answers", "why": "Same price band, newer.",
          "branch": "router-migrate/improve/newer-mini"}],
         calls=[{"site": site, "feature": "ask", "model": "gpt-4o-mini", "task": "chat", "latency": "user_waiting", "now": "router", "item": "m1"}])

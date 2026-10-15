@@ -112,6 +112,8 @@ def validate_report(doc):
             for k in ("gains", "loses", "why"):
                 if not _s(it.get(k)):
                     e.append("%s.%s: required for an improvement" % (w, k))
+            if it.get("level") is None:
+                e.append("%s.level: required for an improvement (one of %s)" % (w, ", ".join(LEVELS)))
         elif kind in ("note", "stays", "needs-decision") and it.get("branch"):
             e.append("%s.branch: only improvements have a branch" % w)
         if it.get("level") is not None and it.get("level") not in LEVELS:
