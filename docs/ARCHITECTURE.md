@@ -1,7 +1,8 @@
-# Architecture (v6)
+# Architecture (v7)
 
 router-migrate is a light harness around an agent that does the work. The agent migrates a repository's LLM traffic onto
-Router, reviews the system for improvements, and later applies and undoes what a human asks. Code supplies facts, a
+Router (the gate), reviews the whole product as its CTO and ranks what to change (the product), and later applies and
+undoes what a human asks. Code supplies facts, a
 sandbox, live Router access, an outside check the agent can't influence, and the runtime that routes each request in
 production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [plans/v6-agent-first.md](plans/v6-agent-first.md).
 
@@ -18,7 +19,7 @@ production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [
 │  check --final [--tests]   dry run              │   │  vs the baseline · existing tests unchanged · Router       │
 │  levers   lever table, catalog, same family,    │   │  accepts the requests · route truth · flags (deleted       │
 │           the old rules as hints                │   │  files, dependencies, provider keys, runtime edits)        │
-│  wrap / unwrap / adapt   codemods, trade-offs   │   │  on the migration, every improvement branch, after apply  │
+│  wrap / adapt   codemods, trade-offs            │   │  on the migration, every built recommendation, after apply│
 └─────────────────────────────────────────────────┘   │  runtime (in the app): Router or provider, per request    │
                                                        └───────────────────────────────────────────────────────────┘
 ┌─ 4. Human loop ────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -32,8 +33,8 @@ production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [
 |---|---|---|
 | `start` | code | Refuses a dirty tree; creates branch `router-migrate/migration` from HEAD; excludes `.router-migrate/` from git; starts the baseline (tests, typecheck) in the background; with a migration key, saves the live catalog; prints the instructions with this repo's context and the scanner's map |
 | migrate + improve | agent | Serves each production call through Router however is best; one commit per decision; labels features; live checks; reviews the whole product as its CTO, at three levels (quick-win, change, rework): builds what it is sure of as branches `router-migrate/improve/<name>`, proposes the rest unbuilt, and files choices only the human can make as decisions; writes `MIGRATION.json` |
-| `finish` | code | Requires everything committed; the outside check on the migration (the checkout) and on each improvement branch (temporary worktrees); route truth; `validation.json`; the dashboard. Slow suites (> 90 s) run in the background and Apply waits. Never reverts |
-| review | human | Approve / dismiss / postpone improvements and decisions; mark changes for undo (dashboard or `router-migrate request`) |
+| `finish` | code | Requires everything committed; the outside check on the migration (the checkout) and on each built recommendation's branch (temporary worktrees); route truth; `validation.json`; the dashboard. Slow suites (> 90 s) run in the background and Apply waits. Never reverts |
+| review | human | Approve / dismiss / postpone recommendations; mark Router settings done; mark changes for undo (dashboard or `router-migrate request`) |
 | `apply` | agent | Gets every pending request at once and decides how to carry them out (building approved proposals from their description; account settings are written up for the human); commits each result; writes `APPLY.json` |
 | `apply --done` | code | Validates `APPLY.json`, runs the outside check, appends the session to `apply_log.json`, refreshes the report |
 
@@ -65,7 +66,7 @@ Everything lives in `<repo>/.router-migrate/` (excluded from git) plus git itsel
 | File | Written by | Holds |
 |---|---|---|
 | `ledger.json` | code | base commit, baseline, live/simulator, probes and live checks, sessions, costs |
-| `MIGRATION.json` | agent | `summary`, `reviewed`, `calls[]`, `items[]` (one item format for moves, trade-offs, ports, calls that stay, needs-decision, improvements, notes) |
+| `MIGRATION.json` | agent | `summary`, `reviewed`, `calls[]`, `items[]`: four kinds: `change` (a commit), `recommendation` (rank, level, actor code / router-setting / product-call, optional branch, `measured`), `stays`, `note` ([V7_CONTRACTS](../router_migrate/schemas/V7_CONTRACTS.md)); v6 reports still load |
 | `validation.json` | code | the outside check per branch: failures, flags, tests, typecheck, Router requests, route truth |
 | `requests.json` | dashboard / `request` | apply / undo / dismiss / postpone per item, with etags |
 | `APPLY.json` → `apply_log.json` | agent → code | each apply session: summary, per-item results and notes, commits, the check after |
@@ -86,7 +87,7 @@ Everything lives in `<repo>/.router-migrate/` (excluded from git) plus git itsel
 
 ## The outside check
 
-On the tree at the migration branch head (and in a temporary worktree per improvement branch), against the base commit:
+On the tree at the migration branch head (and in a temporary worktree per built recommendation), against the base commit:
 
 1. **Parse** every changed file.
 2. **Existing tests unchanged:** an existing test file edited or deleted fails; new tests are fine.
@@ -98,9 +99,9 @@ On the tree at the migration branch head (and in a temporary worktree per improv
 6. **Router validity:** no request rejected by router-sim.
 7. **Route truth:** verified (the route check, or a valid simulated or live request from the call's feature),
    unverified, reported moved but not routing, stays with the reason.
-8. **The report** validates against the contracts; each improvement branch exists.
+8. **The report** validates against the contracts; each recommendation branch exists.
 
-It never edits the tree. A failure blocks Apply for improvements; undo requests can always run.
+It never edits the tree. A failure blocks Apply for recommendations; undo requests can always run.
 
 ## CLI
 
@@ -109,12 +110,17 @@ It never edits the tree. A failure blocks Apply for improvements; undo requests 
 | `start [PATH] [--test-cmd C] [--typecheck-cmd C]` | Set up and print the instructions (Claude Code) |
 | `finish [PATH] [--no-dashboard] [--no-browser]` | The outside check and the dashboard |
 | `run PATH --agent claude [--model M]` | Headless start → agent → finish |
-| `request ITEM apply\|undo\|dismiss\|postpone [--reason R] [--until D]` | Record what you want for an item |
+| `request ITEM apply\|undo\|dismiss\|postpone\|done [--reason R] [--until D]` | Record what you want for an item (`done`: a Router setting you switched on) |
 | `apply [PATH]` / `apply --done` / `apply PATH --agent claude` | The apply session |
 | `check --all \| FILE:LINE \| --run CMD [--live] \| --final [--tests]` | Agent tool: route facts, sandbox, live, dry run |
 | `levers [MODEL\|FILE:LINE]` | Agent tool: lever table, catalog, same-family models, hints |
-| `wrap \| unwrap FILE:LINE`, `adapt FILE:LINE --LEVER --loses ...` | Optional agent helpers |
+| `wrap FILE:LINE`, `adapt FILE:LINE --LEVER --loses ...`, `policy` | Optional agent helpers (`unwrap` is the apply session's) |
 | `dashboard [PATH]` | REPORT.html and the live dashboard |
+| `facts --refresh [--dry-run]` | Maintainers: re-measure the fact sheet's anchored facts on real Router with the migration key |
+
+Release gate (maintainers): `eval/gate/gate.py --candidate ARM --baseline ARM` runs both arms on the working and
+held-out repos and judges them head-to-head, blind, on two rubrics; a prompt, fact or tool change ships only on SHIP
+(see `eval/gate/README.md`).
 
 ## Environment variables
 

@@ -2,14 +2,15 @@
 
 Move a codebase's production LLM traffic onto [Ramp's Router](https://router.com), and keep everything it did before.
 
-router-migrate is a Claude Code skill plus a small CLI. Your coding agent does the work: it migrates the code, reviews the
-system for what Router makes possible, builds the improvements worth building, and later applies what you approve and
-undoes what you reject. The CLI keeps it honest: facts it can't guess (does Router serve this request?), a sandbox, live
+router-migrate is a Claude Code skill plus a small CLI. Your coding agent does the work: it migrates the code (the gate:
+traffic moved, behaviour preserved), then reviews the whole product as its CTO with everything Router offers and ranks
+what to change, measured on real Router with a spend-capped key. It builds what it is sure of, proposes the rest, and
+later applies what you approve and undoes what you reject. The CLI keeps it honest: facts it can't guess (does Router serve this request?), a sandbox, live
 Router checks with a spend-capped key, and an outside check it can't influence. A vendored runtime then decides per
 request in production: Router when Router can serve it, the original provider otherwise. Without `RAMP_ROUTER_API_KEY`
 it does nothing.
 
-> **Status:** working MVP (v6, agent-forward), under active development. Python and TS/JS; OpenAI, Anthropic, LangChain,
+> **Status:** working MVP (v7: the review is the product, the migration is the gate; [plan](docs/plans/v7-flagship.md)), under active development. Python and TS/JS; OpenAI, Anthropic, LangChain,
 > Vercel AI SDK, LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be
 > published here once it is. First v6 end-to-end runs: [eval/v6/RESULTS.md](eval/v6/RESULTS.md).
 
@@ -58,9 +59,11 @@ whatever model it runs:
 1. `router-migrate start .` creates the branch `router-migrate/migration`, starts the baseline tests in the background,
    and prints the instructions, this repo's context and a map of every LLM call it sees.
 2. The session serves each call through Router however is best (wrapping, porting to another API, SDK or model,
-   restructuring), commits one commit per decision, reviews the system for improvements, builds the worthwhile ones as
-   branches `router-migrate/improve/<name>`, and writes `.router-migrate/MIGRATION.json`.
-3. `router-migrate finish .` runs the outside check on the migration and on every improvement branch, and opens the
+   restructuring), commits one commit per change, then reviews the product: ranked recommendations at three levels
+   (quick win, change, rework), each saying who carries it out (code, a Router setting, your call) and what was
+   measured; the ones it is sure of are built as branches `router-migrate/improve/<name>`. It writes
+   `.router-migrate/MIGRATION.json`.
+3. `router-migrate finish .` runs the outside check on the migration and on every built recommendation, and opens the
    dashboard.
 
 **Headless** (CI, evals): the same prompt and the same `start`/`finish` code around a `claude -p` session:
@@ -73,7 +76,8 @@ router-migrate run . --agent claude [--model <model>]
 
 ### Review, apply, undo, ship
 
-On the dashboard, approve, dismiss or postpone improvements and mark any change for undo; then press Apply. Apply hands
+On the dashboard, approve, dismiss or postpone recommendations, mark Router settings done once you've switched them
+on, and mark any change for undo; then press Apply. Apply hands
 your whole list to an agent session, which decides how to carry it out (merge order, conflicts, partial reverts) and
 explains anything it declined. In Claude Code that's `/router-migrate apply`; with the CLI logged in, the dashboard
 starts it for you. The outside check runs again afterwards. Then:
@@ -107,12 +111,12 @@ export RAMP_ROUTER_API_KEY=...                            # traffic Router can s
 ```
  start (code)       clean tree · branch router-migrate/migration · baseline tests in the background · live catalog
      │              with a key · the scanner's map of LLM calls (a hint)
- agent              migrate however is best · label features · live-check with the key · one commit per decision
-     │              review the system · build worthwhile improvements as branches · notes for the rest · MIGRATION.json
- finish (code)      the outside check on the migration and every improvement branch: parse · typecheck and tests with
+ agent              migrate however is best · label features · live-check with the key · one commit per change
+     │              review the product as its CTO · measure · rank recommendations · build the sure ones · MIGRATION.json
+ finish (code)      the outside check on the migration and every built recommendation: parse · typecheck and tests with
      │              Router on vs the baseline · existing tests unchanged · Router accepts the requests · route truth;
      │              deletions, dependency changes, provider-key removals, runtime edits flagged for you · never reverts
- you                approve · dismiss · postpone · undo, on the dashboard
+ you                approve · dismiss · postpone · undo · mark Router settings done, on the dashboard
      │
  agent (apply)      gets the whole list, decides how to carry it out, commits each result, explains what it declined
      │
@@ -134,17 +138,17 @@ was measured about each live in [router_migrate/data/ROUTER.md](router_migrate/d
 
 | | Decides |
 |---|---|
-| **The agent** | Everything that takes understanding: which provider, API, SDK and model serve each call; which trade-offs to take and what they lose; which improvements are worth building; how to apply and undo what you ask |
+| **The agent** | Everything that takes understanding: which provider, API, SDK and model serve each call; which trade-offs to take and what they lose; what the product should become on Router and in what order; how to apply and undo what you ask |
 | **Code** | Facts (does Router accept this, catalog and prices), the outside check, the runtime's per-request routing |
-| **You** | Every improvement, every undo, anything flagged (deleted files, dependency changes, capability removals); merging the branch; going live |
+| **You** | Every recommendation, every product call, Router account settings, every undo, anything flagged (deleted files, dependency changes, capability removals); merging the branch; going live |
 
 ## Safety model
 
 - **Inert by default.** Without `RAMP_ROUTER_API_KEY` in the app's environment, every wrapped client behaves exactly as
   before.
 - **Kill switch.** `ROUTER_MIGRATE_DISABLE=1` sends everything to the provider.
-- **Your work is untouched.** `start` refuses a dirty working tree; the migration and every improvement live on their
-  own branches.
+- **Your work is untouched.** `start` refuses a dirty working tree; the migration and every built recommendation live
+  on their own branches.
 - **Outcomes, not edit bans.** The agent may change dependencies, delete files or port code; the outside check judges
   the result (tests and typecheck vs the baseline, existing tests unchanged, valid Router requests), and anything that
   could remove a capability is flagged for you.
