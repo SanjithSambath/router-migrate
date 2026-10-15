@@ -29,8 +29,11 @@ Recommendations from real runs, in the agent's words:
 
 - *Answer per-document financials without an inner agent* (sec-insights): each document had its own agent whose only
   tool returns the same data whatever is asked; replacing it with one direct call halves the requests per document.
-- *Answer most messages with a cheaper model* (llmcord): measured on real Router, a reply cost $0.00002 instead of
-  $0.003, about 140x less, and arrived sooner. Filed as your call, with shadow models proposed to confirm quality first.
+- *Answer most messages with a model 300x cheaper* (llmcord): measured on real Router over 5 samples, a reply to a
+  technical question cost $0.000048 instead of $0.0148 and was ready in 4.1 s instead of 9.1 s. Filed as your decision,
+  with shadow models proposed to confirm quality on real traffic first.
+- *Stop the clock from spoiling the prompt cache* (llmcord): the current time sat at the top of the prompt, so no two
+  requests shared a cacheable start; moving it cut a follow-up turn in a long conversation from $0.0277 to $0.0043.
 - *Collapse the two-level agent so answers stream sooner* (sec-insights): a rework, proposed rather than built; after
   approval an apply session built it and the outside check passed.
 

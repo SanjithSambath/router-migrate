@@ -117,3 +117,12 @@ Run on a frozen worktree of the pre-v7 code, judged with `eval/gate/gate.py` (bo
 - End-to-end v7 run (llmcord, new prompt + contract + dashboard): a valid v7 report, 9 ranked recommendations with
   actors and measured numbers (138x cheaper per reply, n=2; cache reads 0 -> 6,258 tokens, n=2), 47 live requests, the
   outside check passed, the dashboard renders it.
+
+## Speed (2026-10-15)
+
+Median open-scope run 37 min (v6: 17). Traced: ~100 serial model turns at ~15 s; tools 3-8 min; harness <1 min; agents
+read the runtime source (3-7 turns), one ran `find /` for it. Changes: a parallel-work sentence in the prompt, a context
+line pointing at fact-sheet section 9 and `check --run` instead of the runtime source, the trace setting documented as
+Python-only, and a ledger lock so parallel checks can't drop records. Partial comparison (stopped early by choice):
+multi-call turns 50-70% vs 5-15%; agent.email migration committed after ~7 min vs 17. Baselines with the writing guide:
+agent.email 28.8 min, llmcord 32.9 min, both passed the check.

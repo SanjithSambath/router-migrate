@@ -64,6 +64,15 @@ run per arm and repo, so a single win is a signal, not proof; the chain below he
 
 The rule that came out of it: **cut procedure, keep facts and tools, widen the mandate.**
 
+**Speed.** Open-scope runs take a median of 37 minutes (v6: 17). Tracing them showed why: about 100 model turns, one
+after another, at roughly 15 s each; tools (tests, checks, live Router requests) were only 3-8 minutes, and the harness
+under one. Almost every turn did one thing, and every agent spent turns reading the runtime's source (one searched the
+whole disk for it). Two small changes followed: one prompt sentence asking for parallel work (batched reads, commands
+and measurements, slow tests in the background, subagents for independent recommendations), and one context line
+pointing at what the runtime does instead of its source. In the first minutes of a comparison round, runs with the
+sentence batched calls in 50-70% of turns (5-15% before), and the largest repo committed its migration about 10 minutes
+sooner. The round was stopped before the runs finished, so the end-to-end saving is not yet measured.
+
 Full round-by-round log: [eval/lean/LOG.md](../eval/lean/LOG.md). Release gate: [eval/gate/](../eval/gate/).
 
 ## What v7 changed because of it
