@@ -113,7 +113,7 @@ def table(rnd):
     rows = []
     for d in sorted(glob.glob(os.path.join(HERE, "runs", rnd, "*", "*"))):
         p = os.path.join(d, "judge.json")
-        if not os.path.exists(p):
+        if not os.path.exists(p) or json.load(open(os.path.join(d, "run.json"))).get("invalid"):
             continue
         j = json.load(open(p))
         arm, repo = d.split(os.sep)[-2:]
@@ -145,7 +145,8 @@ def main():
     ap.add_argument("--round", required=True)
     ap.add_argument("--parallel", type=int, default=4)
     a = ap.parse_args()
-    dirs = sorted(d for d in glob.glob(os.path.join(HERE, "runs", a.round, "*", "*")) if os.path.exists(os.path.join(d, "run.json")))
+    dirs = sorted(d for d in glob.glob(os.path.join(HERE, "runs", a.round, "*", "*")) if os.path.exists(os.path.join(d, "run.json"))
+                  and not json.load(open(os.path.join(d, "run.json"))).get("invalid"))
     order = sorted(dirs, key=lambda d: hashlib.sha1(d.encode()).hexdigest())  # judged in an arm-blind order
     with cf.ThreadPoolExecutor(a.parallel) as ex:
         list(ex.map(judge, order))
