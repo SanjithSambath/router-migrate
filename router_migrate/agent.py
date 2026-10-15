@@ -1979,7 +1979,7 @@ def add_parsers(sub):
     s = sub.add_parser("request", help="record what you want for an item: apply (an improvement), undo, dismiss, postpone (the "
                                        "dashboard does the same); `router-migrate apply` then hands the list to the agent")
     s.add_argument("item", help="item id from MIGRATION.json (shown on every dashboard card)")
-    s.add_argument("action", choices=["apply", "undo", "dismiss", "postpone"])
+    s.add_argument("action", choices=["apply", "undo", "dismiss", "postpone", "done"])
     s.add_argument("--reason")
     s.add_argument("--until", help="YYYY-MM-DD (postpone)")
     s.add_argument("--path", default=".")

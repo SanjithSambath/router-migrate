@@ -1,11 +1,11 @@
 """router-migrate: move a codebase's production LLM traffic onto Ramp's Router, without breaking it. An agent does the work
-(migrate, improve, apply what you approve, undo what you reject); this CLI gives it facts, a sandbox, Router access and an
+(migrate, review the product and rank what to change, apply what you approve, undo what you reject); this CLI gives it facts, a sandbox, Router access and an
 outside check it can't influence.
 
 In Claude Code (any model): /router-migrate, or
   router-migrate start  [PATH]        clean tree required; branch router-migrate/migration; prints the agent's instructions
-  ...the session migrates and reviews improvements, commits, and writes .router-migrate/MIGRATION.json...
-  router-migrate finish [PATH]        the outside check on the migration and every improvement branch; the dashboard
+  ...the session migrates, reviews the product as its CTO, commits, and writes .router-migrate/MIGRATION.json...
+  router-migrate finish [PATH]        the outside check on the migration and every built recommendation; the dashboard
   router-migrate apply  [PATH]        hand your approvals and undos to the agent; it ends with `router-migrate apply --done`
 
 Headless (CI, evals):
@@ -23,7 +23,10 @@ Agent tools (run from the repository root; FILE:LINE accepts a comma-separated l
 
 Review (or use the dashboard):
   router-migrate dashboard [PATH]           REPORT.html + the live dashboard
-  router-migrate request ITEM apply|undo|dismiss|postpone
+  router-migrate request ITEM apply|undo|dismiss|postpone|done
+
+Maintainers:
+  router-migrate facts --refresh [--dry-run]  re-measure the fact sheet's anchored facts on real Router (needs the key)
 
 The migration key (optional; enables live checks): ~/.config/router-migrate/key or ROUTER_MIGRATE_KEY. Never printed.
 Nothing changes in production until RAMP_ROUTER_API_KEY is set in the app's environment; ROUTER_MIGRATE_DISABLE=1 turns it off.
@@ -284,6 +287,10 @@ def _v6_ledger(path):
 
 
 def main(argv=None):
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args[:1] == ["facts"]:  # maintainers: re-measure the fact sheet's anchored lines with the migration key
+        from .facts import cli as facts_cli
+        return facts_cli(args[1:])
     ap = argparse.ArgumentParser(prog="router-migrate", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version="router-migrate " + __version__)
     sub = ap.add_subparsers(dest="cmd")
