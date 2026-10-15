@@ -323,9 +323,9 @@ details.fold > summary .code-h { position: static; border-bottom: 0; }
 details.fold[open] > summary .code-h { border-bottom: 1px solid var(--line); }
 details.fold > summary .tg { color: var(--text-3); font-family: var(--sans); font-size: 11.5px; }
 details.fold > summary:hover .tg { color: var(--text); }
-.code-b { padding: 6px 0; font: 400 12px/19px var(--mono); }
+.code-b { padding: 8px 0; font: 400 12.5px/20px var(--mono); }
 .cl { display: flex; padding-right: 12px; }
-.cl .sg { width: 26px; flex: none; text-align: center; color: var(--text-3); user-select: none; }
+.cl .sg { width: 30px; flex: none; text-align: center; color: var(--text-3); user-select: none; }
 .cl .tx { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; color: var(--text-2); }
 .cl.add { background: var(--add); }
 .cl.add .sg { color: var(--green); }
@@ -600,9 +600,21 @@ a.btn { text-decoration: none; }
   .flow svg.wires { display: none; }
   .flow-mid { justify-self: center; width: 0; height: 28px; border-left: 1.5px dashed var(--green-line); }
   .stay-grid { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .tile { padding: 12px; }
+  .tile .ic, .tile .hn { display: none; }
+  .tile .nm { flex-direction: column-reverse; align-items: flex-start; gap: 2px; font-size: 13px; }
+  .tile .nm .c { margin-left: 0; }
+  .tile .stt { margin-top: 6px; font-size: 12px; }
+  .tile .stt span + span { display: none; }
   .status .lbl2 { display: none; }
   .status { padding: 0 8px; }
   .door-big .v { font-size: 34px; }
+}
+@media print {
+  .enter, .enter * { animation: none !important; }
+  .side, .topbar, #sticky, #toast { display: none; }
+  .app { grid-template-columns: minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
@@ -1211,7 +1223,7 @@ a.btn { text-decoration: none; }
       '<div class="panel">' + top.map(function (it, k) {
         var m = arr(it.measured).filter(function (x) { return x.before != null && x.after != null; })[0];
         return '<button class="srow" type="button" data-go-item="' + esc(it.id) + '"><span class="rkn">' + (num(it.rank) != null ? it.rank : k + 1) + '</span><span class="tt">' + esc(it.title || it.id) + "</span>" +
-          (m ? '<span class="num" title="' + esc(m.metric) + '">' + esc(measuredVal(m)) + "</span>" : "<span></span>") + actorChip(it) + icon("arrow") + "</button>";
+          (m ? '<span class="num" title="' + esc(m.metric) + '">' + esc(measuredVal(m)) + "</span>" : '<span class="num"></span>') + actorChip(it) + icon("arrow") + "</button>";
       }).join("") + "</div></section>");
     h.push(flowHtml());
     var c = obj(B.cost), facts = [];
@@ -1299,11 +1311,11 @@ a.btn { text-decoration: none; }
     if (!l.length && !ch.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in <code>MIGRATION.json</code>.</div>'); return h.join(""); }
     if (l.length) {
       h.push('<section><div class="sec-h"><h2>Calls</h2><span class="n">' + fmtInt(tr.on_router || 0) + " of " + fmtInt(l.length) + " on Router</span></div>" +
-        '<div class="panel tblw"><table class="tbl"><thead><tr><th>Call</th><th>Model</th><th>Goes to</th><th>Moved by</th></tr></thead><tbody>' + l.map(function (c, i) {
+        '<div class="panel tblw"><table class="tbl"><thead><tr><th>Call</th><th>Model</th><th>Goes to</th><th>Covered by</th></tr></thead><tbody>' + l.map(function (c, i) {
           return '<tr id="call-' + i + '"><td><div class="site">' + esc(c.site) + "</div>" + (c.feature ? '<div class="sub">' + esc(c.feature) + "</div>" : "") + "</td>" +
             '<td data-l="Model"><span class="mdl">' + esc(c.model || "set at run time") + "</span></td>" +
             '<td data-l="Goes to"><div>' + routeCell(c) + "</div></td>" +
-            '<td data-l="Moved by"><div>' + (c.item ? itemLink(c.item) : '<span class="sub">–</span>') + "</div></td></tr>";
+            '<td data-l="Covered by"><div>' + (c.item ? itemLink(c.item) : '<span class="sub">–</span>') + "</div></td></tr>";
         }).join("") + "</tbody></table></div></section>");
     }
     var fl = arr(bh.unclaimed_flags);
