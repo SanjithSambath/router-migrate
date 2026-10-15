@@ -78,7 +78,9 @@ is: **which parts can we verify, and who should own the rest?**
 | METR, [Recent frontier models are reward hacking](https://metr.org/blog/2025-06-05-recent-reward-hacking/) | Capable models tamper with tests and scoring when they can. | The check runs outside the agent's reach. Test, CI and lockfile edits fail scope. |
 | [ImpossibleBench](https://arxiv.org/abs/2510.20270) | Coding agents exploit test cases when the task cannot be done honestly, including by editing tests. | No-destructive-edits invariant. We saw it ourselves: the docs-prompt agent deleted gpt-cli's Azure provider and key config while tests still passed. |
 
-## How we got here: v1 to v6
+## How we got here: v1 to v7
+
+The hypothesis-by-hypothesis version of this history, with the v7 experiments: [EVOLUTION.md](EVOLUTION.md).
 
 Each version answered the previous one's failure. Full specs are in [archive/docs/](../archive/docs/).
 

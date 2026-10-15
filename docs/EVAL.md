@@ -167,8 +167,16 @@ nohup .venv/bin/python eval/run.py --set heldout --arms D3min,D3free,B --repos a
 Runs are resumable. Each run writes `status.json` and a line to `DONE.txt`. Agent spend comes from the agent transcript.
 The eval needs Claude Code on `PATH` and no `RAMP_ROUTER_API_KEY` (the harness strips it).
 
-## v6
+## v6 and v7
 
-The tables above score v5's migration step (D3). v6's first end-to-end runs (migrate, improve, finish, an agent-run
-apply/undo) are in [eval/v6/RESULTS.md](../eval/v6/RESULTS.md); they have not been scored against the frozen improve
-rubric yet ([plans/v6-improve-rubric.md](plans/v6-improve-rubric.md)).
+The tables above score the migration step. v6's first end-to-end runs (migrate, improve, finish, an agent-run apply and
+undo) are in [eval/v6/RESULTS.md](../eval/v6/RESULTS.md).
+
+v7 was shaped by seven rounds of blind head-to-head experiments on the review's quality, then confirmed on five held-out
+repos (the 15-line prompt beat the v6 prompt 5-0 under both rubrics). Method, hypotheses and results:
+[EVOLUTION.md](EVOLUTION.md); round-by-round log: [eval/lean/LOG.md](../eval/lean/LOG.md). Any change to the prompt,
+facts or tools now goes through the release gate:
+
+```bash
+.venv/bin/python eval/gate/gate.py --candidate ARM --baseline ARM [--repos working|heldout|all]
+```

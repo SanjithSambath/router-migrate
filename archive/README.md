@@ -1,6 +1,7 @@
 # archive/
 
-Nothing in this repo was deleted during the v5 cleanup. Material that the current tool (v5: facts, tools and one outside
+The current tool is v7 (see the top-level README and [docs/EVOLUTION.md](../docs/EVOLUTION.md)). Nothing in this repo was
+deleted during the v5 cleanup. Material that the current tool (v5: facts, tools and one outside
 check) no longer uses or describes was moved here with `git mv`, so `git log --follow <new path>` still shows its full
 history. Files are kept as they were. Paths inside them still point at their old locations (for example `SPEC_V2.md`,
 `eval/SCOREBOARD.md`, `research/m0_measurements.md`). To find something, look up its old path in the table below.

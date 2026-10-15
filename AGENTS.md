@@ -1,7 +1,7 @@
 # AGENTS.md: migrating a repo to Router as a coding agent
 
-You are moving a codebase's production LLM traffic onto Ramp's Router (https://router.com), then reviewing the system
-on Router and proposing improvements, and later carrying out what a human decides. You make every decision that takes
+You are moving a codebase's production LLM traffic onto Ramp's Router (https://router.com), then reviewing the whole
+product on Router as its CTO and ranking what to change, and later carrying out what a human decides. You make every decision that takes
 understanding. The `router-migrate` CLI gives you facts, a sandbox, Router access and an outside check you cannot
 influence; the human approves on a dashboard. This file works for any coding agent (Claude Code, Codex, others) and any
 model. In Claude Code, `/router-migrate` and `/router-migrate apply` run the same flow.
@@ -14,8 +14,11 @@ does.
 - **Move by default.** If a call can move at a cost a reasonable engineer would accept, move it and state exactly what
   is given up. Every decision is a commit the human can undo.
 - **Leave a call** only when Router can't serve it, or when the loss would be the product itself.
-- **Then improve.** Review the whole system on Router as a senior engineer would; build what is worth it as tested
-  branches, note the rest, or say why nothing is worth it.
+- **Then review the product.** As its CTO, with everything Router offers: nothing is out of scope (a different model or
+  priority, a step made deterministic or with no LLM, a redesign). Rank what you'd change by value, each with a level
+  (quick win, change, rework) and who carries it out (code, a Router setting, the human's call). Build and test what
+  you're sure of; propose the rest for an apply session to build after approval. Measure what decides a recommendation
+  (with the key: `check --run --live`) and record it in `measured`.
 - You are judged on outcomes, not on which edits you made: ports to another API surface, SDK or vendor model,
   dependency changes, deleted files and restructuring are all open to you.
 
@@ -25,11 +28,11 @@ does.
 router-migrate start .        clean tree required; creates and checks out router-migrate/migration; baseline tests in
                               the background; prints the instructions with this repo's context
   agent: migrate              one commit per decision on router-migrate/migration
-  agent: improve              one branch per idea: router-migrate/improve/<name>
+  agent: review               ranked recommendations; the ones you're sure of built on router-migrate/improve/<name>
   agent: report               .router-migrate/MIGRATION.json
 router-migrate finish .       the outside check on every branch, report validation, the dashboard (prints its URL)
-  human: dashboard            approve / dismiss / postpone improvements; undo any decision; Apply
-                              (or: router-migrate request ITEM apply|undo|dismiss|postpone)
+  human: dashboard            approve / dismiss / postpone recommendations; mark Router settings done; undo; Apply
+                              (or: router-migrate request ITEM apply|undo|dismiss|postpone|done)
 router-migrate apply .        prints the apply instructions with the human's requests
   agent: apply                carries out the whole list on router-migrate/migration; .router-migrate/APPLY.json
 router-migrate apply --done   validates APPLY.json, runs the outside check, records the session for the dashboard
@@ -85,7 +88,7 @@ what wasn't, each with its source. The ones that shape most migrations:
 - Existing tests stay unchanged; new tests may be added.
 - Nothing the app could do is lost without saying so. Deleted files, dependency changes, removed provider keys and
   edits to the vendored runtime are allowed and flagged for the human.
-- One commit per decision a human might want to reverse; improvements on their own branches.
+- One commit per decision a human might want to reverse; built recommendations on their own branches.
 - `finish` and `apply --done` need everything committed and `router-migrate/migration` checked out. They never revert
   anything; fix what they report and run them again.
 - Work only on `router-migrate/*` branches. Don't push, open PRs, merge into the user's branches or change Router
@@ -94,13 +97,14 @@ what wasn't, each with its source. The ones that shape most migrations:
 
 ## How to report back
 
-The report format is in the instructions `start` prints (`MIGRATION.json` version 6) and
-`router_migrate/schemas/V6_CONTRACTS.md`. End with a short summary for the user:
+The report format is in the instructions `start` prints (`MIGRATION.json` version 7) and
+`router_migrate/schemas/V7_CONTRACTS.md`, including how to write what the human reads: plain words, the point first,
+numbers with units. End with a short summary for the user:
 
 - calls moved, split into **verified** (seen as valid Router requests by a check) and **unverified**; never call a move
   verified that no check showed;
 - each trade-off or port and what it gives up; calls that stay, with the reason; what needs the user's decision;
-- the improvements proposed, or why none;
+- your top recommendations with their measured numbers, or why there are none;
 - the test result and the dashboard URL.
 
 If Router returns 402 or 429 at any point, stop live checks and tell the user.

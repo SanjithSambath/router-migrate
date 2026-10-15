@@ -1,211 +1,207 @@
 # router-migrate
 
-Move a codebase's production LLM traffic onto [Ramp's Router](https://router.com), and keep everything it did before.
+**Move a codebase's LLM traffic onto [Ramp's Router](https://router.com) without breaking it, then get a CTO-level plan
+for what the product should become on Router.**
 
-router-migrate is a Claude Code skill plus a small CLI. Your coding agent does the work: it migrates the code (the gate:
-traffic moved, behaviour preserved), then reviews the whole product as its CTO with everything Router offers and ranks
-what to change, measured on real Router with a spend-capped key. It builds what it is sure of, proposes the rest, and
-later applies what you approve and undoes what you reject. The CLI keeps it honest: facts it can't guess (does Router serve this request?), a sandbox, live
-Router checks with a spend-capped key, and an outside check it can't influence. A vendored runtime then decides per
-request in production: Router when Router can serve it, the original provider otherwise. Without `RAMP_ROUTER_API_KEY`
-it does nothing.
+router-migrate is a Claude Code skill and a small CLI. Your coding agent does the work in two halves:
 
-> **Status:** working MVP (v7: the review is the product, the migration is the gate; [plan](docs/plans/v7-flagship.md)), under active development. Python and TS/JS; OpenAI, Anthropic, LangChain,
-> Vercel AI SDK, LlamaIndex and LiteLLM. The evaluation on open-source repos is still being finalized; results will be
-> published here once it is. First v6 end-to-end runs: [eval/v6/RESULTS.md](eval/v6/RESULTS.md).
+1. **The migration (the gate).** It moves every production LLM call it can onto Router and proves the app still behaves
+   the same: same tests, same typecheck, requests Router actually accepts.
+2. **The review (the product).** It then reads the whole product the way a CTO who knows Router would, measures what
+   matters on real Router, and ranks what to change: from a one-line cache fix to removing an LLM call entirely.
+
+You decide on a dashboard. An agent builds what you approve and undoes what you reject, and an outside check the agent
+can't influence verifies every step.
+
+![The dashboard's overview](docs/img/overview.png)
+
+---
+
+## What a run gives you
+
+**A ranked list of what to change, with numbers measured on real Router.** Each recommendation says how big it is
+(quick win, change, or rework), who carries it out (code, a Router setting, or your call), what it gains, what it could
+make worse, and what was measured, with the sample size.
+
+![Review: ranked recommendations with measured numbers](docs/img/review.png)
+
+Recommendations from real runs, in the agent's words:
+
+- *Answer per-document financials without an inner agent* (sec-insights): each document had its own agent whose only
+  tool returns the same data whatever is asked; replacing it with one direct call halves the requests per document.
+- *Answer most messages with a cheaper model* (llmcord): measured on real Router, a reply cost $0.00002 instead of
+  $0.003, about 140x less, and arrived sooner. Filed as your call, with shadow models proposed to confirm quality first.
+- *Collapse the two-level agent so answers stream sooner* (sec-insights): a rework, proposed rather than built; after
+  approval an apply session built it and the outside check passed.
+
+**A migration branch you review**, `router-migrate/migration`, one commit per decision, plus a small vendored runtime.
+The Migrate page shows each change next to what was checked.
+
+![Migrate: what moved and how](docs/img/migrate.png)
+
+**One place to decide.** Approve, dismiss or postpone recommendations; mark Router settings done once you've switched
+them on in the console; mark any change for undo. Apply hands your whole list to an agent session.
+
+![Your turn: what waits on you](docs/img/queue.png)
+
+## Results
+
+| Question | Evidence |
+|---|---|
+| Does traffic really move without breaking anything? | On 10 open-source repos (64 movable production calls): 0 repos broken, 0 wrong moves, 0 destructive edits; held-out repos: 23 of 45 movable calls moved. Router's public docs prompt broke a repo and made 54 destructive edits. [EVAL.md](docs/EVAL.md) |
+| Is the review worth acting on? | Blind head-to-head judging: the current 15-line prompt beat the previous ~150-line one 5-0 on five repos never used for tuning, under both rubrics. [EVOLUTION.md](docs/EVOLUTION.md) |
+| Does approve-then-build work? | An approved, never-built rework was built by an apply session and passed the outside check. |
+| Are the numbers real? | Measured through Router with a spend-capped key; e.g. one llmcord run made 47 live requests. Every number shows its sample size. |
+
+Every run in these experiments passed the outside check. Caveats: one run per arm and repo, judged by a Claude reviewer;
+see [Limits](#limits).
 
 ## Quickstart
 
-### Install
+**Requirements:** a git repository with a clean working tree, Python 3.9+, and Node 18+ for TS/JS repos.
 
-**As a Claude Code plugin** (works in any repo, any model). In Claude Code:
+### 1. Install
+
+As a Claude Code plugin (any repo, any model):
 
 ```
 /plugin marketplace add <path-to-this-checkout or owner/repo>
 /plugin install router-migrate@router-migrate
 ```
 
-The plugin puts `router-migrate` on the session's PATH; its first run installs its two Python dependencies (libcst, httpx)
-into a cached venv, and the TS codemod's node modules when npm is available.
-
-**From a checkout** (CLI on your PATH, skill available as `/router-migrate`):
+Or from a checkout:
 
 ```bash
 git clone <this repo> router-migrate && cd router-migrate
-make setup                                                  # local .venv and node_modules (or: pip install -e .)
+make setup
 export PATH="$PWD/bin:$PATH"
 ln -s "$PWD/skills/router-migrate" ~/.claude/skills/router-migrate
 ```
 
-**Requirements:** a git repo to migrate; Python 3.9+; Node 18+ for TS/JS repos.
+### 2. Add a migration key (recommended)
 
-### Optional: a migration key
-
-Live checks work best with a Router key. Use a dedicated key with a spend cap, separate from production:
+A dedicated Router key with a spend cap, separate from production. With it, the agent measures cost, caching and
+latency on real Router; without it, everything still runs against a local copy of Router's rules, and the dashboard says
+nothing was measured.
 
 ```bash
 mkdir -p ~/.config/router-migrate && (umask 077; printf '%s' "$KEY" > ~/.config/router-migrate/key)
 ```
 
-With it, the agent sends real requests to confirm what Router accepts and reads the live catalog and prices. Without
-it everything still works against the offline simulator, and every card says which kind of evidence it has. The key is only injected into commands the tool runs for the agent; it is never printed or stored.
+The key is only injected into the commands the tool runs for the agent. It is never printed, logged or committed.
 
-### Migrate and improve
+### 3. Run it
 
-**In Claude Code**, from the repo you want to migrate (clean working tree): `/router-migrate` (plugin:
-`/router-migrate:router-migrate`), or just say "migrate this repo to Router". The session you are in is the agent, on
-whatever model it runs:
+In Claude Code, from the repository you want to migrate: `/router-migrate` (or say "migrate this repo to Router"). Your
+session is the agent:
 
-1. `router-migrate start .` creates the branch `router-migrate/migration`, starts the baseline tests in the background,
-   and prints the instructions, this repo's context and a map of every LLM call it sees.
-2. The session serves each call through Router however is best (wrapping, porting to another API, SDK or model,
-   restructuring), commits one commit per change, then reviews the product: ranked recommendations at three levels
-   (quick win, change, rework), each saying who carries it out (code, a Router setting, your call) and what was
-   measured; the ones it is sure of are built as branches `router-migrate/improve/<name>`. It writes
-   `.router-migrate/MIGRATION.json`.
-3. `router-migrate finish .` runs the outside check on the migration and on every built recommendation, and opens the
-   dashboard.
+1. `router-migrate start .` creates the branch, starts the baseline tests and prints the instructions with a map of
+   every LLM call it found.
+2. The agent migrates, reviews, measures, commits, and writes `.router-migrate/MIGRATION.json`.
+3. `router-migrate finish .` runs the outside check and opens the dashboard.
 
-**Headless** (CI, evals): the same prompt and the same `start`/`finish` code around a `claude -p` session:
+Headless (CI, evals) runs the same prompt and the same checks around a `claude -p` session:
 
 ```bash
-router-migrate run . --agent claude [--model <model>]
+router-migrate run . --agent claude
 ```
 
-**Other agents** (Codex and others): follow [AGENTS.md](AGENTS.md).
+### 4. Decide, apply, ship
 
-### Review, apply, undo, ship
-
-On the dashboard, approve, dismiss or postpone recommendations, mark Router settings done once you've switched them
-on, and mark any change for undo; then press Apply. Apply hands
-your whole list to an agent session, which decides how to carry it out (merge order, conflicts, partial reverts) and
-explains anything it declined. In Claude Code that's `/router-migrate apply`; with the CLI logged in, the dashboard
-starts it for you. The outside check runs again afterwards. Then:
+Decide on the dashboard, then press Apply (in Claude Code: `/router-migrate apply`). When you're happy with the branch:
 
 ```bash
-git checkout main && git merge router-migrate/migration   # when you're happy with the branch
-export RAMP_ROUTER_API_KEY=...                            # traffic Router can serve goes to Router; the rest is unchanged
+git checkout main && git merge router-migrate/migration
+export RAMP_ROUTER_API_KEY=...        # requests Router can serve go to Router; everything else is unchanged
 ```
 
 `ROUTER_MIGRATE_DISABLE=1` turns it off again without a deploy.
 
-## What you get
-
-![Dashboard](docs/img/dashboard.png)
-
-- **A branch you review**, `router-migrate/migration`: one commit per decision, plus the vendored runtime
-  (`router_runtime.py` / `routerRuntime.ts`). Nothing is merged into your branches by the tool.
-- **A CTO's review of the whole product on Router**, ranked by value at three levels (quick win, change, rework):
-  anything from a cache key or a priority tier to a different model, a step made deterministic or with no LLM at all,
-  shadow models, Jev or Switchyard, or a redesign of how the product uses models. What the agent is sure of is built and
-  checked on a branch; the rest is proposed, and an apply session builds it once you approve. Decisions only you can
-  make (a model change, a setting on app.router.com) are approvable too. Each says what it gains, what it loses, the
-  price change and exactly what was checked.
-- **A dashboard** (`REPORT.html` and a live local page) where everything is the same kind of card: Overview (traffic on
-  Router, behaviour check, what waits on you, the agent's summary), Calls, Changes, Your queue (one Apply), History (each
-  apply session's log) and Router setup.
-- **An audit trail**: git history plus `.router-migrate/` (excluded from git).
-
 ## How it works
 
 ```
- start (code)       clean tree · branch router-migrate/migration · baseline tests in the background · live catalog
-     │              with a key · the scanner's map of LLM calls (a hint)
- agent              migrate however is best · label features · live-check with the key · one commit per change
-     │              review the product as its CTO · measure · rank recommendations · build the sure ones · MIGRATION.json
- finish (code)      the outside check on the migration and every built recommendation: parse · typecheck and tests with
-     │              Router on vs the baseline · existing tests unchanged · Router accepts the requests · route truth;
-     │              deletions, dependency changes, provider-key removals, runtime edits flagged for you · never reverts
- you                approve · dismiss · postpone · undo · mark Router settings done, on the dashboard
-     │
- agent (apply)      gets the whole list, decides how to carry it out, commits each result, explains what it declined
-     │
- check (code)       the outside check again; the dashboard shows the result and the session's log
+ start          code    clean tree · branch · baseline tests · live catalog · map of LLM calls
+ migrate        agent   move each call however is best · one commit per decision · check on real Router
+ review         agent   read the product as its CTO · measure · rank · build what it's sure of, propose the rest
+ finish         code    the outside check: tests and typecheck vs the baseline, Router accepts the requests,
+                        which calls really reach Router · never reverts anything
+ decide         you     approve · dismiss · postpone · mark Router settings done · undo
+ apply          agent   carries out your whole list, explains anything it declined
+ check          code    the outside check again
 ```
 
 In production, per request:
 
 ```
-your code ─▶ OpenAI / Anthropic SDK ─▶ router runtime ─┬─ Router can serve it ─▶ Router (/v1/responses, /v1/messages)
-                                                       └─ otherwise ─────────▶ original provider, unchanged
+your code ─▶ OpenAI / Anthropic SDK ─▶ router runtime ─┬─ Router can serve it ─▶ Router
+                                                       └─ otherwise ─────────▶ the original provider, unchanged
 ```
 
-Chat Completions calls are translated to Router's Responses API and back, streams included. Router's levers and what
-was measured about each live in [router_migrate/data/ROUTER.md](router_migrate/data/ROUTER.md). Details:
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Who decides what
-
-| | Decides |
+| Who | Decides |
 |---|---|
-| **The agent** | Everything that takes understanding: which provider, API, SDK and model serve each call; which trade-offs to take and what they lose; what the product should become on Router and in what order; how to apply and undo what you ask |
-| **Code** | Facts (does Router accept this, catalog and prices), the outside check, the runtime's per-request routing |
-| **You** | Every recommendation, every product call, Router account settings, every undo, anything flagged (deleted files, dependency changes, capability removals); merging the branch; going live |
+| **The agent** | Everything that takes understanding: how each call should reach Router, what to change about the product, how to carry out what you approve. |
+| **Code** | Facts (does Router accept this request? what does it cost?), the outside check, and the runtime's per-request routing. |
+| **You** | Every recommendation, every product call, Router account settings, every undo, merging, going live. |
 
-## Safety model
+Details: [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-- **Inert by default.** Without `RAMP_ROUTER_API_KEY` in the app's environment, every wrapped client behaves exactly as
-  before.
-- **Kill switch.** `ROUTER_MIGRATE_DISABLE=1` sends everything to the provider.
-- **Your work is untouched.** `start` refuses a dirty working tree; the migration and every built recommendation live
-  on their own branches.
-- **Outcomes, not edit bans.** The agent may change dependencies, delete files or port code; the outside check judges
-  the result (tests and typecheck vs the baseline, existing tests unchanged, valid Router requests), and anything that
-  could remove a capability is flagged for you.
-- **One outside check.** It re-derives everything from the tree and the simulator, and trusts nothing the agent wrote.
-- **Truthful reporting.** A call is "verified" only when a valid Router request from it was seen; every card says what
-  was checked and against what.
-- **Everything reversible.** Every decision is a commit; Undo is a request the agent carries out and the check verifies.
-- **The migration key stays secret.** It is injected only into commands the tool runs for the agent, scrubbed from
-  output, and never stored in the repo.
+## Safety
+
+- **Inert by default.** Without `RAMP_ROUTER_API_KEY` in the app's environment, nothing changes at runtime.
+- **Always a way back.** `ROUTER_MIGRATE_DISABLE=1` sends everything to the original provider. Every decision is a
+  commit, and every commit can be undone from the dashboard.
+- **Your branches are untouched.** Work happens on `router-migrate/*` branches; nothing is merged or pushed for you.
+- **Judged on outcomes.** The agent may change dependencies or port code. The outside check judges the result, and
+  anything that could remove a capability is flagged for you.
+- **Honest reporting.** A call counts as on Router only when a request from it was accepted. Every card says what was
+  checked and how.
+
+## How we got here
+
+Seven versions, each testing one hypothesis. Rules that make judgment calls overfit (v1–v2). Tools that compute facts
+removed wrong moves where prompts couldn't (v3). Proving every move was slow; one outside check kept the safety at a
+third of the time (v4–D3). Letting the agent own every judgment made the review possible (v5–v6). Then a series of
+blind experiments showed that **cutting procedure helps, cutting facts or tools hurts, and widening the mandate turns a
+migration tool into a product review** (v7).
+
+The full story, with every hypothesis and its evidence: **[docs/EVOLUTION.md](docs/EVOLUTION.md)**.
 
 ## Limits
 
-- Python and TS/JS. Calls the scanner can't see depend on the agent finding them; the outside check reports what it
-  can't verify as unverified.
+- Python and TS/JS; OpenAI, Anthropic, LangChain, LlamaIndex, LiteLLM and the Vercel AI SDK.
 - Router serves `/v1/responses`, `/v1/messages` and `/v1/models`. Embeddings, images, audio and files stay on the
-  provider (or the agent ports them, if it judges that worth it).
-- Router keeps no server-side state. Code that relies on stored responses or conversations stays on the provider.
-- One Router key per deployment. Per-user keys stay on the provider unless the app also has an operator key.
-- Answer quality after a model change isn't measured: the card says answers will differ (the agent may attach a few
-  samples through both models when a key is available).
-- Evaluated with one run per repository. See [docs/EVAL.md](docs/EVAL.md#limitations).
+  provider unless the agent ports them.
+- Answer quality after a model change isn't measured; such changes are filed as your call, with shadow models proposed.
+- Measured numbers come from small samples (usually 1 to 5 requests). Good for ranking, not for promises.
+- The experiments ran one run per arm and repo, judged by Claude. The direction held across rounds and on held-out repos.
 
-## Repo layout
+## Repository
 
 ```
-router_migrate/          the CLI
-  runtime/               the vendored runtime (Python, TS)
-  sim/                   router-sim, a local Router stand-in
-  dashboard/             REPORT.html and the live page
-  prompts/               the agent's instructions
-  ts/                    TypeScript scanner and codemods
-  data/                  catalog and the Router fact sheet (ROUTER.md)
-  schemas/               state-file contracts (V7_CONTRACTS.md)
-skills/router-migrate/   the Claude Code skill (also linked from .claude/skills/)
-.claude-plugin/          Claude Code plugin + marketplace manifest
-bin/router-migrate       entry point (bootstraps its own venv when installed as a plugin)
-eval/                    eval harness, repo sets, results (RESULTS.md)
-tests/                   runtime vs router-sim, codemods, harness end to end, dashboard
-docs/                    architecture, methodology, eval, plans
-archive/                 earlier specs, decisions, research and eval material (v1–v4), indexed in archive/README.md
+router_migrate/          the CLI, harness and outside check
+  prompts/               the agent's instructions (migrate_v6.md: the 15-line prompt; apply.md)
+  schemas/               the report format the agent writes (V7_CONTRACTS.md)
+  data/                  Router's catalog and the fact sheet (ROUTER.md)
+  dashboard/             the dashboard (REPORT.html and the live page)
+  runtime/               the vendored runtime (Python, TypeScript)
+  sim/                   a local copy of Router's rules for offline checks
+skills/router-migrate/   the Claude Code skill
+bin/router-migrate       entry point
+eval/                    evaluation: repo sets, runs, the experiment log (lean/) and the release gate (gate/)
+tests/                   runtime, codemods, harness end to end, dashboard
+docs/                    architecture, evolution, methodology, eval, plans
+archive/                 earlier specs, research and eval material, indexed in archive/README.md
 ```
 
-## Docs
-
-- [WRITEUP.md](WRITEUP.md): one page on the result.
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components, state files, contracts, the per-request flow, the CLI.
-- [docs/METHODOLOGY.md](docs/METHODOLOGY.md): first principles, who decides what, prior art, v1 to v6.
-- [docs/EVAL.md](docs/EVAL.md): method, results, limitations, how to reproduce.
-- [router_migrate/data/ROUTER.md](router_migrate/data/ROUTER.md): Router's levers and measured facts.
-- [docs/plans/v6-agent-first.md](docs/plans/v6-agent-first.md): the v6 design.
-- [AGENTS.md](AGENTS.md): instructions for coding agents.
-- [archive/docs/](archive/docs/): v1–v4 specs, decisions and system design.
+**Docs:** [EVOLUTION](docs/EVOLUTION.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [METHODOLOGY](docs/METHODOLOGY.md) ·
+[EVAL](docs/EVAL.md) · [Router fact sheet](router_migrate/data/ROUTER.md) · [v7 plan](docs/plans/v7-flagship.md) ·
+[write-up](WRITEUP.md) · [AGENTS.md](AGENTS.md) (for other coding agents)
 
 ## Development
 
 ```bash
-make test        # runtime vs router-sim through real SDKs, codemod fixtures, planner, parsers
-make compat      # runtime smoke under every SDK version in the eval envs
-make sim         # router-sim on :8787
+make test                                              # runtime, codemods, harness, dashboard
+.venv/bin/python eval/gate/gate.py --help              # the release gate for prompt, fact and tool changes
+router-migrate facts --refresh --dry-run               # re-measure the fact sheet on real Router (needs the key)
+.venv/bin/python scripts/screenshots.py REPORT.html out/   # screenshot every dashboard page
 ```
