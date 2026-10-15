@@ -357,7 +357,8 @@ def bundle(root):
             b = _s(it.get("branch"))
             bv = _d(branches.get(b))
             checked += check_entries(bv, "this branch") if bv else [{"check": "other", "label": "Check", "result": "not-run", "source": "check",
-                                                          "detail": "the outside check hasn't run on %s yet" % (b or "its branch")}]
+                                                          "detail": ("the outside check hasn't run on %s yet" % b) if b else
+                                                          "proposed, not built yet: the apply session builds it after you approve, and the check runs then"}]
             flags = [dict(_d(f), files=_l(_d(f).get("files"))) for f in _l(bv.get("flags"))]
             diff = _branch_diff(root, b, refs, mig_ref) if b else None
         elif kind in R.MIGRATION_KINDS:
@@ -387,6 +388,7 @@ def bundle(root):
         in_session = req.get("session") if req and req.get("session") and req["session"] not in finished else None
         items.append({
             "id": iid, "kind": kind, "title": _s(it.get("title")), "summary": _s(it.get("summary")), "calls": calls,
+            "level": _s(it.get("level")) or None, "built": bool(_s(it.get("branch"))) if kind == "improvement" else None,
             "gains": it.get("gains"), "loses": it.get("loses"), "price": it.get("price"), "why": it.get("why"),
             "commit": it.get("commit"), "branch": it.get("branch"),
             "depends_on": [x for x in _l(it.get("depends_on")) if isinstance(x, str)],

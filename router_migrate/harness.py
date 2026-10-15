@@ -529,8 +529,16 @@ FALLBACK_PROMPTS = {  # used only when the prompt files are missing from an inst
                 "{REQUESTS}\n\n{CONTEXT}\n"}
 
 
+def scaffold():
+    """Experiment switches (RM_SCAFFOLD, comma-separated): nomap (no scanner map in the context), nofacts (no fact-sheet
+    line), nobudget (no budget line), notools (the agent's router-migrate is check only)."""
+    return {x.strip() for x in (os.environ.get("RM_SCAFFOLD") or "").split(",") if x.strip()}
+
+
 def _prompt(name, **fill):
-    p = os.path.join(PROMPTS, name)
+    if name == "migrate_v6.md" and os.environ.get("RM_PROMPT"):  # experiment: another migrate prompt
+        name = os.environ["RM_PROMPT"]
+    p = name if os.path.isabs(name) else os.path.join(PROMPTS, name)
     text = open(p).read() if os.path.exists(p) else FALLBACK_PROMPTS[name]
     for k, v in fill.items():
         text = text.replace("{%s}" % k, v)
@@ -584,8 +592,10 @@ def setup(root, a):
     except Exception as e:
         rows, led["check_error"] = [], str(e)[:300]
     secs = (b.get("before") or {}).get("seconds") if b.get("status") == "done" else None
+    sc = scaffold()
     ctx = ["## This repository",
-           "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ROUTER.md"),
+           "" if "nofacts" in sc else "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ROUTER.md"),
+           "Report format: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", "V6_CONTRACTS.md"),
            "Base commit %s; you are on branch %s (commit your work here; improvements go on branches %s<name>)."
            % ((base or "")[:9], MIGRATION_BRANCH, R.IMPROVE_PREFIX),
            ("Test command: %s%s. The final check runs the full suite with Router on; how you test along the way is up to you."
@@ -596,8 +606,9 @@ def setup(root, a):
            ("A migration key is available: `router-migrate check --run \"CMD\" --live` runs code against the real Router "
             "(spend-capped; the key is injected into that command only). The catalog is live (`router-migrate levers`)."
             if key else "No migration key: verify with the simulator (`check --run`) and record live checks as not-run in your evidence."),
-           "LLM calls the scanner sees (%d; it misses dynamically built and imported clients), as the code stands:" % len(rows), _fmt(rows)]
-    budget = "Budget: aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
+           "" if "nomap" in sc else "LLM calls the scanner sees (%d; it misses dynamically built and imported clients), as the code stands:" % len(rows),
+           "" if "nomap" in sc else _fmt(rows)]
+    budget = "" if "nobudget" in sc else "Budget: aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
     prompt = _prompt("migrate_v6.md", CONTEXT="\n".join(x for x in ctx if x), BUDGET=budget)
     AG._event(root, "setup", "done", msg="%d calls seen; live=%s" % (len(rows), bool(key)))
     return led, prompt
@@ -802,7 +813,8 @@ def _requests_text(root, pending):
         it = items.get(iid) or {}
         out.append("- %s: %s %s \"%s\"%s\n  %s\n  %s%s%s%s" % (
             iid, rq["action"].upper(), it.get("kind"), it.get("title"), (" (the human's reason: %s)" % rq["reason"]) if rq.get("reason") else "",
-            it.get("summary") or "", ("branch %s" % it["branch"]) if it.get("branch") else ("commit %s" % it.get("commit") if it.get("commit") else "no commit recorded"),
+            it.get("summary") or "", ("branch %s" % it["branch"]) if it.get("branch") else ("commit %s" % it.get("commit") if it.get("commit") else
+                                                                    "not built yet: build it from this description" if it.get("kind") == "improvement" else "no commit recorded"),
             ("; depends on %s" % ", ".join(it["depends_on"])) if it.get("depends_on") else "",
             ("; excludes %s" % ", ".join(it["excludes"])) if it.get("excludes") else "",
             ("\n  why: %s" % it["why"][:600]) if it.get("why") else ""))
@@ -965,14 +977,14 @@ def launch_apply(root):
 
 
 # ------------------------------------------------------------------------------------------------ headless agent
-def _shim(real):
+def _shim(real, commands=AGENT_COMMANDS):
     """A bin dir whose `router-migrate` exposes only the agent's tools (finish/apply are run by the harness)."""
     d = tempfile.mkdtemp(prefix="router-migrate-bin-")
     p = os.path.join(d, "router-migrate")
     with open(p, "w") as f:
-        f.write('#!/bin/sh\ncase "$1" in\n  %s) exec "%s" "$@" ;;\n  *) echo "router-migrate: available here: %s. '
+        f.write('#!/bin/sh\ncase "$1" in\n  %s|--help|-h) exec "%s" "$@" ;;\n  *) echo "router-migrate: available here: %s. '
                 'The harness runs finish/apply after you stop." >&2; exit 2 ;;\nesac\n'
-                % ("|".join(AGENT_COMMANDS), real, ", ".join(AGENT_COMMANDS)))
+                % ("|".join(commands), real, ", ".join(commands)))
     os.chmod(p, 0o755)
     return d
 
@@ -991,7 +1003,7 @@ def _launch(root, prompt, model, timeout, resume=None):
     env = dict(os.environ, **{k: v for k, v in DUMMY_KEYS.items() if k != "ANTHROPIC_API_KEY"})
     for k in ("RAMP_ROUTER_API_KEY", "ROUTER_MIGRATE_KEY"):
         env.pop(k, None)
-    env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate")) + os.pathsep + env.get("PATH", "")
+    env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate"), ("check",) if "notools" in scaffold() else AGENT_COMMANDS) + os.pathsep + env.get("PATH", "")
     log = AG.sp(root, "agent_transcript.jsonl")
     t = time.time()
     with open(log, "a") as fh:

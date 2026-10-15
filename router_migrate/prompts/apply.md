@@ -17,7 +17,8 @@ migration and which conflict; whether an undo is a plain `git revert` or needs a
 builds on it; how to adapt later work when something it relied on is undone. You are judged on the result: the
 migration branch does what the reviewer asked, and apart from that the app behaves as before.
 - `apply` an improvement: bring its branch's change into `router-migrate/migration` (merge it, or re-apply it on the
-  current code if the branch is stale), resolving conflicts so both sides keep working.
+  current code if the branch is stale), resolving conflicts so both sides keep working. An improvement without a branch
+  was proposed but not built: build it from its description and test it.
 - `undo` a decision or an applied improvement: take its effect out of the code, so the calls it covered work as they
   did before it, and keep everything else that still makes sense.
 - Respect `depends_on` and `excludes`. If an approved item needs one that is being undone or isn't applied, adapt it or

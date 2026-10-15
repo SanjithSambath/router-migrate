@@ -13,6 +13,7 @@ CHECKS = ("tests", "typecheck", "router-live", "simulator", "side-by-side", "pri
 RESULTS = ("pass", "fail", "info", "not-run")
 LATENCY = ("background", "interactive", "user_waiting")
 ACTIONS = ("apply", "dismiss", "postpone", "undo")
+LEVELS = ("quick-win", "change", "rework")  # how big an improvement is: config/one-liner, a contained change, a redesign
 IMPROVE_PREFIX = "router-migrate/improve/"
 MIGRATION_BRANCH = "router-migrate/migration"
 ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
@@ -105,13 +106,16 @@ def validate_report(doc):
         if kind in ("trade-off", "port") and (not _s(it.get("loses")) or it["loses"].strip().lower() == "nothing"):
             e.append("%s.loses: say what this %s gives up" % (w, kind))
         if kind == "improvement":
-            if not (isinstance(it.get("branch"), str) and it["branch"].startswith(IMPROVE_PREFIX)):
-                e.append("%s.branch: an improvement needs a branch named %s<name>" % (w, IMPROVE_PREFIX))
+            b = it.get("branch")
+            if b is not None and not (isinstance(b, str) and b.startswith(IMPROVE_PREFIX)):
+                e.append("%s.branch: a built improvement's branch is named %s<name> (or null: proposed, built after approval)" % (w, IMPROVE_PREFIX))
             for k in ("gains", "loses", "why"):
                 if not _s(it.get(k)):
                     e.append("%s.%s: required for an improvement" % (w, k))
         elif kind in ("note", "stays", "needs-decision") and it.get("branch"):
             e.append("%s.branch: only improvements have a branch" % w)
+        if it.get("level") is not None and it.get("level") not in LEVELS:
+            e.append("%s.level: one of %s" % (w, ", ".join(LEVELS)))
         for k in ("gains", "loses", "price", "why"):
             if it.get(k) is not None and not isinstance(it.get(k), str):
                 e.append("%s.%s: must be a string" % (w, k))
