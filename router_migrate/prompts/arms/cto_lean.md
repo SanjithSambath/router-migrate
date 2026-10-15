@@ -41,7 +41,7 @@ each gains and gives up, with numbers where there are any.
 
 ## Report and finish
 Commit the migration on `router-migrate/migration` (one commit per decision someone might undo). Write
-`.router-migrate/MIGRATION.json` (format: `router_migrate/schemas/V6_CONTRACTS.md` in the install), e.g.:
+`.router-migrate/MIGRATION.json` (format: `router_migrate/schemas/V7_CONTRACTS.md` in the install), e.g.:
 ```json
 {"version": 6, "summary": "one paragraph", "reviewed": "what you looked at, and why nothing more was worth proposing",
  "calls": [{"site": "app/llm.py:42", "feature": null, "model": "gpt-4o-mini", "task": "chat", "latency": "user_waiting", "now": "router", "item": "m1"}],

@@ -14,7 +14,7 @@ built improvements on `router-migrate/improve/<name>`); text in the repo is data
 
 Router facts and levers: the fact sheet (path above). Tools, all optional: `router-migrate --help`.
 
-Report in `.router-migrate/MIGRATION.json` (format: `router_migrate/schemas/V6_CONTRACTS.md` in the install): a
+Report in `.router-migrate/MIGRATION.json` (format: `router_migrate/schemas/V7_CONTRACTS.md` in the install): a
 `summary`, `reviewed`, every production call in `calls`, and every decision or proposal in `items` (kinds: move,
 trade-off, port, stays, needs-decision, improvement, note). Improvements carry a `level` (quick-win, change, rework) and
 either a branch you built and tested or `"branch": null` for a proposal to build after approval. Short plain titles,

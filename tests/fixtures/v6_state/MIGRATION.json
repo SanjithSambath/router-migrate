@@ -1,5 +1,5 @@
 {
- "version": 6,
+ "version": 7,
  "summary": "Moved all of the app's LLM traffic to Router through its one shared Anthropic client, ported research web search to the Responses API, and dropped seed on the summarizer. Embeddings stay on OpenAI.",
  "reviewed": "Model tiers, retries, caching structure, spend labels, background jobs and the API surface each call uses.",
  "calls": [
@@ -61,7 +61,7 @@
  "items": [
   {
    "id": "m1",
-   "kind": "move",
+   "kind": "change",
    "title": "Route the shared Anthropic client through Router",
    "summary": "The one Anthropic client every call uses now sends its traffic to Router.",
    "calls": [
@@ -96,7 +96,7 @@
   },
   {
    "id": "t1",
-   "kind": "trade-off",
+   "kind": "change",
    "title": "Drop seed on the summarizer",
    "summary": "Router rejects seed, so the summarizer's requests drop it.",
    "calls": [
@@ -117,7 +117,7 @@
   },
   {
    "id": "p1",
-   "kind": "port",
+   "kind": "change",
    "title": "Port web search to the Responses API",
    "summary": "The research agent's web search moves from Anthropic server tools to Router's Responses web search.",
    "calls": [
@@ -153,7 +153,7 @@
   },
   {
    "id": "d1",
-   "kind": "needs-decision",
+   "kind": "recommendation",
    "title": "Users' own OpenAI keys",
    "summary": "Some users bring their own OpenAI key; routing those calls would bill them to your Router key.",
    "calls": [
@@ -161,11 +161,14 @@
    ],
    "gains": "More traffic on Router",
    "loses": "You'd pay for users' calls",
-   "why": "Product decision, not a technical one."
+   "why": "Product decision, not a technical one.",
+   "rank": 1,
+   "actor": "product-call",
+   "level": "change"
   },
   {
    "id": "i1",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Classifier on Haiku 5.5",
    "summary": "The classifier tier moves from claude-haiku-4-5 to claude-haiku-5-5.",
    "calls": [
@@ -195,11 +198,22 @@
    "branch": "router-migrate/improve/classifier-haiku-5-5",
    "depends_on": [],
    "excludes": [],
-   "level": "quick-win"
+   "level": "quick-win",
+   "rank": 2,
+   "actor": "code",
+   "measured": [
+    {
+     "metric": "cost per classification",
+     "before": "$0.0021",
+     "after": "$0.0004",
+     "n": 3,
+     "how": "check --run --live, the classifier on 3 real tickets"
+    }
+   ]
   },
   {
    "id": "i2",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Composer on Opus 5.5",
    "summary": "The composer tier moves from claude-opus-5 to claude-opus-5-5.",
    "calls": [
@@ -222,11 +236,13 @@
     }
    ],
    "branch": "router-migrate/improve/composer-opus-5-5",
-   "level": "change"
+   "level": "change",
+   "rank": 3,
+   "actor": "code"
   },
   {
    "id": "i3",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Spend tags per stage",
    "summary": "Each request carries the pipeline stage as its feature label.",
    "calls": [
@@ -244,11 +260,13 @@
     }
    ],
    "branch": "router-migrate/improve/stage-labels",
-   "level": "rework"
+   "level": "rework",
+   "rank": 4,
+   "actor": "code"
   },
   {
    "id": "i4",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Fallback to GPT-5.4 mini on outages",
    "summary": "Reply calls fail over to another vendor's model when Anthropic is down.",
    "calls": [
@@ -266,11 +284,13 @@
     }
    ],
    "branch": "router-migrate/improve/reply-fallback",
-   "level": "quick-win"
+   "level": "quick-win",
+   "rank": 5,
+   "actor": "code"
   },
   {
    "id": "i5",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Flex for the reminder digests",
    "summary": "The nightly reminder digest runs on Flex.",
    "calls": [
@@ -288,11 +308,13 @@
     }
    ],
    "branch": "router-migrate/improve/digest-flex",
-   "level": "change"
+   "level": "change",
+   "rank": 6,
+   "actor": "code"
   },
   {
    "id": "i6",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Cache-friendly system prompt",
    "summary": "The composer's fixed instructions move ahead of the per-email context.",
    "calls": [
@@ -310,11 +332,13 @@
     }
    ],
    "branch": "router-migrate/improve/composer-cache",
-   "level": "rework"
+   "level": "rework",
+   "rank": 7,
+   "actor": "code"
   },
   {
    "id": "i7",
-   "kind": "improvement",
+   "kind": "recommendation",
    "title": "Consolidate retry policy into Router",
    "summary": "Per-tier retries move to Router fallbacks.",
    "calls": [
@@ -326,7 +350,35 @@
    "why": "Overlaps with Router's own retries.",
    "evidence": [],
    "branch": "router-migrate/improve/router-retries",
-   "level": "quick-win"
+   "level": "quick-win",
+   "rank": 8,
+   "actor": "code"
+  },
+  {
+   "id": "r8",
+   "kind": "recommendation",
+   "rank": 9,
+   "level": "quick-win",
+   "actor": "router-setting",
+   "where": "app.router.com > Routing > Shadow models",
+   "title": "Shadow Haiku 5.5 before switching the classifier",
+   "summary": "Record cost and latency for the candidate on 5-10% of real traffic.",
+   "gains": "Real-traffic numbers before the model change.",
+   "loses": "Needs content recording on the key.",
+   "why": "Samples are evidence, not proof."
+  },
+  {
+   "id": "r9",
+   "kind": "recommendation",
+   "rank": 10,
+   "level": "quick-win",
+   "actor": "router-setting",
+   "where": "app.router.com > API keys > Spend cap",
+   "title": "Cap the production key",
+   "summary": "A monthly spend cap on the production key.",
+   "gains": "A hard stop on runaway spend.",
+   "loses": "Requests fail with 401 past the cap.",
+   "why": "Anyone who can trigger the bot sets its cost."
   },
   {
    "id": "n1",

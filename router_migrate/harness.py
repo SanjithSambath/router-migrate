@@ -8,7 +8,7 @@
             `apply --done` validates its APPLY.json, re-checks, and logs the session
     run     headless: start -> a `claude -p` session -> finish (one fix pass with the facts if finish fails)
 
-Contracts: router_migrate/schemas/V6_CONTRACTS.md. The agent's tools: check, levers, wrap, unwrap, adapt."""
+Contracts: router_migrate/schemas/V7_CONTRACTS.md. The agent's tools: check, levers, wrap, unwrap, adapt."""
 import json
 import os
 import re
@@ -357,7 +357,7 @@ def check_tree(root, led, tests=True, report=True, since_tree=None):
         elif doc:
             for it in doc.get("items") or []:
                 b = it.get("branch")
-                if it.get("kind") == "improvement" and b and _g(root, "rev-parse", "--verify", "--quiet", "refs/heads/" + b) is None:
+                if it.get("kind") == "recommendation" and b and _g(root, "rev-parse", "--verify", "--quiet", "refs/heads/" + b) is None:
                     fails.append({"gate": "report", "detail": "items[%s].branch: branch %s does not exist" % (it["id"], b)})
     res["ok"] = not fails
     return res
@@ -536,10 +536,10 @@ def cmd_baseline(a):
 FALLBACK_PROMPTS = {  # used only when the prompt files are missing from an install
     "migrate_v6.md": "Move this repository's production LLM traffic onto Ramp's Router (see router_migrate/data/ROUTER.md), keep "
                      "its behaviour, review improvements, commit each decision on router-migrate/migration, write "
-                     ".router-migrate/MIGRATION.json (router_migrate/schemas/V6_CONTRACTS.md), then run `router-migrate finish .`.\n"
+                     ".router-migrate/MIGRATION.json (router_migrate/schemas/V7_CONTRACTS.md), then run `router-migrate finish .`.\n"
                      "{BUDGET}\n\n{CONTEXT}\n",
     "apply.md": "Carry out the human's requests below however is best, commit each result on router-migrate/migration, write "
-                ".router-migrate/APPLY.json (router_migrate/schemas/V6_CONTRACTS.md), then run `router-migrate apply --done`.\n\n"
+                ".router-migrate/APPLY.json (router_migrate/schemas/V7_CONTRACTS.md), then run `router-migrate apply --done`.\n\n"
                 "{REQUESTS}\n\n{CONTEXT}\n"}
 
 
@@ -611,8 +611,8 @@ def setup(root, a):
     ctx = ["## This repository",
            "" if "nofacts" in sc else "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
                                                                      os.environ.get("RM_FACTS") or "ROUTER.md"),
-           "Report format: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", "V6_CONTRACTS.md"),
-           "Base commit %s; you are on branch %s (commit your work here; improvements go on branches %s<name>)."
+           "Report format: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", "V7_CONTRACTS.md"),
+           "Base commit %s; you are on branch %s (commit your work here; built recommendations go on branches %s<name>)."
            % ((base or "")[:9], MIGRATION_BRANCH, R.IMPROVE_PREFIX),
            ("Test command: %s%s. The final check runs the full suite with Router on; how you test along the way is up to you."
             % (test_cmd, " (about %ds per run)" % secs if secs else "")) if test_cmd else
@@ -679,7 +679,7 @@ def validate(root, led, tests=True):
     branches = {}
     for it in (doc or {}).get("items") or []:
         b = it.get("branch") if isinstance(it, dict) else None
-        if it.get("kind") == "improvement" and b and b not in branches:
+        if it.get("kind") == "recommendation" and b and b not in branches:
             branches[b] = check_branch(root, led, b, tests=tests)
     v = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "migration": mig, "branches": branches}
     R.save(root, "validation.json", v)
@@ -700,13 +700,13 @@ def _summary(v, doc):
     rt = m.get("routes") or {}
     br = v.get("branches") or {}
     items = (doc or {}).get("items") or []
-    imps = [i for i in items if i.get("kind") == "improvement"]
+    imps = [i for i in items if i.get("kind") == "recommendation"]
     lines = ["finish: %s; %d call(s) on Router (verified), %d moved but not verifiable statically, %d reported moved but not "
              "routing, %d stay; tests: %s" % (
                  "check passed" if m["ok"] else "check FAILED (%s)" % ", ".join(sorted({f["gate"] for f in m["failures"]})),
                  len(rt.get("verified") or []), len(rt.get("unverified") or []), len(rt.get("not_routing") or []),
                  len(rt.get("stays") or []), (m.get("tests") or {}).get("status")),
-             "items: %d (%s); improvements: %d branch(es), %d passed their check" % (
+             "items: %d (%s); recommendations: %d, %d branch(es) passed their check" % (
                  len(items), ", ".join("%d %s" % (sum(1 for i in items if i.get("kind") == k), k) for k in R.KINDS
                                        if any(i.get("kind") == k for i in items)), len(imps),
                  sum(1 for b in br.values() if b.get("ok")))]
@@ -831,7 +831,7 @@ def _requests_text(root, pending):
         out.append("- %s: %s %s \"%s\"%s\n  %s\n  %s%s%s%s" % (
             iid, rq["action"].upper(), it.get("kind"), it.get("title"), (" (the human's reason: %s)" % rq["reason"]) if rq.get("reason") else "",
             it.get("summary") or "", ("branch %s" % it["branch"]) if it.get("branch") else ("commit %s" % it.get("commit") if it.get("commit") else
-                                                                    "not built yet: build it from this description" if it.get("kind") in ("improvement", "needs-decision") else "no commit recorded"),
+                                                                    "not built yet: build it from this description" if it.get("kind") == "recommendation" else "no commit recorded"),
             ("; depends on %s" % ", ".join(it["depends_on"])) if it.get("depends_on") else "",
             ("; excludes %s" % ", ".join(it["excludes"])) if it.get("excludes") else "",
             ("\n  why: %s" % it["why"][:600]) if it.get("why") else ""))

@@ -1,7 +1,7 @@
 """v6 dashboard: one item model, rendered uniformly (docs/plans/v6-agent-first.md, "Dashboard").
 
 - `bundle(root)`: everything the page shows, built only from the `.router-migrate/` state files in
-  router_migrate/schemas/V6_CONTRACTS.md plus git (diffs). Never raises on partial state.
+  router_migrate/schemas/V7_CONTRACTS.md plus git (diffs). Never raises on partial state.
 - `render_report(root)`: the frozen REPORT.html (same pages, actions off, bundle inlined, no network).
 - `serve(root, open_browser=True, port=0)`: the live dashboard (127.0.0.1, session token, JSON API), built on the v5
   server's hardening (Host/Origin checks, token, body limits). Endpoints:

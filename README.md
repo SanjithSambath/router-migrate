@@ -177,7 +177,7 @@ router_migrate/          the CLI
   prompts/               the agent's instructions
   ts/                    TypeScript scanner and codemods
   data/                  catalog and the Router fact sheet (ROUTER.md)
-  schemas/               state-file contracts (V6_CONTRACTS.md)
+  schemas/               state-file contracts (V7_CONTRACTS.md)
 skills/router-migrate/   the Claude Code skill (also linked from .claude/skills/)
 .claude-plugin/          Claude Code plugin + marketplace manifest
 bin/router-migrate       entry point (bootstraps its own venv when installed as a plugin)

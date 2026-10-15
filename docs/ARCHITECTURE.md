@@ -60,7 +60,7 @@ otherwise shows the Claude Code command.
 ## State
 
 Everything lives in `<repo>/.router-migrate/` (excluded from git) plus git itself. Formats are frozen in
-[router_migrate/schemas/V6_CONTRACTS.md](../router_migrate/schemas/V6_CONTRACTS.md).
+[router_migrate/schemas/V7_CONTRACTS.md](../router_migrate/schemas/V7_CONTRACTS.md).
 
 | File | Written by | Holds |
 |---|---|---|
