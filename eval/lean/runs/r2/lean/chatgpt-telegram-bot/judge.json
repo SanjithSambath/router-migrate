@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the one place that is the whole migration \u2014 the single AsyncOpenAI client in OpenAIHelper.__init__ \u2014 and wrapped it, routing all four chat.completions sites (chat, streamed chat, plugin function-call loop, summarise) in a one-line diff with provider fallback when RAMP_ROUTER_API_KEY is absent and no model substitution needed; the outside check confirms 4/4 routed, 0 unverified, 0 not-routing, and the three stays are genuine hard limits.",
+  "Surfaced n1: N_CHOICES>1 or PRESENCE_PENALTY!=0 makes the runtime silently keep every chat request on OpenAI, so a deployment's whole chat volume can leave the gateway with nobody told \u2014 an invisible coverage hole, presented with three concrete exits and a recommendation (drop presence_penalty on the Router path, retire N_CHOICES). The OPENAI_BASE_URL note (n2) is the same class of thinking.",
+  "Reasoned about the system rather than the call sites: diagnosed the tenacity 20s x3 same-model retry as exactly the wrong answer to a rate limit and replaced it with cross-vendor fallbacks plus provider_timeout as policy rather than code; spotted that usage_tracker bills gpt-4o traffic at a 2023 flat $0.002/1K so USER_BUDGETS are structurally wrong; and spotted that four hard-coded 2024 model tables with NotImplementedError are what blocks any catalog model. Items are levelled, dependency-linked, and honest about composition (request-level cache key beats the policy's, so i1 and i3 co-exist)."
+ ],
+ "misses": [
+  "No behaviour evidence worth the name. The only 'tests' are compileall plus four module imports \u2014 they would pass if every answer came back empty. An expert migrating four user-facing generation paths through a request translator would have built a small golden-prompt replay or recorded-response harness (especially for the legacy `functions` -> tools translation and the streamed chunk.choices[0].delta consumer in telegram_bot.py) instead of relying on a self-written simulator driver that the outside check recorded zero requests for.",
+  "Nothing improves the path that actually serves users. STREAM=true is the default, Router cannot fall back once a stream starts, and the one lever that helps (fallback_timeout) is parked in a rework; meanwhile the tenacity sleep loop is left sitting in front of Router, so a Router 429 still costs the user 40s of sleep the report itself calls the worst case. Likewise __summarise is correctly identified as blocking the reply but is only made cheaper, never moved off the critical path (async/background summarise, or plain history trimming), which is the larger latency win.",
+  "No Router-side operability or shape-of-traffic proposals: per-chat/per-user metadata for spend attribution (only mentioned in passing inside the rework), a spend cap sized against the image/TTS/Whisper residue that stays on the OpenAI bill, /v1/messages/count_tokens for non-OpenAI token counting, a smaller model for the plugin tool-selection loop and for the vision path (both left on gpt-4o), and Flex for anything that is not user-blocking. Also unexamined: the vision and function-call fallback candidates were chosen without checking they can actually serve images/tools equivalently."
+ ],
+ "wrong": [
+  "i2 claims summarisation 'fires on every turn once a chat passes MAX_HISTORY_SIZE'. It does not \u2014 the summary replaces the history, so the call recurs only as history regrows past the limit. The 'per-turn tax' framing inflates the win.",
+  "i3's 'the input half of the bill roughly halves' overstates prompt caching: only the prefix beyond ~1024 identical leading tokens is discounted, cache entries are short-lived while Telegram turns are often minutes or hours apart, and output tokens are untouched. Its 'loses: nothing' also ignores that pinning a conversation to one provider interacts with i1's fallback list.",
+  "The '$0.0095 on gpt-4o vs $0.0006 on gpt-4o-mini' per 15-message summarise is an illustrative guess presented with four-digit precision; no measurement backs it.",
+  "Every '5 of 5 valid' simulator result is the engineer's own driver \u2014 the outside check records requests: 0, valid: 0 for the migration ref and all three branches, so none of it is independently corroborated, yet the summary asserts it as settled fact ('five driven paths each produced a valid Router request').",
+  "n1 treats `n` and presence_penalty as the only parameters that unroute a request, but the bot sends frequency_penalty on every chat request too and Responses has no such field; the report never says how that one is handled.",
+  "i1 says it keeps tenacity because it 'now only fires if Router itself returns 429, which is the case it was always right for' \u2014 retrying the identical candidate list after a 20s sleep is no more right against Router than it was against OpenAI, and this leaves the 40-second stall the item was written to remove."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 12.5,
+  "usd": 5.7336,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 6,
+   "needs-decision": 1,
+   "note": 1
+  },
+  "improvements": 6,
+  "built": 3,
+  "levels": {
+   "change": 2,
+   "quick-win": 2,
+   "rework": 2
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

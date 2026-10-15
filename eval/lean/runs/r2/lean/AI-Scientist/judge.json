@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found and fixed the two things that actually blocked routing rather than declaring victory on wrapping: seed=0 on every gpt/o1/o3 branch made the runtime keep all OpenAI traffic on the provider, and AVAILABLE_LLMS is a 2024 model list whose default (claude-3-5-sonnet-20240620) and hard-coded reviewer id (gpt-4o-2024-05-13) are not catalog ids. Both fixed in router.policy.json rather than in app code, so the app is unchanged when RAMP_ROUTER_API_KEY is unset, and verified live against real Router (claude-sonnet-4-6, gpt-4o, gpt-4o-mini, o3-mini served, 0 errors).",
+  "Covered the whole LLM surface, not just the one factory: wrapped the five reviewer clients built inline in launch_scientist.py, experimental/launch_oe_scientist.py and review_iclr_bench/iclr_analysis.py behind a shared route_through_router() helper, and installed the LiteLLM transport so aider's experiment and write-up coding loops -- the pipeline's largest token consumer and invisible to a call-site scanner -- route too.",
+  "Read the runtime rather than trusting the static scanner, and said so: correctly identified that llm.py:247/262/275 (DeepSeek/Gemini) are scanner false positives because those branches return clients pointed at other vendors' hosts, and that llm.py:95 is reported as routing but is kept on the provider at runtime as 'untranslatable: n'. Then built and verified a branch (review-ensemble-fanout) that removes that last blocker, with honest cost math for it (~+$0.12/paper, ~$60 over the 500-paper ICLR benchmark)."
+ ],
+ "misses": [
+  "Never proposed Flex tier. Every call in the report is labelled latency:background and the summary describes an unattended, hours-long batch job where nobody waits on any single call -- that is the textbook case for Router's Flex tier, and it is the largest Router-only cost lever available here. Its absence is conspicuous given the report explicitly reasoned about who is waiting.",
+  "No concrete timeout or bounded-retry work. The review correctly diagnoses the resilience gap (backoff.expo with no max_tries, any 5xx aborting an idea and discarding GPU hours) but only proposes fallbacks; provider_timeout -- a Router-only field on /v1/responses and the right companion for long reflection and aider calls -- is mentioned once in passing as a downstream of i1, and adding max_tries to the decorator is noted as an aside rather than proposed or built. For the one failure mode the report calls the clearest gap in the codebase, nothing was built.",
+  "Nothing targets aider, despite calling it the pipeline's largest token consumer. It was routed and then dropped: no prompt_cache_key for the coding loops (whose repeated full-file context is the ideal caching shape), no feature label so its spend is separable, no model-choice or fallback policy for it, and no check that install_litellm() -- called only under the three __main__ guards -- survives into the multiprocessing workers that launch_scientist spawns for parallel idea runs. Also absent: using Router-side structured output to shrink the extract_json_between_markers retry loops that every stage of this app depends on."
+ ],
+ "wrong": [
+  "Internal contradiction: s1 says the n=5 ensemble 'is the only call site in llm.py left on the provider', but s2 lists five llm.py sites (113, 232, 247, 262, 275) that also stay on the provider. s2 is right.",
+  "m1's summary says the wrap puts 'all nine call sites in llm.py go through Router' -- the nine call sites listed in that item span four files, and llm.py's own sites include the five that do not route. Overstated.",
+  "Live-evidence counts don't match the outside check: m1 reports '4 requests to real Router, 4 ok', the check records 5 ok across 2 runs. Harmless, but the report's numbers are not the verified ones.",
+  "The claim that install_litellm() puts aider on Router is verified only in-process by the simulator. launch_scientist.py calls it in the __main__ guard while parallel idea runs execute do_idea (and therefore aider) in spawned worker processes; under a spawn start method the installation would not be present in the child. Not flagged as a risk or tested.",
+  "Six of the wrapped sites (launch_scientist.py:271/297, launch_oe_scientist.py:249/276, iclr_analysis.py:263, and the aider install at 339) come back 'unverified' in the outside check and were not exercised live -- the report presents them with the same confidence as the four that were actually served.",
+  "i3's loses section understates one case: with the key unset, extra_body={'temperature': ...} sends the field on the wire to whatever the Anthropic SDK targets, so a genuinely removed field becomes a 400 per request inside the retry/backoff path rather than a single obvious TypeError. The report says this but files it as equivalent ('both are failures'); in a batch job the former burns the unbounded backoff loop."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 14.8,
+  "usd": 7.5861,
+  "check_ok": true,
+  "verified": 7,
+  "unverified": 6,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 15,
+  "kinds": {
+   "move": 3,
+   "trade-off": 2,
+   "stays": 2,
+   "improvement": 7,
+   "note": 1
+  },
+  "improvements": 7,
+  "built": 2,
+  "levels": {
+   "change": 6,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

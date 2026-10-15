@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Covered the whole chat path in one pass \u2014 both client constructions (shared Settings.llm and the per-turn streaming agent LLM) route, and the outside check verifies all three call sites with no unverified or non-routing sites; the one non-trivial risk (app/chat/tools.py deep-copying Settings.llm per document) was identified, reasoned about via __deepcopy__, and then actually exercised, as were sync streaming, async streaming and a tool-calling turn, 32/32 live requests 200.",
+  "Found a genuine design defect in the code rather than a generic suggestion: the per-document quantitative agent pays one model call to emit a tool call whose *args/**kwargs are discarded (ticker/period come from SecDocumentMetadata) and a second to summarise the result, so ~6 of a turn's dozen calls buy nothing. That is the highest-value item in the report, is grounded in the actual signature, and is honestly marked as changing answer shape and needing a side-by-side before shipping.",
+  "Built the failover/timeout/cache-key policy as data (router.policy.json, revertible by deleting one file, applied only to Router-bound requests) and then validated the risky half \u2014 that claude-haiku-4-5 returns this app's exact tool-call shape, parsed by LlamaIndex unchanged \u2014 instead of asserting cross-vendor fallback works. Paired with equally specific negative findings: Flex is 400 on gpt-4o-mini and would be ignored under a fallback list, and the ~500-token fixed prefix sits below the ~1,024-token cache floor so caching only pays from roughly turn three."
+ ],
+ "misses": [
+  "Never measured the one number that matters for this app: the gateway hop's effect on time-to-first-token on the streaming turn. The report correctly says Router's added latency is unmeasured and tells the reader to budget for it, but with a working live harness already driving the app's own code paths, an expert would have timed Router vs direct OpenAI on the orchestrator turn and the sub-question fan-out and reported the delta, since first-token feel is exactly what the streaming design protects and what i6 trades away.",
+  "No prompt_cache_key or context-reuse thinking on retrieval_synthesis, which is where the token volume actually is. One question fans out ~12 calls that re-send the same retrieved document chunks and the same QA/refine prompt scaffolding; a per-document or per-conversation cache key there (and provider affinity for the fan-out) is more valuable than the orchestrator key that admittedly does not pay until turn three. Relatedly, nothing on the serial structure of the dozen calls (parallelism, or capping documents per turn) outside the i7 rework.",
+  "No rollout or operations plan. There is an env-var on/off switch but no staged/percentage cutover, no error-budget or alerting on Router 5xx and fallback-serve rates, and no proposal to record Router's per-request usage.cost and serving model into the app's own metrics so the per-role spend labels become something a human sees without opening Router. Also unaddressed: the deployment now needs two keys indefinitely (embeddings), which deserves a concrete plan or an owner, not just a stated loss."
+ ],
+ "wrong": [
+  "Test counts don't match the outside check: the report claims 'pytest tests/ (7 passed)' in three places while validation.json records 15 passed against a 15-passed baseline on all three branches. The conclusion (tests unchanged from baseline) holds, but the numbers in the report are not the numbers that were run.",
+  "The migration branch ships mangled call sites: backend/app/llama_index_settings.py leaves 'api_key=settings.OPENAI_API_KEY, ' with trailing whitespace and the two client kwargs dedented onto a line past the original closing paren, and engine.py:292 is the same. Only the improvement branches clean it up, so the branch proposed for merge carries sloppier code than the report implies.",
+  "The ImportError fallback substitutes 'lambda **k: k.get(\"_default\")', which returns None, so a runtime that fails to import silently reverts every call to direct OpenAI with no log and no startup warning. The comment and report call this 'keeps its original behavior'; it is really an invisible fail-open that would make a mis-deployed Router rollout look like a successful one.",
+  "i5's claim that per-turn client construction 'stops leaking unclosed pools under load' is asserted, not shown \u2014 no evidence of pool exhaustion or FD growth is offered, and the same code built an SDK client per turn before the migration. The ask (a lazy per-loop singleton) is right; the leak framing is unsupported.",
+  "The derived savings in i3 ('roughly 1.5-2 s', 'about $0.002 a turn') come from a generic fact-sheet per-call latency (721-926 ms buffered) applied to this app's call count, not from any measurement of this app. The report flags the call count as read from code rather than production, but the time and dollar figures are stated with more precision than their basis supports.",
+  "i2 describes the orchestrator's provider_timeout as '30 s idle for the stream' while the compiled policy carries a plain provider_timeout: 30; whether Router treats that as an idle-gap or total-response bound is not established anywhere in the report, and the distinction decides whether a long legitimate answer gets killed mid-stream."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 13.1,
+  "usd": 5.926,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 11,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 7,
+   "note": 1
+  },
+  "improvements": 7,
+  "built": 2,
+  "levels": {
+   "quick-win": 2,
+   "change": 3,
+   "rework": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

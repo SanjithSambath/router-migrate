@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 9,
+ "best": [
+  "Routed the app's only LLM call the right way for this app: wrapped the per-message AsyncOpenAI client with the per-request runtime instead of repointing base_url, so Chat Completions streaming into the Discord embed keeps working, catalog ids translate to /v1/responses, and local/non-catalog providers are untouched \u2014 verified live (3/3 requests, 200 /v1/responses, model=gpt-5.5, provider=openai) with routes verified=[llmcord.py:287] and no unverified or not_routing entries.",
+  "Built real behaviour evidence in a repo that had none: tests/route_check.py drives the actual on_message with stub Discord objects, so the chunk loop, embed edits, reply-chain rebuild and per-model parameters are exercised against router-sim and live Router, while the project's own compileall+import command still matches baseline (2 passed, exit 0) on migration and all three improvement branches.",
+  "Derived the improvements from the app's real shape rather than a checklist: spotting that llmcord's 'resend the entire reply chain every turn' model makes prompt caching the dominant cost lever and that the {date}/{time} clock at the head of the system prompt destroys the cacheable prefix, fixing it conservatively (only clock-bearing lines move, correct insert(0) given the later reversal) plus a cache key \u2014 and catching that the Dockerfile copied only llmcord.py, so the documented container deploy would have silently never routed."
+ ],
+ "misses": [
+  "Never proposed, as a ranked item, consolidating the other hosted vendors llmcord's config supports (OpenRouter-proxied ~anthropic/xAI/Google ids, Azure deployments) onto Router \u2014 the actual one-key/one-bill value proposition. It is buried as a parenthetical operator toggle (unlock_hosts) inside a 'stays' note, with no analysis of which of those ids exist in the catalog, what the extra_body losses concretely are, or what consolidating would buy in fallbacks and spend visibility. Keeping local servers (Ollama/LM Studio/vLLM) off Router is clearly right; lumping hosted vendors in with them is not.",
+  "prompt_cache_key is shipped as a single static \"$feature\" for every conversation in every server, and the cache gain is cited from other models' documented numbers (-50% on a 9k gpt-4o-mini prompt, -90% on Claude) rather than measured on this app. An expert would key the cache per reply chain or channel for affinity (the report mentions this only inside the r2 rework) and would have run two live calls on the same chain to show an actual cached-token count on gpt-5.5, since a live harness already existed.",
+  "Nothing bounds a single request or a single abuser: no max output tokens on a streamed reply, no per-user/per-channel/per-guild spend or rate ceiling even though i5 names Router's `user`/`product` spend keys as the enabler, and no mid-stream failure recovery. i2 admits fallbacks never fire once the stream has started and n1 only makes failures legible, so the most likely user-visible failure (a stream dying halfway into the embed) is left with no proposed remedy at any level."
+ ],
+ "wrong": [
+  "i1 claims \"prompt_cache_key is set in router.policy.json, so it is added only to Router-bound requests and the provider path keeps exactly the body the code built\" \u2014 true of the cache key, but the system-prompt split is in llmcord.py and runs unconditionally, so Ollama, LM Studio, vLLM, OpenRouter and Azure requests also now get the date/time as a trailing system message. That is a real behaviour change for local chat templates and Anthropic-style endpoints (which hoist/require a leading system block) and it is absent from that branch's 'loses', which lists only the model reading the clock after the conversation.",
+  "i3 asserts \"60s is idle time between streamed events, which is an order of magnitude above a healthy stream\" with no evidence for that semantics; the branch's checks only show that the policy compiles and that the request still routes. If provider_timeout is a whole-request deadline rather than an inter-event idle budget, 60s would kill long but healthy generations \u2014 the opposite of the stated loss profile, and the difference matters precisely on the user-waiting path this item targets.",
+  "The headline economics are mostly carried over from other models and other measurements \u2014 cache -50% on gpt-4o-mini / -90% on Claude, Flex -50% on gpt-5.4-mini, \"served at Flex in 3 of 3 measured calls\", the single 61s gpt-5-nano Flex call. The report labels each as not re-measured for gpt-5.5, which is honest, but it still leads with them as this app's expected gain, and the live harness that could have checked the cache and Flex deltas on the shipped default was not used for it.",
+  "m2's \"about $0.01 at gpt-5.5\" per live test run has no basis shown; a ten-word moon fact with a short stub chain is an order of magnitude cheaper than that at $5/$30 per 1M. Minor, but it is the one invented number in an otherwise well-grounded set.",
+  "The harness reaches into llmcord by monkeypatching `asyncio.run` at import time to stop the bot from starting, so the route check depends on an import-time side effect rather than a guarded entry point; a `if __name__ == \"__main__\"` guard in llmcord.py would have been the cleaner change and is not mentioned as an option or a cost."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 12.5,
+  "usd": 6.3517,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 13,
+  "kinds": {
+   "move": 1,
+   "note": 2,
+   "stays": 1,
+   "improvement": 8,
+   "needs-decision": 1
+  },
+  "improvements": 8,
+  "built": 3,
+  "levels": {
+   "quick-win": 3,
+   "change": 3,
+   "rework": 2
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

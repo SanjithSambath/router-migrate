@@ -1,0 +1,225 @@
+{
+  "version": 6,
+  "summary": "AI-Scientist funnels every LLM call through two functions in ai_scientist/llm.py, fed by clients built in create_client plus five more built inline for the paper reviewers, and separately drives aider (through LiteLLM) for the experiment and write-up coding loops. I wrapped the OpenAI and Anthropic clients at all six construction sites and installed the runtime under LiteLLM, which puts the coding loops on Router too. Wrapping alone routed nothing, because every gpt/o1/o3 branch sends seed=0 (the runtime treats seed as untranslatable) and because AVAILABLE_LLMS is a 2024/2025 model list: the simulator showed all OpenAI traffic kept on the provider for exactly those two reasons. So router.policy.json drops seed from the Router-bound copy of each request, maps the seven retired ids Router does not carry onto current catalog models (most of the list -- gpt-4o, gpt-4o-mini, gpt-4.1*, o1, o3-mini -- needs no mapping), and sets prompt_cache_key per feature, where this app's large fixed prompt prefixes pay. Verified live against real Router: gpt-4o-2024-05-13, gpt-4o-mini, o1-mini and the Claude default all served, 4 requests, 0 errors. What stays on the provider by design: the DeepSeek, OpenRouter and Gemini clients (other vendors' hosts, non-catalog models) and the Bedrock/Vertex clients.",
+  "reviewed": "I read all four entry points, the two call functions and create_client, the reviewer clients in launch_scientist.py / experimental / review_iclr_bench, and the aider coding loops -- the whole LLM surface of the app. I looked for levers that fit an unattended, hours-long batch job where nobody is waiting on any single call: resilience (today the only handling is an unbounded backoff on rate limits; any 5xx aborts an idea and discards hours of GPU work), cost on the high-volume narrow stages (the novelty check is ~500 calls of a yes/no decision at the same price as the write-up), and the dead weight of a seven-branch per-vendor model ladder that Router makes unnecessary. Nothing was left unproposed except the Gemini/google.generativeai import in llm.py, which is unused dead code, and the templates/ experiment code, which makes no LLM calls.",
+  "calls": [
+    {"site": "ai_scientist/llm.py:95", "feature": "ai_scientist/llm.py:get_batch_responses_from_llm", "model": "gpt-4o-2024-05-13", "task": "paper review ensemble", "latency": "background", "now": "provider", "item": "s1"},
+    {"site": "ai_scientist/llm.py:113", "feature": "ai_scientist/llm.py:get_batch_responses_from_llm", "model": "meta-llama/llama-3.1-405b-instruct", "task": "paper review ensemble", "latency": "background", "now": "provider", "item": "s2"},
+    {"site": "ai_scientist/llm.py:180", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "claude-3-5-sonnet-20240620", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "unknown", "item": "m2"},
+    {"site": "ai_scientist/llm.py:201", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "gpt-4o-2024-05-13", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "router", "item": "m3"},
+    {"site": "ai_scientist/llm.py:217", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "o1-mini", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "router", "item": "m3"},
+    {"site": "ai_scientist/llm.py:232", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "meta-llama/llama-3.1-405b-instruct", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "provider", "item": "s2"},
+    {"site": "ai_scientist/llm.py:247", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "deepseek-chat", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "provider", "item": "s2"},
+    {"site": "ai_scientist/llm.py:262", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "deepseek-reasoner", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "provider", "item": "s2"},
+    {"site": "ai_scientist/llm.py:275", "feature": "ai_scientist/llm.py:get_response_from_llm", "model": "gemini-2.0-flash", "task": "ideas, novelty, write-up, review", "latency": "background", "now": "provider", "item": "s2"},
+    {"site": "launch_scientist.py:271", "feature": "launch_scientist.py:do_idea", "model": "gpt-4o-2024-05-13", "task": "review the generated paper", "latency": "background", "now": "router", "item": "m1"},
+    {"site": "launch_scientist.py:297", "feature": "launch_scientist.py:do_idea", "model": "gpt-4o-2024-05-13", "task": "review the improved paper", "latency": "background", "now": "router", "item": "m1"},
+    {"site": "experimental/launch_oe_scientist.py:249", "feature": "launch_oe_scientist.py:do_idea", "model": "gpt-4o-2024-05-13", "task": "review the generated paper", "latency": "background", "now": "router", "item": "m1"},
+    {"site": "experimental/launch_oe_scientist.py:276", "feature": "launch_oe_scientist.py:do_idea", "model": "gpt-4o-2024-05-13", "task": "review the improved paper", "latency": "background", "now": "router", "item": "m1"},
+    {"site": "review_iclr_bench/iclr_analysis.py:244", "feature": "iclr_analysis.py:review_single_paper", "model": "claude-3-5-sonnet-20240620", "task": "ICLR review benchmark", "latency": "background", "now": "unknown", "item": "m1"},
+    {"site": "review_iclr_bench/iclr_analysis.py:263", "feature": "iclr_analysis.py:review_single_paper", "model": "gpt-4o-2024-05-13", "task": "ICLR review benchmark", "latency": "background", "now": "router", "item": "m1"},
+    {"site": "launch_scientist.py:339", "feature": "ai_scientist/llm.py:route_aider_through_router", "model": "gpt-4o-2024-05-13", "task": "aider experiment + write-up coding loops", "latency": "background", "now": "router", "item": "m4"}
+  ],
+  "items": [
+    {
+      "id": "m1", "kind": "move",
+      "title": "Route every OpenAI and Anthropic client",
+      "summary": "Wrap the clients built in create_client and the five reviewer clients built inline, so all nine call sites in llm.py go through Router.",
+      "calls": ["ai_scientist/llm.py:180", "ai_scientist/llm.py:201", "ai_scientist/llm.py:217", "launch_scientist.py:271", "launch_scientist.py:297", "experimental/launch_oe_scientist.py:249", "experimental/launch_oe_scientist.py:276", "review_iclr_bench/iclr_analysis.py:244", "review_iclr_bench/iclr_analysis.py:263"],
+      "gains": "One Router key instead of an OpenAI and an Anthropic key for the whole pipeline, with per-request spend and provider reporting; per-request provider fallback, so a Router refusal still gets served.",
+      "loses": "nothing",
+      "price": "no change: the same models at the same catalog prices (gpt-4o $2.50/$10, gpt-4o-mini $0.15/$0.60 per 1M).",
+      "why": "create_client is the one factory for the pipeline's clients, but three files also build an openai.OpenAI() inline for the paper reviewer and the ICLR benchmark builds two more; all of them end up in the same two call functions, so the wrap has to happen at all six sites. route_through_router() in llm.py is the shared helper so the runtime import is not copied around. The runtime stays dormant until RAMP_ROUTER_API_KEY is set, so nothing changes in an existing deployment until someone sets it.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "check --run on a script exercising create_client + get_response_from_llm: 3 valid /v1/responses requests (gpt-4o, gpt-4o-mini, o3-mini), 0 invalid."},
+        {"check": "router-live", "result": "pass", "detail": "check --run --live: 4 requests to real Router, 4 ok, 0 error (gpt-4o-2024-05-13, gpt-4o-mini, o1-mini, and the Claude default over /v1/messages)."},
+        {"check": "tests", "result": "pass", "detail": "the repo's compileall + import suite: 10 passed."}
+      ],
+      "commit": "b50e68b", "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "m3", "kind": "trade-off",
+      "title": "Drop seed from Router-bound requests",
+      "summary": "router.policy.json drops seed=0 from the Router-bound copy of each request, which is what blocked every OpenAI call from routing.",
+      "calls": ["ai_scientist/llm.py:95", "ai_scientist/llm.py:201", "ai_scientist/llm.py:217"],
+      "gains": "Unblocks all of the pipeline's OpenAI traffic: with the clients wrapped but seed still on the request, the simulator kept every call on the provider with reason 'untranslatable: seed'; after the drop the same script produced valid /v1/responses requests.",
+      "loses": "The seed determinism hint. OpenAI documented seed as best-effort only, and this pipeline deliberately samples at temperature 0.75-1.0 for diversity, so nothing here depends on it; but two runs with the same seed were already not guaranteed identical and now are not even nominally pinned.",
+      "price": "no change",
+      "why": "Router's Responses API has no seed field, so the runtime keeps any request carrying one on the provider. Dropping it in the policy applies only to the Router-bound copy -- if Router refuses and the runtime falls back to OpenAI, the original request with seed=0 is what gets sent. This is the single highest-leverage line in the migration: without it the client wrapping routes nothing at all.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "before: 0 requests reached router-sim, 'provider (runtime kept it) ... untranslatable: seed'. after: 3 valid /v1/responses."},
+        {"check": "router-live", "result": "pass", "detail": "gpt-4o-mini and o1-mini served by real Router with seed dropped."}
+      ],
+      "commit": "8839a9f", "branch": null, "depends_on": ["m1"], "excludes": []
+    },
+    {
+      "id": "m2", "kind": "trade-off",
+      "title": "Map the retired 2024 model ids to catalog models",
+      "summary": "Seven model ids Router does not carry -- including the pipeline's default Claude and the hard-coded reviewer model -- are served by the nearest current catalog model.",
+      "calls": ["ai_scientist/llm.py:180", "ai_scientist/llm.py:201", "ai_scientist/llm.py:217"],
+      "gains": "Puts the pipeline's default model (claude-3-5-sonnet-20240620) and its hard-coded reviewer model (gpt-4o-2024-05-13) on Router. Most of AVAILABLE_LLMS needs no mapping at all: gpt-4o, gpt-4o-mini, gpt-4.1/-mini/-nano, o1 and o3-mini are catalog ids, and the dated gpt-4o-mini-2024-07-18 / gpt-4o-2024-08-06 / gpt-4.1-*-2025-04-14 / o3-mini-2025-01-31 resolve on their own.",
+      "loses": "answers will differ -- a different model answers these requests (claude-3-5-sonnet -> claude-sonnet-4-6, gpt-4o-2024-05-13 -> gpt-4o, o1-mini -> o3-mini). For a research-idea generator and paper reviewer that changes the ideas it proposes and the scores it gives; nothing offline measures that.",
+      "price": "claude-sonnet-4-6 is $3/$15 per 1M, the same list price as the claude-3-5-sonnet it replaces; gpt-4o-2024-05-13 -> gpt-4o is $2.50/$10; o1-mini -> o3-mini.",
+      "why": "The app's model list is two years old and the catalog is current, so without a map the default model produces no Router traffic. I chose claude-sonnet-4-6 rather than the cheaper, newer claude-sonnet-5 ($2/$10) deliberately: sonnet-5 is a temperature:false model, and this pipeline sends temperature 0.75-1.0 on every call, so Router would return 400 and the runtime would fall back to Anthropic -- the cheaper model would route nothing. claude-sonnet-4-6 is the newest Sonnet that still accepts temperature. Mapping lives in the policy, not the code, so with RAMP_ROUTER_API_KEY unset the app still sends its own ids to the providers unchanged.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "claude-3-5-sonnet-20240620 with temperature 0.75 -> real Router /v1/messages -> response.model = claude-sonnet-4-6, 200."},
+        {"check": "price", "result": "info", "detail": "router-migrate levers: claude-sonnet-4-6 $3/$15, claude-sonnet-5 $2/$10 but temperature:false; gpt-4o $2.50/$10."}
+      ],
+      "commit": "9903866", "branch": null, "depends_on": ["m1"], "excludes": []
+    },
+    {
+      "id": "m4", "kind": "move",
+      "title": "Route aider's coding loops through Router",
+      "summary": "install_litellm() puts aider's OpenAI-provider traffic -- the experiment and write-up coding loops -- on Router.",
+      "calls": ["launch_scientist.py:339"],
+      "gains": "Brings the pipeline's largest token consumer onto Router. aider rewrites experiment.py, plot.py and the LaTeX template across many iterations per idea, each with the full file in context; it sends far more tokens than the nine call sites the scanner can see.",
+      "loses": "nothing",
+      "price": "no change: the same models at catalog prices.",
+      "why": "aider calls models through LiteLLM, which builds OpenAI SDK clients on litellm.client_session, so the runtime's transport can sit underneath without touching aider. Called at the three entry points that construct aider Models. LiteLLM's Anthropic, DeepSeek and OpenRouter providers use their own HTTP clients and are not routed, so a Claude main model still goes to Anthropic directly -- that gap is what improvement i4 would close.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "check --run with aider's Model('gpt-4o-2024-05-13'): 1 valid POST /v1/responses model=gpt-4o, client=ai_scientist/llm.py:route_aider_through_router."},
+        {"check": "tests", "result": "pass", "detail": "compileall + import suite still 10 passed with the new import in three entry points."}
+      ],
+      "commit": "65f8f7b", "branch": null, "depends_on": ["m1"], "excludes": []
+    },
+    {
+      "id": "m5", "kind": "move",
+      "title": "Cache by feature on Router-bound requests",
+      "summary": "prompt_cache_key=$feature groups each call function's requests under one cache key, where this app's large fixed prompt prefixes pay.",
+      "calls": ["ai_scientist/llm.py:201", "ai_scientist/llm.py:217"],
+      "gains": "Measured in ROUTER.md 6.3: a 9k-token gpt-4o-mini prompt cost $0.00069 instead of $0.00135 on the second call (-49%), and Claude over Responses does not cache at all without a key (-90% with one). Every stage here re-sends a large fixed prefix: the reviewer system prompt plus few-shot reviews plus the whole paper, through five reflections; idea generation re-sends the task description and seed ideas through three.",
+      "loses": "nothing",
+      "price": "Cached reads bill at cache_read_input instead of input: gpt-4o $1.25 instead of $2.50 per 1M, gpt-4o-mini $0.075 instead of $0.15.",
+      "why": "The reflection loops are the ideal shape for prompt caching -- identical prefix, one changing suffix -- and they are the bulk of this app's input tokens. The key is the runtime's feature label, which for this app is ai_scientist/llm.py:<function>, so all calls through one function share a key and provider affinity. Improvement i1 would make the label per pipeline stage, which sharpens this.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "requests reached router-sim valid with the policy compiled (policy hash 6eaf826b)."},
+        {"check": "price", "result": "info", "detail": "discount figures are ROUTER.md 6.3 measurements, not re-measured here; this app's prefixes are larger than the 9k-token sample."}
+      ],
+      "commit": "8839a9f", "branch": null, "depends_on": ["m1"], "excludes": []
+    },
+    {
+      "id": "s1", "kind": "stays",
+      "title": "The review ensemble still goes to OpenAI",
+      "summary": "perform_review's n=5 ensemble request cannot be served by Router, so the runtime keeps it on OpenAI.",
+      "calls": ["ai_scientist/llm.py:95"],
+      "gains": "nothing",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Router serves no Chat Completions endpoint and the Responses API has no `n`, so the runtime declares any n>1 request untranslatable and sends it to the provider unchanged. With the clients wrapped the simulator still reported 'untranslatable: n' for this one path -- it is the only call site in llm.py left on the provider. The static scanner reports this line as routing; at runtime it does not. Improvement i2 (branch built and verified) fans the ensemble out into one request per member, after which it routes.",
+      "evidence": [
+        {"check": "simulator", "result": "info", "detail": "check --run: 'provider (runtime kept it): ... model=gpt-4o-2024-05-13 -- untranslatable: n'."}
+      ],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "s2", "kind": "stays",
+      "title": "DeepSeek, OpenRouter, Gemini and Bedrock stay put",
+      "summary": "Four of create_client's branches point at other vendors' hosts with models Router does not carry, so their traffic is unchanged.",
+      "calls": ["ai_scientist/llm.py:113", "ai_scientist/llm.py:232", "ai_scientist/llm.py:247", "ai_scientist/llm.py:262", "ai_scientist/llm.py:275"],
+      "gains": "nothing",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "These clients are built with base_url pointing at api.deepseek.com, openrouter.ai and generativelanguage.googleapis.com. The runtime only routes api.openai.com and api.anthropic.com unless a host is explicitly unlocked, and none of deepseek-chat/-coder/-reasoner, meta-llama/llama-3.1-405b-instruct or the gemini-1.5/2.x ids is a catalog id, so neither the host nor the model would let these route. The AnthropicBedrock and AnthropicVertex clients are no-ops for the wrap by design. The static scanner reports lines 247/262/275 as routing because it links them to the wrapped client earlier in the file; it cannot see that these branches return a client pointed at another vendor. Improvement i4 would route them.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "read from the runtime's _plan_request: only _OPENAI_HOSTS / _ANTHROPIC_HOSTS (or opts.unlock_hosts) are considered, and resolve_model returns None for all of these ids against the live catalog."}
+      ],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "i3", "kind": "improvement", "level": "change",
+      "title": "Make the Claude default model work on anthropic 1.13",
+      "summary": "Pass temperature through extra_body so get_response_from_llm's Claude branch stops raising TypeError and reaches Router.",
+      "calls": ["ai_scientist/llm.py:180"],
+      "gains": "The pipeline's default model works again. On the installed anthropic 1.13.0, messages.create() no longer accepts a temperature keyword, so every Claude call raises TypeError before any HTTP request -- --model defaults to claude-3-5-sonnet-20240620, so out of the box this app currently produces no Claude traffic to Router or to Anthropic. Verified live: one request to real Router, served by claude-sonnet-4-6, no error.",
+      "loses": "nothing on the Router path. If the key is unset and the request goes to Anthropic directly, an API that has genuinely retired the temperature field would answer 400 instead of the current TypeError; both are failures, but the failure moves from import-time-obvious to a response error.",
+      "price": "no change",
+      "why": "This is a pre-existing breakage, not something the migration caused, and I kept it off the migration branch because it is a behaviour fix rather than a routing change -- a reviewer should be able to take it or leave it separately. It is worth taking: it is one line, it is the difference between the default model producing zero traffic and all of it, and temperature is still accepted on the wire by Router for any temperature-capable catalog model. Alternative considered and rejected: anthropic 1.13's output_config parameter, which Router's strict Claude path on /v1/messages would reject as an unknown field, so the request would fall back to Anthropic and route nothing.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "check --run --live on the branch: 1 request to real Router, 1 ok, 0 error; before the change the same script failed with TypeError and 0 requests."},
+        {"check": "tests", "result": "pass", "detail": "compileall + import suite passes on the branch."}
+      ],
+      "commit": "4ea1e83", "branch": "router-migrate/improve/claude-default-model", "depends_on": ["m1", "m2"], "excludes": []
+    },
+    {
+      "id": "i2", "kind": "improvement", "level": "change",
+      "title": "Fan out the review ensemble so it routes",
+      "summary": "Send one request per ensemble member instead of one n=5 request, which is the only reason that path stays on OpenAI.",
+      "calls": ["ai_scientist/llm.py:95"],
+      "gains": "Moves the last call site in llm.py onto Router. The ensemble is five full-paper reviews per paper (and the ICLR benchmark runs it over 500 papers), so this is a large, concentrated block of traffic that otherwise never reaches Router. Verified: a 2-member ensemble produced 2 valid /v1/responses requests where before it produced 0.",
+      "loses": "Costs more. One n=5 request bills the shared prompt once; five requests bill it five times. The review prompt is the pipeline's largest (paper text plus few-shot reviews, roughly 10-15k tokens), so on gpt-4o at $2.50/1M input that is about 4 x 12k x $2.50/1M = $0.12 extra per paper -- around $60 across the 500-paper ICLR benchmark. The migration's prompt_cache_key offsets part of it: repeat reads of that prefix bill at $1.25/1M instead of $2.50/1M.",
+      "price": "about +$0.12 per reviewed paper on gpt-4o before caching, less with it.",
+      "why": "Five independent samples at temperature 0.75 is at least as diverse as five completions of one request, and perform_review only ever consumes the five texts as a list, so nothing downstream notices. It is also the same fan-out the non-OpenAI branch of this function already does, so the change is to stop special-casing OpenAI rather than to add a mechanism. Worth approving if routing coverage matters more than the cents; worth declining if the ICLR benchmark's token bill is the binding constraint.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "check --run on the branch: 5 valid /v1/responses requests, 0 kept on the provider; on the migration branch the same script left the ensemble on the provider ('untranslatable: n')."},
+        {"check": "tests", "result": "pass", "detail": "compileall + import suite passes on the branch."}
+      ],
+      "commit": "e81ec7b", "branch": "router-migrate/improve/review-ensemble-fanout", "depends_on": ["m1", "m3"], "excludes": []
+    },
+    {
+      "id": "i1", "kind": "improvement", "level": "change",
+      "title": "Label requests by pipeline stage, not by function",
+      "summary": "Have each stage pass its own x-router-migrate-feature header so policy and spend reporting can address stages instead of two helper functions.",
+      "gains": "Router spend broken down by what the money is actually for -- idea generation, novelty check, write-up, citations, review, improvement -- instead of two buckets named get_response_from_llm and get_batch_responses_from_llm. More importantly it unlocks per-stage policy: today every policy key has to be a default because the runtime's label is derived from the call stack and always lands in llm.py. With stage labels, i5 (a cheap model for the novelty check), per-stage cache keys and per-stage timeouts all become one-line policy entries with no further code change.",
+      "loses": "nothing functionally; it adds a stage argument threaded from each caller down into the two call functions, which touches generate_ideas.py, perform_review.py and perform_writeup.py.",
+      "price": "no change",
+      "why": "This is the enabling change for most of the cheap wins below, which is why I rank it first among the unbuilt ones. The runtime already honours an app-supplied label and prefers it over the stack-derived one, so the app only has to set a header. I did not build it because it touches four files' signatures and deserves the owner's taste on how the stage name is threaded (extra argument vs. a context variable).",
+      "evidence": [{"check": "other", "result": "not-run", "detail": "design read from the runtime: FEATURE_HEADER wins over _feature(), and policy_for() matches on that label."}],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "i5", "kind": "improvement", "level": "change",
+      "title": "Run the novelty check on a cheap model",
+      "summary": "The novelty check is ~500 high-volume yes/no decisions per run and does not need the write-up model.",
+      "gains": "check_idea_novelty runs up to 10 search-and-decide rounds for each of 50 ideas, and each round's output is a decision plus a short query -- a narrow classification task. Running it on claude-haiku-5-5 ($0.10/$0.50 per 1M) instead of the pipeline's claude-sonnet-4-6 ($3/$15) is 30x cheaper on input and output for that stage; on the OpenAI side gpt-5-nano is $0.05/$0.40 against gpt-4o's $2.50/$10. The stage's token volume is dominated by abstracts pasted into the prompt, so this is one of the largest cost lines in a run after aider.",
+      "loses": "answers will differ: a weaker model will judge novelty differently, and a false 'novel' sends the pipeline off to spend GPU hours on a duplicate idea. That is the real risk, and it argues for measuring agreement on a batch of past ideas before approving.",
+      "price": "claude-haiku-5-5 $0.10/$0.50 vs claude-sonnet-4-6 $3/$15 per 1M; gpt-5-nano $0.05/$0.40 vs gpt-4o $2.50/$10.",
+      "why": "Model choice per task is the lever with the largest spread in this catalog, and this app currently uses one model for everything from a yes/no novelty decision to writing a paper. Once i1 gives the stage its own label this is a one-line model_map in router.policy.json features, with no code change and an easy undo.",
+      "evidence": [{"check": "price", "result": "info", "detail": "router-migrate levers (live catalog, 2026-10-14)."}],
+      "commit": null, "branch": null, "depends_on": ["i1"], "excludes": []
+    },
+    {
+      "id": "i6", "kind": "improvement", "level": "change",
+      "title": "Fail over across vendors instead of retrying forever",
+      "summary": "Replace the unbounded backoff with a Router fallbacks list so a provider outage does not discard an idea's GPU hours.",
+      "gains": "Today the only resilience is @backoff.on_exception(backoff.expo, (RateLimitError, APITimeoutError)) with no max_tries: a rate-limited run retries forever, and any other provider error (500, 503, overloaded) propagates, do_idea catches it, returns False and throws away everything that idea has computed -- in a GPU pipeline that is hours of work per failure. A `fallbacks` list in router.policy.json makes Router try a second candidate inside the same request, measured to fall through a missing model, a forbidden model and an invalid parameter, and to work cross-vendor (gpt-5-nano to claude-haiku-4-5).",
+      "loses": "A different model silently answers those requests, and the response does not say which candidate failed, so a run can quietly change character mid-way. Truncated attempts are still billed. Router's behaviour on real provider 5xx/429 is documented but not measured.",
+      "price": "The serving candidate's price when it serves. A cross-vendor pair for the reviewer, e.g. gpt-4o then claude-sonnet-4-6, is $2.50/$10 then $3/$15.",
+      "why": "An unattended batch job that can lose hours of GPU time to one HTTP 503 is the clearest resilience gap in this codebase, and Router's fallbacks are exactly the mechanism -- one request, no retry loop, no second code path. I did not build it because choosing the second candidate per stage is a judgement about output quality that the owner should make, and because the backoff decorator should probably gain a max_tries at the same time.",
+      "evidence": [{"check": "other", "result": "not-run", "detail": "ROUTER.md 6.2: fallbacks are /v1/responses only, up to 15 candidates, cross-vendor measured; behaviour on real outages documented, not measured."}],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "i4", "kind": "improvement", "level": "change",
+      "title": "Serve the other vendors through Router too",
+      "summary": "Unlock the DeepSeek, OpenRouter and Gemini hosts and map their models onto catalog equivalents, so one key covers every vendor.",
+      "gains": "Removes three more provider keys (DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY) from the deployment and brings those models' spend into the same reporting. The catalog carries close equivalents for all of them: deepseek-v4.1-flash ($0.30/$1.20) for deepseek-chat, nemotron-3-ultra or glm-5p3 for llama-3.1-405b, and the gemini-*-flash family under BYOK ids. It would also route aider when its main model is a DeepSeek or OpenRouter one, which install_litellm does not reach today.",
+      "loses": "answers will differ: these are different model generations, not the same weights. The Gemini ids are requires_byok, so they still need a Google credential on the Router account, which is a smaller win than it looks.",
+      "price": "deepseek-v4.1-flash $0.30/$1.20 per 1M; nemotron-3-ultra $0.60/$2.40; glm-5p3 $1.40/$4.40.",
+      "why": "These branches exist so a user can run the pipeline cheaply on open-weight models, and Router serves that whole class natively -- so the three bespoke clients with three base URLs and three keys are duplicated plumbing. unlock_hosts on wrap_openai plus a model_map is the mechanism and needs no new code path. Ranked below the others because it changes which models answer for users who deliberately chose DeepSeek, and because the Gemini half does not remove a credential.",
+      "evidence": [{"check": "other", "result": "not-run", "detail": "ROUTER.md 4 and 9: unlock_hosts routes another vendor's OpenAI-compatible host for catalog models; Vertex/Gemini ids are requires_byok."}],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "i7", "kind": "improvement", "level": "rework",
+      "title": "One Responses call instead of seven vendor branches",
+      "summary": "Collapse get_response_from_llm's per-vendor if/elif ladder onto a single Router Responses call, with the provider SDKs kept only as a fallback.",
+      "gains": "Router serves every catalog model on both surfaces, so the thing this ladder exists for -- translating one prompt into seven vendors' request shapes -- is work Router already does. Collapsing it gives: every Responses lever inline per call instead of through policy (fallbacks, provider_timeout, prompt_cache_key, metadata, service_tier); usage.cost in USD on every response, which this pipeline has no cost accounting for today; a new model usable by naming it, instead of adding a branch plus a create_client case plus an AVAILABLE_LLMS entry; and the end of the seed/n/temperature incompatibilities that this migration had to work around in policy. It also deletes the reason three files build their own clients.",
+      "loses": "The provider-direct path for anything Router does not serve -- Bedrock, Vertex, and any model a user has a private key for -- unless that branch is kept as an explicit fallback, which is the main design question. Request shapes change, so outputs will differ at the margins (Responses defaults function tools to strict, and stop is emulated for OpenAI models). It is a rewrite of the module every other file depends on, so it wants its own review.",
+      "price": "no change by itself; it makes Flex reachable, which was measured at exactly -50% on gpt-5.4-mini, and that only pays if the pipeline also moves to gpt-5-class models.",
+      "why": "This is what I would build if starting on Router today. The current module's shape -- 40 model ids, 7 request-shape branches, 6 client constructors, most of them 2024 ids Router does not carry -- is a 2024 multi-vendor abstraction that Router makes redundant. Every item above is a patch on that shape; this one removes it. It is a conversation, not a patch, which is why it has no branch: the owner has to decide whether BYOK Bedrock/Vertex support stays, and whether the pipeline should move to gpt-5-class models (which unlocks Flex, and whose temperature:false constraint would force an explicit decision about sampling diversity rather than a silent dropped parameter).",
+      "evidence": [{"check": "other", "result": "not-run", "detail": "ROUTER.md 5, 6.1, 6.6: every lever is on /v1/responses; usage.cost is Responses-only; cross-vendor history replay measured in all six directions."}],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    },
+    {
+      "id": "n1", "kind": "note",
+      "title": "No provider timeout is safe to add yet",
+      "summary": "provider_timeout would bound a hung call but the app cannot survive the 504 it produces, so it should land with fallbacks, not before.",
+      "gains": "nothing yet",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "I considered provider_timeout in the migration policy and left it out. An unattended run has no bound on a hung provider today (the OpenAI SDK default is 600s and the backoff decorator has no max_tries), so a timeout looks like an easy win. But a Router timeout returns a plain-text 504 with no JSON body, and this app's backoff only retries RateLimitError and APITimeoutError -- a 504 would surface as an API status error, abort do_idea and discard that idea's GPU work. It would make the app less reliable, not more. The right order is i6 (fallbacks, so a slow candidate is replaced rather than failed) and a max_tries on the backoff decorator, then a timeout.",
+      "evidence": [{"check": "other", "result": "info", "detail": "ROUTER.md 6.5: a timeout returns plain-text 504 with no x-request-id and the runtime returns it to the app."}],
+      "commit": null, "branch": null, "depends_on": [], "excludes": []
+    }
+  ]
+}

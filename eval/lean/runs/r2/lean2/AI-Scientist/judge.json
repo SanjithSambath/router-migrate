@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 8,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and fixed the three things that actually kept traffic off Router \u2014 seed=0 on every OpenAI request, the reviewer's n=5 single request (no Responses equivalent), and model ids that aren't in the catalog \u2014 each as its own revertable commit, with before/after request counts. Without these the default run would have reached Router on zero requests, and most engineers would have shipped the client wrapping and called it done.",
+  "Chased the default path to a real 200: diagnosed that the installed anthropic SDK rejects temperature as a named parameter so every Claude call raised TypeError before any HTTP request existed, fixed it by moving temperature into the body (same bytes on the wire, SDK-version-independent), and confirmed live on /v1/messages \u2014 pre-existing breakage correctly identified as such rather than hidden or blamed on the migration.",
+  "Honest, specific scope accounting instead of a clean-looking claim: aider is named as the largest token consumer and its Anthropic path is disclosed as still bypassing Router (n1); the DeepSeek/OpenRouter/Gemini branches were probed rather than trusted to the scanner; and the model map is flagged as invalidating the README's reviewer-agreement numbers, isolated in its own commit for human sign-off."
+ ],
+ "misses": [
+  "aider \u2014 stated to be where most of the app's tokens go \u2014 only routes for OpenAI-family models, and the default configuration is a Claude model, so the single largest consumer is still off Router. No concrete fix was built or even proposed for it: pointing LiteLLM at Router's base_url with an OpenAI-compatible model (or forcing custom_llm_provider=openai for the Claude models) is a small, testable change; i3/i7 only close the app-side helpers, not aider.",
+  "Unrolling n=5 into a sequential Python loop multiplies the ensemble's wall clock by ~5 (five members, five reflections, two ensembles per paper), and nothing in the review proposes parallelising it (threads/asyncio) even though the report itself says nobody is waiting and Router has no server-side state to serialise against. The cost of the unroll is quantified; the latency cost is not mentioned at all.",
+  "Every routed call carries the same feature label (ai_scientist/llm.py:get_response_from_llm), so Router spend cannot be split between ideation, the novelty loop, the writeup/citation loop and the reviewer \u2014 which is exactly the breakdown the rest of the report reasons about. The same flaw sits inside i1: prompt_cache_key=$feature puts ideation, writeup and review prefixes under one key. Per-call-site labels and per-prefix cache keys are a one-line policy change and the obvious Router-native win; neither is proposed."
+ ],
+ "wrong": [
+  "The calls table marks llm.py:236/251/264 (DeepSeek, deepseek-reasoner, Gemini) as now=\"provider\", while the outside check's route truth lists all three as verified routing. The engineer's probe evidence is plausible (the diff does leave those client constructions unwrapped), but the report leaves the dashboard's route column contradicting the check with only a parenthetical, so a reviewer cannot read coverage off either artifact without re-deriving it.",
+  "\"nothing changes until RAMP_ROUTER_API_KEY is set\" (m1 gains) is not true of the work as a whole: m3's temperature move, m4's n=5 unroll and m6's AVAILABLE_LLMS additions all change provider-bound behaviour unconditionally. The unroll in particular changes sampling and per-ensemble cost even with Router switched off, which the gains line obscures.",
+  "The cache savings in i1 (-49%, Claude -90%) and the Flex -50% in i5 are ROUTER.md measurements on other prompts, not measured on this app \u2014 honestly labelled, but the derived \"$0.19 instead of $0.31 per ensemble\" is then quoted as if it were a result, and it assumes a near-full prefix hit that the shared $feature cache key makes unlikely.",
+  "i2 attaches one static fallback list (claude-sonnet-4-6, gpt-4o) to every model at get_response_from_llm, so an o3-mini reasoning request can be served by a non-reasoning model. The loss is described only as \"a different model answers that call\"; it is a capability downgrade on the reasoning path and should be gated per model family.",
+  "\"tests: pass, 10 passed\" is compileall plus six module imports \u2014 the baseline matches, so nothing regressed, but no behavioural test covers the rewritten get_batch_responses_from_llm or the llama-3-1-405b exact-match branch that was folded into the gpt path (its model id, max_tokens and stop handling now come from get_response_from_llm). That path is untested and unmentioned."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 19.9,
+  "usd": 9.5051,
+  "check_ok": true,
+  "verified": 6,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 1,
+  "items": 17,
+  "kinds": {
+   "move": 3,
+   "trade-off": 2,
+   "port": 1,
+   "stays": 2,
+   "note": 1,
+   "improvement": 8
+  },
+  "improvements": 8,
+  "built": 2,
+  "levels": {
+   "quick-win": 3,
+   "change": 4,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

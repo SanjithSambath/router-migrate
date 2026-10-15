@@ -1,0 +1,1443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>router-migrate</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #1B1A1A; --side: #201F1E; --panel: #242322; --panel-2: #2A2928; --hover: #2E2C2B; --code: #191818; --raise: #262524;
+  --line: #33312F; --line-2: #44413E; --line-3: #57534F;
+  --text: #EAE6E2; --text-2: #ADA7A2; --text-3: #7E7874;
+  --solar: #E4F222; --solar-hover: #D5E31B; --solar-ink: #1B1A1A; --solar-tint: rgba(228,242,34,.07); --solar-line: rgba(228,242,34,.40); --solar-text: #E8EF8F;
+  --olive: #36311A; --olive-ink: #E8D46B;
+  --green: #4BC876; --green-tint: rgba(75,200,118,.10); --green-line: rgba(75,200,118,.45);
+  --lilac: #BAA6EE; --lilac-tint: rgba(186,166,238,.10); --lilac-line: rgba(186,166,238,.42);
+  --amber: #E6B95D; --amber-tint: rgba(230,185,93,.10); --amber-line: rgba(230,185,93,.42);
+  --red: #E9876F; --red-tint: rgba(233,135,111,.10); --red-line: rgba(233,135,111,.45);
+  --blue: #8DB4E8; --blue-tint: rgba(141,180,232,.10); --blue-line: rgba(141,180,232,.42);
+  --add: rgba(75,200,118,.08); --del: rgba(233,135,111,.07); --hunk: #232221;
+  --syn-k: #C9B3F5; --syn-s: #A6DDB4; --syn-n: #EBC57A; --syn-c: #7E7874;
+  --bar: rgba(27,26,26,.84); --sticky: rgba(27,26,26,.92); --shadow: rgba(0,0,0,.45); --focus: #E4F222;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "IBM Plex Mono", Menlo, Consolas, monospace;
+  --r: 8px; --ease: cubic-bezier(.2, .7, .2, 1); --fast: 140ms; --med: 220ms;
+  --side-w: 236px; --content: 1080px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+    --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+    --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+    --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+    --olive: #EEF0C8; --olive-ink: #5B5712;
+    --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+    --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+    --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+    --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+    --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+    --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+    --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+    --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+  --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+  --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+  --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+  --olive: #EEF0C8; --olive-ink: #5B5712;
+  --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+  --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+  --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+  --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+  --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+  --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+  --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+  --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/22px var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden; }
+h1, h2, h3, h4 { margin: 0; font-weight: 400; letter-spacing: -0.015em; }
+p { margin: 0; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+button, input, select, textarea { font: inherit; color: inherit; }
+code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; color: var(--text); overflow-wrap: anywhere; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+::selection { background: rgba(228,242,34,.25); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* tones: one vocabulary for kinds, statuses, results and routes */
+.tone-green { --c: var(--green); --t: var(--green-tint); --l: var(--green-line); }
+.tone-solar { --c: var(--solar-text); --t: var(--solar-tint); --l: var(--solar-line); }
+.tone-blue { --c: var(--blue); --t: var(--blue-tint); --l: var(--blue-line); }
+.tone-amber { --c: var(--amber); --t: var(--amber-tint); --l: var(--amber-line); }
+.tone-red { --c: var(--red); --t: var(--red-tint); --l: var(--red-line); }
+.tone-lilac { --c: var(--lilac); --t: var(--lilac-tint); --l: var(--lilac-line); }
+.tone-neutral { --c: var(--text-2); --t: var(--panel-2); --l: var(--line-2); }
+.tone-muted { --c: var(--text-3); --t: transparent; --l: var(--line-2); }
+
+/* ================= shell ================= */
+.app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 0 12px 16px; }
+.brand { display: flex; align-items: center; gap: 7px; height: 64px; margin: 0 -12px; padding: 0 22px; border-bottom: 1px solid var(--line); flex: none; }
+.brand b { font: 600 16px/22px var(--sans); letter-spacing: -0.02em; }
+.brand span { font: 400 11px/14px var(--mono); color: var(--text-3); padding-top: 3px; }
+.side .nav:first-of-type { margin-top: 16px; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-label { font: 500 10.5px/14px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); padding: 0 10px; margin: 0 0 6px; }
+.nav-item { position: relative; appearance: none; border: 0; background: none; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 6px; color: var(--text-2); cursor: pointer; text-align: left; width: 100%; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item[aria-current="page"] { background: var(--panel-2); color: var(--text); }
+.nav-item .nl { flex: 1; white-space: nowrap; }
+.nav-item .cnt { font: 500 11px/18px var(--mono); color: var(--text-3); min-width: 18px; text-align: right; }
+.nav-item .cnt.hot { color: var(--solar-ink); background: var(--solar); padding: 0 6px; border-radius: 9px; text-align: center; }
+.side-spacer { flex: 1; min-height: 24px; }
+.side-foot { padding: 14px 10px 0; margin-top: 12px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12px; line-height: 18px; }
+.main { min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 20; height: 64px; background: var(--bar); backdrop-filter: saturate(140%) blur(14px); -webkit-backdrop-filter: saturate(140%) blur(14px); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: calc(var(--content) + 112px); margin: 0 auto; height: 100%; padding: 0 56px; display: flex; align-items: center; gap: 12px; }
+.repo-chip { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
+.repo-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.repo-ic svg.i { width: 15px; height: 15px; }
+.repo-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.repo-id .nm { font: 500 14.5px/19px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.repo-id .path { font: 400 11.5px/15px var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
+.crumb { display: inline-flex; align-items: center; gap: 12px; color: var(--text-2); white-space: nowrap; }
+.crumb::before { content: ""; width: 1px; height: 22px; background: var(--line-2); transform: skewX(-18deg); }
+.topbar .sp { flex: 1; }
+.status { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--line-2); font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.status svg.i { width: 14px; height: 14px; }
+.status.live { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
+.status.err { color: var(--red); border-color: var(--red-line); background: var(--red-tint); }
+.status.frozen { color: var(--blue); border-color: var(--blue-line); background: var(--blue-tint); }
+.dot { width: 6px; height: 6px; border-radius: 3px; background: currentColor; flex: none; }
+.dot.ping { animation: ping 2.4s var(--ease) infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(75,200,118,.45); } 70%, 100% { box-shadow: 0 0 0 6px rgba(75,200,118,0); } }
+.iconbtn { appearance: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line-2); background: none; color: var(--text-2); display: grid; place-items: center; cursor: pointer; flex: none; }
+.iconbtn:hover { color: var(--text); background: var(--hover); }
+.page { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 44px 56px 160px; }
+.enter { animation: enter var(--med) var(--ease) both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ================= page header + sections ================= */
+.ph { display: flex; align-items: flex-end; gap: 24px; margin-bottom: 32px; }
+.ph-t { flex: 1; min-width: 0; }
+.eyebrow { font: 500 11px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.ph .eyebrow { margin-bottom: 10px; }
+.ph h1 { font-size: 32px; line-height: 40px; letter-spacing: -0.02em; }
+.ph h1 .muted { color: var(--text-3); }
+.ph .sub { color: var(--text-2); font-size: 15px; line-height: 24px; margin-top: 10px; max-width: 760px; }
+.ph-side { display: flex; gap: 8px; align-items: center; flex: none; }
+.sec { margin-top: 48px; }
+.sec-h { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+.sec-h .t { flex: 1; min-width: 0; }
+.sec-h h2 { font-size: 19px; line-height: 26px; }
+.sec-h p { color: var(--text-2); margin-top: 4px; }
+.sec-h .n, .group-h .n { font: 500 12px/18px var(--mono); color: var(--text-3); margin-left: 8px; }
+.group-h h2 { font-size: 17px; line-height: 24px; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); }
+.empty { color: var(--text-2); padding: 24px; }
+.empty b { color: var(--text); font-weight: 500; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.banner { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-radius: 7px; border: 1px solid var(--line-2); color: var(--text); margin-bottom: 20px; font-size: 13px; line-height: 20px; }
+.banner svg.i { margin-top: 2px; color: var(--c, var(--text-3)); }
+.banner .tx { flex: 1; min-width: 0; }
+.banner .tx b { font-weight: 500; }
+.banner.tone-amber, .banner.tone-red, .banner.tone-blue, .banner.tone-green { border-color: var(--l); background: var(--t); }
+.banner ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); }
+.link { appearance: none; background: none; border: 0; padding: 0; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; transition: color var(--fast) var(--ease); }
+.link svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.link:hover { color: var(--text); }
+.link:hover svg.i { transform: translateX(2px); }
+
+/* ================= overview ================= */
+.doors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.door { appearance: none; text-align: left; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 18px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); min-width: 0; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.door:hover { border-color: var(--line-3); background: var(--raise); }
+.door:active { transform: translateY(1px); }
+.door-top { display: flex; align-items: center; gap: 12px; }
+.door-top h3 { font-size: 15px; line-height: 22px; font-weight: 500; flex: 1; min-width: 0; }
+.ic { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.ic.t { background: var(--t); color: var(--c); }
+.door-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.door-big .v { font-size: 40px; line-height: 44px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.door-big .v.word { font-size: 30px; line-height: 44px; letter-spacing: -0.02em; color: var(--c); }
+.door-big .v small { font-size: 18px; color: var(--text-3); margin-left: 2px; letter-spacing: 0; }
+.door-big .u { color: var(--text-2); font-size: 14px; }
+.door.hot { border-color: var(--solar-line); background: linear-gradient(180deg, var(--solar-tint), transparent 60%), var(--panel); }
+.door.hot .door-big .v { color: var(--solar-text); }
+.door-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.door-foot .sp { flex: 1; }
+.door-foot .go { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.door-foot .go svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.door:hover .door-foot .go { color: var(--text); }
+.door:hover .door-foot .go svg.i { transform: translateX(3px); }
+.mini { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 13px; line-height: 18px; }
+.mini span { display: flex; align-items: baseline; gap: 7px; }
+.mini b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; min-width: 14px; }
+.mini .sdot { align-self: center; }
+.sdot { width: 8px; height: 8px; border-radius: 4px; background: var(--c); flex: none; display: inline-block; }
+.sdot.o { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.segbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.segbar i { display: block; height: 100%; background: var(--c); min-width: 4px; border-radius: 2px; }
+.segbar i.o { background: repeating-linear-gradient(135deg, var(--c) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--l); }
+.segbar i.muted { background: repeating-linear-gradient(135deg, var(--line-2) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--line-2); }
+.quote { display: flex; gap: 12px; padding: 16px 18px; border-radius: var(--r); background: var(--lilac-tint); border: 1px solid var(--lilac-line); }
+.quote svg.i { color: var(--lilac); margin-top: 3px; }
+.quote .qt { color: var(--text); font-size: 14.5px; line-height: 23px; max-width: 860px; }
+.quote .by { display: block; font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--lilac); margin-bottom: 6px; }
+.reviewed { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; padding: 12px 16px; border-radius: var(--r); border: 1px solid var(--line); color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.reviewed svg.i { margin-top: 3px; color: var(--text-3); }
+.reviewed b { color: var(--text); font-weight: 500; }
+.reviewed .tx { flex: 1; min-width: 0; }
+.reviewed.big { padding: 22px 24px; border-color: var(--solar-line); background: var(--solar-tint); }
+.reviewed.big .tx { font-size: 15px; line-height: 24px; color: var(--text); }
+.reviewed.big b { display: block; font-size: 17px; line-height: 24px; margin-bottom: 6px; }
+.reviewed.big svg.i { color: var(--solar-text); width: 18px; height: 18px; }
+.kchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.facts-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 18px; color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.facts-line span { display: inline-flex; align-items: center; gap: 7px; }
+.facts-line b { color: var(--text-2); font-weight: 500; }
+
+/* traffic flow: each call, from its file to Router */
+.flow { position: relative; padding: 28px; overflow: hidden; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; }
+.flow-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(64px, .7fr) minmax(0, 1fr); align-items: center; }
+.flow svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.wire { fill: none; stroke: var(--c, var(--green)); stroke-width: 1.5; stroke-dasharray: 4 6; stroke-linecap: round; opacity: .9; animation: flowdash 2.2s linear infinite; }
+.wires.fresh .wire { animation: flowdash 2.2s linear infinite, wirein 600ms var(--ease) both; }
+.wire.o { stroke-dasharray: 1 6; }
+.wire.broken, .wires.fresh .wire.broken { stroke-dasharray: 3 5; animation: wirein 600ms var(--ease) both; }
+.wire-x { fill: none; stroke: var(--c); stroke-width: 1.6; stroke-linecap: round; }
+@keyframes flowdash { to { stroke-dashoffset: -20; } }
+@keyframes wirein { from { opacity: 0; } to { opacity: .9; } }
+.fcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.fgroup { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fgroup-h { display: flex; align-items: baseline; gap: 8px; min-width: 0; font: 400 11.5px/16px var(--mono); color: var(--text-3); }
+.fgroup-h .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgroup-h .n { flex: none; }
+.fnode { appearance: none; position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 9px 12px; text-align: left; color: inherit; background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px; cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.fnode:hover { border-color: var(--l); background: var(--hover); }
+.fnode .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fnode .fn { font: 500 12.5px/18px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode .sub { color: var(--text-3); font-size: 12px; line-height: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode svg.go { width: 13px; height: 13px; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.fnode:hover svg.go, .fnode:focus-visible svg.go { opacity: 1; transform: none; }
+.router-node { position: relative; min-width: 0; background: var(--bg); border: 1px solid var(--green-line); border-radius: 10px; padding: 20px; box-shadow: 0 0 0 5px var(--green-tint), 0 14px 32px -14px var(--shadow); }
+.router-node .nm { display: flex; align-items: center; gap: 10px; font-size: 18px; line-height: 24px; }
+.router-node .host { color: var(--text-3); margin-top: 10px; overflow-wrap: anywhere; }
+.rchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.rchip { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; color: var(--c); background: var(--t); border: 1px solid var(--l); cursor: pointer; }
+.rchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rchip svg.i { width: 13px; height: 13px; }
+.flow-stay { position: relative; z-index: 1; margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--line-2); }
+.stay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 10px; }
+.stay-grid .fnode { padding: 8px 10px; background: transparent; border-style: dashed; }
+.flow .legend { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; line-height: 18px; }
+.legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.legend svg { width: 22px; height: 8px; flex: none; }
+.legend svg line { stroke: var(--c); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linecap: round; }
+.legend svg.o line { stroke-dasharray: 1 3.5; }
+.legend .box { width: 16px; height: 11px; border: 1px dashed var(--line-3); border-radius: 3px; flex: none; }
+.flow-empty { color: var(--text-2); padding: 12px 0; }
+
+/* ================= badges ================= */
+.kb { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font: 500 10.5px/14px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.kb svg.i { width: 12px; height: 12px; }
+.sc { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; line-height: 16px; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.sc .dot { width: 6px; height: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; line-height: 16px; white-space: nowrap; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-2)); background: var(--t, transparent); }
+.pill svg.i { width: 12px; height: 12px; }
+
+/* ================= the one card ================= */
+.card { position: relative; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 20px 24px; scroll-margin-top: 96px; transition: border-color var(--med) var(--ease), box-shadow var(--med) var(--ease); }
+.card.flash { animation: flash 1.6s var(--ease); }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } 15% { box-shadow: 0 0 0 3px var(--solar-line); border-color: var(--solar-line); } 100% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } }
+.item.waiting { border-color: var(--solar-line); }
+.ih { display: flex; align-items: flex-start; gap: 8px 12px; flex-wrap: wrap; }
+.ih .kb { margin-top: 1px; }
+.ih .it { flex: 1 1 240px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.isum { color: var(--text-2); margin-top: 8px; max-width: 860px; }
+.row { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; margin-top: 12px; }
+.lbl { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.row > .lbl { min-width: 72px; }
+.cref { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 22px; padding: 0 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font: 400 11.5px/16px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+button.cref:hover { color: var(--text); border-color: var(--line-3); }
+span.cref { cursor: default; color: var(--text-3); border-style: dashed; }
+.cref em { font-style: normal; color: var(--text-3); }
+.glp { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.glp > div { padding: 10px 14px; border-left: 1px solid var(--line); min-width: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.glp > div:first-child { border-left: 0; }
+.glp .lbl { margin-bottom: 4px; display: block; }
+.glp .g { color: var(--text); }
+.glp .l { color: var(--text-2); }
+.glp .l.none { color: var(--text-3); }
+.glp .pr { color: var(--text); font-variant-numeric: tabular-nums; }
+.chk { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 10px; margin-top: 16px; }
+.chk > .lbl { padding-top: 4px; }
+.evl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ev { display: grid; grid-template-columns: 74px auto minmax(0, 1fr) auto; grid-template-areas: "r k d s"; gap: 0 10px; align-items: baseline; font-size: 13px; line-height: 20px; }
+.ev .r { grid-area: r; display: inline-flex; align-items: center; gap: 5px; font: 500 11px/20px var(--mono); color: var(--c); white-space: nowrap; }
+.ev .r svg.i { width: 13px; height: 13px; align-self: center; }
+.ev .k { grid-area: k; color: var(--text); font-weight: 500; white-space: nowrap; }
+.ev .d { grid-area: d; color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.ev .s { grid-area: s; font: 500 9.5px/16px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+.ev .s.agent { color: var(--lilac); border-color: var(--lilac-line); }
+.mc { margin-top: 16px; padding: 14px 16px; border-radius: 7px; border: 1px solid var(--lilac-line); background: var(--lilac-tint); }
+.mc-h { display: flex; gap: 10px; align-items: flex-start; }
+.mc-h svg.i { color: var(--lilac); margin-top: 3px; }
+.mc-h .tx { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.mc-h .tx b { display: block; color: var(--text); font-weight: 500; font-size: 14px; }
+.mc .evl { margin-top: 10px; }
+.samples { margin-top: 12px; display: grid; gap: 8px; }
+.sample { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); font-size: 12.5px; line-height: 19px; }
+.sample > div { padding: 8px 10px; border-left: 1px solid var(--line); min-width: 0; overflow-wrap: anywhere; }
+.sample > div:first-child { border-left: 0; color: var(--text-2); }
+.sample .lbl { display: block; margin-bottom: 2px; }
+.sample.diff > div:last-child { background: var(--amber-tint); }
+.flags { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--amber-line); background: var(--amber-tint); font-size: 13px; line-height: 20px; }
+.flags svg.i { color: var(--amber); margin-top: 2px; }
+.flags .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.flags .fk { color: var(--amber); font-weight: 500; margin-right: 6px; }
+.flags .fd { color: var(--text); overflow-wrap: anywhere; }
+.flags .ff { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.rel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 12px; font-size: 13px; }
+.ilink { appearance: none; background: none; border: 0; padding: 0; display: inline-flex; align-items: baseline; gap: 7px; color: var(--text); cursor: pointer; text-align: left; font-size: 13px; line-height: 20px; max-width: 100%; }
+.ilink .sdot { align-self: center; width: 7px; height: 7px; }
+.ilink .tt { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.ilink:hover .tt { text-decoration-color: var(--text-2); }
+.note { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--l, var(--line)); background: var(--t, transparent); font-size: 13px; line-height: 20px; color: var(--text-2); }
+.note svg.i { color: var(--c, var(--text-3)); margin-top: 2px; width: 15px; height: 15px; }
+.note .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.note b { color: var(--text); font-weight: 500; }
+.note .meta { color: var(--text-3); }
+.disc { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+details.more > summary { cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; display: inline-flex; align-items: center; gap: 7px; user-select: none; padding: 3px 0; transition: color var(--fast) var(--ease); }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary svg.i { width: 12px; height: 12px; transition: transform var(--med) var(--ease); }
+details.more[open] > summary svg.i:first-child { transform: rotate(90deg); }
+details.more > summary:hover { color: var(--text); }
+details.more > summary .meta { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
+details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.more-b { margin: 8px 0 10px; color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.whyt { padding: 12px 14px; border-left: 2px solid var(--lilac-line); background: var(--lilac-tint); border-radius: 0 6px 6px 0; color: var(--text); max-width: 860px; }
+.nodiff { color: var(--text-3); font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; padding: 3px 0; }
+.nodiff svg.i { width: 12px; height: 12px; }
+.ifoot { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ifoot .sp { flex: 1; }
+.ref { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font: 400 12px/18px var(--mono); min-width: 0; max-width: 100%; }
+.ref svg.i { width: 13px; height: 13px; }
+.ref span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* buttons + forms */
+.btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; white-space: nowrap; font-size: 13px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease), opacity var(--fast) var(--ease); }
+.btn svg.i { width: 14px; height: 14px; }
+.btn:hover:not(:disabled) { border-color: var(--line-3); background: var(--hover); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--solar); border-color: var(--solar); color: var(--solar-ink); font-weight: 500; }
+.btn.primary:hover:not(:disabled) { background: var(--solar-hover); border-color: var(--solar-hover); }
+.btn.ghost { border-color: transparent; color: var(--text-2); padding: 0 10px; }
+.btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
+.btn.warn { color: var(--amber); border-color: var(--amber-line); }
+.btn.lg { height: 40px; padding: 0 18px; font-size: 14px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; width: 100%; animation: enter var(--med) var(--ease) both; }
+.form input { height: 32px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 10px; flex: 1 1 240px; min-width: 0; max-width: 460px; }
+.form input[type=date] { flex: 0 1 180px; }
+.form input:focus { outline: none; border-color: var(--solar-line); }
+.form .hint { color: var(--text-3); font-size: 12.5px; flex: 1 1 100%; }
+
+/* filters */
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.filters > .lbl { min-width: 52px; }
+.fchip { appearance: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--line-2); background: none; color: var(--text-2); cursor: pointer; font-size: 13px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.fchip:hover { color: var(--text); border-color: var(--line-3); }
+.fchip[aria-pressed="true"] { background: var(--panel-2); color: var(--text); border-color: var(--line-3); }
+.fchip .n { font: 500 11px/16px var(--mono); color: var(--text-3); }
+.fchip .sdot { width: 7px; height: 7px; }
+.group { margin-top: 36px; }
+.group:first-child { margin-top: 28px; }
+.group-h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.group-h p { color: var(--text-3); font-size: 13px; line-height: 20px; flex: 1 1 300px; min-width: 0; }
+
+/* calls table */
+.tblw { overflow: hidden; }
+.ctbl { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.ctbl th { text-align: left; font-weight: 400; color: var(--text-3); font-size: 12px; padding: 11px 16px; border-bottom: 1px solid var(--line); background: var(--raise); white-space: nowrap; }
+.ctbl td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ctbl tr:last-child td { border-bottom: 0; }
+.ctbl tr { scroll-margin-top: 96px; }
+.ctbl tr.flash td { animation: rowflash 1.6s var(--ease); }
+@keyframes rowflash { 15% { background: var(--solar-tint); } }
+.ctbl .site { font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+.ctbl .sub { color: var(--text-3); font-size: 12px; line-height: 18px; margin-top: 2px; overflow-wrap: anywhere; }
+.ctbl .mdl { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.route { display: inline-flex; align-items: center; gap: 7px; color: var(--c); white-space: nowrap; font-weight: 500; }
+.lat { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
+
+/* queue */
+.prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.prow:first-child { border-top: 0; }
+.prow .tx { min-width: 0; }
+.prow .pa { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.prow .ss { color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 3px; overflow-wrap: anywhere; }
+.atag { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; height: 24px; padding: 0 8px; border-radius: 5px; font: 500 11px/14px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); flex: none; }
+.applybar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 16px 18px; border-top: 1px solid var(--line); background: var(--raise); border-radius: 0 0 var(--r) var(--r); }
+.applybar .tx { flex: 1 1 300px; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.applybar .tx b { color: var(--text); font-weight: 500; }
+.applybar .why { flex: 1 1 100%; color: var(--amber); font-size: 12.5px; line-height: 18px; display: flex; gap: 8px; align-items: flex-start; }
+.applybar .why svg.i { width: 14px; height: 14px; margin-top: 2px; }
+.term { margin: 0; padding: 14px 16px; font: 400 12px/19px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); max-height: 260px; overflow: auto; background: var(--code); border-top: 1px solid var(--line); border-radius: 0 0 var(--r) var(--r); }
+.result-h { display: flex; align-items: center; gap: 12px; padding: 14px 18px; font-size: 13.5px; flex-wrap: wrap; }
+.result-h .tx { flex: 1 1 260px; min-width: 0; }
+.result-h .tx b { font-weight: 500; }
+.copyv { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 32px; padding: 0 4px 0 12px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); font: 400 12.5px/18px var(--mono); color: var(--text); }
+.copyv .cv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copyv .btn { height: 24px; padding: 0 8px; font-size: 11.5px; flex: none; }
+
+/* history */
+.sess { overflow: hidden; }
+.sess-h { display: flex; align-items: center; gap: 12px 14px; padding: 16px 20px; flex-wrap: wrap; }
+.sid { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line-2); font: 500 13px/16px var(--mono); color: var(--text); flex: none; }
+.sess-h .tx { flex: 1 1 220px; min-width: 0; }
+.sess-h .tx b { font-weight: 500; font-size: 15px; }
+.sess-h .tx .mt { display: block; color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 2px; }
+.sess-sum { padding: 0 20px 16px; color: var(--text); max-width: 900px; }
+.rrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; padding: 13px 20px; border-top: 1px solid var(--line); align-items: start; }
+.rrow .tx { min-width: 0; }
+.rrow .nt { color: var(--text-2); font-size: 13px; line-height: 20px; margin-top: 4px; overflow-wrap: anywhere; }
+.rrow .cm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rrow .rt { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.sess-ck { padding: 14px 20px 18px; border-top: 1px solid var(--line); background: var(--raise); }
+.sess-ck .lbl { display: block; margin-bottom: 8px; }
+
+/* setup */
+.prog { display: flex; align-items: center; gap: 12px; }
+.prog-bar { display: flex; gap: 4px; }
+.prog-bar i { width: 22px; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.prog-bar i.on { background: var(--solar); box-shadow: none; }
+.prog .tx { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.prog .tx b { color: var(--text); font-weight: 500; }
+.scard { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px; padding: 22px 24px; }
+.scard.done .s-body { opacity: .6; }
+.s-rail { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.s-num { font: 500 11px/14px var(--mono); color: var(--text-3); letter-spacing: .06em; }
+.check { appearance: none; width: 26px; height: 26px; border-radius: 13px; border: 1.5px solid var(--line-3); background: none; flex: none; cursor: pointer; display: grid; place-items: center; color: var(--solar-ink); transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.check:hover { border-color: var(--solar-line); }
+.check.on { background: var(--solar); border-color: var(--solar); }
+.check svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.s-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.s-head h3 { font-size: 16px; line-height: 24px; font-weight: 500; }
+.prio { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-3)); background: var(--t, transparent); white-space: nowrap; }
+.s-lead { color: var(--text-2); margin-top: 8px; max-width: 760px; }
+.s-block { margin-top: 16px; }
+.s-block > .lbl { display: block; margin-bottom: 8px; }
+.taglist { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.where { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.where .r { font-weight: 500; color: var(--text); }
+.where svg.i { width: 12px; height: 12px; color: var(--text-3); }
+.s-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.s-foot .nt { color: var(--text-3); font-size: 12.5px; }
+a.btn { text-decoration: none; }
+
+/* diff */
+.dv { margin-top: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--code); overflow: hidden; }
+.dv-h { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.dv-h .msg { color: var(--text); font-weight: 500; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.dv-h .mono { color: var(--text-3); font-size: 11.5px; }
+.dv-trunc { padding: 8px 14px; color: var(--amber); font-size: 12px; border-top: 1px solid var(--line); background: var(--amber-tint); }
+.df + .df { border-top: 1px solid var(--line); }
+.df-h { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font: 400 12px/18px var(--mono); }
+.df-h .f { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.df-h .m { color: var(--amber); font-size: 11px; }
+.plus { color: var(--green); }
+.minus { color: var(--red); }
+.df-b { overflow-x: auto; scrollbar-width: thin; }
+.df-b table { border-collapse: collapse; min-width: 100%; font: 400 12px/19px var(--mono); }
+.df-b td { padding: 0; vertical-align: top; }
+.df-b td.n { width: 1%; min-width: 38px; padding: 0 8px; color: var(--text-3); text-align: right; user-select: none; opacity: .8; }
+.df-b td.g { width: 14px; padding: 0 4px; color: var(--text-3); user-select: none; text-align: center; }
+.df-b td.c { white-space: pre; padding-right: 14px; color: var(--text-2); }
+.df-b tr.add { background: var(--add); }
+.df-b tr.add td.g { color: var(--green); }
+.df-b tr.add td.c { color: var(--text); }
+.df-b tr.del { background: var(--del); }
+.df-b tr.del td.g { color: var(--red); }
+.df-b tr.hunk td { background: var(--hunk); color: var(--text-3); padding-top: 2px; padding-bottom: 2px; }
+.df-b tr.hunk td.c { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sy-k { color: var(--syn-k); }
+.sy-s { color: var(--syn-s); }
+.sy-n { color: var(--syn-n); }
+.sy-c { color: var(--syn-c); font-style: italic; }
+.stat { padding: 8px 14px; font: 400 11.5px/18px var(--mono); color: var(--text-3); border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* sticky + toast */
+#sticky:empty { display: none; }
+.sticky { position: fixed; left: var(--side-w); right: 0; bottom: 0; z-index: 30; background: var(--sticky); backdrop-filter: saturate(140%) blur(10px); -webkit-backdrop-filter: saturate(140%) blur(10px); border-top: 1px solid var(--line); }
+.sticky.in { animation: up 320ms var(--ease) both; }
+@keyframes up { from { transform: translateY(100%); } to { transform: none; } }
+.sticky-in { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 12px 56px; display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+.sticky-in .tx { flex: 1 1 200px; color: var(--text-2); min-width: 0; }
+.sticky-in .tx b { color: var(--text); font-weight: 500; }
+#toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 40; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { display: flex; align-items: center; gap: 10px; background: var(--text); color: var(--bg); border-radius: 8px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px var(--shadow); animation: toastin 260ms var(--ease) both; }
+.toast.out { animation: toastout 200ms var(--ease) both; }
+.toast svg.i { width: 15px; height: 15px; }
+.toast.err { background: var(--red); color: #fff; }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toastout { to { opacity: 0; transform: translateY(6px); } }
+
+/* ================= responsive ================= */
+@media (max-width: 1100px) {
+  .doors { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .doors .door:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: sticky; top: 0; z-index: 25; height: auto; flex-direction: row; align-items: center; padding: 8px 10px; gap: 6px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .side::-webkit-scrollbar { display: none; }
+  .brand, .side-spacer, .side-foot, .nav-label { display: none; }
+  .side .nav:first-of-type { margin-top: 0; }
+  .nav { flex-direction: row; }
+  .nav-item { width: auto; padding: 0 10px; }
+  .topbar { top: 53px; height: 56px; }
+  .topbar-in { padding: 0 16px; gap: 8px; }
+  .repo-id .path, .crumb, .status.key { display: none; }
+  .repo-ic { width: 28px; height: 28px; }
+  .page { padding: 26px 16px 160px; }
+  .ph { flex-direction: column; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
+  .ph h1 { font-size: 25px; line-height: 33px; }
+  .doors { grid-template-columns: minmax(0, 1fr); }
+  .glp { grid-template-columns: minmax(0, 1fr); }
+  .glp > div { border-left: 0; border-top: 1px solid var(--line); }
+  .glp > div:first-child { border-top: 0; }
+  .card { padding: 18px 16px; }
+  .ifoot .sp { display: none; }
+  .ifoot .ref { flex: 1 1 100%; }
+  .chk { grid-template-columns: minmax(0, 1fr); }
+  .ev { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "r k s" "d d d"; gap: 0 8px; padding-bottom: 4px; }
+  .ev .r { min-width: 0; }
+  .sample { grid-template-columns: minmax(0, 1fr); }
+  .sample > div { border-left: 0; border-top: 1px solid var(--line); }
+  .sample > div:first-child { border-top: 0; }
+  .ctbl thead { display: none; }
+  .ctbl, .ctbl tbody, .ctbl tr, .ctbl td { display: block; width: 100%; }
+  .ctbl tr { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .ctbl tr:last-child { border-bottom: 0; }
+  .ctbl td { padding: 0; border: 0; }
+  .ctbl .site { white-space: normal; overflow-wrap: anywhere; }
+  .ctbl td + td { margin-top: 8px; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+  .ctbl td + td::before { content: attr(data-l); font: 500 10px/18px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+  .df-b td.n.o { display: none; }
+  .df-b td.n { min-width: 30px; padding: 0 6px; }
+  .sticky { left: 0; }
+  .sticky-in { padding: 10px 16px; flex-wrap: nowrap; }
+  .sticky-in .tx { font-size: 13px; line-height: 18px; }
+  .sticky-in .btn { padding: 0 12px; }
+  .scard { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px 16px; }
+  .s-rail { flex-direction: row; }
+  .sess-h, .rrow, .sess-ck { padding-left: 16px; padding-right: 16px; }
+  .sess-sum { padding: 0 16px 14px; }
+  .rrow { grid-template-columns: minmax(0, 1fr); }
+  .rrow .rt { justify-content: flex-start; }
+  .prow { padding: 14px 16px; grid-template-columns: auto minmax(0, 1fr); }
+  .prow .pa { grid-column: 2; justify-content: flex-start; }
+  .prow .pa .btn.ghost { margin-left: -10px; }
+  .prow.dec { grid-template-columns: minmax(0, 1fr); }
+  .prow.dec .pa { grid-column: 1; }
+  .prow.dec > .sc { justify-self: start; }
+  .applybar { padding: 14px 16px; }
+  .applybar .btn { width: 100%; }
+  .row > .lbl { min-width: 0; flex: 1 1 100%; }
+  .filters > .lbl { flex: 1 1 100%; }
+}
+@media (max-width: 640px) {
+  .flow { padding: 18px 16px; }
+  .flow-grid { grid-template-columns: minmax(0, 1fr); }
+  .flow svg.wires { display: none; }
+  .flow-mid { justify-self: center; width: 0; height: 28px; border-left: 1.5px dashed var(--green-line); }
+  .stay-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  .status .lbl2 { display: none; }
+  .status { padding: 0 9px; }
+  .door-big .v { font-size: 34px; }
+  .door-big .v.word { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .wire { animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side" aria-label="Pages"></aside>
+  <div class="main"><header class="topbar" id="topbar"></header><main class="page" id="main"></main></div>
+</div>
+<div id="sticky"></div>
+<div id="toast" aria-live="polite"></div>
+<script id="rm-boot">window.__RM__ = window.__RM__ || null; window.__RM_MODE__ = window.__RM_MODE__ || "static";window.__RM__ = {"version":6,"repo":"llmcord","root":"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/L_r2_lean/llmcord","generated":"2026-10-14T21:43:37","tool_version":"router-migrate 0.5.0","live":true,"base":"96d81ef398e1c63abbbf1a9a11969a0e6623218d","migration_ref":"router-migrate/migration","has_report":true,"report_errors":[],"summary":"llmcord is a single-file Discord bot with exactly one LLM call: the streamed chat.completions request in on_message that writes the bot's reply into a Discord embed, built from a per-provider AsyncOpenAI client whose base_url and model come from config.yaml. Its product promise is that any OpenAI-compatible endpoint works (OpenAI, OpenRouter, xAI, Google, Azure, and local LM Studio / Ollama / vLLM), so the migration puts the vendored Router runtime under that client instead of pointing it at Router: with RAMP_ROUTER_API_KEY set, a configured model that is a Router catalog id (the shipped default, openai/gpt-5.5) is translated to Router's /v1/responses and streamed back as chat chunks, while anything Router cannot serve - ollama/llama4, the OpenRouter \"~anthropic/...\" ids, OpenRouter's own web_search tool, Azure deployments - goes to its provider exactly as before, and nothing changes at all until the key is set. The reply path was driven end to end against the local simulator and against real Router (200, served by openai, snarky system prompt and streamed edits intact), and the Dockerfile now copies the runtime so the documented container deploy actually routes.","reviewed":"One call, one client, one global model: I read the whole 347-line module as the reply path a human waits on - how the reply chain is rebuilt from Discord on every message (up to 25 messages, 100k characters, 5 images, resent in full each turn), how the model is chosen (one process-wide curr_model switched by an admin slash command), what happens when a provider fails (the exception is logged and the user is left with a half-written orange embed), and what the request costs at the shipped default (gpt-5.5, $5/$30 per 1M - the priciest OpenAI id in the catalog). That shape made the improvements write themselves: the request's cacheable prefix was being destroyed by a clock in the system prompt, there was no timeout and no cross-vendor failover, the model choice is global rather than per channel or per message, and the chain is capped in characters when Router can count tokens for free. I did not propose anything around tool use, structured output or state: llmcord uses none, Router keeps no state, and the reply chain already lives in Discord.","headline":{"traffic":{"total":1,"on_router":1,"verified":1,"unverified":0,"not_routing":0,"stays":0},"behaviour":{"checked":true,"ok":true,"at":"2026-10-14T21:43:37","ref":"router-migrate/migration","tests":{"status":"passed","counts":{"passed":2,"failed":0,"errors":0,"exit":0,"seconds":1.2},"baseline":{"passed":2,"failed":0,"errors":0,"exit":0,"seconds":2.2},"requests":0,"valid":0},"typecheck":null,"router":{"requests":0,"valid":0,"invalid":[]},"failures":[],"flags":[],"unclaimed_flags":[],"entries":[{"check":"tests","result":"pass","detail":"2 passed on the migration branch; before: 2 passed (same as before)","source":"check"},{"check":"router-live","label":null,"result":"pass","source":"check","detail":"3 live request(s) through Router recorded, 3 ok (features: llmcord.py:on_message)"}]},"waiting":{"count":9,"items":["i1","i2","i3","i4","i5","i6","r1","r2","d1"],"ready":0,"running":[]}},"calls":[{"site":"llmcord.py:287","feature":"llmcord.py:on_message","model":"gpt-5.5","task":"chat","latency":"user_waiting","now":"router","route":"verified","reason":null,"item":"m1","item_title":"Route the Discord reply call through Router","item_kind":"move","item_status":"in code"}],"items":[{"id":"m1","kind":"move","title":"Route the Discord reply call through Router","summary":"The per-message AsyncOpenAI client is wrapped with the vendored runtime, so the streamed reply goes to Router's /v1/responses when RAMP_ROUTER_API_KEY is set.","calls":["llmcord.py:287"],"level":null,"built":null,"gains":"The bot's only LLM call reaches Router with one key: the catalog's models on both API surfaces, per-request spend records labelled llmcord.py:on_message, and a provider retry if Router refuses before generating. Chat Completions keeps working even though Router serves no /v1/chat/completions endpoint.","loses":"nothing","price":"no change: the same model at the same catalog price (gpt-5.5 $5/$30 per 1M), served at the account's default tier.","why":"llmcord's value is that it speaks Chat Completions to anything, including local servers, and the reply is streamed into a Discord embed chunk by chunk. Pointing the client at Router would 404 on chat.completions, and porting the loop to Responses would fork the streaming code for providers that have no Responses API. The runtime routes per request instead: catalog models go to Router, everything else stays with its provider, and models the runtime cannot translate (OpenRouter's web_search tool) fall back untouched. The Dockerfile copied only llmcord.py, so the image needed router_runtime.py too or the container would silently never route.","commit":"717f10b","branch":null,"depends_on":[],"excludes":[],"status":"in code","etag":"caf88e1faa83","request":null,"stale":false,"due":false,"checked":[{"check":"router-live","label":null,"result":"pass","detail":"check --run tests/route_check.py --live: 1 request, 200 /v1/responses model=gpt-5.5 provider=openai, streamed reply rendered into the stub embed","source":"agent","samples":null},{"check":"simulator","label":null,"result":"pass","detail":"check --run tests/route_check.py: 1 valid /v1/responses, feature=llmcord.py:on_message; check --all: 1 of 1 call ROUTES","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"the repo's compileall + import llmcord check passes with the runtime in place","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"2 passed on the migration branch; before: 2 passed (same as before)","source":"check"},{"check":"router-live","label":null,"result":"pass","source":"check","detail":"3 live request(s) through Router recorded, 3 ok (features: llmcord.py:on_message)"},{"check":"other","label":"Route","result":"pass","detail":"1 call seen going through Router (route truth)","source":"check"}],"flags":[],"diff":{"ref":"717f10b","how":"git show --stat --patch 717f10b","error":null,"text":"commit 717f10b0c3afbe730259e2060c5261e9239927a6\nAuthor: Sanjith Sambath \u003csanjith.sambath07@gmail.com\u003e\nDate:   Wed Oct 14 21:35:39 2026 -0400\n\n    Route the Discord reply call through Router\n    \n    Wrap the per-message AsyncOpenAI client with the vendored Router runtime, so\n    the one streaming chat.completions call in on_message is translated to Router's\n    /v1/responses when RAMP_ROUTER_API_KEY is set, and goes to the configured\n    provider exactly as before when it is not.\n    \n    Models that are not Router catalog ids (ollama/llama4, the OpenRouter\n    \"~anthropic/...\" ids) and non-OpenAI hosts stay with their provider, so\n    llmcord keeps working with any OpenAI-compatible endpoint.\n    \n    The Dockerfile only copied llmcord.py, so the image needs router_runtime.py\n    too or the container falls back to the unrouted import.\n    \n    Co-Authored-By: Claude Opus 5 (1M context) \u003cnoreply@anthropic.com\u003e\n---\n Dockerfile        |    2 +-\n llmcord.py        |    9 +-\n router_runtime.py | 1422 +++++++++++++++++++++++++++++++++++++++++++++++++++++\n 3 files changed, 1431 insertions(+), 2 deletions(-)\n\ndiff --git a/Dockerfile b/Dockerfile\nindex a75bc9a..1211aff 100644\n--- a/Dockerfile\n+++ b/Dockerfile\n@@ -8,6 +8,6 @@ COPY requirements.txt ./\n \n RUN pip install --no-cache-dir -r requirements.txt\n \n-COPY llmcord.py config.yaml ./\n+COPY llmcord.py router_runtime.py config.yaml ./\n \n CMD [\"python\", \"llmcord.py\"]\ndiff --git a/llmcord.py b/llmcord.py\nindex 23d2d20..c920fb4 100644\n--- a/llmcord.py\n+++ b/llmcord.py\n@@ -14,6 +14,13 @@ from dotenv import load_dotenv\n import httpx\n from openai import AsyncOpenAI\n import yaml\n+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n+    from .router_runtime import wrap_openai as _router_wrap_openai\n+except ImportError:  # router-migrate: module executed as a script\n+    try:\n+        from router_runtime import wrap_openai as _router_wrap_openai\n+    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior\n+        _router_wrap_openai = lambda c, *a, **k: c  # noqa: E731\n \n load_dotenv()\n \n@@ -153,7 +160,7 @@ async def on_message(new_msg: discord.Message) -\u003e None:\n \n     base_url = provider_config[\"base_url\"]\n     api_key = provider_config.get(\"api_key\", \"sk-no-key-required\")\n-    openai_client = AsyncOpenAI(base_url=base_url, api_key=api_key)\n+    openai_client = _router_wrap_openai(AsyncOpenAI(base_url=base_url, api_key=api_key))\n \n     model_parameters = config[\"models\"].get(provider_slash_model, None)\n \ndiff --git a/router_runtime.py b/router_runtime.py\nnew file mode 100644\nindex 0000000..076854e\n--- /dev/null\n+++ b/router_runtime.py\n@@ -0,0 +1,1422 @@\n+# router_runtime.py (vendored by router-migrate; safe to read, edit or delete)\n+#\n+# Routes this codebase's OpenAI / Anthropic SDK traffic through Ramp's Router (https://router.com) when\n+# RAMP_ROUTER_API_KEY is set. When it is not set, every function here returns its input unchanged.\n+#\n+# How: an httpx transport placed under the SDK client (installed in place, so the client's proxies, mounts, headers and\n+# hooks all stay). It sends requests Router can serve to Router and forwards everything else to the original provider\n+# untouched:\n+#   POST .../chat/completions  -\u003e POST {router}/v1/responses   (request + response + SSE stream translated back)\n+#   POST .../responses         -\u003e POST {router}/v1/responses   (store dropped; previous_response_id chains kept in-process)\n+#   POST .../v1/messages       -\u003e POST {router}/v1/messages    (Anthropic, model id mapped)\n+#   anything else (embeddings, images, audio, files, models, unknown models, n\u003e1, logprobs, seed, beta headers,\n+#   provider-side vector stores/files) -\u003e original provider\n+# If Router rejects a request before generating (unknown/unsupported parameter, model not available to this key, 501),\n+# the original request is sent to the provider instead, once.\n+# Each Router request carries metadata.feature = \"\u003cfile\u003e:\u003cfunction\u003e\" of the calling code (ROUTER_MIGRATE_FEATURE_TAG=off\n+# disables it; it sends a repo-relative path and function name).\n+# Env: RAMP_ROUTER_API_KEY (required to activate), RAMP_ROUTER_BASE_URL (default https://api.router.com),\n+#      ROUTER_MIGRATE_DISABLE=1 (kill switch), ROUTER_MIGRATE_MODEL_MAP='{\"old-model\":\"router-id\"}',\n+#      ROUTER_MIGRATE_SERVICE_TIER (unset: Router's account default, Flex where offered; set a tier to force it everywhere),\n+#      ROUTER_MIGRATE_FALLBACK=0 (surface Router errors instead of retrying on the provider).\n+# The provider key (OPENAI_API_KEY / ANTHROPIC_API_KEY) must stay configured: SDK constructors require it, and requests\n+# Router cannot serve still go to the provider.\n+import json\n+import os\n+import re\n+import sys\n+import threading\n+import time\n+import uuid\n+from collections import OrderedDict\n+\n+import importlib\n+\n+# openai-python \u003c= 2.x and anthropic use `httpx`; openai-python \u003e= 3 uses `httpx2` (same API). The transport classes are built\n+# for whichever library each client actually uses.\n+_LIBS = {}\n+\n+\n+def _lib(name):\n+    if name not in _LIBS:\n+        try:\n+            _LIBS[name] = importlib.import_module(name)\n+        except ImportError:\n+            _LIBS[name] = None\n+    return _LIBS[name]\n+\n+\n+httpx = _lib(\"httpx\") or _lib(\"httpx2\")\n+\n+__all__ = [\"active\", \"wrap_openai\", \"wrap_anthropic\", \"wrap_langchain\", \"http_client\", \"async_http_client\", \"install_openai_module\"]\n+VERSION = \"0.1.0\"\n+\n+# --- catalog (generated from GET /v1/models by router-migrate; refresh with `router-migrate apply --live`) -------\n+# id -\u003e [owned_by, temperature_supported, reasoning_supported]\n+CATALOG = {}  # filled below by _load_catalog()\n+ALIASES = {}\n+DATED = {}  # dated provider snapshot -\u003e catalog id, only where Router itself reported the equivalence\n+_CATALOG_JSON = r\"\"\"{\"aliases\":{\"accounts/fireworks/models/deepseek-v4p1-flash\":\"deepseek-v4.1-flash\",\"accounts/fireworks/models/glm-5p3\":\"glm-5p3\",\"accounts/fireworks/models/glm-5p3-flash\":\"glm-5p3-flash\",\"accounts/fireworks/models/gpt-oss-120b\":\"gpt-oss-120b\",\"accounts/fireworks/models/kimi-k3\":\"kimi-k3\",\"accounts/fireworks/models/minimax-m3\":\"minimax-m3\",\"accounts/fireworks/models/nemotron-3-u \u2026\n+\n+_OPENAI_HOSTS = (\"api.openai.com\",)\n+_ANTHROPIC_HOSTS = (\"api.anthropic.com\",)\n+_SKIP_FRAMES = (\"site-packages\", \"dist-packages\", os.sep + \"lib\" + os.sep + \"python\", \"router_runtime\", \"\u003cfrozen\")\n+\n+\n+def _load_catalog():\n+    try:\n+        d = json.loads(_CATALOG_JSON)\n+    except ValueError:\n+        d = {}\n+    for mid, row in (d.get(\"models\") or {}).items():\n+        CATALOG[mid] = row\n+    ALIASES.update(d.get(\"aliases\") or {})\n+    DATED.update(d.get(\"dated\") or {})\n+\n+\n+_load_catalog()\n+\n+\n+def active():\n+    off = (os.environ.get(\"ROUTER_MIGRATE_DISABLE\") or \"\").strip().lower() in (\"1\", \"true\", \"yes\", \"on\")\n+    return bool(os.environ.get(\"RAMP_ROUTER_API_KEY\")) and not off\n+\n+\n+def _feature_tags_on():\n+    return (os.environ.get(\"ROUTER_MIGRATE_FEATURE_TAG\") or \"\").strip().lower() not in (\"0\", \"off\", \"false\", \"no\")\n+\n+\n+def _base():\n+    b = (os.environ.get(\"RAMP_ROUTER_BASE_URL\") or \"https://api.router.com\").rstrip(\"/\")\n+    return b[:-3] if b.endswith(\"/v1\") else b\n+\n+\n+def resolve_model(name):\n+    \"\"\"Router id for a model name, or None when Router cannot serve that exact model (then the provider keeps it).\"\"\"\n+    if not isinstance(name, str) or not name:\n+        return None\n+    try:\n+        override = json.loads(os.environ.get(\"ROUTER_MIGRATE_MODEL_MAP\") or \"{}\")\n+    except ValueError:\n+        override = {}\n+    if name in override:\n+        return override[name] or None\n+    if name in CATALOG:\n+        return name\n+    if name in ALIASES:\n+        return ALIASES[name]\n+    ci = next((k for k in CATALOG if k.lower() == name.lower()), None)  # e.g. MiniMax-M3 -\u003e minimax-m3\n+    return ci or DATED.get(name)\n+\n+\n+def _feature():\n+    \"\"\"'\u003crelative file\u003e:\u003cfunction\u003e' of the first stack frame that belongs to this codebase (ROUTER_MIGRATE_FEATURE_TAG=off disables).\"\"\"\n+    if not _feature_tags_on():\n+        return None\n+    f = sys._getframe(1)\n+    cwd = os.getcwd()\n+    while f is not None:\n+        fn = f.f_code.co_filename\n+        if not any(s in fn for s in _SKIP_FRAMES):\n+            rel = os.path.relpath(fn, cwd) if fn.startswith(cwd) else os.path.basename(fn)\n+            return (\"%s:%s\" % (rel, f.f_code.co_name))[:200]\n+        f = f.f_back\n+    return None\n+\n+\n+# ------------------------------------------------------------------------------------------------ translation\n+class Untranslatable(Exception):\n+    \"\"\"Raised when a request uses something Router cannot serve; the request then goes to the original provider.\"\"\"\n+\n+\n+def _text_of(content):\n+    if isinstance(content, str):\n+        return content\n+    if isinstance(content, list):\n+        return \"\".join(p.get(\"text\", \"\") for p in content if isinstance(p, dict) and p.get(\"type\") in (\"text\", \"input_text\", \"output_text\"))\n+    return \"\" if content is None else str(content)\n+\n+\n+def _user_parts(content):\n+    if isinstance(content, str) or content is None:\n+        return content or \"\"\n+    parts = []\n+    for p in content:\n+        t = p.get(\"type\") if isinstance(p, dict) else None\n+        if t == \"text\":\n+            parts.append({\"type\": \"input_text\", \"text\": p.get(\"text\", \"\")})\n+        elif t == \"image_url\":\n+            iu = p.get(\"image_url\")\n+            url = iu.get(\"url\") if isinstance(iu, dict) else iu\n+            part = {\"type\": \"input_image\", \"image_url\": url}\n+            if isinstance(iu, dict) and iu.get(\"detail\"):\n+                part[\"detail\"] = iu[\"detail\"]\n+            parts.append(part)\n+        elif t == \"file\":\n+            f = p.get(\"file\") or {}\n+            part = {\"type\": \"input_file\"}\n+            if f.get(\"file_id\"):\n+                raise Untranslatable(\"file_id\")  # files live on the provider account; Router cannot see them\n+            for k in (\"file_data\", \"filename\"):\n+                if f.get(k):\n+                    part[k] = f[k]\n+            parts.append(part)\n+        else:  # input_audio and anything newer: Router cannot take it\n+            raise Untranslatable(\"content part %r\" % t)\n+    return parts\n+\n+\n+def chat_to_responses(body, router_model, owned_by, feature):\n+    \"\"\"Chat Completions request -\u003e Router Responses request. Returns (new_body, context for the reply).\"\"\"\n+    unsupported = [k for k in (\"audio\", \"modalities\", \"prediction\", \"web_search_options\", \"logit_bias\", \"functions_call_mode\") if body.get(k)]\n+    # not measured as accepted by Router, or no exact Responses equivalent: keep these calls on the provider unchanged\n+    unsupported += [\"seed\"] if body.get(\"seed\") is not None else []\n+    unsupported += [\"presence_penalty\"] if body.get(\"presence_penalty\") not in (None, 0) else []  # 0 is the default: dropped\n+    mot = body.get(\"max_completion_tokens\") or body.get(\"max_tokens\")\n+    if mot is not None and int(mot) \u003c 16:\n+        unsupported.append(\"max_tokens\u003c16\")  # Responses minimum is 16; clamping would change output length\n+    # a participant name is model-visible; on a tool result it only repeats the tool's name (the output is keyed by call id)\n+    if any(isinstance(m, dict) and m.get(\"name\") and m.get(\"role\") not in (\"function\", \"tool\") for m in body.get(\"messages\") or []):\n+        unsupported.append(\"message name\")\n+    tc0 = body.get(\"tool_choice\")\n+    if isinstance(tc0, dict) and tc0.get(\"type\") not in (None, \"function\"):\n+        unsupported.append(\"tool_choice %s\" % tc0.get(\"type\"))\n+    if (body.get(\"n\") or 1) != 1:\n+        unsupported.append(\"n\")\n+    if body.get(\"logprobs\") or body.get(\"top_logprobs\"):\n+        unsupported.append(\"logprobs\")\n+    if unsupported:\n+        raise Untranslatable(\",\".join(unsupported))\n+    info = CATALOG.get(router_model) or {}\n+    items = []\n+    call_ids = {}\n+    for i, m in enumerate(body.get(\"messages\") or []):\n+        role = m.get(\"role\")\n+        if role in (\"system\", \"developer\"):\n+            items.append({\"role\": role, \"content\": _text_of(m.get(\"content\"))})\n+        elif role == \"user\":\n+            items.append({\"role\": \"user\", \"content\": _user_parts(m.get(\"content\"))})\n+        elif role == \"assistant\":\n+            text = _text_of(m.get(\"content\"))\n+            refusal = m.get(\"refusal\") or \"\".join(p.get(\"refusal\", \"\") for p in (m.get(\"content\") if isinstance(m.get(\"content\"), list) else [])\n+                                                  if isinstance(p, dict) and p.get(\"type\") == \"refusal\")\n+            if refusal:\n+                parts = ([{\"type\": \"output_text\", \"text\": text}] if text else []) + [{\"type\": \"refusal\", \"refusal\": refusal}]\n+                items.append({\"role\": \"assistant\", \"content\": parts})\n+            elif text:\n+                items.append({\"role\": \"assistant\", \"content\": text})\n+            for tc in m.get(\"tool_calls\") or []:\n+                if tc.get(\"type\", \"function\") != \"function\":\n+                    raise Untranslatable(\"assistant tool_call type %r\" % tc.get(\"type\"))\n+                fn = tc.get(\"function\") or {}\n+                items.append({\"type\": \"function_call\", \"call_id\": tc.get(\"id\"), \"name\": fn.get(\"name\"),\n+                              \"arguments\": fn.get(\"arguments\") if isinstance(fn.get(\"arguments\"), str) else json.dumps(fn.get(\"arguments\") or {})})\n+            fc = m.get(\"function_call\")  # legacy functions API\n+            if fc:\n+                cid = \"call_legacy_%d\" % i\n+                call_ids[fc.get(\"name\")] = cid\n+                items.append({\"type\": \"function_call\", \"call_id\": cid, \"name\": fc.get(\"name\"), \"arguments\": fc.get(\"arguments\") or \"{}\"})\n+        elif role == \"tool\":\n+            items.append({\"type\": \"function_call_output\", \"call_id\": m.get(\"tool_call_id\"), \"output\": _text_of(m.get(\"content\"))})\n+        elif role == \"function\":\n+            items.append({\"type\": \"function_call_output\", \"call_id\": call_ids.get(m.get(\"name\"), \"call_legacy\"), \"output\": _text_of(m.get(\"content\"))})\n+        else:\n+            raise Untranslatable(\"role %r\" % role)\n+    out = {\"model\": router_model, \"input\": items}\n+    if mot is not None:\n+        out[\"max_output_tokens\"] = int(mot)\n+    temp_ok = info.get(\"t\") is not False\n+    for k in (\"temperature\", \"top_p\"):\n+        if body.get(k) is not None and temp_ok:\n+            out[k] = body[k]\n+    for k in (\"frequency_penalty\", \"parallel_tool_calls\", \"user\", \"service_tier\", \"prompt_cache_key\", \"safety_identifier\"):\n+        if body.get(k) is not None:\n+            out[k] = body[k]\n+    tools = []\n+    for t in body.get(\"tools\") or []:\n+        if t.get(\"type\") == \"function\":\n+            fn = t.get(\"function\") or {}\n+            nt = {\"type\": \"function\", \"name\": fn.get(\"name\"), \"parameters\": fn.get(\"parameters\") or {\"type\": \"object\", \"properties\": {}}}\n+            if fn.get(\"description\"):\n+                nt[\"description\"] = fn[\"description\"]\n+            nt[\"strict\"] = bool(fn.get(\"strict\"))  # Responses defaults tools to strict; Chat Completions does not\n+            tools.append(nt)\n+        else:\n+            raise Untranslatable(\"tool type %r\" % t.get(\"type\"))\n+    for fn in body.get(\"functions\") or []:  # legacy functions API\n+        tools.append({\"type\": \"function\", \"name\": fn.get(\"name\"), \"description\": fn.get(\"description\", \"\"),\n+                      \"parameters\": fn.get(\"parameters\") or {\"type\": \"object\", \"properties\": {}}, \"strict\": False})\n+    if tools:\n+        out[\"tools\"] = tools\n+    tc = body.get(\"tool_choice\", body.get(\"function_call\"))\n+    if isinstance(tc, dict):\n+        name = (tc.get(\"function\") or {}).get(\"name\") or tc.get(\"name\")\n+        out[\"tool_choice\"] = {\"type\": \"function\", \"name\": name}\n+    elif tc in (\"auto\", \"none\", \"required\"):\n+        out[\"tool_choice\"] = tc\n+    rf = body.get(\"response_format\")\n+    if isinstance(rf, dict) and rf.get(\"type\") in (\"json_object\", \"json_schema\"):\n+        if rf[\"type\"] == \"json_object\":\n+            fmt = {\"type\": \"json_object\"}\n+        else:\n+            js = rf.get(\"json_schema\") or {}\n+            fmt = {\"type\": \"json_schema\", \"name\": js.get(\"name\") or \"response\", \"schema\": js.get(\"schema\") or {}}\n+            for k in (\"strict\", \"description\"):\n+                if js.get(k) is not None:\n+                    fmt[k] = js[k]\n+        out[\"text\"] = {\"format\": fmt}\n+    if body.get(\"verbosity\"):\n+        out.setdefault(\"text\", {})[\"verbosity\"] = body[\"verbosity\"]\n+    effort = body.get(\"reasoning_effort\")\n+    if effort and info.get(\"r\"):\n+        if not (owned_by == \"anthropic\" and out.get(\"max_output_tokens\", 4096) \u003c 1100):  # Claude needs room for thinking [measured]\n+            out[\"reasoning\"] = {\"effort\": effort}\n+    stops = body.get(\"stop\")\n+    stops = [stops] if isinstance(stops, str) else [s for s in (stops or []) if s]\n+    if stops and owned_by != \"openai\":\n+        out[\"stop\"] = stops  # honored by non-OpenAI models [measured]; OpenAI models 501, so emulated client-side below\n+    meta = dict(body.get(\"metadata\") or {})\n+    if feature and \"feature\" not in meta and len(meta) \u003c 16:  # metadata is capped at 16 keys\n+        meta[\"feature\"] = feature\n+    if meta:\n+        out[\"metadata\"] = {k: str(v)[:512] for k, v in meta.items()}\n+    if owned_by == \"anthropic\" and \"prompt_cache_key\" not in out and feature:\n+        out[\"prompt_cache_key\"] = feature  # Claude via Responses does not cache without it [measured]\n+    if body.get(\"stream\"):\n+        out[\"stream\"] = True\n+    _service_tier(out)\n+    ctx = {\"stops\": stops if owned_by == \"openai\" else [], \"include_usage\": bool((body.get(\"stream_options\") or {}).get(\"include_usage\")),\n+           \"model\": body.get(\"model\"), \"legacy_functions\": bool(body.get(\"functions\"))}\n+    return out, ctx\n+\n+\n+def _service_tier(out):\n+    \"\"\"No tier is forced: Router's account default (Flex, where the model has it) applies. Latency guardrails come from the\n+    compiled policy (provider_timeout; service_tier only where a feature's latency need was judged). ROUTER_MIGRATE_SERVICE_TIER\n+    sets one tier for every routed call when the operator wants that ('auto' or unset: the account default).\"\"\"\n+    tier = (os.environ.get(\"ROUTER_MIGRATE_SERVICE_TIER\") or \"\").strip()\n+    if \"service_tier\" not in out and tier and tier != \"auto\":\n+        out[\"service_tier\"] = tier\n+\n+\n+# ------------------------------------------------------------------------------------------------ v2 compiled policy\n+# router.policy.json (repo root) is compiled by `router-migrate apply --decisions` into router_policy.py beside this file.\n+# No compiled policy, an invalid one, or ROUTER_MIGRATE_POLICY=off =\u003e exactly v1 behaviour. Semantics: CONTRACTS.md section 1.\n+_POLICY_KEYS = {\"allow_flex_tier\", \"prompt_cache_key\", \"metadata\", \"fallbacks\", \"provider_timeout\", \"service_tier\", \"model_map\", \"drop_params\"}\n+_POLICY_STATE = {\"loaded\": False, \"policy\": None, \"hash\": None, \"valid\": False, \"logged\": set()}\n+\n+\n+def _policy_log(key, msg):\n+    if key not in _POLICY_STATE[\"logged\"]:\n+        _POLICY_STATE[\"logged\"].add(key)\n+        sys.stderr.write(\"router-migrate policy %s\\n\" % msg)\n+\n+\n+def _valid_entry(e):\n+    if not isinstance(e, dict) or set(e) - _POLICY_KEYS:\n+        return False\n+    if \"allow_flex_tier\" in e and not isinstance(e[\"allow_flex_tier\"], bool):\n+        return False\n+    if \"prompt_cache_key\" in e and not (isinstance(e[\"prompt_cache_key\"], str) and e[\"prompt_cache_key\"]):\n+        return False\n+    if \"metadata\" in e and not (isinstance(e[\"metadata\"], dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in e[\"metadata\"].items())):\n+        return False\n+    if \"fallbacks\" in e and not (isinstance(e[\"fallbacks\"], list) and 1 \u003c= len(e[\"fallbacks\"]) \u003c= 14 and all(isinstance(x, str) and x for x in e[\"fallbacks\"])):\n+        return False\n+    if \"provider_timeout\" in e:\n+        t = e[\"provider_timeout\"]\n+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not 1 \u003c= t \u003c= 660:\n+            return False\n+    if \"service_tier\" in e and e[\"service_tier\"] not in (\"default\", \"flex\"):","files":["Dockerfile","llmcord.py","router_runtime.py"],"lines":1492,"truncated":true},"results":[],"model_change":false,"in_session":null,"actions":["undo"],"waiting":false},{"id":"m2","kind":"note","title":"A route check that drives the reply path","summary":"New tests/route_check.py calls the real on_message with stub Discord objects, so the streamed reply is exercised against router-sim or real Router rather than only imported.","calls":["llmcord.py:287"],"level":null,"built":null,"gains":"Route truth and behaviour are checked together: the chunk loop, the embed edits, the message chain and the config's reasoning_effort/verbosity all run against Router in one command. The project's own test command (compileall + import) is unchanged.","loses":"nothing","price":"one small generation per run; about $0.01 at gpt-5.5 when run live.","why":"The repository has no test suite, so without a harness nothing proves the call reaches Router - the scanner can only see that the client is wrapped. The repo's .gitignore is a whitelist, so tests/*.py had to be listed in it.","commit":"3faba8a","branch":null,"depends_on":["m1"],"excludes":[],"status":"info","etag":"f63d2d17462e","request":null,"stale":false,"due":false,"checked":[{"check":"router-live","label":null,"result":"pass","detail":"exit 0, 1 request to Router, reply text non-empty","source":"agent","samples":null}],"flags":[],"diff":{"ref":"3faba8a","how":"git show --stat --patch 3faba8a","error":null,"text":"commit 3faba8ae2cec40fbc69a7d5b2407bf0422212b51\nAuthor: Sanjith Sambath \u003csanjith.sambath07@gmail.com\u003e\nDate:   Wed Oct 14 21:37:13 2026 -0400\n\n    Add a route check that drives the reply path\n    \n    Stub Discord objects plus the real on_message, so `router-migrate check --run`\n    exercises the streamed reply (chunk loop, embed edits, the config's\n    reasoning_effort/verbosity) against router-sim or real Router instead of only\n    importing the module. The repo's .gitignore is a whitelist, so tests/*.py has\n    to be listed.\n    \n    Co-Authored-By: Claude Opus 5 (1M context) \u003cnoreply@anthropic.com\u003e\n---\n .gitignore           |   3 ++\n tests/route_check.py | 109 +++++++++++++++++++++++++++++++++++++++++++++++++++\n 2 files changed, 112 insertions(+)\n\ndiff --git a/.gitignore b/.gitignore\nindex 719981d..1d61d1e 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -11,3 +11,6 @@\n !config.yaml\n !docker-compose.yaml\n !requirements.txt\n+\n+!tests/\n+!tests/*.py\ndiff --git a/tests/route_check.py b/tests/route_check.py\nnew file mode 100644\nindex 0000000..ffa5707\n--- /dev/null\n+++ b/tests/route_check.py\n@@ -0,0 +1,109 @@\n+\"\"\"Drive llmcord's one LLM call end to end with stub Discord objects.\n+\n+Not part of the project's test command (which only compiles and imports); this is the harness\n+`router-migrate check --run` uses to prove the reply path really reaches Router, including the\n+streamed chunks, the embed edits and the config's per-model parameters.\n+\n+    python tests/route_check.py            # against whatever the environment points at\n+\"\"\"\n+\n+import asyncio\n+import os\n+import sys\n+from types import SimpleNamespace\n+\n+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n+\n+import discord\n+\n+asyncio.run = lambda coro, **kwargs: coro.close()  # llmcord starts the bot at import time\n+import llmcord  # noqa: E402\n+\n+\n+class StubUser:\n+    def __init__(self, user_id: int, bot: bool = False) -\u003e None:\n+        self.id = user_id\n+        self.bot = bot\n+        self.mention = f\"\u003c@{user_id}\u003e\"\n+\n+\n+class StubTyping:\n+    async def __aenter__(self) -\u003e None:\n+        return None\n+\n+    async def __aexit__(self, *exc) -\u003e None:\n+        return None\n+\n+\n+class StubChannel:\n+    type = discord.ChannelType.private\n+    id = 1\n+    parent_id = None\n+    category_id = None\n+\n+    def typing(self) -\u003e StubTyping:\n+        return StubTyping()\n+\n+    def history(self, **kwargs):\n+        async def empty():\n+            return\n+            yield  # pragma: no cover\n+\n+        return empty()\n+\n+\n+class StubMessage:\n+    _next_id = 1000\n+\n+    def __init__(self, content: str, author: StubUser, channel: StubChannel) -\u003e None:\n+        StubMessage._next_id += 1\n+        self.id = StubMessage._next_id\n+        self.content = content\n+        self.author = author\n+        self.channel = channel\n+        self.mentions = []\n+        self.attachments = []\n+        self.embeds = []\n+        self.components = []\n+        self.reference = None\n+        self.type = discord.MessageType.default\n+        self.edits = 0\n+        self.sent = []\n+\n+    async def reply(self, **kwargs):\n+        reply = StubMessage(\"\", BOT_USER, self.channel)\n+        reply.sent.append(kwargs)\n+        self.sent.append(kwargs)\n+        return reply\n+\n+    async def edit(self, **kwargs) -\u003e None:\n+        self.edits += 1\n+        self.sent.append(kwargs)\n+\n+\n+BOT_USER = StubUser(42, bot=True)\n+\n+\n+async def main() -\u003e int:\n+    llmcord.discord_bot = SimpleNamespace(user=BOT_USER)\n+    llmcord.EDIT_DELAY_SECONDS = 0  # don't wait a second per streamed edit\n+\n+    channel = StubChannel()\n+    msg = StubMessage(\"Name one fact about the moon in under 10 words.\", StubUser(7), channel)\n+\n+    await llmcord.on_message(msg)\n+\n+    replies = [node for node in llmcord.msg_nodes.values() if node.role == \"assistant\"]\n+    text = \"\".join(node.text or \"\" for node in replies)\n+    print(f\"model={llmcord.curr_model} replies={len(replies)} chars={len(text)}\")\n+    print(f\"reply: {text[:200]!r}\")\n+\n+    if not text.strip():\n+        print(\"FAILED: no reply text was produced\")\n+        return 1\n+    print(\"1 passed\")\n+    return 0\n+\n+\n+if __name__ == \"__main__\":\n+    sys.exit(asyncio.get_event_loop_policy().new_event_loop().run_until_complete(main()))","files":[".gitignore","tests/route_check.py"],"lines":144,"truncated":false},"results":[],"model_change":false,"in_session":null,"actions":[],"waiting":false},{"id":"s1","kind":"stays","title":"Local and non-catalog providers stay put","summary":"Ollama, LM Studio, vLLM, Azure, Gemini and the OpenRouter \"~anthropic/...\" ids keep going to their own endpoints, because Router serves only catalog ids on its own hosts.","calls":["llmcord.py:287"],"level":null,"built":null,"gains":"llmcord still works offline and with every provider its README advertises; an operator running ollama/llama4 sees no change whether or not a Router key is set.","loses":"nothing","price":"no change","why":"This is deliberate, not a gap. The runtime routes a request only when its host is OpenAI's and its model resolves to a catalog id; an OpenRouter id like ~anthropic/claude-opus-latest does not, and the config's openrouter:web_search tool is untranslatable, so those requests go to OpenRouter unchanged. Unlocking another vendor's host (runtime unlock_hosts) would route e.g. x-ai/grok-4.7 to Router, but it would also silently drop provider-specific extra_body fields that only that vendor understands, so it needs an operator's decision rather than a default.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"info","etag":"88d7291ad9dc","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"runtime plan_request: catalog-id + OpenAI host required; config.yaml's non-OpenAI providers and ids do not match","source":"agent","samples":null},{"check":"other","label":"Route","result":"pass","detail":"1 call seen going through Router (route truth)","source":"check"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":[],"waiting":false},{"id":"i1","kind":"improvement","title":"Make the reply prompt prefix cacheable","summary":"Send the system prompt's {date}/{time} lines after the conversation instead of in front of it, and set prompt_cache_key for this feature, so repeated reply chains hit the prompt cache.","calls":["llmcord.py:287"],"level":"quick-win","built":true,"gains":"Every follow-up in a reply chain resends the whole chain, and today the request's first bytes are a clock that changes every second, so no two requests share a prefix and prompt caching never pays. With the clock moved last and a cache key set, the stable system prompt plus the earlier turns become a cacheable prefix: measured -50% on a 9k-token gpt-4o-mini prompt and -90% on Claude via Responses (ROUTER.md 6.3). At the shipped default, cached input is $0.50 instead of $5.00 per 1M tokens.","loses":"The model reads the date and time after the conversation rather than before it - the same information in a different position, so answers can differ slightly.","price":"A cached read costs the catalog's cache_read_input (gpt-5.5 $0.50 vs $5.00 per 1M input); caching pays only above the provider's ~1,024-token minimum, so short one-off DMs are unaffected either way.","why":"This is the single largest cost lever in the app, because llmcord's conversation model is 'resend the entire reply chain every turn' and its prompts are large by design (25 messages, up to 100k characters, images). prompt_cache_key is set in router.policy.json, so it is added only to Router-bound requests and the provider path keeps exactly the body the code built. The split is conservative: only lines containing {date} or {time} move, and a system prompt without those placeholders is sent exactly as before.","commit":"e0902f1","branch":"router-migrate/improve/cacheable-prefix","depends_on":["m1"],"excludes":[],"status":"proposed","etag":"cdb5ff29f575","request":null,"stale":false,"due":false,"checked":[{"check":"router-live","label":null,"result":"pass","detail":"check --run tests/route_check.py --live on the branch: 200 /v1/responses, reply intact","source":"agent","samples":null},{"check":"simulator","label":null,"result":"pass","detail":"planner dump of the real on_message body: input = [stable system, user, clock system] and prompt_cache_key=llmcord.py:on_message from the policy","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"compileall + import llmcord","source":"agent","samples":null},{"check":"price","label":null,"result":"info","detail":"catalog: gpt-5.5 in $5, cache-read $0.50 per 1M; measured cache behaviour from ROUTER.md 6.3, not re-measured for gpt-5.5","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"2 passed on this branch; before: 2 passed (same as before)","source":"check"}],"flags":[],"diff":{"ref":"router-migrate/improve/cacheable-prefix","how":"git diff router-migrate/migration...router-migrate/improve/cacheable-prefix","error":null,"text":" .gitignore         |  2 ++\n Dockerfile         |  2 +-\n llmcord.py         | 16 +++++++++++++---\n router.policy.json |  8 ++++++++\n router_policy.py   |  6 ++++++\n 5 files changed, 30 insertions(+), 4 deletions(-)\n\ndiff --git a/.gitignore b/.gitignore\nindex 1d61d1e..9715be2 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -14,3 +14,5 @@\n \n !tests/\n !tests/*.py\n+\n+!router.policy.json\ndiff --git a/Dockerfile b/Dockerfile\nindex 1211aff..f146bfa 100644\n--- a/Dockerfile\n+++ b/Dockerfile\n@@ -8,6 +8,6 @@ COPY requirements.txt ./\n \n RUN pip install --no-cache-dir -r requirements.txt\n \n-COPY llmcord.py router_runtime.py config.yaml ./\n+COPY llmcord.py router_runtime.py router_policy.py router.policy.json config.yaml ./\n \n CMD [\"python\", \"llmcord.py\"]\ndiff --git a/llmcord.py b/llmcord.py\nindex c920fb4..dda13e3 100644\n--- a/llmcord.py\n+++ b/llmcord.py\n@@ -257,9 +257,19 @@ async def on_message(new_msg: discord.Message) -\u003e None:\n     if system_prompt := config.get(\"system_prompt\"):\n         now = datetime.now().astimezone()\n \n-        system_prompt = system_prompt.replace(\"{date}\", now.strftime(\"%B %d %Y\")).replace(\"{time}\", now.strftime(\"%H:%M:%S %Z%z\")).strip()\n-\n-        messages.append(dict(role=\"system\", content=system_prompt))\n+        def render(lines: list[str]) -\u003e str:\n+            return \"\\n\".join(lines).replace(\"{date}\", now.strftime(\"%B %d %Y\")).replace(\"{time}\", now.strftime(\"%H:%M:%S %Z%z\")).strip()\n+\n+        # Prompt caching only pays for a byte-identical prefix, and the clock changes every call,\n+        # so the lines that carry it are sent after the conversation instead of in front of it.\n+        stable_lines, clock_lines = [], []\n+        for line in system_prompt.split(\"\\n\"):\n+            (clock_lines if \"{date}\" in line or \"{time}\" in line else stable_lines).append(line)\n+\n+        if stable_prompt := render(stable_lines):\n+            messages.append(dict(role=\"system\", content=stable_prompt))\n+        if clock_prompt := render(clock_lines):\n+            messages.insert(0, dict(role=\"system\", content=clock_prompt))  # last in the request (messages is reversed below)\n \n     # Generate and send response message(s) (can be multiple if response is long)\n     curr_content = finish_reason = None\ndiff --git a/router.policy.json b/router.policy.json\nnew file mode 100644\nindex 0000000..4a6a354\n--- /dev/null\n+++ b/router.policy.json\n@@ -0,0 +1,8 @@\n+{\n+  \"version\": 1,\n+  \"features\": {\n+    \"llmcord.py:on_message\": {\n+      \"prompt_cache_key\": \"$feature\"\n+    }\n+  }\n+}\ndiff --git a/router_policy.py b/router_policy.py\nnew file mode 100644\nindex 0000000..408feff\n--- /dev/null\n+++ b/router_policy.py\n@@ -0,0 +1,6 @@\n+# router-migrate compiled policy (generated by `router-migrate apply --decisions` from router.policy.json; do not edit, re-run apply)\n+# The vendored router_runtime.py imports this module. Delete it (or set ROUTER_MIGRATE_POLICY=off) for v1 behaviour.\n+import json\n+\n+POLICY = json.loads('{\"features\":{\"llmcord.py:on_message\":{\"prompt_cache_key\":\"$feature\"}},\"version\":1}')\n+POLICY_HASH = '3682752d8e50f717e8578d38f44f8791b94e0947386a488c60ccd3066bc1359a'","files":[".gitignore","Dockerfile","llmcord.py","router.policy.json","router_policy.py"],"lines":82,"truncated":false},"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i2","kind":"improvement","title":"Fall back to another vendor when OpenAI refuses","summary":"router.policy.json sends the reply as models [gpt-5.5, gpt-5.2, claude-sonnet-5], so a pre-stream failure is answered by the next candidate instead of logging an exception.","calls":["llmcord.py:287"],"level":"change","built":true,"gains":"Today a provider 5xx, a 429 or a refused model ends as 'Error while generating response' in the log and a half-written orange embed for whoever is waiting in Discord. A models list lets Router try the next candidate - including a different vendor - before the first streamed event, which is exactly when provider outages show up.","loses":"Another model may answer, so answers will differ; the least capable candidate limits what the request may use; and no fallback happens once the stream has started, so a mid-stream failure still fails.","price":"The serving candidate's price when it serves (gpt-5.2 $1.75/$14, claude-sonnet-5 $2/$10 vs gpt-5.5 $5/$30). Flex is not requested with a list and Router ignored allow_flex_tier alongside one (ROUTER.md 6.2); a plain candidate list was still served at Flex in 3 of 3 measured calls, which was not re-measured for gpt-5.5.","why":"A Discord bot that answers with a different model is far better than one that answers with nothing, and this is the failure the app currently handles worst - it has no retry at all. The capability guard drops candidates that cannot serve the request (images, tools), and keeping it in the policy means the provider fallback path never sees a Router-only field.","commit":"cb561ac","branch":"router-migrate/improve/vendor-fallback","depends_on":["m1"],"excludes":[],"status":"proposed","etag":"f095cbdeb4e9","request":null,"stale":false,"due":false,"checked":[{"check":"router-live","label":null,"result":"pass","detail":"check --run tests/route_check.py --live on the branch: 200 /v1/responses with a models list, served by the primary (provider=openai)","source":"agent","samples":null},{"check":"simulator","label":null,"result":"pass","detail":"check --run: 1 valid Router request; runtime log confirms no candidate dropped by the capability guard","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"2 passed on this branch; before: 2 passed (same as before)","source":"check"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":{"ref":"router-migrate/improve/vendor-fallback","how":"git diff router-migrate/migration...router-migrate/improve/vendor-fallback","error":null,"text":" .gitignore         | 2 ++\n Dockerfile         | 2 +-\n router.policy.json | 8 ++++++++\n router_policy.py   | 6 ++++++\n 4 files changed, 17 insertions(+), 1 deletion(-)\n\ndiff --git a/.gitignore b/.gitignore\nindex 1d61d1e..9715be2 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -14,3 +14,5 @@\n \n !tests/\n !tests/*.py\n+\n+!router.policy.json\ndiff --git a/Dockerfile b/Dockerfile\nindex 1211aff..f146bfa 100644\n--- a/Dockerfile\n+++ b/Dockerfile\n@@ -8,6 +8,6 @@ COPY requirements.txt ./\n \n RUN pip install --no-cache-dir -r requirements.txt\n \n-COPY llmcord.py router_runtime.py config.yaml ./\n+COPY llmcord.py router_runtime.py router_policy.py router.policy.json config.yaml ./\n \n CMD [\"python\", \"llmcord.py\"]\ndiff --git a/router.policy.json b/router.policy.json\nnew file mode 100644\nindex 0000000..528df4f\n--- /dev/null\n+++ b/router.policy.json\n@@ -0,0 +1,8 @@\n+{\n+  \"version\": 1,\n+  \"features\": {\n+    \"llmcord.py:on_message\": {\n+      \"fallbacks\": [\"gpt-5.2\", \"claude-sonnet-5\"]\n+    }\n+  }\n+}\ndiff --git a/router_policy.py b/router_policy.py\nnew file mode 100644\nindex 0000000..4488f0e\n--- /dev/null\n+++ b/router_policy.py\n@@ -0,0 +1,6 @@\n+# router-migrate compiled policy (generated by `router-migrate apply --decisions` from router.policy.json; do not edit, re-run apply)\n+# The vendored router_runtime.py imports this module. Delete it (or set ROUTER_MIGRATE_POLICY=off) for v1 behaviour.\n+import json\n+\n+POLICY = json.loads('{\"features\":{\"llmcord.py:on_message\":{\"fallbacks\":[\"gpt-5.2\",\"claude-sonnet-5\"]}},\"version\":1}')\n+POLICY_HASH = '1a1310c541c577d2d65f66a67f1e3476feb925930251939387176c1c6be7089d'","files":[".gitignore","Dockerfile","router.policy.json","router_policy.py"],"lines":54,"truncated":false},"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i3","kind":"improvement","title":"Cap a stalled provider at 60 seconds","summary":"provider_timeout 60 for this feature, so a provider that stops streaming fails in a minute instead of hanging on the OpenAI SDK's 600s default.","calls":["llmcord.py:287"],"level":"quick-win","built":true,"gains":"Bounded failure on a path a human is watching: Discord stops showing the bot as typing after a minute of silence instead of up to ten, and the slot in the bot's event loop is released. 60s is idle time between streamed events, which is an order of magnitude above a healthy stream.","loses":"A generation that genuinely goes quiet for more than 60 seconds now ends in a 504 and a partial reply instead of eventually completing.","price":"no change; a timed-out attempt is still billed for what it produced.","why":"The app sets no timeout anywhere and swallows the exception, so a stalled provider is invisible except as a bot that never answers. If this is applied together with i1, both keys belong in the one llmcord.py:on_message entry of router.policy.json followed by `router-migrate policy`.","commit":"47414dc","branch":"router-migrate/improve/reply-timeout","depends_on":["m1"],"excludes":[],"status":"proposed","etag":"d417c9140d6f","request":null,"stale":false,"due":false,"checked":[{"check":"simulator","label":null,"result":"pass","detail":"check --run tests/route_check.py on the branch: 1 valid /v1/responses with the compiled policy loaded","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"compileall + import llmcord (policy-only change)","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"2 passed on this branch; before: 2 passed (same as before)","source":"check"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":{"ref":"router-migrate/improve/reply-timeout","how":"git diff router-migrate/migration...router-migrate/improve/reply-timeout","error":null,"text":" .gitignore         | 2 ++\n Dockerfile         | 2 +-\n router.policy.json | 8 ++++++++\n router_policy.py   | 6 ++++++\n 4 files changed, 17 insertions(+), 1 deletion(-)\n\ndiff --git a/.gitignore b/.gitignore\nindex 1d61d1e..9715be2 100644\n--- a/.gitignore\n+++ b/.gitignore\n@@ -14,3 +14,5 @@\n \n !tests/\n !tests/*.py\n+\n+!router.policy.json\ndiff --git a/Dockerfile b/Dockerfile\nindex 1211aff..f146bfa 100644\n--- a/Dockerfile\n+++ b/Dockerfile\n@@ -8,6 +8,6 @@ COPY requirements.txt ./\n \n RUN pip install --no-cache-dir -r requirements.txt\n \n-COPY llmcord.py router_runtime.py config.yaml ./\n+COPY llmcord.py router_runtime.py router_policy.py router.policy.json config.yaml ./\n \n CMD [\"python\", \"llmcord.py\"]\ndiff --git a/router.policy.json b/router.policy.json\nnew file mode 100644\nindex 0000000..8ba4c7a\n--- /dev/null\n+++ b/router.policy.json\n@@ -0,0 +1,8 @@\n+{\n+  \"version\": 1,\n+  \"features\": {\n+    \"llmcord.py:on_message\": {\n+      \"provider_timeout\": 60\n+    }\n+  }\n+}\ndiff --git a/router_policy.py b/router_policy.py\nnew file mode 100644\nindex 0000000..3b57d9c\n--- /dev/null\n+++ b/router_policy.py\n@@ -0,0 +1,6 @@\n+# router-migrate compiled policy (generated by `router-migrate apply --decisions` from router.policy.json; do not edit, re-run apply)\n+# The vendored router_runtime.py imports this module. Delete it (or set ROUTER_MIGRATE_POLICY=off) for v1 behaviour.\n+import json\n+\n+POLICY = json.loads('{\"features\":{\"llmcord.py:on_message\":{\"provider_timeout\":60}},\"version\":1}')\n+POLICY_HASH = '06c5e3d9858f47c8c7877f04b2f6685cd49ef61d93250f0cd17e591f35e9ee07'","files":[".gitignore","Dockerfile","router.policy.json","router_policy.py"],"lines":54,"truncated":false},"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i4","kind":"improvement","title":"Default to a cheaper chat model","summary":"Ship config.yaml with gpt-5.1 or gpt-5.6-luna as the first model instead of gpt-5.5, the most expensive OpenAI id in the catalog.","calls":["llmcord.py:287"],"level":"quick-win","built":false,"gains":"The default is what most operators run, and gpt-5.5 is $5/$30 per 1M with reasoning_effort: high on a snarky brief-answer chat bot. gpt-5.1 is $1.25/$10 (4x cheaper in, 3x out), gpt-5.6-luna is $0.20/$1.20 (25x in, 25x out); both are Flex-eligible and still vision models, so images keep working. A 5k-token chain with a 300-token reply costs about $0.034 at gpt-5.5, $0.009 at gpt-5.1, $0.0014 at gpt-5.6-luna.","loses":"answers will differ - a smaller model is worse at long reply chains and at the config's high reasoning effort, and this is a taste call about the bot's voice that an operator should make, not a safe default swap.","price":"gpt-5.1 $1.25/$10, gpt-5.6-luna $0.20/$1.20 vs gpt-5.5 $5/$30 per 1M (catalog, live).","why":"I did not build this: nothing offline measures reply quality, the model is one line of the operator's own config, and the /model command already lets an admin switch at runtime. Worth a human picking a number knowing the multiples.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"proposed","etag":"a8d22739e697","request":null,"stale":false,"due":false,"checked":[{"check":"price","label":null,"result":"info","detail":"router-migrate levers gpt-5.5 and the live catalog: same-family rows gpt-5.4 $2.5/$15, gpt-5.2 $1.75/$14, gpt-5.1 $1.25/$10, gpt-5.6-luna $0.20/$1.20","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":null,"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i5","kind":"improvement","title":"Label spend per Discord server","summary":"Add metadata (guild id, channel id, the requesting user) to Router-bound requests so spend can be read per server instead of as one bucket.","calls":["llmcord.py:287"],"level":"change","built":false,"gains":"Every request today carries one label, llmcord.py:on_message, so Router's spend views cannot say which server or which person is spending. Responses takes up to 16 short labels per request, and `user` and `product` are special keys for Ramp spend management: with them, a bot shared across servers can be charged back, rate-limited by cost, or have a noisy channel found in one query.","loses":"Discord ids reach Router's usage records, which is a (small) new data flow about who is talking to the bot; and the labels have to be added only when Router is active, since a non-OpenAI provider would reject unknown body fields.","price":"no change; metadata is free.","why":"This is the observability half of 'one key for all traffic' and it is cheap - a dict built from new_msg. It needs code rather than router.policy.json, because policy metadata is static per feature while the useful labels are per request, and it must be conditional on RAMP_ROUTER_API_KEY so the Ollama path keeps a clean body.","commit":null,"branch":null,"depends_on":["m1"],"excludes":[],"status":"proposed","etag":"8f7a4a62e809","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"not-run","detail":"proposal only; ROUTER.md 6.4 - Responses stores up to 16 labels, Messages forwards only user_id","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i6","kind":"improvement","title":"Budget the chain in tokens, not characters","summary":"Trim the reply chain with Router's free /v1/messages/count_tokens instead of guessing with max_text characters and max_messages.","calls":["llmcord.py:287"],"level":"change","built":false,"gains":"The caps are 25 messages, 100,000 characters each and 5 images, so a long thread can send tens of thousands of tokens and cost real money per reply at gpt-5.5 ($5 per 1M input) with no way for the operator to bound it. count_tokens is free on Router and exact for Anthropic-served models, so the bot could drop the oldest turns until the request fits a token budget and say so in the warning embed it already renders ('Only using last N messages').","loses":"An extra round trip (free, but latency) before each reply, and the count is an estimate for models Anthropic does not serve, so the budget needs headroom.","price":"no change: count_tokens is free; the point is to cap what the generation costs.","why":"Characters are a poor proxy for tokens across the vendors llmcord supports (and useless for images), and the existing warning machinery means the user-visible half of this is already built. It is a contained change to the chain-building loop, but it changes which messages the model sees, so it deserves a human's eye on the budget number.","commit":null,"branch":null,"depends_on":["m1"],"excludes":[],"status":"proposed","etag":"f6541c2b1778","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"not-run","detail":"proposal only; ROUTER.md 2 - count_tokens is served and free, with x-router-token-count-source saying exact or estimated","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"r1","kind":"improvement","title":"Pick the model per channel, not per process","summary":"Replace the single global curr_model and the per-provider base_url/api_key table with a catalog id chosen per channel (and defaulted per server), now that one key serves every vendor.","calls":["llmcord.py:287"],"level":"rework","built":false,"gains":"Today one admin's /model switch changes the model for every server, channel and DM the bot is in, and a new vendor means a new provider block and a new key in .env. On Router, 'which vendor' stops being a deployment decision: the config collapses to a list of catalog ids with their parameters, /model becomes a per-channel setting, and a support channel can run claude-sonnet-5 while a joke channel runs gpt-5.6-luna at 1/25th the input price. It also makes i4 unnecessary - operators pick per use, not once.","loses":"A real redesign of config.yaml and the /model command, including a compatibility path for the provider blocks that local servers (Ollama, LM Studio, vLLM) still need, so existing configs keep working; and per-channel state is new state the bot has to keep somewhere.","price":"no change by itself; it is what makes cheap-model-per-use possible.","why":"This is the change I would make first if I were starting llmcord on Router today. The provider table exists because each vendor needed its own base URL and key; with one gateway and one key, the remaining real choice is the model, and the app's own UI (a /model autocomplete over config['models']) is already the right surface for it. Worth a conversation about where per-channel state lives before anyone writes it.","commit":null,"branch":null,"depends_on":["m1"],"excludes":[],"status":"proposed","etag":"230661d4ca5b","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"not-run","detail":"proposal only; the live catalog serves 90+ ids across 6 vendors on both surfaces with one key","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"r2","kind":"improvement","title":"Speak Responses natively for Router models","summary":"Give the reply path a second branch that calls /v1/responses directly when the chosen model is a catalog id, keeping chat.completions for everything else.","calls":["llmcord.py:287"],"level":"rework","built":false,"gains":"Every Router lever becomes a per-request decision in the code instead of a policy entry keyed by a stack frame: a cache key per conversation, a fallback list chosen for the model in use, fallback_timeout and timeout_before_headers for a user who is watching a stream, Flex on or off per channel, reasoning summaries and text.verbosity, and Responses' own web_search (measured $0.011 a search on gpt-4o-mini) instead of OpenRouter's vendor-specific tool. It also drops the translation layer out of the request path.","loses":"A second streaming loop to maintain - Responses' events are not chat chunks - and the vendored runtime's automatic provider fallback no longer covers that branch, so the app owns 'Router is down' itself. Local servers and OpenRouter keep the old path, so the file grows a fork.","price":"no change to model prices; it is the levers, not the rates.","why":"This is the honest end state of a Router-native llmcord, but it is only worth it after i1-i3 prove the levers matter for this app, and it trades llmcord's single simple loop for two. Proposing it rather than building it.","commit":null,"branch":null,"depends_on":["m1"],"excludes":[],"status":"proposed","etag":"2d7f8cc54606","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"not-run","detail":"proposal only; ROUTER.md 5, 6.1-6.7 - every Router-only field is Responses-only","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"d1","kind":"needs-decision","title":"Flex pricing or predictable reply latency","summary":"The account's Flex default halves cost on Flex-eligible OpenAI models but can add seconds to a reply a human is watching; the app can pin either.","calls":["llmcord.py:287"],"level":null,"built":null,"gains":"Keeping Flex (the measured account default, and what the bot gets today) was exactly -50% on gpt-5.4-mini for identical prompts; on gpt-5.5 at $5/$30 that is the largest single price lever after caching. Pinning service_tier default instead removes Flex's tail: Flex latency matched standard in a 5-call sample, but one gpt-5-nano Flex call took 61 seconds, and a streamed Flex attempt is documented to wait up to 25 seconds before falling back to the same model at standard.","loses":"Whichever one you do not pick: cost or the tail of the wait.","price":"Flex: -50% measured on gpt-5.4-mini, unmeasured on other models. Standard: full catalog price.","why":"A Discord bot streams into a message everyone in the channel can see, so a 25-second dead start is very visible - but so is a bill. The lever is one line (service_tier: \"default\" or allow_flex_tier in the feature's policy entry); which way to set it is a product call about this deployment, and it interacts with i2, since Router ignores Flex alongside a fallback list.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"info","etag":"29270b8b96dc","request":null,"stale":false,"due":false,"checked":[{"check":"price","label":null,"result":"info","detail":"ROUTER.md 6.1: -50% on gpt-5.4-mini (n=5 per arm); Flex default on for the test account; one 61s Flex call observed","source":"agent","samples":null},{"check":"other","label":"Route","result":"pass","detail":"1 call seen going through Router (route truth)","source":"check"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["dismiss","postpone"],"waiting":true},{"id":"n1","kind":"note","title":"Failures are invisible to the person waiting","summary":"on_message catches every exception from the generation and only logs it, so a Router 504, a 429 or an outage shows up in Discord as silence or a half-written orange embed.","calls":["llmcord.py:287"],"level":null,"built":null,"gains":"Reporting the failure in the reply the bot has already posted - it has an embed, a colour convention and a warnings field - would turn 'the bot is broken' into 'try again'. It is a few lines in the existing except branch and needs no Router feature.","loses":"nothing","price":"no change","why":"Not a Router change, but it is the other half of i2 and i3: both of those make failure faster and rarer, and neither makes it legible. Worth doing by whoever picks up i3.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"info","etag":"0fd926399e77","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"llmcord.py: `except Exception: logging.exception(...)` around the whole stream loop","source":"agent","samples":null}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":[],"waiting":false}],"history":[],"running":[],"apply_blocked":null,"pending":[],"cost":{"agent_minutes":12.3,"agent_usd":6.3517,"live_requests":3},"setup":{"models":["gpt-5.5"],"features":["llmcord.py:on_message"],"background":[],"model_changes":["i2","i4"]}}; window.__RM_MODE__ = "frozen";</script>
+<script>
+(function () {
+  "use strict";
+  var MODE = window.__RM_MODE__ || "static", LIVE = MODE === "live", FROZEN = MODE === "frozen";
+  var B = window.__RM__ || null, TOKEN = "";
+  try { TOKEN = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
+  var FROZEN_NOTE = "Frozen report: open the live dashboard to approve, undo or apply.";
+
+  var PAGES = [["overview", "Overview", "grid"], ["calls", "Calls", "route"], ["changes", "Changes", "layers"], ["queue", "Your queue", "inbox"], ["history", "History", "clock"]];
+  var MORE = [["setup", "Router setup", "sliders"]];
+  // one vocabulary: [label, tone, icon]
+  var KIND = {move: ["Move", "green", "route"], "trade-off": ["Trade-off", "solar", "scale"], port: ["Port", "blue", "swap"], stays: ["Stays", "muted", "pin"],
+    "needs-decision": ["Needs decision", "amber", "help"], improvement: ["Improvement", "lilac", "spark"], note: ["Note", "neutral", "note"]};
+  var KIND_ORDER = ["move", "trade-off", "port", "stays", "needs-decision", "improvement", "note"];
+  var STATUS = {"in code": ["In code", "green"], proposed: ["Proposed", "solar"], approved: ["Approved · ready to apply", "blue"], applied: ["Applied", "green"],
+    "undo requested": ["Undo requested", "amber"], undone: ["Undone", "muted"], dismissed: ["Dismissed", "muted"], postponed: ["Postponed", "muted"],
+    declined: ["Declined", "red"], "check failed": ["Check failed", "red"], info: ["Info", "neutral"]};
+  var STATUS_ORDER = ["proposed", "check failed", "declined", "approved", "undo requested", "in code", "applied", "postponed", "dismissed", "undone", "info"];
+  var CHECK = {tests: "Tests", typecheck: "Typecheck", "router-live": "Router live", simulator: "Simulator", "side-by-side": "Side-by-side", price: "Price", other: "Other"};
+  var RESULT = {pass: ["pass", "check", "green"], fail: ["fail", "x", "red"], info: ["info", "info", "blue"], "not-run": ["not run", "dash", "muted"]};
+  var ROUTE = {verified: ["Router", "verified by the outside check", "green", ""], unverified: ["Router", "wired, not verifiable statically", "green", "o"],
+    unchecked: ["Router", "the agent’s claim; not checked yet", "green", "o"], not_routing: ["Provider", "reported moved, doesn’t route", "red", ""],
+    stays: ["Provider", "stays", "muted", "o"], provider: ["Provider", "stays", "muted", "o"], unknown: ["Unknown", "", "muted", "o"]};
+  var LAT = {background: "Background", interactive: "Interactive", user_waiting: "User waiting"};
+  var FLAG = {"deleted-file": "Deleted files", dependencies: "Dependencies changed", "provider-key": "Provider key", "runtime-edit": "Runtime edited"};
+  var GROUPS = [["Migration decisions", ["move", "trade-off", "port"], "What the agent changed to move traffic. Each is one commit you can undo."],
+    ["Stays, or needs you", ["stays", "needs-decision"], "Calls that stay where they are, and choices that are yours to make."],
+    ["Improvements", ["improvement"], "Branches the agent built and tested. Nothing reaches your code until you approve and apply."],
+    ["Notes", ["note"], "Things the agent noticed that aren’t a change."]];
+
+  var S = {tab: "overview", fk: "all", fs: "all", busy: null, sig: "", pending: false, conn: "ok", form: {}, open: {}, applyResult: null, stickyN: 0, theme: "auto"};
+
+  // ---------------- helpers ----------------
+  function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]; }); }
+  function md(v) { return esc(v).replace(/`([^`]+)`/g, "<code>$1</code>"); }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+  function fmtInt(v) { var n = num(v); return n == null ? "–" : n.toLocaleString("en-US"); }
+  function usd(v) { var n = num(v); return n == null ? "–" : "$" + n.toFixed(2); }
+  function plural(n, a, b) { return n === 1 ? a : (b || a + "s"); }
+  function lower1(s) { s = String(s || ""); return s.charAt(0).toLowerCase() + s.slice(1); }
+  function cap(s) { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function pad(x) { return (x < 10 ? "0" : "") + x; }
+  function fmtTime(s) {
+    if (!s) return ""; var d = new Date(s); if (isNaN(d.getTime())) return String(s);
+    return d.toLocaleDateString("en-US", {month: "short", day: "numeric"}) + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function fmtClock(s) { var d = new Date(s); return isNaN(d.getTime()) ? "" : pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function fmtDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); if (!m) return String(s || "");
+    var d = new Date(+m[1], +m[2] - 1, +m[3]); return d.toLocaleDateString("en-US", {month: "short", day: "numeric", year: "numeric"});
+  }
+  function minutes(a, b) { var x = new Date(a), y = new Date(b); if (isNaN(x) || isNaN(y)) return null; return Math.max(0, Math.round((y - x) / 60000)); }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function plusDays(n) { var d = new Date(Date.now() + n * 864e5); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+  function cssId(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^\w-]/g, "\\$&"); }
+  function safeLink(u) { u = String(u || ""); return /^https:\/\/(app|docs)\.router\.com(\/|$)/.test(u) ? u : null; }
+  var P = {
+    grid: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+    route: '<circle cx="3.5" cy="12.5" r="1.5"/><circle cx="12.5" cy="3.5" r="1.5"/><path d="M5 12.5h4.5a2.5 2.5 0 0 0 0-5h-3a2.5 2.5 0 0 1 0-5H11"/>',
+    layers: '<path d="M8 2 14 5.2 8 8.4 2 5.2z"/><path d="M2 8.2l6 3.2 6-3.2M2 11l6 3.2 6-3.2"/>',
+    inbox: '<path d="M2 9.5h3.2l1 2h3.6l1-2H14"/><path d="M3.7 3h8.6L14 9.5V13H2V9.5z"/>',
+    clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.4 1.6"/>',
+    sliders: '<path d="M2.5 4h6M11.5 4h2M2.5 8h2M7.5 8h6M2.5 12h8"/><circle cx="10" cy="4" r="1.5"/><circle cx="6" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/>',
+    spark: '<path d="M8 1.8 9.3 6.7 14.2 8 9.3 9.3 8 14.2 6.7 9.3 1.8 8 6.7 6.7z"/>',
+    scale: '<path d="M8 2v12M4.5 14h7M3 4.5h10M3 4.5 1.5 9h3zM13 4.5 11.5 9h3z"/>',
+    swap: '<path d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13"/>',
+    pin: '<path d="M8 14s4.5-4.1 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.9 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/>',
+    help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.4M8 11.6v.01"/>',
+    note: '<path d="M3.5 2.5h9v11h-9z"/><path d="M5.7 5.5h4.6M5.7 8h4.6M5.7 10.5h2.6"/>',
+    check: '<path d="M3 8.3 6.4 11.6 13 4.6"/>',
+    x: '<path d="M4 4l8 8M12 4l-8 8"/>',
+    info: '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v4M8 4.9v.01"/>',
+    dash: '<path d="M4 8h8"/>',
+    warn: '<path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3M8 11.5v.01"/>',
+    arrow: '<path d="M2.5 8h10.5M9.5 4.5 13 8l-3.5 3.5"/>',
+    chev: '<path d="M6 3.5 10.5 8 6 12.5"/>',
+    branch: '<circle cx="4" cy="3.2" r="1.4"/><circle cx="4" cy="12.8" r="1.4"/><circle cx="12" cy="6.5" r="1.4"/><path d="M4 4.6v6.8M4 9c0-2 1.6-2.5 3.5-2.5h3.1"/>',
+    commit: '<circle cx="8" cy="8" r="2.4"/><path d="M1.5 8h4.1M10.4 8h4.1"/>',
+    repo: '<path d="M3.5 13V3.3c0-.7.6-1.3 1.3-1.3h7.7v9.2H4.8c-.7 0-1.3.6-1.3 1.3s.6 1.3 1.3 1.3h7.7"/><path d="M6.5 2v4.8l1.3-1 1.3 1V2"/>',
+    key: '<circle cx="5" cy="10.5" r="2.7"/><path d="M7 8.6 13.5 2.2M11 4.6l1.8 1.8M9.6 6l1.4 1.4"/>',
+    sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
+    moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
+    auto: '<circle cx="8" cy="8" r="6"/><path d="M8 2v12" /><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none"/>',
+    ext: '<path d="M6.5 3.5H3v9.5h9.5V9.5M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/>',
+    play: '<path d="M4.5 3v10l8-5z"/>',
+    undo: '<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>',
+    flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.7 3 1.7 3h-8"/>',
+    router: '<path d="M2 8h4M10 8h4M6 4.5 10 8l-4 3.5"/>'};
+  function icon(n, cls) { return '<svg class="i' + (cls ? " " + cls : "") + '" viewBox="0 0 16 16" aria-hidden="true">' + (P[n] || "") + "</svg>"; }
+
+  // ---------------- data ----------------
+  function items() { return arr(B && B.items); }
+  function byId(id) { var l = items(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function calls() { return arr(B && B.calls); }
+  function callIndex(site) { var l = calls(); for (var i = 0; i < l.length; i++) if (l[i].site === site) return i; return -1; }
+  function pend() { return arr(B && B.pending); }
+  function running() { return arr(B && B.running); }
+  function hl() { return obj(B && B.headline); }
+  function waitingItems() { return items().filter(function (i) { return i.waiting; }); }
+  function decidedItems() { return items().filter(function (i) { return (i.status === "dismissed" || i.status === "postponed") && !i.due; }); }
+  function improvements() { return items().filter(function (i) { return i.kind === "improvement"; }); }
+  function blocked() { return (B && B.apply_blocked) || ""; }
+  function undoOnly() { var p = pend(); return p.length > 0 && p.every(function (r) { return r.action === "undo"; }); }
+  function applyState() {
+    if (!LIVE) return {off: true, why: FROZEN ? FROZEN_NOTE : "Static page: no server."};
+    if (S.conn !== "ok") return {off: true, why: "The local server isn’t reachable."};
+    if (running().length) return {off: true, why: "Apply session " + running().map(function (r) { return r.session; }).join(", ") + " is running. This page updates as it works."};
+    if (!pend().length) return {off: true, why: "Nothing to apply yet: approve an improvement or mark something for undo."};
+    if (blocked() && !undoOnly()) return {off: true, why: blocked()};
+    return {off: false, why: blocked() ? "Only undos are on the list, so Apply is allowed. " + blocked() : ""};
+  }
+
+  // ---------------- API ----------------
+  function api(method, path, body) {
+    var opt = {method: method, headers: {"X-RM-Token": TOKEN}, cache: "no-store", credentials: "same-origin"};
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.text().then(function (txt) {
+        var j = null; try { j = JSON.parse(txt); } catch (e) {}
+        if (!r.ok) { var err = new Error((j && j.error) || ("HTTP " + r.status)); err.status = r.status; throw err; }
+        return {json: j, text: txt};
+      });
+    });
+  }
+  function sigOf(b) { if (!b) return ""; var g = b.generated; b.generated = null; var s = JSON.stringify(b); b.generated = g; return s; }
+  function refresh(force) {
+    if (!LIVE) return Promise.resolve();
+    return api("GET", "/api/bundle").then(function (res) {
+      setConn("ok");
+      var nb = res.json, sig = sigOf(nb);
+      if (!force && sig === S.sig) return;
+      S.sig = sig; B = nb; window.__RM__ = B;
+      var ae = document.activeElement;
+      if (!force && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#main")) { S.pending = true; return; }
+      renderAll(false);
+    }).catch(function (e) { setConn(e.status === 403 ? "auth" : "down"); });
+  }
+  function setConn(c) { if (S.conn !== c) { S.conn = c; renderAll(false); } }
+  function toast(msg, err) {
+    var t = document.getElementById("toast");
+    t.innerHTML = '<div class="toast' + (err ? " err" : "") + '" role="status">' + icon(err ? "warn" : "check") + "<span>" + esc(msg) + "</span></div>";
+    clearTimeout(toast._t); clearTimeout(toast._o);
+    toast._o = setTimeout(function () { var el = t.firstChild; if (el) el.classList.add("out"); }, err ? 5600 : 2700);
+    toast._t = setTimeout(function () { t.innerHTML = ""; }, err ? 5800 : 2900);
+  }
+  var DONE = {apply: "Approved", dismiss: "Dismissed", postpone: "Postponed", undo: "Marked for undo"};
+  function title(id) { var it = byId(id); return it ? it.title : id; }
+  function finish() { S.busy = null; renderAll(false); return refresh(true); }
+  function request(id, action, extra) {
+    if (!LIVE || S.busy) return;
+    var p = {item: id, action: action};
+    if (extra && extra.reason) p.reason = extra.reason;
+    if (extra && extra.until) p.until = extra.until;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request", p).then(function () { delete S.form[id]; toast(DONE[action] + ": " + title(id)); })
+      .catch(function (e) { toast("Couldn’t save: " + e.message, true); }).then(finish);
+  }
+  function withdraw(id) {
+    if (!LIVE || S.busy) return;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request/clear", {item: id}).then(function () { toast("Withdrawn: " + title(id)); })
+      .catch(function (e) { toast("Couldn’t withdraw: " + e.message, true); }).then(finish);
+  }
+  function doApply() {
+    var st = applyState();
+    if (st.off || S.busy) { if (st.why) toast(st.why.replace(/`/g, ""), true); return; }
+    S.busy = "apply"; renderAll(false);
+    api("POST", "/api/apply", {})
+      .then(function (res) { var d = obj(res.json && res.json.result); S.applyResult = {ok: true, data: d}; toast(d.mode === "headless" ? "Apply session " + (d.session || "") + " started" : "Ready: paste the command to start the apply session"); })
+      .catch(function (e) { S.applyResult = {ok: false, error: e.message, status: e.status}; toast("Apply didn’t start: " + e.message, true); })
+      .then(function () { S.busy = null; setTab("queue", true); window.scrollTo({top: 0}); return refresh(true); });
+  }
+
+  // ---------------- small components ----------------
+  function tone(t) { return "tone-" + (t || "neutral"); }
+  function kindOf(k) { return KIND[k] || [cap(k || "item"), "neutral", "note"]; }
+  function kindBadge(k) { var x = kindOf(k); return '<span class="kb ' + tone(x[1]) + '">' + icon(x[2]) + esc(x[0]) + "</span>"; }
+  function statusOf(it) {
+    var x = STATUS[it.status] || [cap(it.status), "neutral"], label = x[0], t = x[1], rq = obj(it.request);
+    if (it.status === "postponed" && rq.until) label = it.due ? "Postponed · due " + fmtDate(rq.until) : "Postponed to " + fmtDate(rq.until);
+    if (it.due) t = "solar";
+    if (it.in_session) { label = (rq.action === "undo" ? "Undoing" : "Applying") + " · session " + it.in_session; t = "blue"; }
+    return [label, t];
+  }
+  function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '">' + (it.in_session ? '<span class="spin" style="width:10px;height:10px"></span>' : '<span class="dot"></span>') + esc(s[0]) + "</span>"; }
+  function callRef(site) {
+    var i = callIndex(site), c = i >= 0 ? calls()[i] : null;
+    if (!c) return '<span class="cref" title="Not in the calls table">' + esc(site) + "</span>";
+    return '<button class="cref" type="button" data-go-call="' + esc(site) + '" title="' + esc(site + (c.feature ? " · " + c.feature : "")) + '">' + esc(site) + (c.feature ? " <em>" + esc(c.feature) + "</em>" : "") + "</button>";
+  }
+  function itemLink(id) {
+    var it = byId(id);
+    if (!it) return '<span class="cref">' + esc(id) + "</span>";
+    var k = kindOf(it.kind);
+    return '<button class="ilink ' + tone(k[1]) + '" type="button" data-go-item="' + esc(id) + '" title="' + esc(k[0]) + '"><span class="sdot"></span><span class="tt">' + esc(it.title || id) + "</span></button>";
+  }
+  function evRow(e) {
+    var r = RESULT[e.result] || RESULT.info, name = e.label || CHECK[e.check] || cap(e.check), agent = e.source === "agent";
+    return '<li class="ev"><span class="r ' + tone(r[2]) + '">' + icon(r[1]) + esc(r[0]) + '</span><span class="k">' + esc(name) + '</span><span class="d">' + esc(e.detail || name + ": " + r[0]) + "</span>" +
+      '<span class="s' + (agent ? " agent" : "") + '" title="' + (agent ? "Reported by the agent" : "Measured by the outside check: code the agent can’t influence") + '">' + (agent ? "agent" : "check") + "</span></li>";
+  }
+  function more(key, label, meta, body) {
+    return '<details class="more" data-key="' + esc(key) + '"' + (S.open[key] ? " open" : "") + "><summary>" + icon("chev") + esc(label) + (meta ? ' <span class="meta">' + meta + "</span>" : "") + '</summary><div class="more-b">' + body + "</div></details>";
+  }
+  function copyVal(v, label) { return '<span class="copyv" title="' + esc(label || v) + '"><span class="cv">' + esc(label || v) + '</span><button class="btn ghost" type="button" data-act="copy" data-v="' + esc(v) + '">Copy</button></span>'; }
+
+  // ---------------- diff (from git), lightly highlighted ----------------
+  var KW = {};
+  ("const let var function return if else for while do switch case break continue import from export default class new await async try catch finally throw typeof instanceof " +
+   "def self None True False null undefined true false in of is not and or with as lambda yield pass raise elif except interface type extends implements public private " +
+   "protected static readonly enum this super print nonlocal global del assert").split(" ").forEach(function (k) { KW[k] = 1; });
+  function langOf(f) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(String(f || "")); var e = m ? m[1].toLowerCase() : "";
+    if (/^(py|pyi|sh|bash|rb|yml|yaml|toml|cfg|ini|r|pl)$/.test(e)) return "hash";
+    if (/^(js|jsx|ts|tsx|mjs|cjs|go|java|kt|rs|c|h|cc|cpp|cs|swift|scala|php|css|scss|dart)$/.test(e)) return "slash";
+    if (e === "json") return "json";
+    return "";
+  }
+  var TOK = {
+    hash: /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    slash: /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    json: /()("(?:[^"\\]|\\.)*"?)|(\b-?\d+(?:\.\d+)?\b)|(\btrue\b|\bfalse\b|\bnull\b)/g};
+  function hi(code, lang) {
+    var re = TOK[lang]; if (!re) return esc(code);
+    re.lastIndex = 0; var out = "", last = 0, m;
+    while ((m = re.exec(code))) {
+      if (m[0] === "") { re.lastIndex++; continue; }
+      out += esc(code.slice(last, m.index));
+      var cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "n" : (m[4] && (KW[m[4]] || lang === "json")) ? "k" : "";
+      out += cls ? '<span class="sy-' + cls + '">' + esc(m[0]) + "</span>" : esc(m[0]);
+      last = m.index + m[0].length;
+    }
+    return out + esc(code.slice(last));
+  }
+  var diffMemo = {};
+  function parseDiff(text) {
+    if (diffMemo[text]) return diffMemo[text];
+    var lines = String(text || "").split("\n"), pre = [], files = [], cur = null, o = 0, n = 0, ro = 0, rn = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i], m;
+      if (l.indexOf("diff --git ") === 0 && ro <= 0 && rn <= 0) {
+        m = /^diff --git a\/(.*) b\/(.*)$/.exec(l);
+        cur = {file: m ? m[2] : l.slice(11), rows: [], add: 0, del: 0, meta: []}; files.push(cur); continue;
+      }
+      if (!cur) { pre.push(l); continue; }
+      m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(l);
+      if (m && ro <= 0 && rn <= 0) { o = +m[1]; n = +m[3]; ro = m[2] == null ? 1 : +m[2]; rn = m[4] == null ? 1 : +m[4]; cur.rows.push({t: "hunk", c: l}); continue; }
+      if (ro > 0 || rn > 0) {
+        var ch = l.charAt(0);
+        if (ch === "+") { cur.rows.push({t: "add", n: n++, c: l.slice(1)}); cur.add++; rn--; }
+        else if (ch === "-") { cur.rows.push({t: "del", o: o++, c: l.slice(1)}); cur.del++; ro--; }
+        else if (ch === "\\") { cur.rows.push({t: "hunk", c: l}); }
+        else { cur.rows.push({t: "ctx", o: o++, n: n++, c: l.slice(1)}); ro--; rn--; }
+        continue;
+      }
+      if (/^(new file mode|deleted file mode|rename from|rename to|Binary files|similarity index)/.test(l)) cur.meta.push(l);
+    }
+    var head = {commit: null, author: null, date: null, msg: [], stat: [], total: ""};
+    pre.forEach(function (l) {
+      if (/^commit [0-9a-f]{7,}/.test(l)) head.commit = l.slice(7, 19);
+      else if (/^Author:/.test(l)) head.author = l.replace(/^Author:\s*/, "").replace(/\s*<[^>]*>$/, "");
+      else if (/^Date:/.test(l)) head.date = l.replace(/^Date:\s*/, "");
+      else if (/^ {4}/.test(l)) head.msg.push(l.slice(4));
+      else if (/^ \d+ files? changed/.test(l)) head.total = l.trim();
+      else if (/^ \S.*\|\s+(\d+|Bin)/.test(l)) head.stat.push(l.trim());
+    });
+    var res = {head: head, files: files, add: files.reduce(function (a, f) { return a + f.add; }, 0), del: files.reduce(function (a, f) { return a + f.del; }, 0)};
+    diffMemo[text] = res;
+    return res;
+  }
+  function diffBody(d) {
+    var p = parseDiff(d.text), h = p.head, out = '<div class="dv">';
+    var subj = h.msg.filter(function (x) { return x.trim(); })[0];
+    out += '<div class="dv-h">' + (subj ? '<span class="msg">' + esc(subj) + "</span>" : '<span class="msg">' + esc(d.how || "") + "</span>") +
+      (h.commit ? '<span class="mono">' + esc(h.commit) + "</span>" : "") + (h.total ? '<span class="mono">' + esc(h.total) + "</span>" : "") + "</div>";
+    if (!p.files.length && h.stat.length) out += '<div class="stat">' + esc(h.stat.join("\n")) + "</div>";
+    p.files.forEach(function (f) {
+      var lang = langOf(f.file);
+      out += '<div class="df"><div class="df-h"><span class="f">' + esc(f.file) + "</span>" + f.meta.map(function (x) { return '<span class="m">' + esc(x.replace(/ mode \d+$/, "")) + "</span>"; }).join("") +
+        '<span class="plus">+' + f.add + '</span><span class="minus">−' + f.del + "</span></div>";
+      if (f.rows.length) out += '<div class="df-b"><table><tbody>' + f.rows.map(function (r) {
+        if (r.t === "hunk") return '<tr class="hunk"><td class="n o"></td><td class="n"></td><td class="g"></td><td class="c">' + esc(r.c) + "</td></tr>";
+        return '<tr class="' + r.t + '"><td class="n o">' + (r.o != null ? r.o : "") + '</td><td class="n">' + (r.n != null ? r.n : "") + '</td><td class="g">' + (r.t === "add" ? "+" : r.t === "del" ? "−" : "") + '</td><td class="c">' + hi(r.c, lang) + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+      out += "</div>";
+    });
+    if (d.truncated) out += '<div class="dv-trunc">Showing the first ' + fmtInt(String(d.text).split("\n").length) + " of " + fmtInt(d.lines) + " lines. Run <code>" + esc(d.how) + "</code> for all of it.</div>";
+    return out + "</div>";
+  }
+  function diffBlock(it) {
+    var d = it.diff;
+    if (!d) return "";
+    if (d.error || !d.text) return '<span class="nodiff" title="' + esc(d.how || "") + '">' + icon("dash") + "Diff not available: " + esc(d.error || "no changes") + "</span>";
+    var p = parseDiff(d.text);
+    var meta = p.files.length + " " + plural(p.files.length, "file") + ' · <span class="plus">+' + p.add + '</span> <span class="minus">−' + p.del + "</span>";
+    return more("diff-" + it.id, "Diff", meta, diffBody(d));
+  }
+
+  // ---------------- the one card ----------------
+  function glp(it) {
+    if (!it.gains && !it.loses && !it.price) return "";
+    var none = /^\s*nothing\s*\.?$/i.test(it.loses || "");
+    return '<div class="glp"><div><span class="lbl">You gain</span><div class="g">' + esc(it.gains || "–") + "</div></div>" +
+      '<div><span class="lbl">You give up</span><div class="l' + (none ? " none" : "") + '">' + esc(it.loses || "–") + "</div></div>" +
+      '<div><span class="lbl">Price</span><div class="pr">' + esc(it.price || "–") + "</div></div></div>";
+  }
+  function samplesHtml(list) {
+    list = arr(list).filter(function (s) { return s && typeof s === "object"; }).slice(0, 10);
+    if (!list.length) return "";
+    return '<div class="samples">' + list.map(function (s) {
+      var a = s.before != null ? s.before : s.old, b = s.after != null ? s.after : s.new, same = String(a) === String(b);
+      return '<div class="sample' + (same ? "" : " diff") + '"><div><span class="lbl">Input</span>' + esc(s.input || "") + '</div><div><span class="lbl">Before</span>' + esc(a) + '</div><div><span class="lbl">After' + (same ? " · same" : " · differs") + "</span>" + esc(b) + "</div></div>";
+    }).join("") + "</div>";
+  }
+  function modelBox(it) {
+    var sbs = arr(it.checked).filter(function (e) { return e.check === "side-by-side"; });
+    return '<div class="mc"><div class="mc-h">' + icon("swap") + '<div class="tx"><b>Answers will differ</b>A different model answers ' + (arr(it.calls).length === 1 ? "this call" : "these calls") + '. ' + (sbs.some(function (e) { return e.result !== "not-run"; }) ? "Compare the side-by-side results before you approve." : "No side-by-side results: the change is unverified.") + "</div></div>" +
+      (sbs.length ? '<ul class="evl">' + sbs.map(evRow).join("") + "</ul>" : "") + sbs.map(function (e) { return samplesHtml(e.samples); }).join("") + "</div>";
+  }
+  function flagsHtml(flags, withItems) {
+    flags = arr(flags); if (!flags.length) return "";
+    return '<div class="flags">' + icon("flag") + '<div class="tx">' + flags.map(function (f) {
+      var files = arr(f.files).filter(function (x) { return String(f.detail || "").indexOf(x) < 0; });
+      return '<div><span class="fk">' + esc(FLAG[f.kind] || cap(f.kind || "flag")) + '</span><span class="fd">' + esc(f.detail || "") + "</span>" +
+        (files.length ? '<div class="ff">' + files.map(function (x) { return '<span class="cref">' + esc(x) + "</span>"; }).join("") + "</div>" : "") +
+        (withItems && f.item ? '<div class="ff">' + itemLink(f.item) + "</div>" : "") + "</div>";
+    }).join("") + "</div></div>";
+  }
+  function relHtml(it) {
+    var out = "";
+    if (arr(it.depends_on).length) out += '<span class="lbl">Depends on</span>' + it.depends_on.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    if (arr(it.excludes).length) out += (out ? '<span style="width:12px"></span>' : "") + '<span class="lbl">Excludes</span>' + it.excludes.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    return out ? '<div class="rel">' + out + "</div>" : "";
+  }
+  function requestNote(it) {
+    var r = it.request;
+    if (r && it.in_session) return '<div class="note tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><div class="tx"><b>Apply session ' + esc(it.in_session) + " is working on this.</b> The outside check runs when it finishes.</div></div>";
+    if (!r || r.session) return "";
+    var what = {apply: "You approved this. It goes to the next apply session.", undo: "You asked to undo this. It goes to the next apply session.",
+      dismiss: "You dismissed this.", postpone: "You postponed this" + (r.until ? " until " + fmtDate(r.until) : "") + "."}[r.action] || r.action;
+    var t = {apply: "blue", undo: "amber", dismiss: "muted", postpone: it.due ? "solar" : "muted"}[r.action] || "neutral";
+    return '<div class="note ' + tone(t) + '">' + icon(r.action === "undo" ? "undo" : r.action === "apply" ? "check" : "clock") + '<div class="tx"><b>' + esc(what) + "</b>" +
+      (r.reason ? " “" + esc(r.reason) + "”" : "") + (r.at ? ' <span class="meta">· ' + esc(fmtTime(r.at)) + "</span>" : "") +
+      (it.stale ? '<div style="margin-top:6px"><span class="pill tone-amber">' + icon("warn") + "Changed since your request: review it again</span></div>" : "") +
+      (it.due ? '<div style="margin-top:6px"><span class="pill tone-solar">' + icon("clock") + "The date has passed: decide now</span></div>" : "") + "</div></div>";
+  }
+  function resultsHtml(it) {
+    var rs = arr(it.results); if (!rs.length) return "";
+    return rs.slice(-3).map(function (r) {
+      var bad = r.status === "declined" || r.status === "failed";
+      var verb = (r.action === "undo" ? "Undo " : "Apply ") + (r.status === "done" ? "done" : r.status);
+      return '<div class="note ' + tone(bad ? "red" : r.status === "done" ? "green" : "neutral") + '">' + icon(bad ? "warn" : "check") + '<div class="tx"><b>' + esc(verb) + "</b> " +
+        '<span class="meta">in session ' + esc(r.session || "?") + (r.finished ? ", " + esc(fmtTime(r.finished)) : "") + "</span>" + (r.note ? '<div style="margin-top:2px">' + esc(r.note) + "</div>" : "") +
+        (arr(r.commits).length ? '<div class="row" style="margin-top:6px">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div></div>";
+    }).join("");
+  }
+  function btn(cls, act, id, label, ic) {
+    var off = !LIVE || !!S.busy || S.conn !== "ok";
+    return '<button class="btn ' + cls + '" type="button" data-act="' + act + '" data-id="' + esc(id) + '"' + (off ? " disabled" : "") + (!LIVE ? ' title="' + esc(FROZEN_NOTE) + '"' : "") + ">" +
+      (S.busy === id && act !== "form" ? '<span class="spin"></span>' : ic ? icon(ic) : "") + esc(label) + "</button>";
+  }
+  function actionsHtml(it) {
+    var acts = arr(it.actions); if (!acts.length) return "";
+    return '<div class="acts">' + acts.map(function (a) {
+      if (a === "approve") return btn("primary", "approve", it.id, it.status === "check failed" ? "Approve anyway" : it.status === "undone" || it.status === "declined" ? "Approve again" : "Approve");
+      if (a === "dismiss") return btn("", "form-dismiss", it.id, it.kind === "needs-decision" ? "Leave as is" : "Dismiss");
+      if (a === "postpone") return btn("", "form-postpone", it.id, "Postpone");
+      if (a === "undo") return btn("warn", "form-undo", it.id, "Undo", "undo");
+      if (a === "withdraw") return btn("ghost", "withdraw", it.id, "Withdraw request");
+      return "";
+    }).join("") + "</div>";
+  }
+  function formHtml(it) {
+    var f = S.form[it.id]; if (!f || !LIVE) return "";
+    var label = {dismiss: it.kind === "needs-decision" ? "Leave as is" : "Dismiss", postpone: "Postpone", undo: "Mark for undo"}[f.k];
+    var input = f.k === "postpone" ? '<input type="date" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" min="' + today() + '" aria-label="Postpone until">'
+      : '<input type="text" maxlength="2000" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" placeholder="' + (f.k === "undo" ? "Why? The apply session reads this (optional)" : "Why? (optional)") + '" aria-label="Reason">';
+    return '<div class="form">' + input + '<button class="btn primary" type="button" data-act="confirm" data-id="' + esc(it.id) + '">' + esc(label) + '</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(it.id) + '">Cancel</button>' +
+      (f.k === "undo" ? '<span class="hint">The apply session undoes it and adapts later work, or says why it couldn’t.</span>' : "") + "</div>";
+  }
+  function card(it) {
+    var h = [], ev = arr(it.checked).filter(function (e) { return !(it.model_change && e.check === "side-by-side"); });
+    h.push('<article class="card item' + (it.waiting ? " waiting" : "") + '" id="item-' + esc(it.id) + '">');
+    var lvl = it.level ? '<span class="chip lvl">' + esc({"quick-win": "Quick win", change: "Change", rework: "Rework"}[it.level] || it.level) + "</span>" : "";
+    var unbuilt = it.kind === "improvement" && it.built === false ? '<span class="chip lvl">Not built yet</span>' : "";
+    h.push('<header class="ih">' + kindBadge(it.kind) + '<h3 class="it">' + esc(it.title || it.id) + "</h3>" + lvl + unbuilt + statusChip(it) + "</header>");
+    if (it.summary) h.push('<p class="isum">' + esc(it.summary) + "</p>");
+    if (arr(it.calls).length) h.push('<div class="row"><span class="lbl">' + plural(it.calls.length, "Call") + "</span>" + it.calls.map(callRef).join("") + "</div>");
+    if (it.model_change) h.push(modelBox(it));
+    h.push(glp(it));
+    if (ev.length) h.push('<div class="chk"><span class="lbl">Checked</span><ul class="evl">' + ev.map(evRow).join("") + "</ul></div>");
+    h.push(flagsHtml(it.flags));
+    h.push(relHtml(it));
+    h.push(requestNote(it));
+    h.push(resultsHtml(it));
+    var disc = (it.why ? more("why-" + it.id, "Why", "the agent’s reasoning", '<p class="whyt">' + esc(it.why) + "</p>") : "") + diffBlock(it);
+    if (disc) h.push('<div class="disc">' + disc + "</div>");
+    var refs = (it.commit ? '<span class="ref" title="commit">' + icon("commit") + "<span>" + esc(it.commit) + "</span></span>" : "") +
+      (it.branch ? '<span class="ref" title="branch">' + icon("branch") + "<span>" + esc(it.branch) + "</span></span>" : "");
+    var acts = actionsHtml(it);
+    if (refs || acts) h.push('<footer class="ifoot">' + refs + '<span class="sp"></span>' + acts + formHtml(it) + "</footer>");
+    h.push("</article>");
+    return h.join("");
+  }
+
+  // ---------------- shell ----------------
+  function counts() {
+    return {calls: calls().length || "", changes: items().length || "", queue: (waitingItems().length + pend().length) || "", history: arr(B && B.history).length || ""};
+  }
+  function renderSide() {
+    var side = document.getElementById("side"), c = B ? counts() : {};
+    if (B && B.repo) document.title = B.repo + " · router-migrate";
+    function item(p) {
+      return '<button class="nav-item" type="button" data-tab="' + p[0] + '"' + (S.tab === p[0] ? ' aria-current="page"' : "") + ">" + icon(p[2]) + '<span class="nl">' + esc(p[1]) + "</span>" +
+        (c[p[0]] ? '<span class="cnt' + (p[0] === "queue" ? " hot" : "") + '">' + esc(c[p[0]]) + "</span>" : "") + "</button>";
+    }
+    side.innerHTML = '<div class="brand"><b>router-migrate</b><span>for Router</span></div><nav class="nav" aria-label="Pages">' + PAGES.map(item).join("") + "</nav>" +
+      '<div class="side-spacer"></div><div class="nav-label">More</div><nav class="nav" aria-label="More">' + MORE.map(item).join("") + "</nav>" +
+      '<div class="side-foot">' + esc((B && B.tool_version) || "router-migrate") + (B && B.generated ? "<br>" + (FROZEN ? "Report from " : "Updated ") + esc(fmtTime(B.generated)) : "") + "</div>";
+  }
+  function keyBadge(cls) {
+    var live = !!(B && B.live);
+    return '<span class="status key ' + (live ? "live" : "") + (cls ? " " + cls : "") + '" title="' + (live ? "A migration key was available: the agent checked requests against Router itself" : "No migration key: Router acceptance comes from the simulator") + '">' +
+      icon("key") + (live ? "Router key: live checks" : "No key: simulator only") + "</span>";
+  }
+  function themeIcon() { return S.theme === "light" ? "sun" : S.theme === "dark" ? "moon" : "auto"; }
+  function renderTop() {
+    var el = document.getElementById("topbar"), page = PAGES.concat(MORE).filter(function (x) { return x[0] === S.tab; })[0];
+    var st = LIVE ? (S.conn === "ok" ? ["live", "Live", true] : ["err", S.conn === "auth" ? "Session expired" : "Server stopped", false]) : ["frozen", FROZEN ? "Frozen report" : "Static page", false];
+    var path = B && B.root ? String(B.root).replace(/^\/(Users|home)\/[^\/]+/, "~") : "";
+    el.innerHTML = '<div class="topbar-in"><div class="repo-chip" title="' + esc(B && B.root) + '"><span class="repo-ic">' + icon("repo") + '</span><div class="repo-id"><span class="nm">' + esc((B && B.repo) || "No repo") + "</span>" +
+      (path ? '<span class="path">' + esc(path) + "</span>" : "") + "</div></div>" + (page ? '<span class="crumb">' + esc(page[1]) + "</span>" : "") + '<span class="sp"></span>' +
+      (B ? keyBadge() : "") + '<span class="status ' + st[0] + '" title="' + esc(FROZEN ? FROZEN_NOTE : "") + '"><span class="dot' + (st[2] ? " ping" : "") + '"></span><span class="lbl2">' + esc(st[1]) + "</span></span>" +
+      '<button class="iconbtn" type="button" data-act="theme" title="Theme: ' + esc(S.theme) + '" aria-label="Theme: ' + esc(S.theme) + '">' + icon(themeIcon()) + "</button></div>";
+  }
+  function renderSticky() {
+    var el = document.getElementById("sticky"), n = pend().length;
+    if (!B || !n || S.tab === "queue" || S.tab === "setup") { el.innerHTML = ""; S.stickyN = 0; return; }
+    var first = !S.stickyN; S.stickyN = n;
+    var u = pend().filter(function (r) { return r.action === "undo"; }).length, a = n - u;
+    var what = [a ? a + " to apply" : "", u ? u + " to undo" : ""].filter(Boolean).join(", ");
+    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + " " + plural(n, "request") + "</b> ready for the apply session: " + esc(what) + "." +
+      (running().length ? " A session is running now." : "") + '</span><button class="btn primary" type="button" data-tab="queue">Review' + icon("arrow") + "</button></div></div>";
+  }
+
+  // ---------------- overview ----------------
+  function testsLine(t) {
+    t = obj(t); if (!t.status) return null;
+    var c = obj(t.counts), b = obj(t.baseline);
+    if (t.status === "running") return ["Tests still running", "amber"];
+    if (t.status === "skipped") return ["Tests skipped", "muted"];
+    var txt = num(c.passed) != null ? fmtInt(c.passed) + " passed" + (c.failed ? ", " + c.failed + " failed" : "") + (c.errors ? ", " + c.errors + " errors" : "") : t.status;
+    var same = num(b.passed) != null && num(c.passed) != null && c.passed >= b.passed && (c.failed || 0) + (c.errors || 0) <= (b.failed || 0) + (b.errors || 0);
+    return ["Tests " + txt + (same ? ", same as before" : num(b.passed) != null ? " (before: " + fmtInt(b.passed) + " passed" + (b.failed ? ", " + b.failed + " failed" : "") + ")" : ""), t.status === "passed" ? "green" : "red"];
+  }
+  function renderOverview() {
+    var h = [], tr = obj(hl().traffic), bh = obj(hl().behaviour), w = obj(hl().waiting), imps = improvements();
+    h.push(banners(true));
+    var on = num(tr.on_router) || 0, tot = num(tr.total) || 0;
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Overview</div><h1>' + (tot ? fmtInt(on) + ' <span class="muted">of</span> ' + fmtInt(tot) + " production LLM " + plural(tot, "call") + " on Router" : "No production LLM calls listed yet") + "</h1>" +
+      '<p class="sub">' + (B.live ? "Checked with a Router key: the agent sent real requests through Router." : "Checked without a Router key: Router acceptance comes from the simulator.") + " Nothing reaches production until <code>RAMP_ROUTER_API_KEY</code> is set in the app’s environment.</p></div></header>");
+    // three numbers
+    var segs = [["verified", "green", ""], ["unverified", "green", "o"], ["not_routing", "red", ""], ["stays", "muted", ""]].filter(function (s) { return tr[s[0]]; });
+    var bar = '<div class="segbar" role="img" aria-label="' + esc(segs.map(function (s) { return tr[s[0]] + " " + s[0].replace("_", " "); }).join(", ")) + '">' +
+      (segs.length ? segs.map(function (s) { return '<i class="' + tone(s[1]) + " " + (s[1] === "muted" ? "muted" : s[2]) + '" style="flex:' + tr[s[0]] + '"></i>'; }).join("") : '<i class="muted" style="flex:1"></i>') + "</div>";
+    var door1 = '<button class="door" type="button" data-tab="calls"><div class="door-top"><span class="ic t tone-green">' + icon("route") + "</span><h3>Traffic on Router</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(on) + "<small>/" + fmtInt(tot) + '</small></span><span class="u">' + plural(tot, "call") + "</span></div>" + bar +
+      '<div class="mini"><span class="tone-green"><span class="sdot"></span><b>' + fmtInt(tr.verified || 0) + "</b>verified</span>" +
+      (tr.unverified ? '<span class="tone-green"><span class="sdot o"></span><b>' + fmtInt(tr.unverified) + "</b>on Router, not verifiable statically</span>" : "") +
+      (tr.not_routing ? '<span class="tone-red"><span class="sdot"></span><b>' + fmtInt(tr.not_routing) + "</b>reported moved but don’t route</span>" : "") +
+      '<span class="tone-muted"><span class="sdot o"></span><b>' + fmtInt(tr.stays || 0) + "</b>" + (tr.stays === 1 ? "stays" : "stay") + " on " + (tr.stays === 1 ? "its" : "their") + " provider</span></div>" +
+      '<div class="door-foot"><span>Route truth from the outside check</span><span class="sp"></span><span class="go">Every call' + icon("arrow") + "</span></div></button>";
+    var bt = !bh.checked ? ["Not checked", "muted"] : bh.ok === false ? ["Check failed", "red"] : obj(bh.tests).status === "running" ? ["Tests running", "amber"] : ["Preserved", "green"];
+    var tl = testsLine(bh.tests), tc = obj(bh.typecheck), rr = obj(bh.router);
+    var mini2 = [];
+    if (tl) mini2.push('<span class="' + tone(tl[1]) + '"><span class="sdot"></span>' + esc(tl[0]) + "</span>");
+    if (num(tc.errors) != null) mini2.push('<span class="' + tone(tc.errors <= (tc.baseline || 0) ? "green" : "red") + '"><span class="sdot"></span>Typecheck ' + tc.errors + " " + plural(tc.errors, "error") + (num(tc.baseline) != null ? ", before " + tc.baseline : "") + "</span>");
+    if (num(rr.requests)) mini2.push('<span class="' + tone(arr(rr.invalid).length ? "red" : "green") + '"><span class="sdot"></span>Router accepts ' + fmtInt(rr.valid || 0) + " of " + fmtInt(rr.requests) + " requests</span>");
+    arr(bh.failures).slice(0, 2).forEach(function (f) { mini2.push('<span class="tone-red"><span class="sdot"></span>' + esc((f.gate ? f.gate + ": " : "") + (f.detail || "")) + "</span>"); });
+    if (!bh.checked) mini2.push("<span>Run <code>router-migrate finish</code> to check the migration.</span>");
+    var door2 = '<button class="door" type="button" data-tab="history"><div class="door-top"><span class="ic t ' + tone(bt[1]) + '">' + icon(bt[1] === "green" ? "check" : bt[1] === "red" ? "warn" : "clock") + "</span><h3>Behaviour</h3></div>" +
+      '<div class="door-big ' + tone(bt[1]) + '"><span class="v word">' + esc(bt[0]) + "</span></div>" + '<div class="mini">' + mini2.join("") + "</div>" +
+      '<div class="door-foot"><span>' + (bh.at ? "Outside check, " + esc(fmtTime(bh.at)) : "Outside check") + '</span><span class="sp"></span><span class="go">History' + icon("arrow") + "</span></div></button>";
+    var wi = waitingItems(), by = {};
+    wi.forEach(function (i) { var k = i.due ? "due" : i.kind === "needs-decision" ? "decide" : i.status; by[k] = (by[k] || 0) + 1; });
+    var bits = [["proposed", "improvement to review", "improvements to review"], ["decide", "decision only you can make", "decisions only you can make"],
+      ["check failed", "improvement failed the check", "improvements failed the check"], ["declined", "declined by the apply session", "declined by the apply session"], ["due", "postponed, now due", "postponed, now due"]]
+      .filter(function (b) { return by[b[0]]; }).map(function (b) { return "<span><b>" + by[b[0]] + "</b>" + esc(by[b[0]] === 1 ? b[1] : b[2]) + "</span>"; });
+    if (pend().length) bits.push('<span class="tone-blue"><b>' + pend().length + "</b>" + plural(pend().length, "request") + " ready to apply</span>");
+    if (running().length) bits.push('<span class="tone-amber"><span class="spin"></span>apply session ' + esc(running().map(function (r) { return r.session; }).join(", ")) + " running</span>");
+    var n3 = num(w.count) != null ? w.count : wi.length, hot = n3 + pend().length > 0;
+    var door3 = '<button class="door' + (hot ? " hot" : "") + '" type="button" data-tab="queue"><div class="door-top"><span class="ic">' + icon("inbox") + "</span><h3>Waiting on you</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(n3) + '</span><span class="u">' + (n3 ? plural(n3, "decision") : "nothing to decide") + "</span></div>" +
+      '<div class="mini">' + (bits.length ? bits.join("") : "<span>Every item has been decided.</span>") + "</div>" +
+      '<div class="door-foot"><span>Nothing changes until you Apply</span><span class="sp"></span><span class="go">Your queue' + icon("arrow") + "</span></div></button>";
+    h.push('<div class="doors">' + door1 + door2 + door3 + "</div>");
+    h.push(flowHtml());
+    // the agent's account
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>What the agent did</h2></div></div>' +
+      (B.summary ? '<div class="quote">' + icon("spark") + '<div class="qt"><span class="by">The agent’s summary</span>' + esc(B.summary) + "</div></div>" : '<div class="panel empty">The agent hasn’t written its summary yet.</div>') +
+      (B.reviewed ? (imps.length ? '<div class="reviewed">' + icon("layers") + '<div class="tx"><b>Reviewed for improvements:</b> ' + esc(B.reviewed) + ' <button class="link" type="button" data-go-kind="improvement">' + imps.length + " " + plural(imps.length, "improvement") + icon("arrow") + "</button></div></div>"
+        : '<div class="reviewed big">' + icon("spark") + '<div class="tx"><b>Reviewed: nothing to propose</b>' + esc(B.reviewed) + "</div></div>") : "") + "</section>");
+    var fl = arr(bh.flags);
+    if (fl.length) {
+      var owner = {};
+      items().forEach(function (i) { arr(i.flags).forEach(function (f) { owner[JSON.stringify([f.kind, f.detail])] = i.id; }); });
+      h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Flagged for you</h2><p>The outside check doesn’t forbid these; it shows them so nothing changes behind your back.</p></div></div>' +
+        flagsHtml(fl.map(function (f) { return {kind: f.kind, detail: f.detail, files: f.files, item: owner[JSON.stringify([f.kind, f.detail])]}; }), true) + "</section>");
+    }
+    var kc = {}; items().forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; });
+    if (items().length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Every change, by kind</h2><p>The same card for every kind, on every page.</p></div></div><div class="kchips">' +
+      KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return '<button class="fchip ' + tone(x[1]) + '" type="button" data-go-kind="' + esc(k) + '"><span class="sdot"></span>' + esc(x[0]) + ' <span class="n">' + kc[k] + "</span></button>"; }).join("") + "</div></section>");
+    var c = obj(B.cost), facts = [];
+    facts.push("<span>" + icon("key") + (B.live ? "<b>Router key: live checks</b>" : "<b>No key: simulator only</b>") + "</span>");
+    if (num(c.agent_usd) != null) facts.push("<span>Agent cost <b>" + usd(c.agent_usd) + "</b></span>");
+    if (num(c.agent_minutes) != null) facts.push("<span>Agent time <b>" + Math.round(c.agent_minutes) + " min</b></span>");
+    if (num(c.live_requests) != null) facts.push("<span>Live Router requests <b>" + fmtInt(c.live_requests) + "</b></span>");
+    if (B.base) facts.push("<span>Started from <b>" + esc(String(B.base).slice(0, 10)) + "</b></span>");
+    if (B.migration_ref) facts.push("<span>Branch <b>" + esc(B.migration_ref) + "</b></span>");
+    h.push('<div class="facts-line">' + facts.join("") + "</div>");
+    return h.join("");
+  }
+  // how your traffic moved: each call from its file to Router; the wire's colour is the call's route truth
+  var ON_ROUTER = {verified: 1, unverified: 1, unchecked: 1};
+  var FLOW_KEY = [["verified", "Verified by the outside check"], ["unverified", "On Router, not verifiable statically"], ["unchecked", "On Router, the agent’s claim"],
+    ["not_routing", "Reported moved, doesn’t route"], ["stays", "Stays on its provider"], ["unknown", "Not known"]];
+  function wired(c) { return !!ON_ROUTER[c.route] || c.route === "not_routing"; }
+  function siteParts(s) { s = String(s || ""); var m = /^(.*):(\d+)$/.exec(s); return m ? {file: m[1], line: m[2]} : {file: s, line: ""}; }
+  function flowNode(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown, p = siteParts(c.site), name = p.file.split("/").pop() + (p.line ? ":" + p.line : "");
+    var tip = [c.site, r[0] + (r[1] ? ": " + r[1] : ""), c.reason, c.feature ? "feature: " + c.feature : ""].filter(Boolean).join(" · ");
+    return '<button class="fnode ' + tone(r[2]) + '" type="button" data-route="' + esc(c.route) + '" data-go-call="' + esc(c.site) + '" title="' + esc(tip) + '">' +
+      '<span class="sdot' + (r[3] ? " o" : "") + '"></span><span class="tx"><span class="fn">' + esc(name) + '</span><span class="sub">' + esc(c.model || c.feature || "model set at run time") + "</span></span>" + icon("arrow", "go") + "</button>";
+  }
+  function flowHtml() {
+    var all = calls();
+    if (!all.length) return "";
+    var on = all.filter(wired), off = all.filter(function (c) { return !wired(c); }), nOn = all.filter(function (c) { return ON_ROUTER[c.route]; }).length;
+    var groups = {}, order = [];
+    on.forEach(function (c) { var f = siteParts(c.site).file; if (!groups[f]) { groups[f] = []; order.push(f); } groups[f].push(c); });
+    var left = on.length ? order.map(function (f) {
+      return '<div class="fgroup"><div class="fgroup-h"><span class="p" title="' + esc(f) + '">' + esc(f) + '</span><span class="n">' + groups[f].length + "</span></div>" + groups[f].map(flowNode).join("") + "</div>";
+    }).join("") : '<div class="flow-empty">Nothing goes through Router yet.</div>';
+    var chips = items().filter(function (i) { return i.kind === "improvement" && i.status === "applied"; }).map(function (i) {
+      return '<button class="rchip tone-lilac" type="button" data-go-item="' + esc(i.id) + '" title="Applied: ' + esc(i.title || i.id) + '">' + icon("spark") + "<span>" + esc(i.title || i.id) + "</span></button>";
+    }).join("");
+    var MAX = 9, stay = "";
+    if (off.length) stay = '<div class="flow-stay"><div class="eyebrow">Not on Router · ' + off.length + '</div><div class="stay-grid">' + off.slice(0, MAX).map(flowNode).join("") + "</div>" +
+      (off.length > MAX ? '<button class="link" type="button" data-tab="calls" style="margin-top:10px">' + (off.length - MAX) + " more on Calls" + icon("arrow") + "</button>" : "") + "</div>";
+    var cnt = {};
+    all.forEach(function (c) { var k = c.route === "provider" ? "stays" : ROUTE[c.route] ? c.route : "unknown"; cnt[k] = (cnt[k] || 0) + 1; });
+    var legend = FLOW_KEY.filter(function (k) { return cnt[k[0]]; }).map(function (k) {
+      var r = ROUTE[k[0]], sw = ON_ROUTER[k[0]] || k[0] === "not_routing" ? '<svg class="' + (r[3] ? "o" : "") + '" viewBox="0 0 22 8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4"/></svg>' : '<span class="box"></span>';
+      return '<span class="' + tone(r[2]) + '">' + sw + esc(k[1]) + " <b>" + cnt[k[0]] + "</b></span>";
+    }).join("");
+    return '<section class="sec"><div class="sec-h"><div class="t"><h2>How your traffic moved</h2><p>Each production LLM call, from its file to Router. The line’s colour is what the outside check saw.</p></div></div>' +
+      '<div class="panel flow" id="flow"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="flow-grid"><div class="fcol">' + left + '</div><div class="flow-mid" aria-hidden="true"></div>' +
+      '<div class="router-node" id="router-node"><div class="nm"><span class="ic t tone-green">' + icon("router") + "</span>Router</div>" +
+      '<div class="host mono">api.router.com · ' + fmtInt(nOn) + " " + plural(nOn, "call") + "</div>" + (chips ? '<div class="rchips">' + chips + "</div>" : "") + "</div></div>" + stay +
+      '<div class="legend">' + legend + "</div></div></section>";
+  }
+  var flowSig = "";
+  function drawFlow() {
+    var flow = document.getElementById("flow"), svg = document.getElementById("wires"), rn = document.getElementById("router-node");
+    if (!flow || !svg || !rn) return;
+    if (getComputedStyle(svg).display === "none") { svg.innerHTML = ""; flowSig = ""; return; }
+    var fb = flow.getBoundingClientRect(), ox = fb.left + flow.clientLeft, oy = fb.top + flow.clientTop, rb = rn.getBoundingClientRect();
+    var nodes = Array.prototype.slice.call(flow.querySelectorAll(".fcol .fnode")), n = nodes.length, out = [];
+    function f(v) { return v.toFixed(1); }
+    nodes.forEach(function (el, k) {
+      var b = el.getBoundingClientRect(), rt = el.getAttribute("data-route"), r = ROUTE[rt] || ROUTE.unknown, broken = rt === "not_routing";
+      var x1 = b.right - ox, y1 = b.top + b.height / 2 - oy;
+      var x2 = rb.left - ox - (broken ? 26 : 0), y2 = rb.top - oy + rb.height * (n === 1 ? .5 : .25 + .5 * k / (n - 1));
+      var dx = Math.max(24, (x2 - x1) * .55);
+      out.push('<path class="wire ' + tone(r[2]) + (r[3] ? " o" : "") + (broken ? " broken" : "") + '" d="M' + f(x1) + "," + f(y1) + " C" + f(x1 + dx) + "," + f(y1) + " " + f(x2 - dx) + "," + f(y2) + " " + f(x2) + "," + f(y2) + '"/>');
+      if (broken) out.push('<path class="wire-x ' + tone(r[2]) + '" d="M' + f(x2 + 6) + "," + f(y2 - 4) + 'l8,8m0,-8l-8,8"/>');
+    });
+    var sig = flow.clientWidth + "x" + flow.clientHeight + out.join("");
+    if (sig === flowSig && svg.innerHTML) return;  // same geometry: leave the running animation alone
+    flowSig = sig;
+    svg.setAttribute("viewBox", "0 0 " + flow.clientWidth + " " + flow.clientHeight);
+    svg.innerHTML = out.join("");
+  }
+  function banners(withBlocked) {
+    var out = "";
+    if (LIVE && S.conn === "auth") out += '<div class="banner tone-red">' + icon("warn") + '<span class="tx">The session token was rejected. Re-run the command and open the new link.</span></div>';
+    else if (LIVE && S.conn === "down") out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">Lost the local server. Decisions are paused until it runs again.</span></div>';
+    var errs = arr(B && B.report_errors);
+    if (errs.length) out += '<div class="banner tone-amber">' + icon("warn") + '<div class="tx"><b>MIGRATION.json doesn’t match the format</b>, so parts of this page may be missing:<ul>' + errs.slice(0, 6).map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + (errs.length > 6 ? "<li>and " + (errs.length - 6) + " more</li>" : "") + "</ul></div></div>";
+    running().forEach(function (r) { out += '<div class="banner tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><span class="tx"><b>Apply session ' + esc(r.session) + " is running</b> on " + r.items.length + " " + plural(r.items.length, "request") + ". This page updates as it works.</span></div>"; });
+    if (withBlocked && blocked() && pend().length) out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">' + md(blocked()) + "</span></div>";
+    return out;
+  }
+
+  // ---------------- calls ----------------
+  function routeCell(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown;
+    return '<span class="route ' + tone(r[2]) + '"><span class="sdot' + (r[3] ? " o" : "") + '"></span>' + esc(r[0]) + "</span>" +
+      '<div class="sub">' + esc(c.reason ? (c.route === "stays" ? c.reason : r[1] + ": " + c.reason) : r[1]) + "</div>";
+  }
+  function renderCalls() {
+    var h = [], l = calls(), tr = obj(hl().traffic);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Calls</div><h1>Every production LLM call</h1><p class="sub">Where each call goes now, by the outside check’s route truth where it could see, and the item that covers it. ' +
+      fmtInt(tr.verified || 0) + " verified, " + fmtInt(tr.unverified || 0) + " on Router but not verifiable statically, " + fmtInt(tr.stays || 0) + " staying" + (tr.not_routing ? ", " + tr.not_routing + " reported moved but not routing" : "") + ".</p></div></header>");
+    if (!l.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in <code>MIGRATION.json</code>.</div>'); return h.join(""); }
+    h.push('<div class="panel tblw"><table class="ctbl"><thead><tr><th>Call</th><th>Model · task</th><th>Who waits</th><th>Where it goes now</th><th>Item</th></tr></thead><tbody>' + l.map(function (c, i) {
+      return '<tr id="call-' + i + '"><td><div class="site">' + esc(c.site) + "</div>" + (c.feature ? '<div class="sub">feature: ' + esc(c.feature) + "</div>" : "") + "</td>" +
+        '<td data-l="Model"><div><div class="mdl">' + esc(c.model || "set at run time") + "</div>" + (c.task ? '<div class="sub">' + esc(c.task) + "</div>" : "") + "</div></td>" +
+        '<td data-l="Who waits"><span class="lat">' + esc(LAT[c.latency] || "–") + "</span></td>" +
+        '<td data-l="Now"><div>' + routeCell(c) + "</div></td>" +
+        '<td data-l="Item"><div>' + (c.item ? itemLink(c.item) + '<div class="sub">' + esc(kindOf(c.item_kind)[0]) + " · " + esc(lower1(statusOf(byId(c.item) || {status: c.item_status})[0])) + "</div>" : '<span class="sub">no item</span>') + "</div></td></tr>";
+    }).join("") + "</tbody></table></div>");
+    return h.join("");
+  }
+
+  // ---------------- changes ----------------
+  function renderChanges() {
+    var h = [], all = items();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Changes</div><h1>Every decision and improvement</h1><p class="sub">The agent’s migration decisions, what stays, and the improvements it built, each with what it gains, what it gives up, what was checked, and its diff from git.</p></div></header>');
+    if (!all.length) { h.push('<div class="panel empty">No items yet.</div>'); return h.join(""); }
+    var kc = {}, sc = {};
+    all.forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; if (S.fk === "all" || i.kind === S.fk) sc[i.status] = (sc[i.status] || 0) + 1; });
+    if (S.fs !== "all" && !sc[S.fs]) S.fs = "all";
+    function chip(kind, v, label, n, t) { return '<button class="fchip' + (t ? " " + tone(t) : "") + '" type="button" data-act="filter" data-f="' + kind + '" data-v="' + esc(v) + '" aria-pressed="' + ((kind === "k" ? S.fk : S.fs) === v) + '">' + (t ? '<span class="sdot"></span>' : "") + esc(label) + ' <span class="n">' + n + "</span></button>"; }
+    h.push('<div class="filters"><span class="lbl">Kind</span>' + chip("k", "all", "All", all.length) + KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return chip("k", k, x[0], kc[k], x[1]); }).join("") + "</div>");
+    var stTotal = Object.keys(sc).reduce(function (a, k) { return a + sc[k]; }, 0);
+    h.push('<div class="filters"><span class="lbl">Status</span>' + chip("s", "all", "All", stTotal) + STATUS_ORDER.filter(function (s) { return sc[s]; }).map(function (s) { return chip("s", s, (STATUS[s] || [s])[0].replace(" · ready to apply", ""), sc[s], (STATUS[s] || [0, "neutral"])[1]); }).join("") + "</div>");
+    var shown = all.filter(function (i) { return (S.fk === "all" || i.kind === S.fk) && (S.fs === "all" || i.status === S.fs); });
+    var any = false;
+    GROUPS.forEach(function (g) {
+      var list = shown.filter(function (i) { return g[1].indexOf(i.kind) >= 0; });
+      if (!list.length) return; any = true;
+      h.push('<section class="group"><div class="group-h"><h2>' + esc(g[0]) + '<span class="n">' + list.length + "</span></h2><p>" + esc(g[2]) + '</p></div><div class="stack">' + list.map(card).join("") + "</div></section>");
+    });
+    var other = shown.filter(function (i) { return KIND_ORDER.indexOf(i.kind) < 0; });
+    if (other.length) { any = true; h.push('<section class="group"><div class="stack">' + other.map(card).join("") + "</div></section>"); }
+    if (!any) h.push('<div class="panel empty" style="margin-top:24px">Nothing matches these filters.</div>');
+    return h.join("");
+  }
+
+  // ---------------- queue ----------------
+  function applyResultHtml() {
+    var r = S.applyResult, ln = obj(B && B.launch);
+    if (!r && !ln.mode) return "";
+    if (r && !r.ok) return '<div class="banner ' + tone(r.status === 501 ? "amber" : "red") + '">' + icon("warn") + '<span class="tx"><b>Apply didn’t start.</b> ' + md(r.error) + '</span><button class="btn ghost" type="button" data-act="close-result">Close</button></div>';
+    var d = r ? r.data : ln;
+    if (d.mode === "command" || (!d.mode && d.command)) return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + icon("play") + '<span class="tx"><b>Start the apply session in Claude Code.</b> Paste this; it reads the request list from this repo and says what it did.</span>' +
+      copyVal(d.command || "/router-migrate apply") + '<button class="btn ghost" type="button" data-act="close-result">Close</button></div></div>';
+    var tail = arr(ln.tail);
+    return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + (running().length ? '<span class="spin"></span>' : icon("check")) + '<span class="tx"><b>Apply session ' + esc(d.session || ln.session || "") + (running().length ? " is working" : " started") + ".</b> " +
+      (running().length ? "It merges, reverts and commits on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>, then the outside check runs. This page updates as it works." : "Its result shows in History when it finishes.") + "</span>" +
+      '<button class="btn ghost" type="button" data-tab="history">History' + icon("arrow") + "</button></div>" + (tail.length ? '<pre class="term">' + esc(tail.join("\n")) + "</pre>" : "") + "</div>";
+  }
+  function pendRow(r) {
+    var t = r.action === "undo" ? ["Undo", "amber"] : ["Apply", "blue"];
+    return '<div class="prow"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"pill tone-red\">not in the report</span>") +
+      '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "from the CLI" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
+      '<div class="pa">' + (r.stale ? '<span class="pill tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div></div>";
+  }
+  function renderQueue() {
+    var h = [], p = pend(), wi = waitingItems(), dec = decidedItems(), st = applyState();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Your queue</div><h1>' + (wi.length ? wi.length + " " + plural(wi.length, "item") + " waiting on you" : p.length ? "Ready to apply" : "Nothing waits on you") + "</h1>" +
+      '<p class="sub">Decide here. One Apply hands the whole list to an apply session: it chooses the order, merges, reverts and adapts later work, commits each result and says what it did. The outside check runs after it.</p></div></header>');
+    if (FROZEN) h.push('<div class="banner tone-blue">' + icon("info") + '<span class="tx"><b>Frozen report.</b> Actions are off here; open the live dashboard to approve, undo or apply.</span></div>');
+    h.push(applyResultHtml());
+    var u = p.filter(function (r) { return r.action === "undo"; }).length;
+    h.push('<section class="sec" style="margin-top:0"><div class="sec-h"><div class="t"><h2>Ready to apply<span class="n">' + p.length + "</span></h2><p>" + (p.length ? "Approved improvements and undo requests no session has taken yet." : "Approve an improvement or mark a decision for undo, and it lands here.") + "</p></div></div>" +
+      '<div class="panel">' + (p.length ? p.map(pendRow).join("") : '<div class="empty">The list is empty.</div>') +
+      '<div class="applybar"><span class="tx"><b>' + p.length + " " + plural(p.length, "request") + "</b>" + (p.length ? " (" + (p.length - u) + " to apply, " + u + " to undo)" : "") + " go to one apply session.</span>" +
+      '<button class="btn primary lg" type="button" data-act="apply"' + (st.off || S.busy ? " disabled" : "") + (st.why ? ' title="' + esc(st.why.replace(/`/g, "")) + '"' : "") + ">" + (S.busy === "apply" ? '<span class="spin"></span>Handing off' : icon("play") + "Apply " + p.length + " " + plural(p.length, "request")) + "</button>" +
+      (st.why && (p.length || !LIVE) ? '<span class="why">' + icon(st.off ? "warn" : "info") + "<span>" + md(st.why) + "</span></span>" : "") + "</div></div></section>");
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Needs your decision<span class="n">' + wi.length + "</span></h2><p>Improvements to approve, dismiss or postpone; choices only you can make; anything the apply session declined.</p></div></div>" +
+      (wi.length ? '<div class="stack">' + wi.map(card).join("") + "</div>" : '<div class="panel empty"><b>Nothing waits on you.</b> Every item is decided.</div>') + "</section>");
+    if (dec.length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Decided earlier<span class="n">' + dec.length + "</span></h2><p>Dismissed or postponed. Withdraw to decide again.</p></div></div><div class=\"panel\">" +
+      dec.map(function (i) { var r = obj(i.request); return '<div class="prow dec">' + statusChip(i) + '<div class="tx">' + itemLink(i.id) + '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</div></div>" + '<div class="pa">' + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div></div>"; }).join("") + "</div></section>");
+    return h.join("");
+  }
+
+  // ---------------- history ----------------
+  function renderHistory() {
+    var h = [], hs = arr(B.history).slice().reverse(), bh = obj(hl().behaviour);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">History</div><h1>Apply sessions</h1><p class="sub">What each session did with your list, what it declined and why, its commits, and the outside check after it.</p></div></header>');
+    if (bh.checked) h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + icon("check") + '</span><div class="tx"><b>Latest outside check</b><span class="mt">' + esc(bh.ref || "") + (bh.at ? " · " + esc(fmtTime(bh.at)) : "") + "</span></div>" +
+      '<span class="sc ' + tone(bh.ok === false ? "red" : "green") + '"><span class="dot"></span>' + (bh.ok === false ? "Failed" : "Passed") + "</span></div>" +
+      (arr(bh.entries).length ? '<div class="sess-ck"><ul class="evl">' + bh.entries.map(evRow).join("") + "</ul></div>" : "") + "</div>");
+    if (!hs.length && !running().length) { h.push('<div class="panel empty">No apply sessions yet. When you Apply from your queue, each session’s log lands here.</div>'); return h.join(""); }
+    running().forEach(function (r) {
+      h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + esc(r.session) + '</span><div class="tx"><b>Apply session ' + esc(r.session) + '</b><span class="mt">Running · ' + r.items.length + " " + plural(r.items.length, "request") + '</span></div><span class="sc tone-blue"><span class="spin"></span>Running</span></div>' +
+        '<div class="sess-ck">' + r.items.map(itemLink).join(" ") + "</div></div>");
+    });
+    h.push('<div class="stack">' + hs.map(function (s) {
+      var ck = obj(s.check), mins = minutes(s.started, s.finished), rs = arr(s.results);
+      var sum = {done: 0, declined: 0, failed: 0}; rs.forEach(function (r) { sum[r.status] = (sum[r.status] || 0) + 1; });
+      return '<section class="panel sess"><div class="sess-h"><span class="sid">' + esc(s.id || "?") + '</span><div class="tx"><b>Apply session ' + esc(s.id || "") + "</b>" +
+        '<span class="mt">' + esc(fmtTime(s.started)) + (s.finished ? " → " + esc(fmtClock(s.finished)) : "") + (mins != null ? " · " + mins + " min" : "") + " · " + rs.length + " " + plural(rs.length, "result") +
+        (sum.declined || sum.failed ? " · " + [sum.done ? sum.done + " done" : "", sum.declined ? sum.declined + " declined" : "", sum.failed ? sum.failed + " failed" : ""].filter(Boolean).join(", ") : "") + "</span></div>" +
+        (s.check ? '<span class="sc ' + tone(ck.ok === false ? "red" : "green") + '"><span class="dot"></span>Check after: ' + (ck.ok === false ? "failed" : "passed") + "</span>" : '<span class="sc tone-muted"><span class="dot"></span>No check recorded</span>') + "</div>" +
+        (s.summary ? '<p class="sess-sum">' + esc(s.summary) + "</p>" : "") +
+        rs.map(function (r) {
+          var bad = r.status === "declined" || r.status === "failed";
+          return '<div class="rrow"><div class="tx">' + itemLink(r.item) + (r.note ? '<div class="nt">' + esc(r.note) + "</div>" : "") +
+            (arr(r.commits).length ? '<div class="cm">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div>" +
+            '<div class="rt"><span class="atag ' + tone(r.action === "undo" ? "amber" : "blue") + '">' + esc(r.action || "") + '</span><span class="sc ' + tone(bad ? "red" : "green") + '"><span class="dot"></span>' + esc(r.status || "") + "</span></div></div>";
+        }).join("") +
+        (arr(s.check_entries).length ? '<div class="sess-ck"><span class="lbl">The outside check after it</span><ul class="evl">' + s.check_entries.map(evRow).join("") + "</ul></div>" : "") + "</section>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- router setup ----------------
+  function setupSteps() {
+    var su = obj(B && B.setup), mc = arr(su.model_changes).map(byId).filter(Boolean);
+    return [
+      {id: "golive", title: "Turn Router on in production", prio: ["Go live", "solar"], lead: "Nothing changes at run time until the app’s own environment has a Router key. Set it where the app runs (not in the repo), then deploy. The migration key the agent used is separate: use a production key here.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("RAMP_ROUTER_API_KEY=") + "</div></div>", link: "https://app.router.com/"},
+      {id: "off", title: "Know the off switch", prio: ["Rollback", "amber"], lead: "Set this and restart: every call goes back to its original provider, with no code change. Unset it to return to Router.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("ROUTER_MIGRATE_DISABLE=1") + "</div></div>"},
+      {id: "cap", title: "Set a spend cap on the production key", prio: ["Before rollout", "solar"], lead: "Router stops requests at the cap, so give the key one before traffic moves. Size it from the models these calls use and your monthly volume.",
+        where: ["API keys", "your production key", "Spend cap"], link: "https://app.router.com/",
+        body: arr(su.models).length ? '<div class="s-block"><span class="lbl">Models behind this key</span><div class="taglist">' + su.models.map(function (m) { return '<span class="chip mono">' + esc(m) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "spend", title: "Watch spend by feature", prio: ["After rollout", "neutral"], lead: "Each routed request carries the feature label the agent wired, so Router can show spend per feature.",
+        body: arr(su.features).length ? '<div class="s-block"><span class="lbl">Feature labels in this repo</span><div class="taglist">' + su.features.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "flex", title: "Decide the account Flex default", prio: ["Decide once", "neutral"], where: ["Routing", "Cost-efficient routing"], link: "https://app.router.com/strategies",
+        lead: "Flex trades latency for price and is on by default for the account. A call only stays at the standard tier where its code sends service_tier \"default\" (the migration does this where a person waits), so check the calls below before deciding.",
+        body: arr(su.background).length ? '<div class="s-block"><span class="lbl">Background work nobody waits on</span><div class="taglist">' + su.background.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "shadow", title: "Shadow a model before you switch", prio: mc.length ? ["Before a model change", "lilac"] : ["Optional", "neutral"], where: ["Routing", "Shadow models"], link: "https://app.router.com/strategies",
+        lead: "Samples are evidence, not proof. Before a model change ships, let Router shadow the candidate on a slice of real traffic and compare cost and latency.",
+        body: mc.length ? '<div class="s-block"><span class="lbl">Model changes proposed here</span><div class="rel" style="margin-top:0">' + mc.map(function (i) { return itemLink(i.id); }).join("") + "</div></div>" : ""}];
+  }
+  function setupKey(s) { return "rm6.setup." + ((B && B.repo) || "repo") + "." + s.id; }
+  function setupDone(s) { return store(setupKey(s)) === "1"; }
+  function renderSetup() {
+    var steps = setupSteps(), done = steps.filter(setupDone).length, h = [];
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Router setup</div><h1>Going live</h1><p class="sub">The code is ready; these steps happen outside it. The tool never changes your Router account or your app’s environment, so each step says where to go and what to set.</p></div>' +
+      '<div class="ph-side"><div class="prog"><div class="prog-bar">' + steps.map(function (s) { return '<i class="' + (setupDone(s) ? "on" : "") + '"></i>'; }).join("") + '</div><span class="tx"><b>' + done + "</b> of " + steps.length + " done</span></div></div></header>");
+    h.push('<div class="stack">' + steps.map(function (s, k) {
+      var d = setupDone(s), link = safeLink(s.link);
+      return '<article class="card scard' + (d ? " done" : "") + '"><div class="s-rail"><span class="s-num">0' + (k + 1) + '</span><button class="check' + (d ? " on" : "") + '" type="button" data-act="setup-done" data-id="' + esc(s.id) + '" aria-pressed="' + d + '" aria-label="Mark done">' + (d ? icon("check") : "") + "</button></div>" +
+        '<div class="s-body"><div class="s-head"><h3>' + esc(s.title) + '</h3><span class="prio ' + tone(s.prio[1]) + '">' + esc(s.prio[0]) + "</span></div>" + '<p class="s-lead">' + esc(s.lead) + "</p>" +
+        (arr(s.where).length ? '<div class="where"><span>Router app</span>' + s.where.map(function (w, i) { return icon("chev") + '<span class="' + (i === s.where.length - 1 ? "r" : "") + '">' + esc(w) + "</span>"; }).join("") + "</div>" : "") +
+        (s.body || "") + '<div class="s-foot">' + (link ? '<a class="btn" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">Open Router ' + icon("ext") + "</a>" : "") + '<span class="nt">' + (d ? "Marked done in this browser" : "Tick the circle when it’s set") + "</span></div></div></article>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- render ----------------
+  function renderAll(enter) {
+    S.pending = false;
+    renderSide(); renderTop();
+    var main = document.getElementById("main");
+    if (!B || (!B.has_report && !arr(B.report_errors).length)) {
+      main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + (B ? banners(false) : "") + '<header class="ph"><div class="ph-t"><div class="eyebrow">router-migrate</div><h1>No migration report yet</h1><p class="sub">This page shows what the agent wrote in <code>.router-migrate/MIGRATION.json</code>, checked by <code>router-migrate finish</code>. Run the migration first; this page updates when the report lands.</p></div></header></div>';
+      document.getElementById("sticky").innerHTML = ""; return;
+    }
+    var fn = {overview: renderOverview, calls: renderCalls, changes: renderChanges, queue: renderQueue, history: renderHistory, setup: renderSetup}[S.tab] || renderOverview;
+    var y = window.scrollY;
+    main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + fn() + "</div>";
+    if (!enter) window.scrollTo(0, y);
+    renderSticky();
+    var wires = document.getElementById("wires");
+    if (wires) { if (enter) wires.classList.add("fresh"); flowSig = ""; requestAnimationFrame(drawFlow); }
+  }
+  function setTab(t, push) {
+    if (!PAGES.concat(MORE).some(function (x) { return x[0] === t; })) t = "overview";
+    var changed = t !== S.tab; S.tab = t;
+    if (push && location.hash !== "#" + t) { try { history.replaceState(null, "", location.pathname + location.search + "#" + t); } catch (e) {} }
+    renderAll(changed);
+    if (changed) window.scrollTo(0, 0);
+  }
+  function goTo(id) {
+    var el = document.getElementById(id); if (!el) return;
+    var bar = document.getElementById("topbar"), off = (bar ? bar.getBoundingClientRect().bottom : 0) + 20;
+    window.scrollTo({top: el.getBoundingClientRect().top + window.scrollY - off, behavior: "smooth"});
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  function go(tab, id) { setTab(tab, true); if (id) requestAnimationFrame(function () { requestAnimationFrame(function () { goTo(id); }); }); }
+  function applyTheme() { if (S.theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", S.theme); }
+
+  // ---------------- events ----------------
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-tab],[data-act],[data-go-call],[data-go-item],[data-go-kind]");
+    if (!t) return;
+    if (t.hasAttribute("data-go-call")) { go("calls", "call-" + callIndex(t.getAttribute("data-go-call"))); return; }
+    if (t.hasAttribute("data-go-item")) {
+      var gid = t.getAttribute("data-go-item"), here = document.getElementById("item-" + gid);
+      if (here && !t.closest("#item-" + cssId(gid))) { goTo("item-" + gid); return; }
+      S.fk = "all"; S.fs = "all"; go("changes", "item-" + gid); return;
+    }
+    if (t.hasAttribute("data-go-kind")) { S.fk = t.getAttribute("data-go-kind"); S.fs = "all"; go("changes"); return; }
+    if (t.hasAttribute("data-tab") && !t.hasAttribute("data-act")) { go(t.getAttribute("data-tab")); return; }
+    var a = t.getAttribute("data-act"), id = t.getAttribute("data-id");
+    if (a === "filter") { if (t.getAttribute("data-f") === "k") { S.fk = t.getAttribute("data-v"); S.fs = "all"; } else S.fs = t.getAttribute("data-v"); renderAll(false); }
+    else if (a === "approve") request(id, "apply");
+    else if (a === "withdraw") withdraw(id);
+    else if (a === "apply") doApply();
+    else if (a === "close-result") { S.applyResult = null; if (B) delete B.launch; renderAll(false); }
+    else if (a && a.indexOf("form-") === 0 && a !== "form-cancel") {
+      var k = a.slice(5), cur = S.form[id];
+      if (cur && cur.k === k) delete S.form[id]; else S.form[id] = {k: k, v: k === "postpone" ? plusDays(14) : ""};
+      renderAll(false);
+      var inp = document.querySelector('[data-form="' + cssId(id) + '"]'); if (inp) inp.focus({preventScroll: true});
+    }
+    else if (a === "form-cancel") { delete S.form[id]; renderAll(false); }
+    else if (a === "confirm") {
+      var f = S.form[id]; if (!f) return; var v = String(f.v || "").trim();
+      if (f.k === "postpone") { if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast("Pick a date", true); return; } request(id, "postpone", {until: v}); }
+      else request(id, f.k, {reason: v});
+    }
+    else if (a === "theme") { S.theme = S.theme === "auto" ? "light" : S.theme === "light" ? "dark" : "auto"; store("rm.theme", S.theme === "auto" ? null : S.theme); applyTheme(); renderTop(); }
+    else if (a === "setup-done") { var s = setupSteps().filter(function (x) { return x.id === id; })[0]; if (s) { store(setupKey(s), setupDone(s) ? null : "1"); renderAll(false); } }
+    else if (a === "copy") {
+      var val = t.getAttribute("data-v"), ok = function () { var old = t.textContent; t.textContent = "Copied"; setTimeout(function () { t.textContent = old; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(val).then(ok, function () { toast("Copy failed", true); }); else toast(val);
+    }
+  });
+  document.addEventListener("toggle", function (e) { var d = e.target; if (d.tagName === "DETAILS" && d.hasAttribute("data-key")) S.open[d.getAttribute("data-key")] = d.open; }, true);
+  document.addEventListener("input", function (e) { var t = e.target; if (t.hasAttribute && t.hasAttribute("data-form")) { var f = S.form[t.getAttribute("data-form")]; if (f) f.v = t.value; } });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute("data-form")) return;
+    if (e.key === "Enter") { var b = t.parentNode.querySelector('[data-act="confirm"]'); if (b) b.click(); }
+    if (e.key === "Escape") { delete S.form[t.getAttribute("data-form")]; renderAll(false); }
+  });
+  document.addEventListener("focusout", function () { setTimeout(function () { if (S.pending) { var ae = document.activeElement; if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) renderAll(false); } }, 0); });
+  var rz; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(drawFlow, 100); });
+  window.addEventListener("hashchange", function () { var h = location.hash.replace(/^#/, ""); if (h && h !== S.tab) setTab(h, false); });
+
+  // ---------------- boot ----------------
+  S.theme = store("rm.theme") || "auto"; if (["auto", "light", "dark"].indexOf(S.theme) < 0) S.theme = "auto"; applyTheme();
+  var h0 = location.hash.replace(/^#/, ""); if (h0) S.tab = h0;
+  if (!PAGES.concat(MORE).some(function (x) { return x[0] === S.tab; })) S.tab = "overview";
+  S.sig = sigOf(B);
+  renderAll(true);
+  if (LIVE) {
+    refresh(false);
+    setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState !== "hidden") refresh(false); });
+  }
+})();
+</script>
+</body>
+</html>

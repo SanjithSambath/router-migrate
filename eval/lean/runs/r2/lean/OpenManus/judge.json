@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 7,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the single chokepoint (one AsyncOpenAI client per LLM config) and wrapped it there, so all five chat.completions sites route with no request-building changes: the outside check verifies 5/5 sites routing, 0 unverified, 0 not-routing, 20/20 live requests 200 including a Claude model via the Anthropic-compatible base URL, with the wrap inert until RAMP_ROUTER_API_KEY is set and ROUTER_MIGRATE_DISABLE=1 as a runtime revert.",
+  "Picked the right first lever for an agent loop and actually measured it: a ToolCallAgent step re-sends system prompt + full tool schemas every step, and the live cache probe (2,655-token request, 2,432 cached on the second call, $0.000398 -> $0.000216) is a real number with correct arithmetic, not an asserted percentage.",
+  "Read the failure path rather than just the happy path: caught that retry_if_exception_type((OpenAIError, Exception, ValueError)) matches everything and so contradicted its own 'Don't retry TokenLimitExceeded' comment (six retries, ~3 min, on an error raised before any HTTP call), fixed it with two new tests, and chose the fallback candidates against the runtime's capability guard (dropping temperature:false models like claude-sonnet-5) instead of guessing."
+ ],
+ "misses": [
+  "No provider_timeout / retry-budget item, even though failover was built. The six tenacity attempts with up to 60 s exponential backoff survive untouched on all three user-waiting entry points; pairing a Router-only provider_timeout with a lower stop_after_attempt is the obvious companion to i2 and is the difference between 'failover in one request' and 'failover plus minutes of client-side backoff on top'. It appears only as a phrase inside the i5 rework item.",
+  "Left the migration's own blocking defect as a note instead of fixing it. config.example.toml names claude-3-7-sonnet-20250219, a non-catalog id, so the shipped configuration routes nothing even with the key set \u2014 the honest fix the report itself names (document catalog ids in the example configs) is a zero-risk one-line change that the engineer identified and then did not make, so 'all five call sites reach Router' is true of the code and not yet of any default deployment.",
+  "Nothing on the non-latency-sensitive half of the traffic or on context growth: no Flex-tier item for background/run_flow steps (Flex is named only inside the Responses-rewrite item, where it is gated behind a rewrite), and no item on the conversation history that each step re-sends \u2014 which is what makes agent-loop cost grow \u2014 nor on keying the cache per conversation/prefix rather than per feature label."
+ ],
+ "wrong": [
+  "m1 overclaims deployment safety: unlock_hosts is derived from whatever base_url the operator set, and PPIO and Jiekou.AI are aggregators that serve catalog model ids (gpt-4o, claude-*). For those deployments the wrap does not 'behave exactly as before' \u2014 a catalog-id model silently moves off the operator's chosen aggregator onto Router, changing provider and bill with no opt-in beyond the key. The catalog-only guard protects Ollama and legacy ids, not OpenAI-id-shaped proxies; this risk is not stated anywhere.",
+  "i2's loss claim 'the response does not say which candidate served' is not a Router limitation \u2014 the response carries the model that answered; the gap is that app/llm.py does not log it. Stated as written it blames Router for an app-side omission, and it understates how cheap the fix is (log response.model).",
+  "i1 'loses: nothing' is too strong for a single prompt_cache_key per feature label. One key shared by every concurrent agent run means unrelated prefixes contend on the same affinity key, which can lower hit rate versus a per-conversation key; the measurement was a two-call single-session probe, which cannot show that effect.",
+  "Minor numeric slip in i4: gpt-4o-mini $0.15 -> gpt-5-nano $0.05 input is -67%, reported as 'about -60%'.",
+  "Both new test files write config/config.toml into the real checkout at collection time and delete it afterwards. It passes, but a test that mutates the operator's config directory is a side effect that should not ship in a migration's verification suite.",
+  "The check reports typecheck: {} and router requests 0/valid 0 for every branch, so the only automated evidence is the test counts (11 vs baseline 4) plus the engineer's own live runs; the report's per-item 'simulator pass / policy compiled' lines are self-reported and not corroborated by the outside check."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 16.4,
+  "usd": 8.9125,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 7,
+   "note": 1
+  },
+  "improvements": 7,
+  "built": 3,
+  "levels": {
+   "quick-win": 1,
+   "change": 4,
+   "rework": 2
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

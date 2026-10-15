@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Exercised every routable path against the real Router instead of trusting a static wrap, which surfaced two genuine Responses-vs-Chat-Completions breakages (function result without its call \u2192 400; streamed tool calls lost because the search aborted on Router's leading chunk) and fixed both in shapes that keep the direct-provider path working \u2014 this is the difference between a migration that compiles and one that works, and the outside check confirms all four chat/vision/summarise sites routing with no unverified sites left.",
+  "Chose the single shared client wrap over repointing base_url, with the correct reason stated: images/TTS/Whisper ride the same client and would have been forced onto an API with no endpoint for them \u2014 so the three 'stays' are a property of Router's surface, not an excuse, and match the check's hard-limit verdicts exactly.",
+  "Identified the real blocker to Router's value and named it honestly instead of papering over it: the hard-coded GPT_*_MODELS tables (with the concrete failure paths \u2014 default_max_tokens\u2192None\u2192int(None) TypeError, NotImplementedError in __max_model_tokens/__count_tokens) are why gpt-4o is routed as-is, and i4 ties that to Flex eligibility, 128k output caps and the cheaper catalog rather than claiming a model win it didn't earn."
+ ],
+ "misses": [
+  "No costed proposal for the biggest lever on the user-facing call itself: gpt-4o is a 2024 model and the live catalog has cheaper, stronger ids, but the report stops at 'i4 unblocks it' without a concrete 'after i4, move chat to <id> at <price>, here is the quality risk' candidate \u2014 the one decision a CTO most wants ranked.",
+  "The fixed per-request input cost of the plugin feature is never examined: 16 plugins' function specs plus the long system prompt are resent on every turn of every chat, which is likely the largest recurring spend in the app. An expert would have measured that payload and proposed trimming/lazy-loading the tool list and ordering the prompt for cache reuse, not just mentioned prompt order in passing inside i6.",
+  "No latency or failure-shape measurement of the Router hop itself on a user-waiting path \u2014 p50/p95 Router vs direct, what the runtime's provider fallback costs in added wait, and how provider_timeout=60 composes with the existing tenacity 3\u00d720s retry (which i3 notes it does not remove, leaving a worst case well past a Telegram user's patience). A bounded end-to-end deadline was the obvious companion change and isn't proposed."
+ ],
+ "wrong": [
+  "i1 overstates the cache gain: a per-feature prompt_cache_key does not make each conversation's prefix cache-eligible, and the '~1,024-token provider minimum' is an OpenAI implicit-caching detail rather than something the cache key buys. i6 effectively concedes this ('keying by chat id ... is where the cache read actually comes from'), so i1's 'gpt-4o cache reads cost $1.25 instead of $2.50' reads as a realised saving when it is mostly routing affinity.",
+  "m1's 'loses: nothing' is not true of the migration as shipped: the same commit changes the conversation history shape (an extra assistant function_call message) and the token counter for every deployment, including ones that never set RAMP_ROUTER_API_KEY. m2 states this cost honestly; m1 should not claim zero.",
+  "The stream fix replaces the SDK's Stream object with a bare async generator (__replay_stream) on the no-function-call path. Live streaming passed, but anything relying on the stream object's attributes or aclose() would now break, and that interface change is neither flagged as a loss nor covered by the tests.",
+  "The evidence leans on 'tests: 5 passed' where the suite is compileall plus four imports \u2014 the check's matching baseline confirms nothing regressed but also confirms nothing about behaviour; the summary's framing ('no change to the app's request shape') is carried by the live probes, not the tests.",
+  "Several price figures are imported from the fact sheet's measurements on other models (Claude's -90%, the 9,020-token gpt-4o-mini cache example, -50% Flex on gpt-5.4-mini) and presented inside this app's improvements; they are labelled as fact-sheet numbers, but none were measured on this traffic, and the check records zero cost measurement here.",
+  "validation.json's live record shows __handle_function_call with ok 2 / error 1; the report's m2 evidence lists the pre-fix 400 and the post-fix 2\u00d7200 without reconciling that the recorded error is the pre-fix run \u2014 plausible, but a reader comparing the two documents has to infer it."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 14.7,
+  "usd": 8.1711,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 11,
+  "kinds": {
+   "move": 1,
+   "port": 1,
+   "stays": 2,
+   "improvement": 6,
+   "note": 1
+  },
+  "improvements": 6,
+  "built": 3,
+  "levels": {
+   "quick-win": 2,
+   "change": 3,
+   "rework": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

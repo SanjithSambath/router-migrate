@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and routed the app's only real LLM call (llmcord.py:297, the streamed Discord reply) and verified it live end-to-end \u2014 the outside check confirms 1/1 routes verified, 0 unverified, 4/4 live requests OK on /v1/responses \u2014 while correctly choosing the runtime-wrapper path over a config-level Router provider, since the base_url is user-configurable and Router serves no /v1/chat/completions.",
+  "Built tests/smoke_on_message.py, which drives on_message with a stubbed Discord layer and asserts the embed turns EMBED_COLOR_COMPLETE \u2014 i.e. it checks the app's own 'stream finished cleanly' signal, so the Chat->Responses translation is actually validated. The repo's suite was only compileall + import; nothing else would have caught a broken stream.",
+  "Grounded the model-swap proposal in this code rather than a price table: picking gpt-5.6-luna over the cheaper gpt-6-luna because llmcord gates image attachments on VISION_MODEL_TAGS substring matching, so the cheaper id would silently stop accepting images. Cost arithmetic in i1/i8 checks out, and the 'input dominates because every reply resends up to 25 messages' observation is the right framing for this app."
+ ],
+ "misses": [
+  "No proposal to lower reasoning_effort. The shipped config runs reasoning_effort: high for a bot whose own system prompt says 'optimize for brevity'; reasoning tokens bill at the output rate and add time to a stream a human is watching. It is a one-line config change and probably a larger combined cost+latency lever than anything after the model swap \u2014 yet i1 keeps 'same high reasoning effort' as a feature and the report never evaluates dropping it.",
+  "No explicit service-tier decision. This is the textbook user_waiting call, and Flex trades latency for price, so an expert would have proposed pinning the reply off Flex (or measuring it) rather than mentioning Flex three times as pure upside and leaving it to 'the account default'.",
+  "No measured before/after for this app. The translation layer is asserted 'verified identical in effect' on the basis of one-word 'Four' replies, with no time-to-first-token or latency comparison against the direct OpenAI path, and the only concrete caching figure (8,832/9,020 tokens, $0.00069 vs $0.00135) is borrowed from a different model on a test account. For a product that is entirely a streamed reply, TTFT through the wrapper is the number a reviewer most wants."
+ ],
+ "wrong": [
+  "i2 describes provider_timeout 60 as firing after '60 s of stream silence' and i6 repeats it. provider_timeout is a Router-side bound on the provider request, not an inter-event silence watchdog; the stated loss ('a generation that legitimately goes 60 s between stream events is cut off') therefore likely misdescribes when the 504 actually fires, and 60s may be tighter than presented for a long high-effort reasoning response.",
+  "i7's stated loss \u2014 that prompt_cache_key 'must only be sent on the Router path (an unknown field would break a local or third-party OpenAI-compatible server), so the call needs to know whether it is routed' \u2014 contradicts i2, which states the runtime already applies these fields only to Router-bound requests. The dependency on i4 is real for the per-conversation key granularity, but this particular justification for it is not.",
+  "Flex is presented only as a gain ('Flex-eligible, so the account's cost-efficient routing still applies') with no mention that Flex queueing adds latency to a call a Discord user is watching stream. For this one call site that is a loss, not a gain.",
+  "The import fallback `_router_wrap_openai = lambda c, *a, **k: c` silently disables all routing if router_runtime.py is missing from a deployment \u2014 the bot keeps working and keeps billing the vendor directly with no signal. That is a reasonable safety default but it is an unstated operational risk in a report that is otherwise careful about losses.",
+  "m2 (client caching) is a real behaviour change to connection/client lifecycle bundled inside the migration rather than offered as a branch. It is well-argued and the hot-reload concern is handled, but the 'loses: nothing' is slightly strong \u2014 cached clients are never closed, and a rotated key creates a new client while the old pool lingers for the process's lifetime."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 12.6,
+  "usd": 6.1878,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 12,
+  "kinds": {
+   "move": 2,
+   "note": 1,
+   "stays": 1,
+   "improvement": 7,
+   "needs-decision": 1
+  },
+  "improvements": 7,
+  "built": 3,
+  "levels": {
+   "quick-win": 3,
+   "change": 3,
+   "rework": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

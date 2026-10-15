@@ -1,0 +1,1443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="dark light">
+<title>router-migrate</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #1B1A1A; --side: #201F1E; --panel: #242322; --panel-2: #2A2928; --hover: #2E2C2B; --code: #191818; --raise: #262524;
+  --line: #33312F; --line-2: #44413E; --line-3: #57534F;
+  --text: #EAE6E2; --text-2: #ADA7A2; --text-3: #7E7874;
+  --solar: #E4F222; --solar-hover: #D5E31B; --solar-ink: #1B1A1A; --solar-tint: rgba(228,242,34,.07); --solar-line: rgba(228,242,34,.40); --solar-text: #E8EF8F;
+  --olive: #36311A; --olive-ink: #E8D46B;
+  --green: #4BC876; --green-tint: rgba(75,200,118,.10); --green-line: rgba(75,200,118,.45);
+  --lilac: #BAA6EE; --lilac-tint: rgba(186,166,238,.10); --lilac-line: rgba(186,166,238,.42);
+  --amber: #E6B95D; --amber-tint: rgba(230,185,93,.10); --amber-line: rgba(230,185,93,.42);
+  --red: #E9876F; --red-tint: rgba(233,135,111,.10); --red-line: rgba(233,135,111,.45);
+  --blue: #8DB4E8; --blue-tint: rgba(141,180,232,.10); --blue-line: rgba(141,180,232,.42);
+  --add: rgba(75,200,118,.08); --del: rgba(233,135,111,.07); --hunk: #232221;
+  --syn-k: #C9B3F5; --syn-s: #A6DDB4; --syn-n: #EBC57A; --syn-c: #7E7874;
+  --bar: rgba(27,26,26,.84); --sticky: rgba(27,26,26,.92); --shadow: rgba(0,0,0,.45); --focus: #E4F222;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, "IBM Plex Mono", Menlo, Consolas, monospace;
+  --r: 8px; --ease: cubic-bezier(.2, .7, .2, 1); --fast: 140ms; --med: 220ms;
+  --side-w: 236px; --content: 1080px;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+    --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+    --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+    --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+    --olive: #EEF0C8; --olive-ink: #5B5712;
+    --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+    --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+    --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+    --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+    --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+    --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+    --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+    --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F6F5F2; --side: #EFEDE9; --panel: #FFFFFF; --panel-2: #F2F0EC; --hover: #EAE7E2; --code: #FAF9F7; --raise: #FBFAF8;
+  --line: #E3E0DB; --line-2: #D2CEC8; --line-3: #B3AEA7;
+  --text: #1B1A1A; --text-2: #55514C; --text-3: #85807A;
+  --solar-tint: rgba(160,170,0,.09); --solar-line: rgba(130,140,0,.42); --solar-text: #5A6100;
+  --olive: #EEF0C8; --olive-ink: #5B5712;
+  --green: #1E8546; --green-tint: rgba(30,133,70,.08); --green-line: rgba(30,133,70,.36);
+  --lilac: #6A50C6; --lilac-tint: rgba(106,80,198,.07); --lilac-line: rgba(106,80,198,.32);
+  --amber: #966000; --amber-tint: rgba(186,124,0,.09); --amber-line: rgba(186,124,0,.38);
+  --red: #BC4228; --red-tint: rgba(188,66,40,.07); --red-line: rgba(188,66,40,.36);
+  --blue: #2B64AC; --blue-tint: rgba(43,100,172,.07); --blue-line: rgba(43,100,172,.32);
+  --add: rgba(30,133,70,.09); --del: rgba(188,66,40,.08); --hunk: #F0EEEA;
+  --syn-k: #6A3DB0; --syn-s: #1D7442; --syn-n: #9A4E06; --syn-c: #8C877F;
+  --bar: rgba(246,245,242,.86); --sticky: rgba(246,245,242,.94); --shadow: rgba(30,25,20,.14); --focus: #5A6100;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/22px var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden; }
+h1, h2, h3, h4 { margin: 0; font-weight: 400; letter-spacing: -0.015em; }
+p { margin: 0; }
+a { color: inherit; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+button, input, select, textarea { font: inherit; color: inherit; }
+code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 6px; border-radius: 4px; color: var(--text); overflow-wrap: anywhere; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+::selection { background: rgba(228,242,34,.25); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* tones: one vocabulary for kinds, statuses, results and routes */
+.tone-green { --c: var(--green); --t: var(--green-tint); --l: var(--green-line); }
+.tone-solar { --c: var(--solar-text); --t: var(--solar-tint); --l: var(--solar-line); }
+.tone-blue { --c: var(--blue); --t: var(--blue-tint); --l: var(--blue-line); }
+.tone-amber { --c: var(--amber); --t: var(--amber-tint); --l: var(--amber-line); }
+.tone-red { --c: var(--red); --t: var(--red-tint); --l: var(--red-line); }
+.tone-lilac { --c: var(--lilac); --t: var(--lilac-tint); --l: var(--lilac-line); }
+.tone-neutral { --c: var(--text-2); --t: var(--panel-2); --l: var(--line-2); }
+.tone-muted { --c: var(--text-3); --t: transparent; --l: var(--line-2); }
+
+/* ================= shell ================= */
+.app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); min-height: 100vh; }
+.side { position: sticky; top: 0; height: 100vh; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 0 12px 16px; }
+.brand { display: flex; align-items: center; gap: 7px; height: 64px; margin: 0 -12px; padding: 0 22px; border-bottom: 1px solid var(--line); flex: none; }
+.brand b { font: 600 16px/22px var(--sans); letter-spacing: -0.02em; }
+.brand span { font: 400 11px/14px var(--mono); color: var(--text-3); padding-top: 3px; }
+.side .nav:first-of-type { margin-top: 16px; }
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-label { font: 500 10.5px/14px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); padding: 0 10px; margin: 0 0 6px; }
+.nav-item { position: relative; appearance: none; border: 0; background: none; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 6px; color: var(--text-2); cursor: pointer; text-align: left; width: 100%; transition: background var(--fast) var(--ease), color var(--fast) var(--ease); }
+.nav-item:hover { background: var(--hover); color: var(--text); }
+.nav-item[aria-current="page"] { background: var(--panel-2); color: var(--text); }
+.nav-item .nl { flex: 1; white-space: nowrap; }
+.nav-item .cnt { font: 500 11px/18px var(--mono); color: var(--text-3); min-width: 18px; text-align: right; }
+.nav-item .cnt.hot { color: var(--solar-ink); background: var(--solar); padding: 0 6px; border-radius: 9px; text-align: center; }
+.side-spacer { flex: 1; min-height: 24px; }
+.side-foot { padding: 14px 10px 0; margin-top: 12px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12px; line-height: 18px; }
+.main { min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 20; height: 64px; background: var(--bar); backdrop-filter: saturate(140%) blur(14px); -webkit-backdrop-filter: saturate(140%) blur(14px); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: calc(var(--content) + 112px); margin: 0 auto; height: 100%; padding: 0 56px; display: flex; align-items: center; gap: 12px; }
+.repo-chip { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
+.repo-ic { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.repo-ic svg.i { width: 15px; height: 15px; }
+.repo-id { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.repo-id .nm { font: 500 14.5px/19px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.repo-id .path { font: 400 11.5px/15px var(--mono); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px; }
+.crumb { display: inline-flex; align-items: center; gap: 12px; color: var(--text-2); white-space: nowrap; }
+.crumb::before { content: ""; width: 1px; height: 22px; background: var(--line-2); transform: skewX(-18deg); }
+.topbar .sp { flex: 1; }
+.status { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--line-2); font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.status svg.i { width: 14px; height: 14px; }
+.status.live { color: var(--green); border-color: var(--green-line); background: var(--green-tint); }
+.status.err { color: var(--red); border-color: var(--red-line); background: var(--red-tint); }
+.status.frozen { color: var(--blue); border-color: var(--blue-line); background: var(--blue-tint); }
+.dot { width: 6px; height: 6px; border-radius: 3px; background: currentColor; flex: none; }
+.dot.ping { animation: ping 2.4s var(--ease) infinite; }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(75,200,118,.45); } 70%, 100% { box-shadow: 0 0 0 6px rgba(75,200,118,0); } }
+.iconbtn { appearance: none; width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line-2); background: none; color: var(--text-2); display: grid; place-items: center; cursor: pointer; flex: none; }
+.iconbtn:hover { color: var(--text); background: var(--hover); }
+.page { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 44px 56px 160px; }
+.enter { animation: enter var(--med) var(--ease) both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ================= page header + sections ================= */
+.ph { display: flex; align-items: flex-end; gap: 24px; margin-bottom: 32px; }
+.ph-t { flex: 1; min-width: 0; }
+.eyebrow { font: 500 11px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.ph .eyebrow { margin-bottom: 10px; }
+.ph h1 { font-size: 32px; line-height: 40px; letter-spacing: -0.02em; }
+.ph h1 .muted { color: var(--text-3); }
+.ph .sub { color: var(--text-2); font-size: 15px; line-height: 24px; margin-top: 10px; max-width: 760px; }
+.ph-side { display: flex; gap: 8px; align-items: center; flex: none; }
+.sec { margin-top: 48px; }
+.sec-h { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+.sec-h .t { flex: 1; min-width: 0; }
+.sec-h h2 { font-size: 19px; line-height: 26px; }
+.sec-h p { color: var(--text-2); margin-top: 4px; }
+.sec-h .n, .group-h .n { font: 500 12px/18px var(--mono); color: var(--text-3); margin-left: 8px; }
+.group-h h2 { font-size: 17px; line-height: 24px; }
+.panel { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); }
+.empty { color: var(--text-2); padding: 24px; }
+.empty b { color: var(--text); font-weight: 500; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.banner { display: flex; gap: 12px; align-items: flex-start; padding: 13px 16px; border-radius: 7px; border: 1px solid var(--line-2); color: var(--text); margin-bottom: 20px; font-size: 13px; line-height: 20px; }
+.banner svg.i { margin-top: 2px; color: var(--c, var(--text-3)); }
+.banner .tx { flex: 1; min-width: 0; }
+.banner .tx b { font-weight: 500; }
+.banner.tone-amber, .banner.tone-red, .banner.tone-blue, .banner.tone-green { border-color: var(--l); background: var(--t); }
+.banner ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); }
+.link { appearance: none; background: none; border: 0; padding: 0; color: var(--text-2); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 13px; transition: color var(--fast) var(--ease); }
+.link svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.link:hover { color: var(--text); }
+.link:hover svg.i { transform: translateX(2px); }
+
+/* ================= overview ================= */
+.doors { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.door { appearance: none; text-align: left; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 14px; padding: 22px 22px 18px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); min-width: 0; transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.door:hover { border-color: var(--line-3); background: var(--raise); }
+.door:active { transform: translateY(1px); }
+.door-top { display: flex; align-items: center; gap: 12px; }
+.door-top h3 { font-size: 15px; line-height: 22px; font-weight: 500; flex: 1; min-width: 0; }
+.ic { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; background: var(--olive); color: var(--olive-ink); flex: none; }
+.ic.t { background: var(--t); color: var(--c); }
+.door-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.door-big .v { font-size: 40px; line-height: 44px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.door-big .v.word { font-size: 30px; line-height: 44px; letter-spacing: -0.02em; color: var(--c); }
+.door-big .v small { font-size: 18px; color: var(--text-3); margin-left: 2px; letter-spacing: 0; }
+.door-big .u { color: var(--text-2); font-size: 14px; }
+.door.hot { border-color: var(--solar-line); background: linear-gradient(180deg, var(--solar-tint), transparent 60%), var(--panel); }
+.door.hot .door-big .v { color: var(--solar-text); }
+.door-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--line); color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.door-foot .sp { flex: 1; }
+.door-foot .go { color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.door-foot .go svg.i { width: 14px; height: 14px; transition: transform var(--fast) var(--ease); }
+.door:hover .door-foot .go { color: var(--text); }
+.door:hover .door-foot .go svg.i { transform: translateX(3px); }
+.mini { display: flex; flex-direction: column; gap: 6px; color: var(--text-2); font-size: 13px; line-height: 18px; }
+.mini span { display: flex; align-items: baseline; gap: 7px; }
+.mini b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; min-width: 14px; }
+.mini .sdot { align-self: center; }
+.sdot { width: 8px; height: 8px; border-radius: 4px; background: var(--c); flex: none; display: inline-block; }
+.sdot.o { background: transparent; box-shadow: inset 0 0 0 1.5px var(--c); }
+.segbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
+.segbar i { display: block; height: 100%; background: var(--c); min-width: 4px; border-radius: 2px; }
+.segbar i.o { background: repeating-linear-gradient(135deg, var(--c) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--l); }
+.segbar i.muted { background: repeating-linear-gradient(135deg, var(--line-2) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--line-2); }
+.quote { display: flex; gap: 12px; padding: 16px 18px; border-radius: var(--r); background: var(--lilac-tint); border: 1px solid var(--lilac-line); }
+.quote svg.i { color: var(--lilac); margin-top: 3px; }
+.quote .qt { color: var(--text); font-size: 14.5px; line-height: 23px; max-width: 860px; }
+.quote .by { display: block; font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--lilac); margin-bottom: 6px; }
+.reviewed { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; padding: 12px 16px; border-radius: var(--r); border: 1px solid var(--line); color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.reviewed svg.i { margin-top: 3px; color: var(--text-3); }
+.reviewed b { color: var(--text); font-weight: 500; }
+.reviewed .tx { flex: 1; min-width: 0; }
+.reviewed.big { padding: 22px 24px; border-color: var(--solar-line); background: var(--solar-tint); }
+.reviewed.big .tx { font-size: 15px; line-height: 24px; color: var(--text); }
+.reviewed.big b { display: block; font-size: 17px; line-height: 24px; margin-bottom: 6px; }
+.reviewed.big svg.i { color: var(--solar-text); width: 18px; height: 18px; }
+.kchips { display: flex; flex-wrap: wrap; gap: 8px; }
+.facts-line { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 18px; color: var(--text-3); font-size: 12.5px; line-height: 18px; }
+.facts-line span { display: inline-flex; align-items: center; gap: 7px; }
+.facts-line b { color: var(--text-2); font-weight: 500; }
+
+/* traffic flow: each call, from its file to Router */
+.flow { position: relative; padding: 28px; overflow: hidden; background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; }
+.flow-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(64px, .7fr) minmax(0, 1fr); align-items: center; }
+.flow svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.wire { fill: none; stroke: var(--c, var(--green)); stroke-width: 1.5; stroke-dasharray: 4 6; stroke-linecap: round; opacity: .9; animation: flowdash 2.2s linear infinite; }
+.wires.fresh .wire { animation: flowdash 2.2s linear infinite, wirein 600ms var(--ease) both; }
+.wire.o { stroke-dasharray: 1 6; }
+.wire.broken, .wires.fresh .wire.broken { stroke-dasharray: 3 5; animation: wirein 600ms var(--ease) both; }
+.wire-x { fill: none; stroke: var(--c); stroke-width: 1.6; stroke-linecap: round; }
+@keyframes flowdash { to { stroke-dashoffset: -20; } }
+@keyframes wirein { from { opacity: 0; } to { opacity: .9; } }
+.fcol { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.fgroup { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fgroup-h { display: flex; align-items: baseline; gap: 8px; min-width: 0; font: 400 11.5px/16px var(--mono); color: var(--text-3); }
+.fgroup-h .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgroup-h .n { flex: none; }
+.fnode { appearance: none; position: relative; display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 9px 12px; text-align: left; color: inherit; background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px; cursor: pointer;
+  transition: border-color var(--fast) var(--ease), background var(--fast) var(--ease); }
+.fnode:hover { border-color: var(--l); background: var(--hover); }
+.fnode .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fnode .fn { font: 500 12.5px/18px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode .sub { color: var(--text-3); font-size: 12px; line-height: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fnode svg.go { width: 13px; height: 13px; color: var(--text-3); opacity: 0; transform: translateX(-3px); transition: opacity var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.fnode:hover svg.go, .fnode:focus-visible svg.go { opacity: 1; transform: none; }
+.router-node { position: relative; min-width: 0; background: var(--bg); border: 1px solid var(--green-line); border-radius: 10px; padding: 20px; box-shadow: 0 0 0 5px var(--green-tint), 0 14px 32px -14px var(--shadow); }
+.router-node .nm { display: flex; align-items: center; gap: 10px; font-size: 18px; line-height: 24px; }
+.router-node .host { color: var(--text-3); margin-top: 10px; overflow-wrap: anywhere; }
+.rchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.rchip { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; color: var(--c); background: var(--t); border: 1px solid var(--l); cursor: pointer; }
+.rchip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rchip svg.i { width: 13px; height: 13px; }
+.flow-stay { position: relative; z-index: 1; margin-top: 24px; padding-top: 20px; border-top: 1px dashed var(--line-2); }
+.stay-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 10px; }
+.stay-grid .fnode { padding: 8px 10px; background: transparent; border-style: dashed; }
+.flow .legend { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--text-2); font-size: 12.5px; line-height: 18px; }
+.legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.legend b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.legend svg { width: 22px; height: 8px; flex: none; }
+.legend svg line { stroke: var(--c); stroke-width: 1.5; stroke-dasharray: 4 3; stroke-linecap: round; }
+.legend svg.o line { stroke-dasharray: 1 3.5; }
+.legend .box { width: 16px; height: 11px; border: 1px dashed var(--line-3); border-radius: 3px; flex: none; }
+.flow-empty { color: var(--text-2); padding: 12px 0; }
+
+/* ================= badges ================= */
+.kb { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 4px; font: 500 10.5px/14px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.kb svg.i { width: 12px; height: 12px; }
+.sc { display: inline-flex; align-items: center; gap: 7px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 12px; line-height: 16px; color: var(--c); background: var(--t); border: 1px solid var(--l); white-space: nowrap; flex: none; }
+.sc .dot { width: 6px; height: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 5px; font-size: 12px; line-height: 16px; white-space: nowrap; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-2)); background: var(--t, transparent); }
+.pill svg.i { width: 12px; height: 12px; }
+
+/* ================= the one card ================= */
+.card { position: relative; border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 20px 24px; scroll-margin-top: 96px; transition: border-color var(--med) var(--ease), box-shadow var(--med) var(--ease); }
+.card.flash { animation: flash 1.6s var(--ease); }
+@keyframes flash { 0% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } 15% { box-shadow: 0 0 0 3px var(--solar-line); border-color: var(--solar-line); } 100% { box-shadow: 0 0 0 0 rgba(228,242,34,0); } }
+.item.waiting { border-color: var(--solar-line); }
+.ih { display: flex; align-items: flex-start; gap: 8px 12px; flex-wrap: wrap; }
+.ih .kb { margin-top: 1px; }
+.ih .it { flex: 1 1 240px; min-width: 0; font-size: 16px; line-height: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.isum { color: var(--text-2); margin-top: 8px; max-width: 860px; }
+.row { display: flex; align-items: baseline; gap: 6px 10px; flex-wrap: wrap; margin-top: 12px; }
+.lbl { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+.row > .lbl { min-width: 72px; }
+.cref { appearance: none; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 22px; padding: 0 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font: 400 11.5px/16px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+button.cref:hover { color: var(--text); border-color: var(--line-3); }
+span.cref { cursor: default; color: var(--text-3); border-style: dashed; }
+.cref em { font-style: normal; color: var(--text-3); }
+.glp { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.glp > div { padding: 10px 14px; border-left: 1px solid var(--line); min-width: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.glp > div:first-child { border-left: 0; }
+.glp .lbl { margin-bottom: 4px; display: block; }
+.glp .g { color: var(--text); }
+.glp .l { color: var(--text-2); }
+.glp .l.none { color: var(--text-3); }
+.glp .pr { color: var(--text); font-variant-numeric: tabular-nums; }
+.chk { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 6px 10px; margin-top: 16px; }
+.chk > .lbl { padding-top: 4px; }
+.evl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.ev { display: grid; grid-template-columns: 74px auto minmax(0, 1fr) auto; grid-template-areas: "r k d s"; gap: 0 10px; align-items: baseline; font-size: 13px; line-height: 20px; }
+.ev .r { grid-area: r; display: inline-flex; align-items: center; gap: 5px; font: 500 11px/20px var(--mono); color: var(--c); white-space: nowrap; }
+.ev .r svg.i { width: 13px; height: 13px; align-self: center; }
+.ev .k { grid-area: k; color: var(--text); font-weight: 500; white-space: nowrap; }
+.ev .d { grid-area: d; color: var(--text-2); overflow-wrap: anywhere; min-width: 0; }
+.ev .s { grid-area: s; font: 500 9.5px/16px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); border: 1px solid var(--line-2); border-radius: 3px; padding: 0 5px; white-space: nowrap; }
+.ev .s.agent { color: var(--lilac); border-color: var(--lilac-line); }
+.mc { margin-top: 16px; padding: 14px 16px; border-radius: 7px; border: 1px solid var(--lilac-line); background: var(--lilac-tint); }
+.mc-h { display: flex; gap: 10px; align-items: flex-start; }
+.mc-h svg.i { color: var(--lilac); margin-top: 3px; }
+.mc-h .tx { flex: 1; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.mc-h .tx b { display: block; color: var(--text); font-weight: 500; font-size: 14px; }
+.mc .evl { margin-top: 10px; }
+.samples { margin-top: 12px; display: grid; gap: 8px; }
+.sample { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); font-size: 12.5px; line-height: 19px; }
+.sample > div { padding: 8px 10px; border-left: 1px solid var(--line); min-width: 0; overflow-wrap: anywhere; }
+.sample > div:first-child { border-left: 0; color: var(--text-2); }
+.sample .lbl { display: block; margin-bottom: 2px; }
+.sample.diff > div:last-child { background: var(--amber-tint); }
+.flags { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--amber-line); background: var(--amber-tint); font-size: 13px; line-height: 20px; }
+.flags svg.i { color: var(--amber); margin-top: 2px; }
+.flags .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.flags .fk { color: var(--amber); font-weight: 500; margin-right: 6px; }
+.flags .fd { color: var(--text); overflow-wrap: anywhere; }
+.flags .ff { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.rel { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; margin-top: 12px; font-size: 13px; }
+.ilink { appearance: none; background: none; border: 0; padding: 0; display: inline-flex; align-items: baseline; gap: 7px; color: var(--text); cursor: pointer; text-align: left; font-size: 13px; line-height: 20px; max-width: 100%; }
+.ilink .sdot { align-self: center; width: 7px; height: 7px; }
+.ilink .tt { text-decoration: underline; text-decoration-color: var(--line-2); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.ilink:hover .tt { text-decoration-color: var(--text-2); }
+.note { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 10px 14px; border-radius: 7px; border: 1px solid var(--l, var(--line)); background: var(--t, transparent); font-size: 13px; line-height: 20px; color: var(--text-2); }
+.note svg.i { color: var(--c, var(--text-3)); margin-top: 2px; width: 15px; height: 15px; }
+.note .tx { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.note b { color: var(--text); font-weight: 500; }
+.note .meta { color: var(--text-3); }
+.disc { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+details.more > summary { cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; display: inline-flex; align-items: center; gap: 7px; user-select: none; padding: 3px 0; transition: color var(--fast) var(--ease); }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary svg.i { width: 12px; height: 12px; transition: transform var(--med) var(--ease); }
+details.more[open] > summary svg.i:first-child { transform: rotate(90deg); }
+details.more > summary:hover { color: var(--text); }
+details.more > summary .meta { color: var(--text-3); font-family: var(--mono); font-size: 11.5px; }
+details.more[open] > .more-b { animation: reveal var(--med) var(--ease) both; }
+@keyframes reveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.more-b { margin: 8px 0 10px; color: var(--text-2); font-size: 13.5px; line-height: 21px; }
+.whyt { padding: 12px 14px; border-left: 2px solid var(--lilac-line); background: var(--lilac-tint); border-radius: 0 6px 6px 0; color: var(--text); max-width: 860px; }
+.nodiff { color: var(--text-3); font-size: 12.5px; display: inline-flex; align-items: center; gap: 7px; padding: 3px 0; }
+.nodiff svg.i { width: 12px; height: 12px; }
+.ifoot { display: flex; align-items: center; gap: 10px 12px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ifoot .sp { flex: 1; }
+.ref { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font: 400 12px/18px var(--mono); min-width: 0; max-width: 100%; }
+.ref svg.i { width: 13px; height: 13px; }
+.ref span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acts { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* buttons + forms */
+.btn { appearance: none; display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--line-2); background: transparent; color: var(--text); cursor: pointer; white-space: nowrap; font-size: 13px; transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease), opacity var(--fast) var(--ease); }
+.btn svg.i { width: 14px; height: 14px; }
+.btn:hover:not(:disabled) { border-color: var(--line-3); background: var(--hover); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--solar); border-color: var(--solar); color: var(--solar-ink); font-weight: 500; }
+.btn.primary:hover:not(:disabled) { background: var(--solar-hover); border-color: var(--solar-hover); }
+.btn.ghost { border-color: transparent; color: var(--text-2); padding: 0 10px; }
+.btn.ghost:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
+.btn.warn { color: var(--amber); border-color: var(--amber-line); }
+.btn.lg { height: 40px; padding: 0 18px; font-size: 14px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid currentColor; border-right-color: transparent; animation: spin .7s linear infinite; display: inline-block; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; width: 100%; animation: enter var(--med) var(--ease) both; }
+.form input { height: 32px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); padding: 0 10px; flex: 1 1 240px; min-width: 0; max-width: 460px; }
+.form input[type=date] { flex: 0 1 180px; }
+.form input:focus { outline: none; border-color: var(--solar-line); }
+.form .hint { color: var(--text-3); font-size: 12.5px; flex: 1 1 100%; }
+
+/* filters */
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.filters > .lbl { min-width: 52px; }
+.fchip { appearance: none; display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: 15px; border: 1px solid var(--line-2); background: none; color: var(--text-2); cursor: pointer; font-size: 13px; transition: background var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.fchip:hover { color: var(--text); border-color: var(--line-3); }
+.fchip[aria-pressed="true"] { background: var(--panel-2); color: var(--text); border-color: var(--line-3); }
+.fchip .n { font: 500 11px/16px var(--mono); color: var(--text-3); }
+.fchip .sdot { width: 7px; height: 7px; }
+.group { margin-top: 36px; }
+.group:first-child { margin-top: 28px; }
+.group-h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.group-h p { color: var(--text-3); font-size: 13px; line-height: 20px; flex: 1 1 300px; min-width: 0; }
+
+/* calls table */
+.tblw { overflow: hidden; }
+.ctbl { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.ctbl th { text-align: left; font-weight: 400; color: var(--text-3); font-size: 12px; padding: 11px 16px; border-bottom: 1px solid var(--line); background: var(--raise); white-space: nowrap; }
+.ctbl td { padding: 13px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ctbl tr:last-child td { border-bottom: 0; }
+.ctbl tr { scroll-margin-top: 96px; }
+.ctbl tr.flash td { animation: rowflash 1.6s var(--ease); }
+@keyframes rowflash { 15% { background: var(--solar-tint); } }
+.ctbl .site { font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; }
+.ctbl .sub { color: var(--text-3); font-size: 12px; line-height: 18px; margin-top: 2px; overflow-wrap: anywhere; }
+.ctbl .mdl { font-family: var(--mono); font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.route { display: inline-flex; align-items: center; gap: 7px; color: var(--c); white-space: nowrap; font-weight: 500; }
+.lat { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); white-space: nowrap; }
+
+/* queue */
+.prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 14px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.prow:first-child { border-top: 0; }
+.prow .tx { min-width: 0; }
+.prow .pa { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.prow .ss { color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 3px; overflow-wrap: anywhere; }
+.atag { display: inline-flex; align-items: center; justify-content: center; min-width: 58px; height: 24px; padding: 0 8px; border-radius: 5px; font: 500 11px/14px var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--c); background: var(--t); border: 1px solid var(--l); flex: none; }
+.applybar { display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; padding: 16px 18px; border-top: 1px solid var(--line); background: var(--raise); border-radius: 0 0 var(--r) var(--r); }
+.applybar .tx { flex: 1 1 300px; min-width: 0; color: var(--text-2); font-size: 13px; line-height: 20px; }
+.applybar .tx b { color: var(--text); font-weight: 500; }
+.applybar .why { flex: 1 1 100%; color: var(--amber); font-size: 12.5px; line-height: 18px; display: flex; gap: 8px; align-items: flex-start; }
+.applybar .why svg.i { width: 14px; height: 14px; margin-top: 2px; }
+.term { margin: 0; padding: 14px 16px; font: 400 12px/19px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); max-height: 260px; overflow: auto; background: var(--code); border-top: 1px solid var(--line); border-radius: 0 0 var(--r) var(--r); }
+.result-h { display: flex; align-items: center; gap: 12px; padding: 14px 18px; font-size: 13.5px; flex-wrap: wrap; }
+.result-h .tx { flex: 1 1 260px; min-width: 0; }
+.result-h .tx b { font-weight: 500; }
+.copyv { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; height: 32px; padding: 0 4px 0 12px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); font: 400 12.5px/18px var(--mono); color: var(--text); }
+.copyv .cv { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copyv .btn { height: 24px; padding: 0 8px; font-size: 11.5px; flex: none; }
+
+/* history */
+.sess { overflow: hidden; }
+.sess-h { display: flex; align-items: center; gap: 12px 14px; padding: 16px 20px; flex-wrap: wrap; }
+.sid { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line-2); font: 500 13px/16px var(--mono); color: var(--text); flex: none; }
+.sess-h .tx { flex: 1 1 220px; min-width: 0; }
+.sess-h .tx b { font-weight: 500; font-size: 15px; }
+.sess-h .tx .mt { display: block; color: var(--text-3); font-size: 12.5px; line-height: 18px; margin-top: 2px; }
+.sess-sum { padding: 0 20px 16px; color: var(--text); max-width: 900px; }
+.rrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 14px; padding: 13px 20px; border-top: 1px solid var(--line); align-items: start; }
+.rrow .tx { min-width: 0; }
+.rrow .nt { color: var(--text-2); font-size: 13px; line-height: 20px; margin-top: 4px; overflow-wrap: anywhere; }
+.rrow .cm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rrow .rt { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.sess-ck { padding: 14px 20px 18px; border-top: 1px solid var(--line); background: var(--raise); }
+.sess-ck .lbl { display: block; margin-bottom: 8px; }
+
+/* setup */
+.prog { display: flex; align-items: center; gap: 12px; }
+.prog-bar { display: flex; gap: 4px; }
+.prog-bar i { width: 22px; height: 6px; border-radius: 3px; background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-2); }
+.prog-bar i.on { background: var(--solar); box-shadow: none; }
+.prog .tx { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+.prog .tx b { color: var(--text); font-weight: 500; }
+.scard { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 0 16px; padding: 22px 24px; }
+.scard.done .s-body { opacity: .6; }
+.s-rail { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.s-num { font: 500 11px/14px var(--mono); color: var(--text-3); letter-spacing: .06em; }
+.check { appearance: none; width: 26px; height: 26px; border-radius: 13px; border: 1.5px solid var(--line-3); background: none; flex: none; cursor: pointer; display: grid; place-items: center; color: var(--solar-ink); transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.check:hover { border-color: var(--solar-line); }
+.check.on { background: var(--solar); border-color: var(--solar); }
+.check svg.i { width: 12px; height: 12px; stroke-width: 2; }
+.s-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.s-head h3 { font-size: 16px; line-height: 24px; font-weight: 500; }
+.prio { font: 500 10.5px/14px var(--mono); letter-spacing: .07em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--l, var(--line-2)); color: var(--c, var(--text-3)); background: var(--t, transparent); white-space: nowrap; }
+.s-lead { color: var(--text-2); margin-top: 8px; max-width: 760px; }
+.s-block { margin-top: 16px; }
+.s-block > .lbl { display: block; margin-bottom: 8px; }
+.taglist { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 5px; font-size: 12px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--line); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.where { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; padding: 6px 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.where .r { font-weight: 500; color: var(--text); }
+.where svg.i { width: 12px; height: 12px; color: var(--text-3); }
+.s-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.s-foot .nt { color: var(--text-3); font-size: 12.5px; }
+a.btn { text-decoration: none; }
+
+/* diff */
+.dv { margin-top: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--code); overflow: hidden; }
+.dv-h { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.dv-h .msg { color: var(--text); font-weight: 500; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.dv-h .mono { color: var(--text-3); font-size: 11.5px; }
+.dv-trunc { padding: 8px 14px; color: var(--amber); font-size: 12px; border-top: 1px solid var(--line); background: var(--amber-tint); }
+.df + .df { border-top: 1px solid var(--line); }
+.df-h { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); font: 400 12px/18px var(--mono); }
+.df-h .f { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.df-h .m { color: var(--amber); font-size: 11px; }
+.plus { color: var(--green); }
+.minus { color: var(--red); }
+.df-b { overflow-x: auto; scrollbar-width: thin; }
+.df-b table { border-collapse: collapse; min-width: 100%; font: 400 12px/19px var(--mono); }
+.df-b td { padding: 0; vertical-align: top; }
+.df-b td.n { width: 1%; min-width: 38px; padding: 0 8px; color: var(--text-3); text-align: right; user-select: none; opacity: .8; }
+.df-b td.g { width: 14px; padding: 0 4px; color: var(--text-3); user-select: none; text-align: center; }
+.df-b td.c { white-space: pre; padding-right: 14px; color: var(--text-2); }
+.df-b tr.add { background: var(--add); }
+.df-b tr.add td.g { color: var(--green); }
+.df-b tr.add td.c { color: var(--text); }
+.df-b tr.del { background: var(--del); }
+.df-b tr.del td.g { color: var(--red); }
+.df-b tr.hunk td { background: var(--hunk); color: var(--text-3); padding-top: 2px; padding-bottom: 2px; }
+.df-b tr.hunk td.c { white-space: pre-wrap; overflow-wrap: anywhere; }
+.sy-k { color: var(--syn-k); }
+.sy-s { color: var(--syn-s); }
+.sy-n { color: var(--syn-n); }
+.sy-c { color: var(--syn-c); font-style: italic; }
+.stat { padding: 8px 14px; font: 400 11.5px/18px var(--mono); color: var(--text-3); border-bottom: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* sticky + toast */
+#sticky:empty { display: none; }
+.sticky { position: fixed; left: var(--side-w); right: 0; bottom: 0; z-index: 30; background: var(--sticky); backdrop-filter: saturate(140%) blur(10px); -webkit-backdrop-filter: saturate(140%) blur(10px); border-top: 1px solid var(--line); }
+.sticky.in { animation: up 320ms var(--ease) both; }
+@keyframes up { from { transform: translateY(100%); } to { transform: none; } }
+.sticky-in { max-width: calc(var(--content) + 112px); margin: 0 auto; padding: 12px 56px; display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap; }
+.sticky-in .tx { flex: 1 1 200px; color: var(--text-2); min-width: 0; }
+.sticky-in .tx b { color: var(--text); font-weight: 500; }
+#toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 40; pointer-events: none; width: max-content; max-width: calc(100vw - 32px); }
+.toast { display: flex; align-items: center; gap: 10px; background: var(--text); color: var(--bg); border-radius: 8px; padding: 10px 16px; font-size: 13px; box-shadow: 0 10px 30px var(--shadow); animation: toastin 260ms var(--ease) both; }
+.toast.out { animation: toastout 200ms var(--ease) both; }
+.toast svg.i { width: 15px; height: 15px; }
+.toast.err { background: var(--red); color: #fff; }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes toastout { to { opacity: 0; transform: translateY(6px); } }
+
+/* ================= responsive ================= */
+@media (max-width: 1100px) {
+  .doors { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .doors .door:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 900px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: sticky; top: 0; z-index: 25; height: auto; flex-direction: row; align-items: center; padding: 8px 10px; gap: 6px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .side::-webkit-scrollbar { display: none; }
+  .brand, .side-spacer, .side-foot, .nav-label { display: none; }
+  .side .nav:first-of-type { margin-top: 0; }
+  .nav { flex-direction: row; }
+  .nav-item { width: auto; padding: 0 10px; }
+  .topbar { top: 53px; height: 56px; }
+  .topbar-in { padding: 0 16px; gap: 8px; }
+  .repo-id .path, .crumb, .status.key { display: none; }
+  .repo-ic { width: 28px; height: 28px; }
+  .page { padding: 26px 16px 160px; }
+  .ph { flex-direction: column; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
+  .ph h1 { font-size: 25px; line-height: 33px; }
+  .doors { grid-template-columns: minmax(0, 1fr); }
+  .glp { grid-template-columns: minmax(0, 1fr); }
+  .glp > div { border-left: 0; border-top: 1px solid var(--line); }
+  .glp > div:first-child { border-top: 0; }
+  .card { padding: 18px 16px; }
+  .ifoot .sp { display: none; }
+  .ifoot .ref { flex: 1 1 100%; }
+  .chk { grid-template-columns: minmax(0, 1fr); }
+  .ev { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "r k s" "d d d"; gap: 0 8px; padding-bottom: 4px; }
+  .ev .r { min-width: 0; }
+  .sample { grid-template-columns: minmax(0, 1fr); }
+  .sample > div { border-left: 0; border-top: 1px solid var(--line); }
+  .sample > div:first-child { border-top: 0; }
+  .ctbl thead { display: none; }
+  .ctbl, .ctbl tbody, .ctbl tr, .ctbl td { display: block; width: 100%; }
+  .ctbl tr { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .ctbl tr:last-child { border-bottom: 0; }
+  .ctbl td { padding: 0; border: 0; }
+  .ctbl .site { white-space: normal; overflow-wrap: anywhere; }
+  .ctbl td + td { margin-top: 8px; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+  .ctbl td + td::before { content: attr(data-l); font: 500 10px/18px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--text-3); }
+  .df-b td.n.o { display: none; }
+  .df-b td.n { min-width: 30px; padding: 0 6px; }
+  .sticky { left: 0; }
+  .sticky-in { padding: 10px 16px; flex-wrap: nowrap; }
+  .sticky-in .tx { font-size: 13px; line-height: 18px; }
+  .sticky-in .btn { padding: 0 12px; }
+  .scard { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px 16px; }
+  .s-rail { flex-direction: row; }
+  .sess-h, .rrow, .sess-ck { padding-left: 16px; padding-right: 16px; }
+  .sess-sum { padding: 0 16px 14px; }
+  .rrow { grid-template-columns: minmax(0, 1fr); }
+  .rrow .rt { justify-content: flex-start; }
+  .prow { padding: 14px 16px; grid-template-columns: auto minmax(0, 1fr); }
+  .prow .pa { grid-column: 2; justify-content: flex-start; }
+  .prow .pa .btn.ghost { margin-left: -10px; }
+  .prow.dec { grid-template-columns: minmax(0, 1fr); }
+  .prow.dec .pa { grid-column: 1; }
+  .prow.dec > .sc { justify-self: start; }
+  .applybar { padding: 14px 16px; }
+  .applybar .btn { width: 100%; }
+  .row > .lbl { min-width: 0; flex: 1 1 100%; }
+  .filters > .lbl { flex: 1 1 100%; }
+}
+@media (max-width: 640px) {
+  .flow { padding: 18px 16px; }
+  .flow-grid { grid-template-columns: minmax(0, 1fr); }
+  .flow svg.wires { display: none; }
+  .flow-mid { justify-self: center; width: 0; height: 28px; border-left: 1.5px dashed var(--green-line); }
+  .stay-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 420px) {
+  .status .lbl2 { display: none; }
+  .status { padding: 0 9px; }
+  .door-big .v { font-size: 34px; }
+  .door-big .v.word { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .wire { animation: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side" aria-label="Pages"></aside>
+  <div class="main"><header class="topbar" id="topbar"></header><main class="page" id="main"></main></div>
+</div>
+<div id="sticky"></div>
+<div id="toast" aria-live="polite"></div>
+<script id="rm-boot">window.__RM__ = window.__RM__ || null; window.__RM_MODE__ = window.__RM_MODE__ || "static";window.__RM__ = {"version":6,"repo":"sec-insights","root":"/Users/sanjithsambath/code/router-migrate/eval/work/v3/trials/L_r2_lean2/sec-insights","generated":"2026-10-14T21:44:19","tool_version":"router-migrate 0.5.0","live":true,"base":"372297356c20d116e3acdbe68c60dc189b7e3cac","migration_ref":"router-migrate/migration","has_report":true,"report_errors":[],"summary":"SEC Insights makes every LLM call through LlamaIndex from two OpenAI client constructions: the shared Settings.llm (sub-question generation, QA/refine synthesis, and the per-document polygon agents, which deep-copy it) and a second streaming LLM built per conversation turn for the top-level OpenAIAgent. Both now take the vendored Router runtime's httpx clients, so every chat call is translated from Chat Completions to Router's /v1/responses and falls back to OpenAI if Router refuses before generating; nothing changes until RAMP_ROUTER_API_KEY is set. A live check through real Router ran the app's own code paths end to end: 12 of 12 requests 200, covering sync chat, the deep-copied per-document LLM, sync and async streaming, and a tool-calling agent turn. The OpenAI embedding model on the next lines of the same file stays on OpenAI because Router serves no embeddings endpoint, so the app still needs its OpenAI key. Two improvements are built on branches (stable per-role spend labels; cross-vendor failover and provider timeouts via router.policy.json, with a live check showing claude-haiku-4-5 serving this app's exact tool-call shape), and five more improvements plus a note on Flex are proposed, led by removing the per-document agent that spends two model calls to invoke a function whose arguments it ignores.","reviewed":"I read the whole chat path: app/api/endpoints/conversation.py and app/chat/messaging.py (the streaming endpoint and callback plumbing), app/chat/engine.py (the agent plus two SubQuestionQueryEngines), app/chat/tools.py (per-document polygon agents), app/chat/qa_response_synth.py (QA/refine prompts), app/llama_index_settings.py and app/core/config.py, and the backend/scripts and alembic trees, which make no LLM calls of their own. All model traffic comes from the two client constructions above plus the embedding model; there is no hand-rolled retry, no second vendor, no Chat Completions call written by hand, and no prompt long enough in its fixed prefix for caching to pay on turn one, which is why the caching proposal is scoped to multi-turn conversations rather than offered as a free win.","headline":{"traffic":{"total":4,"on_router":3,"verified":3,"unverified":0,"not_routing":0,"stays":1},"behaviour":{"checked":true,"ok":true,"at":"2026-10-14T21:44:19","ref":"router-migrate/migration","tests":{"status":"passed","counts":{"passed":15,"failed":0,"errors":0,"exit":0,"seconds":6.6},"baseline":{"passed":15,"failed":0,"errors":0,"exit":0,"seconds":8.0},"requests":0,"valid":0},"typecheck":null,"router":{"requests":0,"valid":0,"invalid":[]},"failures":[],"flags":[],"unclaimed_flags":[],"entries":[{"check":"tests","result":"pass","detail":"15 passed on the migration branch; before: 15 passed (same as before)","source":"check"},{"check":"router-live","label":null,"result":"pass","source":"check","detail":"32 live request(s) through Router recorded, 32 ok (features: chat_orchestrator, drive.py:\u003clistcomp\u003e, drive.py:\u003cmodule\u003e, drive.py:go, retrieval_synthesis)"}]},"waiting":{"count":7,"items":["i1","i2","i3","i4","i5","i6","i7"],"ready":0,"running":[]}},"calls":[{"site":"backend/app/llama_index_settings.py:28","feature":"retrieval_synthesis","model":"gpt-4o-mini","task":"chat","latency":"user_waiting","now":"router","route":"verified","reason":null,"item":"m1","item_title":"Route the shared LlamaIndex LLM","item_kind":"move","item_status":"in code"},{"site":"backend/app/chat/engine.py:287","feature":"chat_orchestrator","model":"gpt-4o-mini","task":"chat","latency":"user_waiting","now":"router","route":"verified","reason":null,"item":"m2","item_title":"Route the streaming chat agent LLM","item_kind":"move","item_status":"in code"},{"site":"backend/app/chat/tools.py:156","feature":"retrieval_synthesis","model":"gpt-4o-mini","task":"agent","latency":"user_waiting","now":"router","route":"verified","reason":null,"item":"m1","item_title":"Route the shared LlamaIndex LLM","item_kind":"move","item_status":"in code"},{"site":"backend/app/llama_index_settings.py:32","feature":null,"model":"text-embedding-3-small","task":"embedding","latency":"user_waiting","now":"provider","route":"provider","reason":null,"item":"s1","item_title":"Embeddings stay on OpenAI","item_kind":"stays","item_status":"info"}],"items":[{"id":"m1","kind":"move","title":"Route the shared LlamaIndex LLM","summary":"Settings.llm takes the Router runtime's httpx clients, so sub-question generation, QA/refine synthesis and the per-document agents route to Router.","calls":["backend/app/llama_index_settings.py:28","backend/app/chat/tools.py:156"],"level":null,"built":null,"gains":"The app's highest-volume calls (one turn fans out to roughly a dozen of them) go through one Router key, reported per request, and keep the runtime's automatic fallback to OpenAI when Router refuses before generating.","loses":"Nothing the app can do: same model, same request shape, same streaming, and the runtime still falls back to OpenAI when Router refuses before generating. What it adds is a hop and a Chat-Completions-to-Responses translation in the request path; Router's added latency against calling OpenAI directly is not measured anywhere (fact sheet section 12), so budget for it rather than assume zero.","price":"no change: same model, same list price ($0.15/$0.60 per 1M on gpt-4o-mini); usage.cost on /v1/responses matched list price in the fact sheet's measurements.","why":"This one client serves most of the traffic. app/chat/tools.py deep-copies it per document (model_copy(deep=True)), which was the risk worth checking: the runtime's client returns itself from __deepcopy__, so the copies share the routed client instead of failing on its locks. Verified in the simulator and live: the copied LLM's calls appear as Router requests from this client.","commit":"d6cc178","branch":null,"depends_on":[],"excludes":[],"status":"in code","etag":"e3ae58cb8e1b","request":null,"stale":false,"due":false,"checked":[{"check":"tests","label":null,"result":"pass","detail":"8-step smoke import/build check and pytest tests/ (7 passed), unchanged from baseline","source":"agent","samples":null},{"check":"simulator","label":null,"result":"pass","detail":"check --run driving the app's own objects: 7/7 valid /v1/responses, including the deep-copied per-document LLM and an agent tool-call turn","source":"agent","samples":null},{"check":"router-live","label":null,"result":"pass","detail":"check --run --live: 12/12 requests 200 through real Router, provider=openai, model=gpt-4o-mini","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"15 passed on the migration branch; before: 15 passed (same as before)","source":"check"},{"check":"router-live","label":null,"result":"pass","source":"check","detail":"32 live request(s) through Router recorded, 32 ok (features: chat_orchestrator, drive.py:\u003clistcomp\u003e, drive.py:\u003cmodule\u003e, drive.py:go, retrieval_synthesis)"},{"check":"other","label":"Route","result":"pass","detail":"2 calls seen going through Router (route truth)","source":"check"}],"flags":[],"diff":{"ref":"d6cc178","how":"git show --stat --patch d6cc178","error":null,"text":"commit d6cc1787832e851f2090288c17c7ff112ed1ba68\nAuthor: Sanjith Sambath \u003csanjith.sambath07@gmail.com\u003e\nDate:   Wed Oct 14 21:35:27 2026 -0400\n\n    Route the shared LlamaIndex LLM through Router\n    \n    Vendor the Router runtime and pass its httpx clients to the OpenAI LLM in\n    app/llama_index_settings.py. This is Settings.llm: sub-question generation,\n    response synthesis (QA/refine) and the per-document polygon agents in\n    app/chat/tools.py (which deep-copy it). Chat Completions calls are translated\n    to Router's /v1/responses; inactive until RAMP_ROUTER_API_KEY is set.\n    \n    The OpenAIEmbedding on the next lines is left on OpenAI: Router serves no\n    embeddings endpoint.\n    \n    Co-Authored-By: Claude Opus 5 (1M context) \u003cnoreply@anthropic.com\u003e\n---\n backend/app/llama_index_settings.py |   18 +-\n backend/app/router_runtime.py       | 1422 +++++++++++++++++++++++++++++++++++\n 2 files changed, 1438 insertions(+), 2 deletions(-)\n\ndiff --git a/backend/app/llama_index_settings.py b/backend/app/llama_index_settings.py\nindex f206da9..4edf265 100644\n--- a/backend/app/llama_index_settings.py\n+++ b/backend/app/llama_index_settings.py\n@@ -9,12 +9,26 @@ from app.chat.constants import (\n     NODE_PARSER_CHUNK_OVERLAP,\n     NODE_PARSER_CHUNK_SIZE,\n )\n+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n+    from .router_runtime import (\n+        async_http_client as _router_async_http_client,\n+        http_client as _router_http_client,\n+    )\n+except ImportError:  # router-migrate: module executed as a script\n+    try:\n+        from router_runtime import (\n+            async_http_client as _router_async_http_client,\n+            http_client as _router_http_client,\n+        )\n+    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior\n+        _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n+        _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n def _setup_llama_index_settings() -\u003e _Settings:\n     Settings.llm = OpenAI(\n         model=settings.OPENAI_CHAT_LLM_NAME,\n-        api_key=settings.OPENAI_API_KEY\n-    )\n+        api_key=settings.OPENAI_API_KEY, \n+    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n     Settings.embed_model = OpenAIEmbedding(\n         mode=OpenAIEmbeddingMode.SIMILARITY_MODE,\n         model_type=OpenAIEmbeddingModelType.TEXT_EMBED_3_SMALL,\ndiff --git a/backend/app/router_runtime.py b/backend/app/router_runtime.py\nnew file mode 100644\nindex 0000000..076854e\n--- /dev/null\n+++ b/backend/app/router_runtime.py\n@@ -0,0 +1,1422 @@\n+# router_runtime.py (vendored by router-migrate; safe to read, edit or delete)\n+#\n+# Routes this codebase's OpenAI / Anthropic SDK traffic through Ramp's Router (https://router.com) when\n+# RAMP_ROUTER_API_KEY is set. When it is not set, every function here returns its input unchanged.\n+#\n+# How: an httpx transport placed under the SDK client (installed in place, so the client's proxies, mounts, headers and\n+# hooks all stay). It sends requests Router can serve to Router and forwards everything else to the original provider\n+# untouched:\n+#   POST .../chat/completions  -\u003e POST {router}/v1/responses   (request + response + SSE stream translated back)\n+#   POST .../responses         -\u003e POST {router}/v1/responses   (store dropped; previous_response_id chains kept in-process)\n+#   POST .../v1/messages       -\u003e POST {router}/v1/messages    (Anthropic, model id mapped)\n+#   anything else (embeddings, images, audio, files, models, unknown models, n\u003e1, logprobs, seed, beta headers,\n+#   provider-side vector stores/files) -\u003e original provider\n+# If Router rejects a request before generating (unknown/unsupported parameter, model not available to this key, 501),\n+# the original request is sent to the provider instead, once.\n+# Each Router request carries metadata.feature = \"\u003cfile\u003e:\u003cfunction\u003e\" of the calling code (ROUTER_MIGRATE_FEATURE_TAG=off\n+# disables it; it sends a repo-relative path and function name).\n+# Env: RAMP_ROUTER_API_KEY (required to activate), RAMP_ROUTER_BASE_URL (default https://api.router.com),\n+#      ROUTER_MIGRATE_DISABLE=1 (kill switch), ROUTER_MIGRATE_MODEL_MAP='{\"old-model\":\"router-id\"}',\n+#      ROUTER_MIGRATE_SERVICE_TIER (unset: Router's account default, Flex where offered; set a tier to force it everywhere),\n+#      ROUTER_MIGRATE_FALLBACK=0 (surface Router errors instead of retrying on the provider).\n+# The provider key (OPENAI_API_KEY / ANTHROPIC_API_KEY) must stay configured: SDK constructors require it, and requests\n+# Router cannot serve still go to the provider.\n+import json\n+import os\n+import re\n+import sys\n+import threading\n+import time\n+import uuid\n+from collections import OrderedDict\n+\n+import importlib\n+\n+# openai-python \u003c= 2.x and anthropic use `httpx`; openai-python \u003e= 3 uses `httpx2` (same API). The transport classes are built\n+# for whichever library each client actually uses.\n+_LIBS = {}\n+\n+\n+def _lib(name):\n+    if name not in _LIBS:\n+        try:\n+            _LIBS[name] = importlib.import_module(name)\n+        except ImportError:\n+            _LIBS[name] = None\n+    return _LIBS[name]\n+\n+\n+httpx = _lib(\"httpx\") or _lib(\"httpx2\")\n+\n+__all__ = [\"active\", \"wrap_openai\", \"wrap_anthropic\", \"wrap_langchain\", \"http_client\", \"async_http_client\", \"install_openai_module\"]\n+VERSION = \"0.1.0\"\n+\n+# --- catalog (generated from GET /v1/models by router-migrate; refresh with `router-migrate apply --live`) -------\n+# id -\u003e [owned_by, temperature_supported, reasoning_supported]\n+CATALOG = {}  # filled below by _load_catalog()\n+ALIASES = {}\n+DATED = {}  # dated provider snapshot -\u003e catalog id, only where Router itself reported the equivalence\n+_CATALOG_JSON = r\"\"\"{\"aliases\":{\"accounts/fireworks/models/deepseek-v4p1-flash\":\"deepseek-v4.1-flash\",\"accounts/fireworks/models/glm-5p3\":\"glm-5p3\",\"accounts/fireworks/models/glm-5p3-flash\":\"glm-5p3-flash\",\"accounts/fireworks/models/gpt-oss-120b\":\"gpt-oss-120b\",\"accounts/fireworks/models/kimi-k3\":\"kimi-k3\",\"accounts/fireworks/models/minimax-m3\":\"minimax-m3\",\"accounts/fireworks/models/nemotron-3-u \u2026\n+\n+_OPENAI_HOSTS = (\"api.openai.com\",)\n+_ANTHROPIC_HOSTS = (\"api.anthropic.com\",)\n+_SKIP_FRAMES = (\"site-packages\", \"dist-packages\", os.sep + \"lib\" + os.sep + \"python\", \"router_runtime\", \"\u003cfrozen\")\n+\n+\n+def _load_catalog():\n+    try:\n+        d = json.loads(_CATALOG_JSON)\n+    except ValueError:\n+        d = {}\n+    for mid, row in (d.get(\"models\") or {}).items():\n+        CATALOG[mid] = row\n+    ALIASES.update(d.get(\"aliases\") or {})\n+    DATED.update(d.get(\"dated\") or {})\n+\n+\n+_load_catalog()\n+\n+\n+def active():\n+    off = (os.environ.get(\"ROUTER_MIGRATE_DISABLE\") or \"\").strip().lower() in (\"1\", \"true\", \"yes\", \"on\")\n+    return bool(os.environ.get(\"RAMP_ROUTER_API_KEY\")) and not off\n+\n+\n+def _feature_tags_on():\n+    return (os.environ.get(\"ROUTER_MIGRATE_FEATURE_TAG\") or \"\").strip().lower() not in (\"0\", \"off\", \"false\", \"no\")\n+\n+\n+def _base():\n+    b = (os.environ.get(\"RAMP_ROUTER_BASE_URL\") or \"https://api.router.com\").rstrip(\"/\")\n+    return b[:-3] if b.endswith(\"/v1\") else b\n+\n+\n+def resolve_model(name):\n+    \"\"\"Router id for a model name, or None when Router cannot serve that exact model (then the provider keeps it).\"\"\"\n+    if not isinstance(name, str) or not name:\n+        return None\n+    try:\n+        override = json.loads(os.environ.get(\"ROUTER_MIGRATE_MODEL_MAP\") or \"{}\")\n+    except ValueError:\n+        override = {}\n+    if name in override:\n+        return override[name] or None\n+    if name in CATALOG:\n+        return name\n+    if name in ALIASES:\n+        return ALIASES[name]\n+    ci = next((k for k in CATALOG if k.lower() == name.lower()), None)  # e.g. MiniMax-M3 -\u003e minimax-m3\n+    return ci or DATED.get(name)\n+\n+\n+def _feature():\n+    \"\"\"'\u003crelative file\u003e:\u003cfunction\u003e' of the first stack frame that belongs to this codebase (ROUTER_MIGRATE_FEATURE_TAG=off disables).\"\"\"\n+    if not _feature_tags_on():\n+        return None\n+    f = sys._getframe(1)\n+    cwd = os.getcwd()\n+    while f is not None:\n+        fn = f.f_code.co_filename\n+        if not any(s in fn for s in _SKIP_FRAMES):\n+            rel = os.path.relpath(fn, cwd) if fn.startswith(cwd) else os.path.basename(fn)\n+            return (\"%s:%s\" % (rel, f.f_code.co_name))[:200]\n+        f = f.f_back\n+    return None\n+\n+\n+# ------------------------------------------------------------------------------------------------ translation\n+class Untranslatable(Exception):\n+    \"\"\"Raised when a request uses something Router cannot serve; the request then goes to the original provider.\"\"\"\n+\n+\n+def _text_of(content):\n+    if isinstance(content, str):\n+        return content\n+    if isinstance(content, list):\n+        return \"\".join(p.get(\"text\", \"\") for p in content if isinstance(p, dict) and p.get(\"type\") in (\"text\", \"input_text\", \"output_text\"))\n+    return \"\" if content is None else str(content)\n+\n+\n+def _user_parts(content):\n+    if isinstance(content, str) or content is None:\n+        return content or \"\"\n+    parts = []\n+    for p in content:\n+        t = p.get(\"type\") if isinstance(p, dict) else None\n+        if t == \"text\":\n+            parts.append({\"type\": \"input_text\", \"text\": p.get(\"text\", \"\")})\n+        elif t == \"image_url\":\n+            iu = p.get(\"image_url\")\n+            url = iu.get(\"url\") if isinstance(iu, dict) else iu\n+            part = {\"type\": \"input_image\", \"image_url\": url}\n+            if isinstance(iu, dict) and iu.get(\"detail\"):\n+                part[\"detail\"] = iu[\"detail\"]\n+            parts.append(part)\n+        elif t == \"file\":\n+            f = p.get(\"file\") or {}\n+            part = {\"type\": \"input_file\"}\n+            if f.get(\"file_id\"):\n+                raise Untranslatable(\"file_id\")  # files live on the provider account; Router cannot see them\n+            for k in (\"file_data\", \"filename\"):\n+                if f.get(k):\n+                    part[k] = f[k]\n+            parts.append(part)\n+        else:  # input_audio and anything newer: Router cannot take it\n+            raise Untranslatable(\"content part %r\" % t)\n+    return parts\n+\n+\n+def chat_to_responses(body, router_model, owned_by, feature):\n+    \"\"\"Chat Completions request -\u003e Router Responses request. Returns (new_body, context for the reply).\"\"\"\n+    unsupported = [k for k in (\"audio\", \"modalities\", \"prediction\", \"web_search_options\", \"logit_bias\", \"functions_call_mode\") if body.get(k)]\n+    # not measured as accepted by Router, or no exact Responses equivalent: keep these calls on the provider unchanged\n+    unsupported += [\"seed\"] if body.get(\"seed\") is not None else []\n+    unsupported += [\"presence_penalty\"] if body.get(\"presence_penalty\") not in (None, 0) else []  # 0 is the default: dropped\n+    mot = body.get(\"max_completion_tokens\") or body.get(\"max_tokens\")\n+    if mot is not None and int(mot) \u003c 16:\n+        unsupported.append(\"max_tokens\u003c16\")  # Responses minimum is 16; clamping would change output length\n+    # a participant name is model-visible; on a tool result it only repeats the tool's name (the output is keyed by call id)\n+    if any(isinstance(m, dict) and m.get(\"name\") and m.get(\"role\") not in (\"function\", \"tool\") for m in body.get(\"messages\") or []):\n+        unsupported.append(\"message name\")\n+    tc0 = body.get(\"tool_choice\")\n+    if isinstance(tc0, dict) and tc0.get(\"type\") not in (None, \"function\"):\n+        unsupported.append(\"tool_choice %s\" % tc0.get(\"type\"))\n+    if (body.get(\"n\") or 1) != 1:\n+        unsupported.append(\"n\")\n+    if body.get(\"logprobs\") or body.get(\"top_logprobs\"):\n+        unsupported.append(\"logprobs\")\n+    if unsupported:\n+        raise Untranslatable(\",\".join(unsupported))\n+    info = CATALOG.get(router_model) or {}\n+    items = []\n+    call_ids = {}\n+    for i, m in enumerate(body.get(\"messages\") or []):\n+        role = m.get(\"role\")\n+        if role in (\"system\", \"developer\"):\n+            items.append({\"role\": role, \"content\": _text_of(m.get(\"content\"))})\n+        elif role == \"user\":\n+            items.append({\"role\": \"user\", \"content\": _user_parts(m.get(\"content\"))})\n+        elif role == \"assistant\":\n+            text = _text_of(m.get(\"content\"))\n+            refusal = m.get(\"refusal\") or \"\".join(p.get(\"refusal\", \"\") for p in (m.get(\"content\") if isinstance(m.get(\"content\"), list) else [])\n+                                                  if isinstance(p, dict) and p.get(\"type\") == \"refusal\")\n+            if refusal:\n+                parts = ([{\"type\": \"output_text\", \"text\": text}] if text else []) + [{\"type\": \"refusal\", \"refusal\": refusal}]\n+                items.append({\"role\": \"assistant\", \"content\": parts})\n+            elif text:\n+                items.append({\"role\": \"assistant\", \"content\": text})\n+            for tc in m.get(\"tool_calls\") or []:\n+                if tc.get(\"type\", \"function\") != \"function\":\n+                    raise Untranslatable(\"assistant tool_call type %r\" % tc.get(\"type\"))\n+                fn = tc.get(\"function\") or {}\n+                items.append({\"type\": \"function_call\", \"call_id\": tc.get(\"id\"), \"name\": fn.get(\"name\"),\n+                              \"arguments\": fn.get(\"arguments\") if isinstance(fn.get(\"arguments\"), str) else json.dumps(fn.get(\"arguments\") or {})})\n+            fc = m.get(\"function_call\")  # legacy functions API\n+            if fc:\n+                cid = \"call_legacy_%d\" % i\n+                call_ids[fc.get(\"name\")] = cid\n+                items.append({\"type\": \"function_call\", \"call_id\": cid, \"name\": fc.get(\"name\"), \"arguments\": fc.get(\"arguments\") or \"{}\"})\n+        elif role == \"tool\":\n+            items.append({\"type\": \"function_call_output\", \"call_id\": m.get(\"tool_call_id\"), \"output\": _text_of(m.get(\"content\"))})\n+        elif role == \"function\":\n+            items.append({\"type\": \"function_call_output\", \"call_id\": call_ids.get(m.get(\"name\"), \"call_legacy\"), \"output\": _text_of(m.get(\"content\"))})\n+        else:\n+            raise Untranslatable(\"role %r\" % role)\n+    out = {\"model\": router_model, \"input\": items}\n+    if mot is not None:\n+        out[\"max_output_tokens\"] = int(mot)\n+    temp_ok = info.get(\"t\") is not False\n+    for k in (\"temperature\", \"top_p\"):\n+        if body.get(k) is not None and temp_ok:\n+            out[k] = body[k]\n+    for k in (\"frequency_penalty\", \"parallel_tool_calls\", \"user\", \"service_tier\", \"prompt_cache_key\", \"safety_identifier\"):\n+        if body.get(k) is not None:\n+            out[k] = body[k]\n+    tools = []\n+    for t in body.get(\"tools\") or []:\n+        if t.get(\"type\") == \"function\":\n+            fn = t.get(\"function\") or {}\n+            nt = {\"type\": \"function\", \"name\": fn.get(\"name\"), \"parameters\": fn.get(\"parameters\") or {\"type\": \"object\", \"properties\": {}}}\n+            if fn.get(\"description\"):\n+                nt[\"description\"] = fn[\"description\"]\n+            nt[\"strict\"] = bool(fn.get(\"strict\"))  # Responses defaults tools to strict; Chat Completions does not\n+            tools.append(nt)\n+        else:\n+            raise Untranslatable(\"tool type %r\" % t.get(\"type\"))\n+    for fn in body.get(\"functions\") or []:  # legacy functions API\n+        tools.append({\"type\": \"function\", \"name\": fn.get(\"name\"), \"description\": fn.get(\"description\", \"\"),\n+                      \"parameters\": fn.get(\"parameters\") or {\"type\": \"object\", \"properties\": {}}, \"strict\": False})\n+    if tools:\n+        out[\"tools\"] = tools\n+    tc = body.get(\"tool_choice\", body.get(\"function_call\"))\n+    if isinstance(tc, dict):\n+        name = (tc.get(\"function\") or {}).get(\"name\") or tc.get(\"name\")\n+        out[\"tool_choice\"] = {\"type\": \"function\", \"name\": name}\n+    elif tc in (\"auto\", \"none\", \"required\"):\n+        out[\"tool_choice\"] = tc\n+    rf = body.get(\"response_format\")\n+    if isinstance(rf, dict) and rf.get(\"type\") in (\"json_object\", \"json_schema\"):\n+        if rf[\"type\"] == \"json_object\":\n+            fmt = {\"type\": \"json_object\"}\n+        else:\n+            js = rf.get(\"json_schema\") or {}\n+            fmt = {\"type\": \"json_schema\", \"name\": js.get(\"name\") or \"response\", \"schema\": js.get(\"schema\") or {}}\n+            for k in (\"strict\", \"description\"):\n+                if js.get(k) is not None:\n+                    fmt[k] = js[k]\n+        out[\"text\"] = {\"format\": fmt}\n+    if body.get(\"verbosity\"):\n+        out.setdefault(\"text\", {})[\"verbosity\"] = body[\"verbosity\"]\n+    effort = body.get(\"reasoning_effort\")\n+    if effort and info.get(\"r\"):\n+        if not (owned_by == \"anthropic\" and out.get(\"max_output_tokens\", 4096) \u003c 1100):  # Claude needs room for thinking [measured]\n+            out[\"reasoning\"] = {\"effort\": effort}\n+    stops = body.get(\"stop\")\n+    stops = [stops] if isinstance(stops, str) else [s for s in (stops or []) if s]\n+    if stops and owned_by != \"openai\":\n+        out[\"stop\"] = stops  # honored by non-OpenAI models [measured]; OpenAI models 501, so emulated client-side below\n+    meta = dict(body.get(\"metadata\") or {})\n+    if feature and \"feature\" not in meta and len(meta) \u003c 16:  # metadata is capped at 16 keys\n+        meta[\"feature\"] = feature\n+    if meta:\n+        out[\"metadata\"] = {k: str(v)[:512] for k, v in meta.items()}\n+    if owned_by == \"anthropic\" and \"prompt_cache_key\" not in out and feature:\n+        out[\"prompt_cache_key\"] = feature  # Claude via Responses does not cache without it [measured]\n+    if body.get(\"stream\"):\n+        out[\"stream\"] = True\n+    _service_tier(out)\n+    ctx = {\"stops\": stops if owned_by == \"openai\" else [], \"include_usage\": bool((body.get(\"stream_options\") or {}).get(\"include_usage\")),\n+           \"model\": body.get(\"model\"), \"legacy_functions\": bool(body.get(\"functions\"))}\n+    return out, ctx\n+\n+\n+def _service_tier(out):\n+    \"\"\"No tier is forced: Router's account default (Flex, where the model has it) applies. Latency guardrails come from the\n+    compiled policy (provider_timeout; service_tier only where a feature's latency need was judged). ROUTER_MIGRATE_SERVICE_TIER\n+    sets one tier for every routed call when the operator wants that ('auto' or unset: the account default).\"\"\"\n+    tier = (os.environ.get(\"ROUTER_MIGRATE_SERVICE_TIER\") or \"\").strip()\n+    if \"service_tier\" not in out and tier and tier != \"auto\":\n+        out[\"service_tier\"] = tier\n+\n+\n+# ------------------------------------------------------------------------------------------------ v2 compiled policy\n+# router.policy.json (repo root) is compiled by `router-migrate apply --decisions` into router_policy.py beside this file.\n+# No compiled policy, an invalid one, or ROUTER_MIGRATE_POLICY=off =\u003e exactly v1 behaviour. Semantics: CONTRACTS.md section 1.\n+_POLICY_KEYS = {\"allow_flex_tier\", \"prompt_cache_key\", \"metadata\", \"fallbacks\", \"provider_timeout\", \"service_tier\", \"model_map\", \"drop_params\"}\n+_POLICY_STATE = {\"loaded\": False, \"policy\": None, \"hash\": None, \"valid\": False, \"logged\": set()}\n+\n+\n+def _policy_log(key, msg):\n+    if key not in _POLICY_STATE[\"logged\"]:\n+        _POLICY_STATE[\"logged\"].add(key)\n+        sys.stderr.write(\"router-migrate policy %s\\n\" % msg)\n+\n+\n+def _valid_entry(e):\n+    if not isinstance(e, dict) or set(e) - _POLICY_KEYS:\n+        return False\n+    if \"allow_flex_tier\" in e and not isinstance(e[\"allow_flex_tier\"], bool):\n+        return False\n+    if \"prompt_cache_key\" in e and not (isinstance(e[\"prompt_cache_key\"], str) and e[\"prompt_cache_key\"]):\n+        return False\n+    if \"metadata\" in e and not (isinstance(e[\"metadata\"], dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in e[\"metadata\"].items())):\n+        return False\n+    if \"fallbacks\" in e and not (isinstance(e[\"fallbacks\"], list) and 1 \u003c= len(e[\"fallbacks\"]) \u003c= 14 and all(isinstance(x, str) and x for x in e[\"fallbacks\"])):\n+        return False\n+    if \"provider_timeout\" in e:\n+        t = e[\"provider_timeout\"]\n+        if isinstance(t, bool) or not isinstance(t, (int, float)) or not 1 \u003c= t \u003c= 660:\n+            return False\n+    if \"service_tier\" in e and e[\"service_tier\"] not in (\"default\", \"flex\"):\n+        return False\n+    if \"model_map\" in e and not (isinstance(e[\"model_map\"], dict) and e[\"model_map\"] and\n+                                 all(isinstance(k, str) and isinstance(v, str) and k and v for k, v in e[\"model_map\"].items())):\n+        return False\n+    if \"drop_params\" in e and not (isinstance(e[\"drop_params\"], list) and e[\"drop_params\"] and all(isinstance(x, str) and x for x in e[\"drop_params\"])):\n+        return False\n+    return True\n+\n+\n+def policy_valid(p):","files":["backend/app/llama_index_settings.py","backend/app/router_runtime.py"],"lines":1482,"truncated":true},"results":[],"model_change":false,"in_session":null,"actions":["undo"],"waiting":false},{"id":"m2","kind":"move","title":"Route the streaming chat agent LLM","summary":"The per-turn streaming OpenAI LLM behind the top-level OpenAIAgent takes the same runtime clients, so the answer the user watches is streamed from Router.","calls":["backend/app/chat/engine.py:287"],"level":null,"built":null,"gains":"The user-facing turn is on Router, with its SSE stream translated back from /v1/responses, and becomes addressable by Router levers (fallbacks, timeouts, cache key) through router.policy.json.","loses":"Nothing the app can do; the same unmeasured gateway hop as m1 applies, and it lands on the one call whose first-token latency the user feels.","price":"no change: same model and list price.","why":"This is the call the product is judged on: it streams tokens into the chat UI and calls the two sub-question engines as tools. Leaving it on OpenAI while the retrieval calls moved would have split the app's traffic across two keys and two failure domains for no reason. Streaming and tool calling both survive the translation.","commit":"44783a2","branch":null,"depends_on":[],"excludes":[],"status":"in code","etag":"1a2b2e078896","request":null,"stale":false,"due":false,"checked":[{"check":"simulator","label":null,"result":"pass","detail":"check --run on the engine built by get_chat_engine: the streaming agent turn reached Router as 1 valid /v1/responses; token-by-token delivery checked separately on the same client via stream_chat/astream_chat","source":"agent","samples":null},{"check":"router-live","label":null,"result":"pass","detail":"check --run --live: streaming and async streaming turns among the 12 requests, all 200","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"smoke check builds the chat engine (get_chat_engine) and pytest tests/ passes","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"15 passed on the migration branch; before: 15 passed (same as before)","source":"check"},{"check":"router-live","label":null,"result":"pass","source":"check","detail":"32 live request(s) through Router recorded, 32 ok (features: chat_orchestrator, drive.py:\u003clistcomp\u003e, drive.py:\u003cmodule\u003e, drive.py:go, retrieval_synthesis)"},{"check":"other","label":"Route","result":"pass","detail":"1 call seen going through Router (route truth)","source":"check"}],"flags":[],"diff":{"ref":"44783a2","how":"git show --stat --patch 44783a2","error":null,"text":"commit 44783a2d1cbda162140ef20483946e5679815a9f\nAuthor: Sanjith Sambath \u003csanjith.sambath07@gmail.com\u003e\nDate:   Wed Oct 14 21:35:27 2026 -0400\n\n    Route the streaming chat agent LLM through Router\n    \n    app/chat/engine.py builds a second OpenAI LLM for the top-level OpenAIAgent\n    that streams the answer the user reads. Same runtime clients; streaming SSE is\n    translated back from /v1/responses.\n    \n    Co-Authored-By: Claude Opus 5 (1M context) \u003cnoreply@anthropic.com\u003e\n---\n backend/app/chat/engine.py | 16 +++++++++++++++-\n 1 file changed, 15 insertions(+), 1 deletion(-)\n\ndiff --git a/backend/app/chat/engine.py b/backend/app/chat/engine.py\nindex ba15f2e..179d5b2 100644\n--- a/backend/app/chat/engine.py\n+++ b/backend/app/chat/engine.py\n@@ -46,6 +46,20 @@ from app.chat.tools import get_api_query_engine_tool\n from app.chat.utils import build_title_for_document\n from app.chat.pg_vector import get_vector_store_singleton\n from app.chat.qa_response_synth import get_custom_response_synth\n+try:  # router-migrate: route LLM traffic through Ramp's Router when RAMP_ROUTER_API_KEY is set\n+    from ..router_runtime import (\n+        async_http_client as _router_async_http_client,\n+        http_client as _router_http_client,\n+    )\n+except ImportError:  # router-migrate: module executed as a script\n+    try:\n+        from router_runtime import (\n+            async_http_client as _router_async_http_client,\n+            http_client as _router_http_client,\n+        )\n+    except ImportError:  # router-migrate: runtime not importable from here; this module keeps its original behavior\n+        _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n+        _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n \n logger = logging.getLogger(__name__)\n@@ -275,7 +289,7 @@ Any questions about company-related financials or other metrics should be asked\n         model=settings.OPENAI_CHAT_LLM_NAME,\n         streaming=True,\n         api_key=settings.OPENAI_API_KEY,\n-    )\n+    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n     chat_messages: List[MessageSchema] = conversation.messages\n     chat_history = get_chat_history(chat_messages)\n     logger.debug(\"Chat history: %s\", chat_history)","files":["backend/app/chat/engine.py"],"lines":49,"truncated":false},"results":[],"model_change":false,"in_session":null,"actions":["undo"],"waiting":false},{"id":"s1","kind":"stays","title":"Embeddings stay on OpenAI","summary":"OpenAIEmbedding (text-embedding-3-small) keeps calling OpenAI directly, because Router serves no embeddings endpoint.","calls":["backend/app/llama_index_settings.py:32"],"level":null,"built":null,"gains":"Retrieval keeps working exactly as before, at ingest (backend/scripts seeding) and on every query.","loses":"Embedding spend and failures stay outside Router's reporting and its fallbacks, and the deployment must keep a working OPENAI_API_KEY even once RAMP_ROUTER_API_KEY is set.","price":"no change","why":"/v1/embeddings returns 404 on Router (fact sheet section 2), and the runtime keeps embedding requests on the provider by design. Every user question embeds its text before retrieval, so this is real production traffic that cannot move; the app is not fully single-key until Router serves embeddings.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"info","etag":"c4389ec8c3ca","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"ROUTER.md section 2: /v1/embeddings is 404; section 9: the runtime stays on the provider for embeddings","source":"agent","samples":null}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":[],"waiting":false},{"id":"i1","kind":"improvement","title":"Label Router spend by role","summary":"Each routed client sends a fixed x-router-migrate-feature header, so Router spend and policy see chat_orchestrator and retrieval_synthesis instead of whichever LlamaIndex frame made the call.","calls":["backend/app/llama_index_settings.py:28","backend/app/chat/engine.py:287"],"level":"quick-win","built":true,"gains":"Per-role spend attribution in Router (the orchestrator turn versus the retrieval/synthesis fan-out, which is roughly a dozen calls per question), and a stable key that router.policy.json can match, which is what makes i2 possible.","loses":"nothing","price":"no change: labels are metadata, not billed.","why":"Without an explicit label the runtime falls back to the calling file:function, and for a framework app that is LlamaIndex internals: it varies by code path (sync versus async, agent versus synthesizer), so neither a spend view nor a policy feature key can rely on it. The header is read before the automatic label (runtime _plan_request), and the clients are built once per role, so one dict per client fixes it.","commit":"8dfce46","branch":"router-migrate/improve/feature-labels","depends_on":[],"excludes":[],"status":"proposed","etag":"1cc21bb4a3b3","request":null,"stale":false,"due":false,"checked":[{"check":"simulator","label":null,"result":"pass","detail":"check --run: 7/7 valid, labelled feature=chat_orchestrator (3) and feature=retrieval_synthesis (4) instead of the caller's frame","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"smoke check and pytest tests/ pass on the branch","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"15 passed on this branch; before: 15 passed (same as before)","source":"check"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":{"ref":"router-migrate/improve/feature-labels","how":"git diff router-migrate/migration...router-migrate/improve/feature-labels","error":null,"text":" backend/app/chat/engine.py          |  9 ++++++++-\n backend/app/llama_index_settings.py | 13 +++++++++++--\n 2 files changed, 19 insertions(+), 3 deletions(-)\n\ndiff --git a/backend/app/chat/engine.py b/backend/app/chat/engine.py\nindex 179d5b2..151cc76 100644\n--- a/backend/app/chat/engine.py\n+++ b/backend/app/chat/engine.py\n@@ -61,6 +61,9 @@ except ImportError:  # router-migrate: module executed as a script\n         _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n         _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n+# Spend label for the streaming chat agent (see app/llama_index_settings.py).\n+_ROUTER_LABEL = {\"x-router-migrate-feature\": \"chat_orchestrator\"}\n+\n \n logger = logging.getLogger(__name__)\n \n@@ -289,7 +292,11 @@ Any questions about company-related financials or other metrics should be asked\n         model=settings.OPENAI_CHAT_LLM_NAME,\n         streaming=True,\n         api_key=settings.OPENAI_API_KEY,\n-    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n+        # Labelled separately from retrieval/synthesis: this is the streaming turn the\n+        # user watches, and it is the one call that can't fall back mid-stream.\n+        http_client=_router_http_client(headers=_ROUTER_LABEL),\n+        async_http_client=_router_async_http_client(headers=_ROUTER_LABEL),\n+    )\n     chat_messages: List[MessageSchema] = conversation.messages\n     chat_history = get_chat_history(chat_messages)\n     logger.debug(\"Chat history: %s\", chat_history)\ndiff --git a/backend/app/llama_index_settings.py b/backend/app/llama_index_settings.py\nindex 4edf265..cce2c4e 100644\n--- a/backend/app/llama_index_settings.py\n+++ b/backend/app/llama_index_settings.py\n@@ -24,11 +24,20 @@ except ImportError:  # router-migrate: module executed as a script\n         _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n         _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n+# Spend label for the shared LLM: sub-question generation, QA/refine synthesis and\n+# the per-document agents in app/chat/tools.py (they deep-copy Settings.llm).\n+_ROUTER_LABEL = {\"x-router-migrate-feature\": \"retrieval_synthesis\"}\n+\n def _setup_llama_index_settings() -\u003e _Settings:\n     Settings.llm = OpenAI(\n         model=settings.OPENAI_CHAT_LLM_NAME,\n-        api_key=settings.OPENAI_API_KEY, \n-    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n+        api_key=settings.OPENAI_API_KEY,\n+        # Every request from this client is labelled for Router spend reporting and\n+        # router.policy.json. Without it the label is whichever LlamaIndex frame made\n+        # the call, which differs per code path and can't be targeted by policy.\n+        http_client=_router_http_client(headers=_ROUTER_LABEL),\n+        async_http_client=_router_async_http_client(headers=_ROUTER_LABEL),\n+    )\n     Settings.embed_model = OpenAIEmbedding(\n         mode=OpenAIEmbeddingMode.SIMILARITY_MODE,\n         model_type=OpenAIEmbeddingModelType.TEXT_EMBED_3_SMALL,","files":["backend/app/chat/engine.py","backend/app/llama_index_settings.py"],"lines":58,"truncated":false},"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i2","kind":"improvement","title":"Fail over across vendors on outages","summary":"router.policy.json gives both roles a Router fallback list (gpt-4.1-mini, then claude-haiku-4-5), a provider_timeout, and a prompt_cache_key for the orchestrator.","calls":["backend/app/llama_index_settings.py:28","backend/app/chat/engine.py:287"],"level":"change","built":true,"gains":"An OpenAI outage or a capacity 5xx stops being a failed conversation: Router tries gpt-4.1-mini and then a different vendor's claude-haiku-4-5 on the same request. provider_timeout (25 s for retrieval/synthesis, 30 s idle for the stream) bounds a stalled provider inside the SDK's 60 s budget instead of leaving a dozen parallel sub-question calls hanging. The orchestrator's prompt_cache_key pins provider affinity so its system prompt, tool definitions and history can be read from cache at $0.075 instead of $0.15 per 1M input tokens.","loses":"Answers will differ whenever a fallback candidate serves, and the response does not say which one did (Router reports the serving model but not that the first candidate failed), so error rates fall while answer quality becomes vendor-dependent during an incident. Fallbacks do not help once a stream has started, so a failure mid-answer still ends the turn. Flex would be ignored on requests that carry a fallback list, which costs nothing here because gpt-4o-mini has no Flex tier.","price":"Only when a fallback serves: gpt-4.1-mini is $0.40/$1.60 per 1M (2.7x the input price of gpt-4o-mini), claude-haiku-4-5 is $1/$5 (6.7x). On a normal day every request is still served by gpt-4o-mini at $0.15/$0.60. The caching half is a reduction, not a cost: -50% on whatever prefix hits.","why":"This app has no retry or failover of its own beyond the OpenAI SDK's three attempts against the same vendor, and one user question depends on roughly a dozen model calls succeeding, so its availability is strictly worse than OpenAI's. Policy fields are added only to Router-bound requests, so the provider path is untouched and the whole thing is revertible by deleting one JSON file. The honest limit of the caching line: the orchestrator's fixed prefix is about 500 tokens (280-token system message plus two tool definitions), below the ~1,024-token provider minimum, so it starts paying only once a conversation's history crosses that, roughly the third turn.","commit":"9500e5b","branch":"router-migrate/improve/failover-policy","depends_on":["i1"],"excludes":[],"status":"proposed","etag":"9fed111937b3","request":null,"stale":false,"due":false,"checked":[{"check":"simulator","label":null,"result":"pass","detail":"check --run with the policy compiled: 7/7 valid, each request now carrying a models list instead of model","source":"agent","samples":null},{"check":"router-live","label":null,"result":"pass","detail":"check --run --live: 12/12 requests 200 through real Router with the fallback list, provider_timeout and prompt_cache_key applied, including streaming and tool-calling turns","source":"agent","samples":null},{"check":"router-live","label":null,"result":"pass","detail":"fallback candidate check: with the model mapped to claude-haiku-4-5, this app's own tool definition returned a well-formed tool call (provider=anthropic, model claude-haiku-4-5-20251001) parsed by LlamaIndex unchanged","source":"agent","samples":null},{"check":"tests","label":null,"result":"pass","detail":"compileall and pytest tests/ (7 passed) on the branch","source":"agent","samples":null},{"check":"price","label":null,"result":"info","detail":"live catalog via router-migrate levers: gpt-4o-mini $0.15/$0.60 (cache read $0.075), gpt-4.1-mini $0.40/$1.60, claude-haiku-4-5 $1/$5","source":"agent","samples":null},{"check":"tests","result":"pass","detail":"15 passed on this branch; before: 15 passed (same as before)","source":"check"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":{"ref":"router-migrate/improve/failover-policy","how":"git diff router-migrate/migration...router-migrate/improve/failover-policy","error":null,"text":" backend/app/chat/engine.py          |  9 ++++++++-\n backend/app/llama_index_settings.py | 13 +++++++++++--\n backend/app/router_policy.py        |  6 ++++++\n router.policy.json                  | 14 ++++++++++++++\n 4 files changed, 39 insertions(+), 3 deletions(-)\n\ndiff --git a/backend/app/chat/engine.py b/backend/app/chat/engine.py\nindex 179d5b2..151cc76 100644\n--- a/backend/app/chat/engine.py\n+++ b/backend/app/chat/engine.py\n@@ -61,6 +61,9 @@ except ImportError:  # router-migrate: module executed as a script\n         _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n         _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n+# Spend label for the streaming chat agent (see app/llama_index_settings.py).\n+_ROUTER_LABEL = {\"x-router-migrate-feature\": \"chat_orchestrator\"}\n+\n \n logger = logging.getLogger(__name__)\n \n@@ -289,7 +292,11 @@ Any questions about company-related financials or other metrics should be asked\n         model=settings.OPENAI_CHAT_LLM_NAME,\n         streaming=True,\n         api_key=settings.OPENAI_API_KEY,\n-    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n+        # Labelled separately from retrieval/synthesis: this is the streaming turn the\n+        # user watches, and it is the one call that can't fall back mid-stream.\n+        http_client=_router_http_client(headers=_ROUTER_LABEL),\n+        async_http_client=_router_async_http_client(headers=_ROUTER_LABEL),\n+    )\n     chat_messages: List[MessageSchema] = conversation.messages\n     chat_history = get_chat_history(chat_messages)\n     logger.debug(\"Chat history: %s\", chat_history)\ndiff --git a/backend/app/llama_index_settings.py b/backend/app/llama_index_settings.py\nindex 4edf265..cce2c4e 100644\n--- a/backend/app/llama_index_settings.py\n+++ b/backend/app/llama_index_settings.py\n@@ -24,11 +24,20 @@ except ImportError:  # router-migrate: module executed as a script\n         _router_async_http_client = lambda **k: k.get('_default')  # noqa: E731\n         _router_http_client = lambda **k: k.get('_default')  # noqa: E731\n \n+# Spend label for the shared LLM: sub-question generation, QA/refine synthesis and\n+# the per-document agents in app/chat/tools.py (they deep-copy Settings.llm).\n+_ROUTER_LABEL = {\"x-router-migrate-feature\": \"retrieval_synthesis\"}\n+\n def _setup_llama_index_settings() -\u003e _Settings:\n     Settings.llm = OpenAI(\n         model=settings.OPENAI_CHAT_LLM_NAME,\n-        api_key=settings.OPENAI_API_KEY, \n-    http_client=_router_http_client(), async_http_client=_router_async_http_client())\n+        api_key=settings.OPENAI_API_KEY,\n+        # Every request from this client is labelled for Router spend reporting and\n+        # router.policy.json. Without it the label is whichever LlamaIndex frame made\n+        # the call, which differs per code path and can't be targeted by policy.\n+        http_client=_router_http_client(headers=_ROUTER_LABEL),\n+        async_http_client=_router_async_http_client(headers=_ROUTER_LABEL),\n+    )\n     Settings.embed_model = OpenAIEmbedding(\n         mode=OpenAIEmbeddingMode.SIMILARITY_MODE,\n         model_type=OpenAIEmbeddingModelType.TEXT_EMBED_3_SMALL,\ndiff --git a/backend/app/router_policy.py b/backend/app/router_policy.py\nnew file mode 100644\nindex 0000000..403abdd\n--- /dev/null\n+++ b/backend/app/router_policy.py\n@@ -0,0 +1,6 @@\n+# router-migrate compiled policy (generated by `router-migrate apply --decisions` from router.policy.json; do not edit, re-run apply)\n+# The vendored router_runtime.py imports this module. Delete it (or set ROUTER_MIGRATE_POLICY=off) for v1 behaviour.\n+import json\n+\n+POLICY = json.loads('{\"features\":{\"chat_orchestrator\":{\"fallbacks\":[\"gpt-4.1-mini\",\"claude-haiku-4-5\"],\"prompt_cache_key\":\"$feature\",\"provider_timeout\":30},\"retrieval_synthesis\":{\"fallbacks\":[\"gpt-4.1-mini\",\"claude-haiku-4-5\"],\"provider_timeout\":25}},\"version\":1}')\n+POLICY_HASH = '98d5d6d2d04d23fddbaacc2fae30051e28e7be0855c600770ed1f16084b5b073'\ndiff --git a/router.policy.json b/router.policy.json\nnew file mode 100644\nindex 0000000..19df0c3\n--- /dev/null\n+++ b/router.policy.json\n@@ -0,0 +1,14 @@\n+{\n+  \"version\": 1,\n+  \"features\": {\n+    \"chat_orchestrator\": {\n+      \"fallbacks\": [\"gpt-4.1-mini\", \"claude-haiku-4-5\"],\n+      \"provider_timeout\": 30,\n+      \"prompt_cache_key\": \"$feature\"\n+    },\n+    \"retrieval_synthesis\": {\n+      \"fallbacks\": [\"gpt-4.1-mini\", \"claude-haiku-4-5\"],\n+      \"provider_timeout\": 25\n+    }\n+  }\n+}","files":["backend/app/chat/engine.py","backend/app/llama_index_settings.py","backend/app/router_policy.py","router.policy.json"],"lines":92,"truncated":false},"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i3","kind":"improvement","title":"Drop the per-document quantitative agent","summary":"Wire the polygon.io tool into the quantitative sub-question engine directly instead of giving each document its own OpenAIAgent to call it.","calls":["backend/app/chat/tools.py:156"],"level":"change","built":false,"gains":"Removes two model calls per document per quantitative question (one to emit the tool call, one to write the answer): with three documents that is six of a turn's calls and, at the fact sheet's measured 721-926 ms per buffered Router call, roughly 1.5-2 s off the answer the user is waiting for, plus about $0.002 a turn.","loses":"Answers will differ: today the per-document agent turns polygon's numbers into prose scoped to the sub-question, and without it the describe_financials text goes to the response synthesizer as retrieved context, which is a different (usually broader) answer shape. Needs a side-by-side read on real questions before it ships.","price":"A reduction: six fewer gpt-4o-mini calls per three-document quantitative turn.","why":"The agent has no decision to make. extract_data_from_sec_document ignores *args and **kwargs entirely; the ticker and period come from the document's own metadata_map. So the model is being paid to produce a tool call whose arguments are discarded, then paid again to summarize the result. The sub-question engine above it already decides what to ask, and the response synthesizer below it already writes prose from context. This is the clearest cost-and-latency win in the app and it is not Router-specific, but Router is what made the call count visible per role.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"proposed","etag":"73e8fefa98fe","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"app/chat/tools.py: async_fn signature (*args, **kwargs) unused; arguments come from SecDocumentMetadata. Call count read from the code path, not measured in production","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":null,"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i4","kind":"improvement","title":"Choose the model per role","summary":"Replace the single OPENAI_CHAT_LLM_NAME with one setting per role (orchestrator, sub-question generation, synthesis) so quality and price can be spent where they matter.","calls":["backend/app/llama_index_settings.py:28","backend/app/chat/engine.py:287"],"level":"change","built":false,"gains":"The two roles are not alike: sub-question generation and tool routing are mechanical and can take the cheapest capable catalog model, while the synthesis the user reads is the one place a stronger model pays. One env var today forces a single answer for both, and Router's catalog is the first time changing one of them is a config change rather than a vendor migration.","loses":"Answers will differ for whichever role gets a new model, and a second model id is a second thing to keep current with the catalog.","price":"No change at the defaults (gpt-4o-mini everywhere). As a sketch of the headroom: gpt-5-mini is $0.25/$2 per 1M against gpt-4o-mini's $0.15/$0.60, so putting it on synthesis only (1-2 calls of a turn's dozen) costs far less than putting it everywhere.","why":"Model choice is the lever that applies on every surface, and this app currently cannot use it selectively. The change itself is small (two settings and two constructions); the work is deciding the defaults, which needs product judgment and a quality comparison nobody has run offline. Worth approving as the groundwork even before anyone picks a different model.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"proposed","etag":"1351b43486c8","request":null,"stale":false,"due":false,"checked":[{"check":"price","label":null,"result":"info","detail":"live catalog: gpt-4o-mini $0.15/$0.60, gpt-5-mini $0.25/$2, gpt-4.1-mini $0.40/$1.60, gpt-5.4-mini $0.75/$4.50","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":null,"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i5","kind":"improvement","title":"Reuse one HTTP client per process","summary":"Build the streaming chat LLM's httpx clients once at module import instead of once per conversation turn inside get_chat_engine.","calls":["backend/app/chat/engine.py:287"],"level":"quick-win","built":false,"gains":"One connection pool and one TLS handshake to Router per process instead of per user turn, which takes a connection setup out of the path to the first token and stops leaking unclosed pools under load.","loses":"nothing functionally; an async client has to be created on the running loop, so this needs a small lazy singleton rather than a bare module-level call, and the per-turn temperature/streaming settings must stay per-LLM.","price":"no change","why":"get_chat_engine runs on every message, and it now builds two httpx clients each time (it built the SDK's own client each time before, so this is not a regression, only a pre-existing cost that the migration makes explicit). The runtime's clients are safe to share: it deliberately makes them survive deep copies. Low risk, but it touches request-lifecycle code, which is why I propose rather than ship it.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"proposed","etag":"b5a31dd33589","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"app/chat/engine.py: the OpenAI LLM is constructed inside get_chat_engine, called per message by app/chat/messaging.py","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i6","kind":"improvement","title":"Make a turn survive a vendor outage","summary":"Restructure the user-facing turn so a provider failure degrades to a slower answer instead of an error message, since fallbacks cannot help once a stream has started.","calls":["backend/app/chat/engine.py:287"],"level":"rework","built":false,"gains":"Closes the gap i2 cannot: today a failure after the first token ends the conversation turn with a FAILED message row, and the user sees nothing useful. Buffering the first chunk (or making the orchestrator's first call a short non-streamed decision with a fallback list, then streaming the answer) lets the app restart on another candidate before the user has seen anything.","loses":"Added time to first token, which is the metric the streaming design exists to protect, so the trade is latency on every turn against recovery on the rare one. Needs real failure-rate numbers to be worth it.","price":"A retried turn is billed twice: the truncated attempt is billed, per the fact sheet.","why":"Worth a conversation rather than a patch, because it trades the product's main latency feel against its availability and the right answer depends on how often streams actually break. Router makes the second half cheap (one request field names the candidates); the app-side half is the real work: the callback/streaming plumbing in app/chat/messaging.py assumes one attempt per message row.","commit":null,"branch":null,"depends_on":["i2"],"excludes":[],"status":"proposed","etag":"a6bb19ec224e","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"ROUTER.md section 6.2: no fallback once a stream has started; truncated attempts are still billed. app/chat/messaging.py writes a FAILED message row on exception","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"i7","kind":"improvement","title":"One tool loop instead of three layers","summary":"Replace the agent-over-two-SubQuestionQueryEngines design with a single tool-calling loop that exposes the per-document retrieval tools and the polygon tool to one model.","calls":["backend/app/chat/engine.py:287","backend/app/llama_index_settings.py:28"],"level":"rework","built":false,"gains":"A question today costs roughly a dozen model calls across three layers (orchestrator, sub-question generation per engine, per-document query and synthesis), most of them serial, and each layer re-reads the same context. One loop with the same tools is what you would build on Router today: fewer calls, one place to apply fallbacks and a cache key, one stream, and sub-process events that still map to the UI's existing timeline.","loses":"Answers will differ substantially: the sub-question decomposition is a real quality feature on multi-document comparisons, and a single loop may ask less. It is also the biggest change proposed here, touching the engine, the callback event mapping and the UI's sub-process display.","price":"Expected to fall (fewer calls per turn), but not measurable without building it; a long-context model would shift cost from call count to input tokens, where a prompt_cache_key on the fixed document context is worth more than it is today.","why":"The three-layer design dates from when models could not hold several filings of context or call many tools reliably. Keeping it means paying a dozen round trips of latency per question. I am not confident enough in the quality trade to build it unasked, but it is the change with the most upside, and it is the one worth a conversation with whoever owns the product's answer quality.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"proposed","etag":"def8d97303e9","request":null,"stale":false,"due":false,"checked":[{"check":"other","label":null,"result":"info","detail":"Call count derived from app/chat/engine.py: 1 orchestrator turn + 2 engines x (1 sub-question call + N document calls + 1 synthesis) + 2 calls per document in the quantitative path","source":"agent","samples":null},{"check":"other","label":"Check","result":"not-run","source":"check","detail":"proposed, not built yet: the apply session builds it after you approve, and the check runs then"},{"check":"router-live","result":"not-run","source":"check","label":null,"detail":"not checked live by the agent"},{"check":"side-by-side","result":"not-run","source":"check","label":null,"detail":"answers will differ; no side-by-side samples"}],"flags":[],"diff":null,"results":[],"model_change":true,"in_session":null,"actions":["approve","dismiss","postpone"],"waiting":true},{"id":"n1","kind":"note","title":"Flex is not available on gpt-4o-mini","summary":"Router's Flex tier does not apply to this app's model, so the measured -50% Flex discount is not reachable without changing models.","calls":[],"level":null,"built":null,"gains":null,"loses":null,"price":"Flex is -50% where it applies (measured on gpt-5.4-mini only). gpt-5.4-mini at $0.75/$4.50 is still 5x gpt-4o-mini's input price even halved, so moving models to reach Flex would raise this app's bill, not lower it.","why":"Worth recording so nobody proposes Flex here twice: allow_flex_tier: true on gpt-4o-mini returned 400 \"unknown service tier 'flex'\" in the fact sheet's measurements, and gpt-4o-mini is absent from the Flex model list. If i4 ever moves a role to a gpt-5.x model, Flex becomes a real lever for that role and should be reconsidered then.","commit":null,"branch":null,"depends_on":[],"excludes":[],"status":"info","etag":"8fad2f8943ba","request":null,"stale":false,"due":false,"checked":[{"check":"price","label":null,"result":"info","detail":"ROUTER.md section 6.1 and data/flex_models.json (17 OpenAI ids, gpt-4o-mini not among them); live catalog via levers shows flex no for gpt-4o-mini","source":"agent","samples":null}],"flags":[],"diff":null,"results":[],"model_change":false,"in_session":null,"actions":[],"waiting":false}],"history":[],"running":[],"apply_blocked":null,"pending":[],"cost":{"agent_minutes":12.6,"agent_usd":5.926,"live_requests":32},"setup":{"models":["gpt-4o-mini"],"features":["chat_orchestrator","retrieval_synthesis"],"background":[],"model_changes":["i2","i3","i4","i7"]}}; window.__RM_MODE__ = "frozen";</script>
+<script>
+(function () {
+  "use strict";
+  var MODE = window.__RM_MODE__ || "static", LIVE = MODE === "live", FROZEN = MODE === "frozen";
+  var B = window.__RM__ || null, TOKEN = "";
+  try { TOKEN = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
+  var FROZEN_NOTE = "Frozen report: open the live dashboard to approve, undo or apply.";
+
+  var PAGES = [["overview", "Overview", "grid"], ["calls", "Calls", "route"], ["changes", "Changes", "layers"], ["queue", "Your queue", "inbox"], ["history", "History", "clock"]];
+  var MORE = [["setup", "Router setup", "sliders"]];
+  // one vocabulary: [label, tone, icon]
+  var KIND = {move: ["Move", "green", "route"], "trade-off": ["Trade-off", "solar", "scale"], port: ["Port", "blue", "swap"], stays: ["Stays", "muted", "pin"],
+    "needs-decision": ["Needs decision", "amber", "help"], improvement: ["Improvement", "lilac", "spark"], note: ["Note", "neutral", "note"]};
+  var KIND_ORDER = ["move", "trade-off", "port", "stays", "needs-decision", "improvement", "note"];
+  var STATUS = {"in code": ["In code", "green"], proposed: ["Proposed", "solar"], approved: ["Approved · ready to apply", "blue"], applied: ["Applied", "green"],
+    "undo requested": ["Undo requested", "amber"], undone: ["Undone", "muted"], dismissed: ["Dismissed", "muted"], postponed: ["Postponed", "muted"],
+    declined: ["Declined", "red"], "check failed": ["Check failed", "red"], info: ["Info", "neutral"]};
+  var STATUS_ORDER = ["proposed", "check failed", "declined", "approved", "undo requested", "in code", "applied", "postponed", "dismissed", "undone", "info"];
+  var CHECK = {tests: "Tests", typecheck: "Typecheck", "router-live": "Router live", simulator: "Simulator", "side-by-side": "Side-by-side", price: "Price", other: "Other"};
+  var RESULT = {pass: ["pass", "check", "green"], fail: ["fail", "x", "red"], info: ["info", "info", "blue"], "not-run": ["not run", "dash", "muted"]};
+  var ROUTE = {verified: ["Router", "verified by the outside check", "green", ""], unverified: ["Router", "wired, not verifiable statically", "green", "o"],
+    unchecked: ["Router", "the agent’s claim; not checked yet", "green", "o"], not_routing: ["Provider", "reported moved, doesn’t route", "red", ""],
+    stays: ["Provider", "stays", "muted", "o"], provider: ["Provider", "stays", "muted", "o"], unknown: ["Unknown", "", "muted", "o"]};
+  var LAT = {background: "Background", interactive: "Interactive", user_waiting: "User waiting"};
+  var FLAG = {"deleted-file": "Deleted files", dependencies: "Dependencies changed", "provider-key": "Provider key", "runtime-edit": "Runtime edited"};
+  var GROUPS = [["Migration decisions", ["move", "trade-off", "port"], "What the agent changed to move traffic. Each is one commit you can undo."],
+    ["Stays, or needs you", ["stays", "needs-decision"], "Calls that stay where they are, and choices that are yours to make."],
+    ["Improvements", ["improvement"], "Branches the agent built and tested. Nothing reaches your code until you approve and apply."],
+    ["Notes", ["note"], "Things the agent noticed that aren’t a change."]];
+
+  var S = {tab: "overview", fk: "all", fs: "all", busy: null, sig: "", pending: false, conn: "ok", form: {}, open: {}, applyResult: null, stickyN: 0, theme: "auto"};
+
+  // ---------------- helpers ----------------
+  function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) { return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]; }); }
+  function md(v) { return esc(v).replace(/`([^`]+)`/g, "<code>$1</code>"); }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : {}; }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : null; }
+  function fmtInt(v) { var n = num(v); return n == null ? "–" : n.toLocaleString("en-US"); }
+  function usd(v) { var n = num(v); return n == null ? "–" : "$" + n.toFixed(2); }
+  function plural(n, a, b) { return n === 1 ? a : (b || a + "s"); }
+  function lower1(s) { s = String(s || ""); return s.charAt(0).toLowerCase() + s.slice(1); }
+  function cap(s) { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function pad(x) { return (x < 10 ? "0" : "") + x; }
+  function fmtTime(s) {
+    if (!s) return ""; var d = new Date(s); if (isNaN(d.getTime())) return String(s);
+    return d.toLocaleDateString("en-US", {month: "short", day: "numeric"}) + ", " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+  function fmtClock(s) { var d = new Date(s); return isNaN(d.getTime()) ? "" : pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function fmtDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); if (!m) return String(s || "");
+    var d = new Date(+m[1], +m[2] - 1, +m[3]); return d.toLocaleDateString("en-US", {month: "short", day: "numeric", year: "numeric"});
+  }
+  function minutes(a, b) { var x = new Date(a), y = new Date(b); if (isNaN(x) || isNaN(y)) return null; return Math.max(0, Math.round((y - x) / 60000)); }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function plusDays(n) { var d = new Date(Date.now() + n * 864e5); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } return null; }
+  function cssId(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/[^\w-]/g, "\\$&"); }
+  function safeLink(u) { u = String(u || ""); return /^https:\/\/(app|docs)\.router\.com(\/|$)/.test(u) ? u : null; }
+  var P = {
+    grid: '<path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z"/>',
+    route: '<circle cx="3.5" cy="12.5" r="1.5"/><circle cx="12.5" cy="3.5" r="1.5"/><path d="M5 12.5h4.5a2.5 2.5 0 0 0 0-5h-3a2.5 2.5 0 0 1 0-5H11"/>',
+    layers: '<path d="M8 2 14 5.2 8 8.4 2 5.2z"/><path d="M2 8.2l6 3.2 6-3.2M2 11l6 3.2 6-3.2"/>',
+    inbox: '<path d="M2 9.5h3.2l1 2h3.6l1-2H14"/><path d="M3.7 3h8.6L14 9.5V13H2V9.5z"/>',
+    clock: '<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.4 1.6"/>',
+    sliders: '<path d="M2.5 4h6M11.5 4h2M2.5 8h2M7.5 8h6M2.5 12h8"/><circle cx="10" cy="4" r="1.5"/><circle cx="6" cy="8" r="1.5"/><circle cx="12" cy="12" r="1.5"/>',
+    spark: '<path d="M8 1.8 9.3 6.7 14.2 8 9.3 9.3 8 14.2 6.7 9.3 1.8 8 6.7 6.7z"/>',
+    scale: '<path d="M8 2v12M4.5 14h7M3 4.5h10M3 4.5 1.5 9h3zM13 4.5 11.5 9h3z"/>',
+    swap: '<path d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13"/>',
+    pin: '<path d="M8 14s4.5-4.1 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 9.9 8 14 8 14z"/><circle cx="8" cy="6.5" r="1.6"/>',
+    help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.3 6.2a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.4M8 11.6v.01"/>',
+    note: '<path d="M3.5 2.5h9v11h-9z"/><path d="M5.7 5.5h4.6M5.7 8h4.6M5.7 10.5h2.6"/>',
+    check: '<path d="M3 8.3 6.4 11.6 13 4.6"/>',
+    x: '<path d="M4 4l8 8M12 4l-8 8"/>',
+    info: '<circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v4M8 4.9v.01"/>',
+    dash: '<path d="M4 8h8"/>',
+    warn: '<path d="M8 2 14.5 13.5h-13z"/><path d="M8 6.5v3M8 11.5v.01"/>',
+    arrow: '<path d="M2.5 8h10.5M9.5 4.5 13 8l-3.5 3.5"/>',
+    chev: '<path d="M6 3.5 10.5 8 6 12.5"/>',
+    branch: '<circle cx="4" cy="3.2" r="1.4"/><circle cx="4" cy="12.8" r="1.4"/><circle cx="12" cy="6.5" r="1.4"/><path d="M4 4.6v6.8M4 9c0-2 1.6-2.5 3.5-2.5h3.1"/>',
+    commit: '<circle cx="8" cy="8" r="2.4"/><path d="M1.5 8h4.1M10.4 8h4.1"/>',
+    repo: '<path d="M3.5 13V3.3c0-.7.6-1.3 1.3-1.3h7.7v9.2H4.8c-.7 0-1.3.6-1.3 1.3s.6 1.3 1.3 1.3h7.7"/><path d="M6.5 2v4.8l1.3-1 1.3 1V2"/>',
+    key: '<circle cx="5" cy="10.5" r="2.7"/><path d="M7 8.6 13.5 2.2M11 4.6l1.8 1.8M9.6 6l1.4 1.4"/>',
+    sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
+    moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
+    auto: '<circle cx="8" cy="8" r="6"/><path d="M8 2v12" /><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none"/>',
+    ext: '<path d="M6.5 3.5H3v9.5h9.5V9.5M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/>',
+    play: '<path d="M4.5 3v10l8-5z"/>',
+    undo: '<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>',
+    flag: '<path d="M3.5 14V2.5M3.5 3h8l-1.7 3 1.7 3h-8"/>',
+    router: '<path d="M2 8h4M10 8h4M6 4.5 10 8l-4 3.5"/>'};
+  function icon(n, cls) { return '<svg class="i' + (cls ? " " + cls : "") + '" viewBox="0 0 16 16" aria-hidden="true">' + (P[n] || "") + "</svg>"; }
+
+  // ---------------- data ----------------
+  function items() { return arr(B && B.items); }
+  function byId(id) { var l = items(); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function calls() { return arr(B && B.calls); }
+  function callIndex(site) { var l = calls(); for (var i = 0; i < l.length; i++) if (l[i].site === site) return i; return -1; }
+  function pend() { return arr(B && B.pending); }
+  function running() { return arr(B && B.running); }
+  function hl() { return obj(B && B.headline); }
+  function waitingItems() { return items().filter(function (i) { return i.waiting; }); }
+  function decidedItems() { return items().filter(function (i) { return (i.status === "dismissed" || i.status === "postponed") && !i.due; }); }
+  function improvements() { return items().filter(function (i) { return i.kind === "improvement"; }); }
+  function blocked() { return (B && B.apply_blocked) || ""; }
+  function undoOnly() { var p = pend(); return p.length > 0 && p.every(function (r) { return r.action === "undo"; }); }
+  function applyState() {
+    if (!LIVE) return {off: true, why: FROZEN ? FROZEN_NOTE : "Static page: no server."};
+    if (S.conn !== "ok") return {off: true, why: "The local server isn’t reachable."};
+    if (running().length) return {off: true, why: "Apply session " + running().map(function (r) { return r.session; }).join(", ") + " is running. This page updates as it works."};
+    if (!pend().length) return {off: true, why: "Nothing to apply yet: approve an improvement or mark something for undo."};
+    if (blocked() && !undoOnly()) return {off: true, why: blocked()};
+    return {off: false, why: blocked() ? "Only undos are on the list, so Apply is allowed. " + blocked() : ""};
+  }
+
+  // ---------------- API ----------------
+  function api(method, path, body) {
+    var opt = {method: method, headers: {"X-RM-Token": TOKEN}, cache: "no-store", credentials: "same-origin"};
+    if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.text().then(function (txt) {
+        var j = null; try { j = JSON.parse(txt); } catch (e) {}
+        if (!r.ok) { var err = new Error((j && j.error) || ("HTTP " + r.status)); err.status = r.status; throw err; }
+        return {json: j, text: txt};
+      });
+    });
+  }
+  function sigOf(b) { if (!b) return ""; var g = b.generated; b.generated = null; var s = JSON.stringify(b); b.generated = g; return s; }
+  function refresh(force) {
+    if (!LIVE) return Promise.resolve();
+    return api("GET", "/api/bundle").then(function (res) {
+      setConn("ok");
+      var nb = res.json, sig = sigOf(nb);
+      if (!force && sig === S.sig) return;
+      S.sig = sig; B = nb; window.__RM__ = B;
+      var ae = document.activeElement;
+      if (!force && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName) && ae.closest("#main")) { S.pending = true; return; }
+      renderAll(false);
+    }).catch(function (e) { setConn(e.status === 403 ? "auth" : "down"); });
+  }
+  function setConn(c) { if (S.conn !== c) { S.conn = c; renderAll(false); } }
+  function toast(msg, err) {
+    var t = document.getElementById("toast");
+    t.innerHTML = '<div class="toast' + (err ? " err" : "") + '" role="status">' + icon(err ? "warn" : "check") + "<span>" + esc(msg) + "</span></div>";
+    clearTimeout(toast._t); clearTimeout(toast._o);
+    toast._o = setTimeout(function () { var el = t.firstChild; if (el) el.classList.add("out"); }, err ? 5600 : 2700);
+    toast._t = setTimeout(function () { t.innerHTML = ""; }, err ? 5800 : 2900);
+  }
+  var DONE = {apply: "Approved", dismiss: "Dismissed", postpone: "Postponed", undo: "Marked for undo"};
+  function title(id) { var it = byId(id); return it ? it.title : id; }
+  function finish() { S.busy = null; renderAll(false); return refresh(true); }
+  function request(id, action, extra) {
+    if (!LIVE || S.busy) return;
+    var p = {item: id, action: action};
+    if (extra && extra.reason) p.reason = extra.reason;
+    if (extra && extra.until) p.until = extra.until;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request", p).then(function () { delete S.form[id]; toast(DONE[action] + ": " + title(id)); })
+      .catch(function (e) { toast("Couldn’t save: " + e.message, true); }).then(finish);
+  }
+  function withdraw(id) {
+    if (!LIVE || S.busy) return;
+    S.busy = id; renderAll(false);
+    api("POST", "/api/request/clear", {item: id}).then(function () { toast("Withdrawn: " + title(id)); })
+      .catch(function (e) { toast("Couldn’t withdraw: " + e.message, true); }).then(finish);
+  }
+  function doApply() {
+    var st = applyState();
+    if (st.off || S.busy) { if (st.why) toast(st.why.replace(/`/g, ""), true); return; }
+    S.busy = "apply"; renderAll(false);
+    api("POST", "/api/apply", {})
+      .then(function (res) { var d = obj(res.json && res.json.result); S.applyResult = {ok: true, data: d}; toast(d.mode === "headless" ? "Apply session " + (d.session || "") + " started" : "Ready: paste the command to start the apply session"); })
+      .catch(function (e) { S.applyResult = {ok: false, error: e.message, status: e.status}; toast("Apply didn’t start: " + e.message, true); })
+      .then(function () { S.busy = null; setTab("queue", true); window.scrollTo({top: 0}); return refresh(true); });
+  }
+
+  // ---------------- small components ----------------
+  function tone(t) { return "tone-" + (t || "neutral"); }
+  function kindOf(k) { return KIND[k] || [cap(k || "item"), "neutral", "note"]; }
+  function kindBadge(k) { var x = kindOf(k); return '<span class="kb ' + tone(x[1]) + '">' + icon(x[2]) + esc(x[0]) + "</span>"; }
+  function statusOf(it) {
+    var x = STATUS[it.status] || [cap(it.status), "neutral"], label = x[0], t = x[1], rq = obj(it.request);
+    if (it.status === "postponed" && rq.until) label = it.due ? "Postponed · due " + fmtDate(rq.until) : "Postponed to " + fmtDate(rq.until);
+    if (it.due) t = "solar";
+    if (it.in_session) { label = (rq.action === "undo" ? "Undoing" : "Applying") + " · session " + it.in_session; t = "blue"; }
+    return [label, t];
+  }
+  function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '">' + (it.in_session ? '<span class="spin" style="width:10px;height:10px"></span>' : '<span class="dot"></span>') + esc(s[0]) + "</span>"; }
+  function callRef(site) {
+    var i = callIndex(site), c = i >= 0 ? calls()[i] : null;
+    if (!c) return '<span class="cref" title="Not in the calls table">' + esc(site) + "</span>";
+    return '<button class="cref" type="button" data-go-call="' + esc(site) + '" title="' + esc(site + (c.feature ? " · " + c.feature : "")) + '">' + esc(site) + (c.feature ? " <em>" + esc(c.feature) + "</em>" : "") + "</button>";
+  }
+  function itemLink(id) {
+    var it = byId(id);
+    if (!it) return '<span class="cref">' + esc(id) + "</span>";
+    var k = kindOf(it.kind);
+    return '<button class="ilink ' + tone(k[1]) + '" type="button" data-go-item="' + esc(id) + '" title="' + esc(k[0]) + '"><span class="sdot"></span><span class="tt">' + esc(it.title || id) + "</span></button>";
+  }
+  function evRow(e) {
+    var r = RESULT[e.result] || RESULT.info, name = e.label || CHECK[e.check] || cap(e.check), agent = e.source === "agent";
+    return '<li class="ev"><span class="r ' + tone(r[2]) + '">' + icon(r[1]) + esc(r[0]) + '</span><span class="k">' + esc(name) + '</span><span class="d">' + esc(e.detail || name + ": " + r[0]) + "</span>" +
+      '<span class="s' + (agent ? " agent" : "") + '" title="' + (agent ? "Reported by the agent" : "Measured by the outside check: code the agent can’t influence") + '">' + (agent ? "agent" : "check") + "</span></li>";
+  }
+  function more(key, label, meta, body) {
+    return '<details class="more" data-key="' + esc(key) + '"' + (S.open[key] ? " open" : "") + "><summary>" + icon("chev") + esc(label) + (meta ? ' <span class="meta">' + meta + "</span>" : "") + '</summary><div class="more-b">' + body + "</div></details>";
+  }
+  function copyVal(v, label) { return '<span class="copyv" title="' + esc(label || v) + '"><span class="cv">' + esc(label || v) + '</span><button class="btn ghost" type="button" data-act="copy" data-v="' + esc(v) + '">Copy</button></span>'; }
+
+  // ---------------- diff (from git), lightly highlighted ----------------
+  var KW = {};
+  ("const let var function return if else for while do switch case break continue import from export default class new await async try catch finally throw typeof instanceof " +
+   "def self None True False null undefined true false in of is not and or with as lambda yield pass raise elif except interface type extends implements public private " +
+   "protected static readonly enum this super print nonlocal global del assert").split(" ").forEach(function (k) { KW[k] = 1; });
+  function langOf(f) {
+    var m = /\.([A-Za-z0-9]+)$/.exec(String(f || "")); var e = m ? m[1].toLowerCase() : "";
+    if (/^(py|pyi|sh|bash|rb|yml|yaml|toml|cfg|ini|r|pl)$/.test(e)) return "hash";
+    if (/^(js|jsx|ts|tsx|mjs|cjs|go|java|kt|rs|c|h|cc|cpp|cs|swift|scala|php|css|scss|dart)$/.test(e)) return "slash";
+    if (e === "json") return "json";
+    return "";
+  }
+  var TOK = {
+    hash: /(#.*$)|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    slash: /(\/\/.*$|\/\*.*?(?:\*\/|$))|("(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|`(?:[^`\\]|\\.)*`?)|(\b\d[\d_]*(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)/g,
+    json: /()("(?:[^"\\]|\\.)*"?)|(\b-?\d+(?:\.\d+)?\b)|(\btrue\b|\bfalse\b|\bnull\b)/g};
+  function hi(code, lang) {
+    var re = TOK[lang]; if (!re) return esc(code);
+    re.lastIndex = 0; var out = "", last = 0, m;
+    while ((m = re.exec(code))) {
+      if (m[0] === "") { re.lastIndex++; continue; }
+      out += esc(code.slice(last, m.index));
+      var cls = m[1] ? "c" : m[2] ? "s" : m[3] ? "n" : (m[4] && (KW[m[4]] || lang === "json")) ? "k" : "";
+      out += cls ? '<span class="sy-' + cls + '">' + esc(m[0]) + "</span>" : esc(m[0]);
+      last = m.index + m[0].length;
+    }
+    return out + esc(code.slice(last));
+  }
+  var diffMemo = {};
+  function parseDiff(text) {
+    if (diffMemo[text]) return diffMemo[text];
+    var lines = String(text || "").split("\n"), pre = [], files = [], cur = null, o = 0, n = 0, ro = 0, rn = 0;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i], m;
+      if (l.indexOf("diff --git ") === 0 && ro <= 0 && rn <= 0) {
+        m = /^diff --git a\/(.*) b\/(.*)$/.exec(l);
+        cur = {file: m ? m[2] : l.slice(11), rows: [], add: 0, del: 0, meta: []}; files.push(cur); continue;
+      }
+      if (!cur) { pre.push(l); continue; }
+      m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/.exec(l);
+      if (m && ro <= 0 && rn <= 0) { o = +m[1]; n = +m[3]; ro = m[2] == null ? 1 : +m[2]; rn = m[4] == null ? 1 : +m[4]; cur.rows.push({t: "hunk", c: l}); continue; }
+      if (ro > 0 || rn > 0) {
+        var ch = l.charAt(0);
+        if (ch === "+") { cur.rows.push({t: "add", n: n++, c: l.slice(1)}); cur.add++; rn--; }
+        else if (ch === "-") { cur.rows.push({t: "del", o: o++, c: l.slice(1)}); cur.del++; ro--; }
+        else if (ch === "\\") { cur.rows.push({t: "hunk", c: l}); }
+        else { cur.rows.push({t: "ctx", o: o++, n: n++, c: l.slice(1)}); ro--; rn--; }
+        continue;
+      }
+      if (/^(new file mode|deleted file mode|rename from|rename to|Binary files|similarity index)/.test(l)) cur.meta.push(l);
+    }
+    var head = {commit: null, author: null, date: null, msg: [], stat: [], total: ""};
+    pre.forEach(function (l) {
+      if (/^commit [0-9a-f]{7,}/.test(l)) head.commit = l.slice(7, 19);
+      else if (/^Author:/.test(l)) head.author = l.replace(/^Author:\s*/, "").replace(/\s*<[^>]*>$/, "");
+      else if (/^Date:/.test(l)) head.date = l.replace(/^Date:\s*/, "");
+      else if (/^ {4}/.test(l)) head.msg.push(l.slice(4));
+      else if (/^ \d+ files? changed/.test(l)) head.total = l.trim();
+      else if (/^ \S.*\|\s+(\d+|Bin)/.test(l)) head.stat.push(l.trim());
+    });
+    var res = {head: head, files: files, add: files.reduce(function (a, f) { return a + f.add; }, 0), del: files.reduce(function (a, f) { return a + f.del; }, 0)};
+    diffMemo[text] = res;
+    return res;
+  }
+  function diffBody(d) {
+    var p = parseDiff(d.text), h = p.head, out = '<div class="dv">';
+    var subj = h.msg.filter(function (x) { return x.trim(); })[0];
+    out += '<div class="dv-h">' + (subj ? '<span class="msg">' + esc(subj) + "</span>" : '<span class="msg">' + esc(d.how || "") + "</span>") +
+      (h.commit ? '<span class="mono">' + esc(h.commit) + "</span>" : "") + (h.total ? '<span class="mono">' + esc(h.total) + "</span>" : "") + "</div>";
+    if (!p.files.length && h.stat.length) out += '<div class="stat">' + esc(h.stat.join("\n")) + "</div>";
+    p.files.forEach(function (f) {
+      var lang = langOf(f.file);
+      out += '<div class="df"><div class="df-h"><span class="f">' + esc(f.file) + "</span>" + f.meta.map(function (x) { return '<span class="m">' + esc(x.replace(/ mode \d+$/, "")) + "</span>"; }).join("") +
+        '<span class="plus">+' + f.add + '</span><span class="minus">−' + f.del + "</span></div>";
+      if (f.rows.length) out += '<div class="df-b"><table><tbody>' + f.rows.map(function (r) {
+        if (r.t === "hunk") return '<tr class="hunk"><td class="n o"></td><td class="n"></td><td class="g"></td><td class="c">' + esc(r.c) + "</td></tr>";
+        return '<tr class="' + r.t + '"><td class="n o">' + (r.o != null ? r.o : "") + '</td><td class="n">' + (r.n != null ? r.n : "") + '</td><td class="g">' + (r.t === "add" ? "+" : r.t === "del" ? "−" : "") + '</td><td class="c">' + hi(r.c, lang) + "</td></tr>";
+      }).join("") + "</tbody></table></div>";
+      out += "</div>";
+    });
+    if (d.truncated) out += '<div class="dv-trunc">Showing the first ' + fmtInt(String(d.text).split("\n").length) + " of " + fmtInt(d.lines) + " lines. Run <code>" + esc(d.how) + "</code> for all of it.</div>";
+    return out + "</div>";
+  }
+  function diffBlock(it) {
+    var d = it.diff;
+    if (!d) return "";
+    if (d.error || !d.text) return '<span class="nodiff" title="' + esc(d.how || "") + '">' + icon("dash") + "Diff not available: " + esc(d.error || "no changes") + "</span>";
+    var p = parseDiff(d.text);
+    var meta = p.files.length + " " + plural(p.files.length, "file") + ' · <span class="plus">+' + p.add + '</span> <span class="minus">−' + p.del + "</span>";
+    return more("diff-" + it.id, "Diff", meta, diffBody(d));
+  }
+
+  // ---------------- the one card ----------------
+  function glp(it) {
+    if (!it.gains && !it.loses && !it.price) return "";
+    var none = /^\s*nothing\s*\.?$/i.test(it.loses || "");
+    return '<div class="glp"><div><span class="lbl">You gain</span><div class="g">' + esc(it.gains || "–") + "</div></div>" +
+      '<div><span class="lbl">You give up</span><div class="l' + (none ? " none" : "") + '">' + esc(it.loses || "–") + "</div></div>" +
+      '<div><span class="lbl">Price</span><div class="pr">' + esc(it.price || "–") + "</div></div></div>";
+  }
+  function samplesHtml(list) {
+    list = arr(list).filter(function (s) { return s && typeof s === "object"; }).slice(0, 10);
+    if (!list.length) return "";
+    return '<div class="samples">' + list.map(function (s) {
+      var a = s.before != null ? s.before : s.old, b = s.after != null ? s.after : s.new, same = String(a) === String(b);
+      return '<div class="sample' + (same ? "" : " diff") + '"><div><span class="lbl">Input</span>' + esc(s.input || "") + '</div><div><span class="lbl">Before</span>' + esc(a) + '</div><div><span class="lbl">After' + (same ? " · same" : " · differs") + "</span>" + esc(b) + "</div></div>";
+    }).join("") + "</div>";
+  }
+  function modelBox(it) {
+    var sbs = arr(it.checked).filter(function (e) { return e.check === "side-by-side"; });
+    return '<div class="mc"><div class="mc-h">' + icon("swap") + '<div class="tx"><b>Answers will differ</b>A different model answers ' + (arr(it.calls).length === 1 ? "this call" : "these calls") + '. ' + (sbs.some(function (e) { return e.result !== "not-run"; }) ? "Compare the side-by-side results before you approve." : "No side-by-side results: the change is unverified.") + "</div></div>" +
+      (sbs.length ? '<ul class="evl">' + sbs.map(evRow).join("") + "</ul>" : "") + sbs.map(function (e) { return samplesHtml(e.samples); }).join("") + "</div>";
+  }
+  function flagsHtml(flags, withItems) {
+    flags = arr(flags); if (!flags.length) return "";
+    return '<div class="flags">' + icon("flag") + '<div class="tx">' + flags.map(function (f) {
+      var files = arr(f.files).filter(function (x) { return String(f.detail || "").indexOf(x) < 0; });
+      return '<div><span class="fk">' + esc(FLAG[f.kind] || cap(f.kind || "flag")) + '</span><span class="fd">' + esc(f.detail || "") + "</span>" +
+        (files.length ? '<div class="ff">' + files.map(function (x) { return '<span class="cref">' + esc(x) + "</span>"; }).join("") + "</div>" : "") +
+        (withItems && f.item ? '<div class="ff">' + itemLink(f.item) + "</div>" : "") + "</div>";
+    }).join("") + "</div></div>";
+  }
+  function relHtml(it) {
+    var out = "";
+    if (arr(it.depends_on).length) out += '<span class="lbl">Depends on</span>' + it.depends_on.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    if (arr(it.excludes).length) out += (out ? '<span style="width:12px"></span>' : "") + '<span class="lbl">Excludes</span>' + it.excludes.map(itemLink).join('<span style="color:var(--text-3)">·</span>');
+    return out ? '<div class="rel">' + out + "</div>" : "";
+  }
+  function requestNote(it) {
+    var r = it.request;
+    if (r && it.in_session) return '<div class="note tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><div class="tx"><b>Apply session ' + esc(it.in_session) + " is working on this.</b> The outside check runs when it finishes.</div></div>";
+    if (!r || r.session) return "";
+    var what = {apply: "You approved this. It goes to the next apply session.", undo: "You asked to undo this. It goes to the next apply session.",
+      dismiss: "You dismissed this.", postpone: "You postponed this" + (r.until ? " until " + fmtDate(r.until) : "") + "."}[r.action] || r.action;
+    var t = {apply: "blue", undo: "amber", dismiss: "muted", postpone: it.due ? "solar" : "muted"}[r.action] || "neutral";
+    return '<div class="note ' + tone(t) + '">' + icon(r.action === "undo" ? "undo" : r.action === "apply" ? "check" : "clock") + '<div class="tx"><b>' + esc(what) + "</b>" +
+      (r.reason ? " “" + esc(r.reason) + "”" : "") + (r.at ? ' <span class="meta">· ' + esc(fmtTime(r.at)) + "</span>" : "") +
+      (it.stale ? '<div style="margin-top:6px"><span class="pill tone-amber">' + icon("warn") + "Changed since your request: review it again</span></div>" : "") +
+      (it.due ? '<div style="margin-top:6px"><span class="pill tone-solar">' + icon("clock") + "The date has passed: decide now</span></div>" : "") + "</div></div>";
+  }
+  function resultsHtml(it) {
+    var rs = arr(it.results); if (!rs.length) return "";
+    return rs.slice(-3).map(function (r) {
+      var bad = r.status === "declined" || r.status === "failed";
+      var verb = (r.action === "undo" ? "Undo " : "Apply ") + (r.status === "done" ? "done" : r.status);
+      return '<div class="note ' + tone(bad ? "red" : r.status === "done" ? "green" : "neutral") + '">' + icon(bad ? "warn" : "check") + '<div class="tx"><b>' + esc(verb) + "</b> " +
+        '<span class="meta">in session ' + esc(r.session || "?") + (r.finished ? ", " + esc(fmtTime(r.finished)) : "") + "</span>" + (r.note ? '<div style="margin-top:2px">' + esc(r.note) + "</div>" : "") +
+        (arr(r.commits).length ? '<div class="row" style="margin-top:6px">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div></div>";
+    }).join("");
+  }
+  function btn(cls, act, id, label, ic) {
+    var off = !LIVE || !!S.busy || S.conn !== "ok";
+    return '<button class="btn ' + cls + '" type="button" data-act="' + act + '" data-id="' + esc(id) + '"' + (off ? " disabled" : "") + (!LIVE ? ' title="' + esc(FROZEN_NOTE) + '"' : "") + ">" +
+      (S.busy === id && act !== "form" ? '<span class="spin"></span>' : ic ? icon(ic) : "") + esc(label) + "</button>";
+  }
+  function actionsHtml(it) {
+    var acts = arr(it.actions); if (!acts.length) return "";
+    return '<div class="acts">' + acts.map(function (a) {
+      if (a === "approve") return btn("primary", "approve", it.id, it.status === "check failed" ? "Approve anyway" : it.status === "undone" || it.status === "declined" ? "Approve again" : "Approve");
+      if (a === "dismiss") return btn("", "form-dismiss", it.id, it.kind === "needs-decision" ? "Leave as is" : "Dismiss");
+      if (a === "postpone") return btn("", "form-postpone", it.id, "Postpone");
+      if (a === "undo") return btn("warn", "form-undo", it.id, "Undo", "undo");
+      if (a === "withdraw") return btn("ghost", "withdraw", it.id, "Withdraw request");
+      return "";
+    }).join("") + "</div>";
+  }
+  function formHtml(it) {
+    var f = S.form[it.id]; if (!f || !LIVE) return "";
+    var label = {dismiss: it.kind === "needs-decision" ? "Leave as is" : "Dismiss", postpone: "Postpone", undo: "Mark for undo"}[f.k];
+    var input = f.k === "postpone" ? '<input type="date" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" min="' + today() + '" aria-label="Postpone until">'
+      : '<input type="text" maxlength="2000" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" placeholder="' + (f.k === "undo" ? "Why? The apply session reads this (optional)" : "Why? (optional)") + '" aria-label="Reason">';
+    return '<div class="form">' + input + '<button class="btn primary" type="button" data-act="confirm" data-id="' + esc(it.id) + '">' + esc(label) + '</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(it.id) + '">Cancel</button>' +
+      (f.k === "undo" ? '<span class="hint">The apply session undoes it and adapts later work, or says why it couldn’t.</span>' : "") + "</div>";
+  }
+  function card(it) {
+    var h = [], ev = arr(it.checked).filter(function (e) { return !(it.model_change && e.check === "side-by-side"); });
+    h.push('<article class="card item' + (it.waiting ? " waiting" : "") + '" id="item-' + esc(it.id) + '">');
+    var lvl = it.level ? '<span class="chip lvl">' + esc({"quick-win": "Quick win", change: "Change", rework: "Rework"}[it.level] || it.level) + "</span>" : "";
+    var unbuilt = it.kind === "improvement" && it.built === false ? '<span class="chip lvl">Not built yet</span>' : "";
+    h.push('<header class="ih">' + kindBadge(it.kind) + '<h3 class="it">' + esc(it.title || it.id) + "</h3>" + lvl + unbuilt + statusChip(it) + "</header>");
+    if (it.summary) h.push('<p class="isum">' + esc(it.summary) + "</p>");
+    if (arr(it.calls).length) h.push('<div class="row"><span class="lbl">' + plural(it.calls.length, "Call") + "</span>" + it.calls.map(callRef).join("") + "</div>");
+    if (it.model_change) h.push(modelBox(it));
+    h.push(glp(it));
+    if (ev.length) h.push('<div class="chk"><span class="lbl">Checked</span><ul class="evl">' + ev.map(evRow).join("") + "</ul></div>");
+    h.push(flagsHtml(it.flags));
+    h.push(relHtml(it));
+    h.push(requestNote(it));
+    h.push(resultsHtml(it));
+    var disc = (it.why ? more("why-" + it.id, "Why", "the agent’s reasoning", '<p class="whyt">' + esc(it.why) + "</p>") : "") + diffBlock(it);
+    if (disc) h.push('<div class="disc">' + disc + "</div>");
+    var refs = (it.commit ? '<span class="ref" title="commit">' + icon("commit") + "<span>" + esc(it.commit) + "</span></span>" : "") +
+      (it.branch ? '<span class="ref" title="branch">' + icon("branch") + "<span>" + esc(it.branch) + "</span></span>" : "");
+    var acts = actionsHtml(it);
+    if (refs || acts) h.push('<footer class="ifoot">' + refs + '<span class="sp"></span>' + acts + formHtml(it) + "</footer>");
+    h.push("</article>");
+    return h.join("");
+  }
+
+  // ---------------- shell ----------------
+  function counts() {
+    return {calls: calls().length || "", changes: items().length || "", queue: (waitingItems().length + pend().length) || "", history: arr(B && B.history).length || ""};
+  }
+  function renderSide() {
+    var side = document.getElementById("side"), c = B ? counts() : {};
+    if (B && B.repo) document.title = B.repo + " · router-migrate";
+    function item(p) {
+      return '<button class="nav-item" type="button" data-tab="' + p[0] + '"' + (S.tab === p[0] ? ' aria-current="page"' : "") + ">" + icon(p[2]) + '<span class="nl">' + esc(p[1]) + "</span>" +
+        (c[p[0]] ? '<span class="cnt' + (p[0] === "queue" ? " hot" : "") + '">' + esc(c[p[0]]) + "</span>" : "") + "</button>";
+    }
+    side.innerHTML = '<div class="brand"><b>router-migrate</b><span>for Router</span></div><nav class="nav" aria-label="Pages">' + PAGES.map(item).join("") + "</nav>" +
+      '<div class="side-spacer"></div><div class="nav-label">More</div><nav class="nav" aria-label="More">' + MORE.map(item).join("") + "</nav>" +
+      '<div class="side-foot">' + esc((B && B.tool_version) || "router-migrate") + (B && B.generated ? "<br>" + (FROZEN ? "Report from " : "Updated ") + esc(fmtTime(B.generated)) : "") + "</div>";
+  }
+  function keyBadge(cls) {
+    var live = !!(B && B.live);
+    return '<span class="status key ' + (live ? "live" : "") + (cls ? " " + cls : "") + '" title="' + (live ? "A migration key was available: the agent checked requests against Router itself" : "No migration key: Router acceptance comes from the simulator") + '">' +
+      icon("key") + (live ? "Router key: live checks" : "No key: simulator only") + "</span>";
+  }
+  function themeIcon() { return S.theme === "light" ? "sun" : S.theme === "dark" ? "moon" : "auto"; }
+  function renderTop() {
+    var el = document.getElementById("topbar"), page = PAGES.concat(MORE).filter(function (x) { return x[0] === S.tab; })[0];
+    var st = LIVE ? (S.conn === "ok" ? ["live", "Live", true] : ["err", S.conn === "auth" ? "Session expired" : "Server stopped", false]) : ["frozen", FROZEN ? "Frozen report" : "Static page", false];
+    var path = B && B.root ? String(B.root).replace(/^\/(Users|home)\/[^\/]+/, "~") : "";
+    el.innerHTML = '<div class="topbar-in"><div class="repo-chip" title="' + esc(B && B.root) + '"><span class="repo-ic">' + icon("repo") + '</span><div class="repo-id"><span class="nm">' + esc((B && B.repo) || "No repo") + "</span>" +
+      (path ? '<span class="path">' + esc(path) + "</span>" : "") + "</div></div>" + (page ? '<span class="crumb">' + esc(page[1]) + "</span>" : "") + '<span class="sp"></span>' +
+      (B ? keyBadge() : "") + '<span class="status ' + st[0] + '" title="' + esc(FROZEN ? FROZEN_NOTE : "") + '"><span class="dot' + (st[2] ? " ping" : "") + '"></span><span class="lbl2">' + esc(st[1]) + "</span></span>" +
+      '<button class="iconbtn" type="button" data-act="theme" title="Theme: ' + esc(S.theme) + '" aria-label="Theme: ' + esc(S.theme) + '">' + icon(themeIcon()) + "</button></div>";
+  }
+  function renderSticky() {
+    var el = document.getElementById("sticky"), n = pend().length;
+    if (!B || !n || S.tab === "queue" || S.tab === "setup") { el.innerHTML = ""; S.stickyN = 0; return; }
+    var first = !S.stickyN; S.stickyN = n;
+    var u = pend().filter(function (r) { return r.action === "undo"; }).length, a = n - u;
+    var what = [a ? a + " to apply" : "", u ? u + " to undo" : ""].filter(Boolean).join(", ");
+    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + " " + plural(n, "request") + "</b> ready for the apply session: " + esc(what) + "." +
+      (running().length ? " A session is running now." : "") + '</span><button class="btn primary" type="button" data-tab="queue">Review' + icon("arrow") + "</button></div></div>";
+  }
+
+  // ---------------- overview ----------------
+  function testsLine(t) {
+    t = obj(t); if (!t.status) return null;
+    var c = obj(t.counts), b = obj(t.baseline);
+    if (t.status === "running") return ["Tests still running", "amber"];
+    if (t.status === "skipped") return ["Tests skipped", "muted"];
+    var txt = num(c.passed) != null ? fmtInt(c.passed) + " passed" + (c.failed ? ", " + c.failed + " failed" : "") + (c.errors ? ", " + c.errors + " errors" : "") : t.status;
+    var same = num(b.passed) != null && num(c.passed) != null && c.passed >= b.passed && (c.failed || 0) + (c.errors || 0) <= (b.failed || 0) + (b.errors || 0);
+    return ["Tests " + txt + (same ? ", same as before" : num(b.passed) != null ? " (before: " + fmtInt(b.passed) + " passed" + (b.failed ? ", " + b.failed + " failed" : "") + ")" : ""), t.status === "passed" ? "green" : "red"];
+  }
+  function renderOverview() {
+    var h = [], tr = obj(hl().traffic), bh = obj(hl().behaviour), w = obj(hl().waiting), imps = improvements();
+    h.push(banners(true));
+    var on = num(tr.on_router) || 0, tot = num(tr.total) || 0;
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Overview</div><h1>' + (tot ? fmtInt(on) + ' <span class="muted">of</span> ' + fmtInt(tot) + " production LLM " + plural(tot, "call") + " on Router" : "No production LLM calls listed yet") + "</h1>" +
+      '<p class="sub">' + (B.live ? "Checked with a Router key: the agent sent real requests through Router." : "Checked without a Router key: Router acceptance comes from the simulator.") + " Nothing reaches production until <code>RAMP_ROUTER_API_KEY</code> is set in the app’s environment.</p></div></header>");
+    // three numbers
+    var segs = [["verified", "green", ""], ["unverified", "green", "o"], ["not_routing", "red", ""], ["stays", "muted", ""]].filter(function (s) { return tr[s[0]]; });
+    var bar = '<div class="segbar" role="img" aria-label="' + esc(segs.map(function (s) { return tr[s[0]] + " " + s[0].replace("_", " "); }).join(", ")) + '">' +
+      (segs.length ? segs.map(function (s) { return '<i class="' + tone(s[1]) + " " + (s[1] === "muted" ? "muted" : s[2]) + '" style="flex:' + tr[s[0]] + '"></i>'; }).join("") : '<i class="muted" style="flex:1"></i>') + "</div>";
+    var door1 = '<button class="door" type="button" data-tab="calls"><div class="door-top"><span class="ic t tone-green">' + icon("route") + "</span><h3>Traffic on Router</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(on) + "<small>/" + fmtInt(tot) + '</small></span><span class="u">' + plural(tot, "call") + "</span></div>" + bar +
+      '<div class="mini"><span class="tone-green"><span class="sdot"></span><b>' + fmtInt(tr.verified || 0) + "</b>verified</span>" +
+      (tr.unverified ? '<span class="tone-green"><span class="sdot o"></span><b>' + fmtInt(tr.unverified) + "</b>on Router, not verifiable statically</span>" : "") +
+      (tr.not_routing ? '<span class="tone-red"><span class="sdot"></span><b>' + fmtInt(tr.not_routing) + "</b>reported moved but don’t route</span>" : "") +
+      '<span class="tone-muted"><span class="sdot o"></span><b>' + fmtInt(tr.stays || 0) + "</b>" + (tr.stays === 1 ? "stays" : "stay") + " on " + (tr.stays === 1 ? "its" : "their") + " provider</span></div>" +
+      '<div class="door-foot"><span>Route truth from the outside check</span><span class="sp"></span><span class="go">Every call' + icon("arrow") + "</span></div></button>";
+    var bt = !bh.checked ? ["Not checked", "muted"] : bh.ok === false ? ["Check failed", "red"] : obj(bh.tests).status === "running" ? ["Tests running", "amber"] : ["Preserved", "green"];
+    var tl = testsLine(bh.tests), tc = obj(bh.typecheck), rr = obj(bh.router);
+    var mini2 = [];
+    if (tl) mini2.push('<span class="' + tone(tl[1]) + '"><span class="sdot"></span>' + esc(tl[0]) + "</span>");
+    if (num(tc.errors) != null) mini2.push('<span class="' + tone(tc.errors <= (tc.baseline || 0) ? "green" : "red") + '"><span class="sdot"></span>Typecheck ' + tc.errors + " " + plural(tc.errors, "error") + (num(tc.baseline) != null ? ", before " + tc.baseline : "") + "</span>");
+    if (num(rr.requests)) mini2.push('<span class="' + tone(arr(rr.invalid).length ? "red" : "green") + '"><span class="sdot"></span>Router accepts ' + fmtInt(rr.valid || 0) + " of " + fmtInt(rr.requests) + " requests</span>");
+    arr(bh.failures).slice(0, 2).forEach(function (f) { mini2.push('<span class="tone-red"><span class="sdot"></span>' + esc((f.gate ? f.gate + ": " : "") + (f.detail || "")) + "</span>"); });
+    if (!bh.checked) mini2.push("<span>Run <code>router-migrate finish</code> to check the migration.</span>");
+    var door2 = '<button class="door" type="button" data-tab="history"><div class="door-top"><span class="ic t ' + tone(bt[1]) + '">' + icon(bt[1] === "green" ? "check" : bt[1] === "red" ? "warn" : "clock") + "</span><h3>Behaviour</h3></div>" +
+      '<div class="door-big ' + tone(bt[1]) + '"><span class="v word">' + esc(bt[0]) + "</span></div>" + '<div class="mini">' + mini2.join("") + "</div>" +
+      '<div class="door-foot"><span>' + (bh.at ? "Outside check, " + esc(fmtTime(bh.at)) : "Outside check") + '</span><span class="sp"></span><span class="go">History' + icon("arrow") + "</span></div></button>";
+    var wi = waitingItems(), by = {};
+    wi.forEach(function (i) { var k = i.due ? "due" : i.kind === "needs-decision" ? "decide" : i.status; by[k] = (by[k] || 0) + 1; });
+    var bits = [["proposed", "improvement to review", "improvements to review"], ["decide", "decision only you can make", "decisions only you can make"],
+      ["check failed", "improvement failed the check", "improvements failed the check"], ["declined", "declined by the apply session", "declined by the apply session"], ["due", "postponed, now due", "postponed, now due"]]
+      .filter(function (b) { return by[b[0]]; }).map(function (b) { return "<span><b>" + by[b[0]] + "</b>" + esc(by[b[0]] === 1 ? b[1] : b[2]) + "</span>"; });
+    if (pend().length) bits.push('<span class="tone-blue"><b>' + pend().length + "</b>" + plural(pend().length, "request") + " ready to apply</span>");
+    if (running().length) bits.push('<span class="tone-amber"><span class="spin"></span>apply session ' + esc(running().map(function (r) { return r.session; }).join(", ")) + " running</span>");
+    var n3 = num(w.count) != null ? w.count : wi.length, hot = n3 + pend().length > 0;
+    var door3 = '<button class="door' + (hot ? " hot" : "") + '" type="button" data-tab="queue"><div class="door-top"><span class="ic">' + icon("inbox") + "</span><h3>Waiting on you</h3></div>" +
+      '<div class="door-big"><span class="v">' + fmtInt(n3) + '</span><span class="u">' + (n3 ? plural(n3, "decision") : "nothing to decide") + "</span></div>" +
+      '<div class="mini">' + (bits.length ? bits.join("") : "<span>Every item has been decided.</span>") + "</div>" +
+      '<div class="door-foot"><span>Nothing changes until you Apply</span><span class="sp"></span><span class="go">Your queue' + icon("arrow") + "</span></div></button>";
+    h.push('<div class="doors">' + door1 + door2 + door3 + "</div>");
+    h.push(flowHtml());
+    // the agent's account
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>What the agent did</h2></div></div>' +
+      (B.summary ? '<div class="quote">' + icon("spark") + '<div class="qt"><span class="by">The agent’s summary</span>' + esc(B.summary) + "</div></div>" : '<div class="panel empty">The agent hasn’t written its summary yet.</div>') +
+      (B.reviewed ? (imps.length ? '<div class="reviewed">' + icon("layers") + '<div class="tx"><b>Reviewed for improvements:</b> ' + esc(B.reviewed) + ' <button class="link" type="button" data-go-kind="improvement">' + imps.length + " " + plural(imps.length, "improvement") + icon("arrow") + "</button></div></div>"
+        : '<div class="reviewed big">' + icon("spark") + '<div class="tx"><b>Reviewed: nothing to propose</b>' + esc(B.reviewed) + "</div></div>") : "") + "</section>");
+    var fl = arr(bh.flags);
+    if (fl.length) {
+      var owner = {};
+      items().forEach(function (i) { arr(i.flags).forEach(function (f) { owner[JSON.stringify([f.kind, f.detail])] = i.id; }); });
+      h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Flagged for you</h2><p>The outside check doesn’t forbid these; it shows them so nothing changes behind your back.</p></div></div>' +
+        flagsHtml(fl.map(function (f) { return {kind: f.kind, detail: f.detail, files: f.files, item: owner[JSON.stringify([f.kind, f.detail])]}; }), true) + "</section>");
+    }
+    var kc = {}; items().forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; });
+    if (items().length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Every change, by kind</h2><p>The same card for every kind, on every page.</p></div></div><div class="kchips">' +
+      KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return '<button class="fchip ' + tone(x[1]) + '" type="button" data-go-kind="' + esc(k) + '"><span class="sdot"></span>' + esc(x[0]) + ' <span class="n">' + kc[k] + "</span></button>"; }).join("") + "</div></section>");
+    var c = obj(B.cost), facts = [];
+    facts.push("<span>" + icon("key") + (B.live ? "<b>Router key: live checks</b>" : "<b>No key: simulator only</b>") + "</span>");
+    if (num(c.agent_usd) != null) facts.push("<span>Agent cost <b>" + usd(c.agent_usd) + "</b></span>");
+    if (num(c.agent_minutes) != null) facts.push("<span>Agent time <b>" + Math.round(c.agent_minutes) + " min</b></span>");
+    if (num(c.live_requests) != null) facts.push("<span>Live Router requests <b>" + fmtInt(c.live_requests) + "</b></span>");
+    if (B.base) facts.push("<span>Started from <b>" + esc(String(B.base).slice(0, 10)) + "</b></span>");
+    if (B.migration_ref) facts.push("<span>Branch <b>" + esc(B.migration_ref) + "</b></span>");
+    h.push('<div class="facts-line">' + facts.join("") + "</div>");
+    return h.join("");
+  }
+  // how your traffic moved: each call from its file to Router; the wire's colour is the call's route truth
+  var ON_ROUTER = {verified: 1, unverified: 1, unchecked: 1};
+  var FLOW_KEY = [["verified", "Verified by the outside check"], ["unverified", "On Router, not verifiable statically"], ["unchecked", "On Router, the agent’s claim"],
+    ["not_routing", "Reported moved, doesn’t route"], ["stays", "Stays on its provider"], ["unknown", "Not known"]];
+  function wired(c) { return !!ON_ROUTER[c.route] || c.route === "not_routing"; }
+  function siteParts(s) { s = String(s || ""); var m = /^(.*):(\d+)$/.exec(s); return m ? {file: m[1], line: m[2]} : {file: s, line: ""}; }
+  function flowNode(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown, p = siteParts(c.site), name = p.file.split("/").pop() + (p.line ? ":" + p.line : "");
+    var tip = [c.site, r[0] + (r[1] ? ": " + r[1] : ""), c.reason, c.feature ? "feature: " + c.feature : ""].filter(Boolean).join(" · ");
+    return '<button class="fnode ' + tone(r[2]) + '" type="button" data-route="' + esc(c.route) + '" data-go-call="' + esc(c.site) + '" title="' + esc(tip) + '">' +
+      '<span class="sdot' + (r[3] ? " o" : "") + '"></span><span class="tx"><span class="fn">' + esc(name) + '</span><span class="sub">' + esc(c.model || c.feature || "model set at run time") + "</span></span>" + icon("arrow", "go") + "</button>";
+  }
+  function flowHtml() {
+    var all = calls();
+    if (!all.length) return "";
+    var on = all.filter(wired), off = all.filter(function (c) { return !wired(c); }), nOn = all.filter(function (c) { return ON_ROUTER[c.route]; }).length;
+    var groups = {}, order = [];
+    on.forEach(function (c) { var f = siteParts(c.site).file; if (!groups[f]) { groups[f] = []; order.push(f); } groups[f].push(c); });
+    var left = on.length ? order.map(function (f) {
+      return '<div class="fgroup"><div class="fgroup-h"><span class="p" title="' + esc(f) + '">' + esc(f) + '</span><span class="n">' + groups[f].length + "</span></div>" + groups[f].map(flowNode).join("") + "</div>";
+    }).join("") : '<div class="flow-empty">Nothing goes through Router yet.</div>';
+    var chips = items().filter(function (i) { return i.kind === "improvement" && i.status === "applied"; }).map(function (i) {
+      return '<button class="rchip tone-lilac" type="button" data-go-item="' + esc(i.id) + '" title="Applied: ' + esc(i.title || i.id) + '">' + icon("spark") + "<span>" + esc(i.title || i.id) + "</span></button>";
+    }).join("");
+    var MAX = 9, stay = "";
+    if (off.length) stay = '<div class="flow-stay"><div class="eyebrow">Not on Router · ' + off.length + '</div><div class="stay-grid">' + off.slice(0, MAX).map(flowNode).join("") + "</div>" +
+      (off.length > MAX ? '<button class="link" type="button" data-tab="calls" style="margin-top:10px">' + (off.length - MAX) + " more on Calls" + icon("arrow") + "</button>" : "") + "</div>";
+    var cnt = {};
+    all.forEach(function (c) { var k = c.route === "provider" ? "stays" : ROUTE[c.route] ? c.route : "unknown"; cnt[k] = (cnt[k] || 0) + 1; });
+    var legend = FLOW_KEY.filter(function (k) { return cnt[k[0]]; }).map(function (k) {
+      var r = ROUTE[k[0]], sw = ON_ROUTER[k[0]] || k[0] === "not_routing" ? '<svg class="' + (r[3] ? "o" : "") + '" viewBox="0 0 22 8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4"/></svg>' : '<span class="box"></span>';
+      return '<span class="' + tone(r[2]) + '">' + sw + esc(k[1]) + " <b>" + cnt[k[0]] + "</b></span>";
+    }).join("");
+    return '<section class="sec"><div class="sec-h"><div class="t"><h2>How your traffic moved</h2><p>Each production LLM call, from its file to Router. The line’s colour is what the outside check saw.</p></div></div>' +
+      '<div class="panel flow" id="flow"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="flow-grid"><div class="fcol">' + left + '</div><div class="flow-mid" aria-hidden="true"></div>' +
+      '<div class="router-node" id="router-node"><div class="nm"><span class="ic t tone-green">' + icon("router") + "</span>Router</div>" +
+      '<div class="host mono">api.router.com · ' + fmtInt(nOn) + " " + plural(nOn, "call") + "</div>" + (chips ? '<div class="rchips">' + chips + "</div>" : "") + "</div></div>" + stay +
+      '<div class="legend">' + legend + "</div></div></section>";
+  }
+  var flowSig = "";
+  function drawFlow() {
+    var flow = document.getElementById("flow"), svg = document.getElementById("wires"), rn = document.getElementById("router-node");
+    if (!flow || !svg || !rn) return;
+    if (getComputedStyle(svg).display === "none") { svg.innerHTML = ""; flowSig = ""; return; }
+    var fb = flow.getBoundingClientRect(), ox = fb.left + flow.clientLeft, oy = fb.top + flow.clientTop, rb = rn.getBoundingClientRect();
+    var nodes = Array.prototype.slice.call(flow.querySelectorAll(".fcol .fnode")), n = nodes.length, out = [];
+    function f(v) { return v.toFixed(1); }
+    nodes.forEach(function (el, k) {
+      var b = el.getBoundingClientRect(), rt = el.getAttribute("data-route"), r = ROUTE[rt] || ROUTE.unknown, broken = rt === "not_routing";
+      var x1 = b.right - ox, y1 = b.top + b.height / 2 - oy;
+      var x2 = rb.left - ox - (broken ? 26 : 0), y2 = rb.top - oy + rb.height * (n === 1 ? .5 : .25 + .5 * k / (n - 1));
+      var dx = Math.max(24, (x2 - x1) * .55);
+      out.push('<path class="wire ' + tone(r[2]) + (r[3] ? " o" : "") + (broken ? " broken" : "") + '" d="M' + f(x1) + "," + f(y1) + " C" + f(x1 + dx) + "," + f(y1) + " " + f(x2 - dx) + "," + f(y2) + " " + f(x2) + "," + f(y2) + '"/>');
+      if (broken) out.push('<path class="wire-x ' + tone(r[2]) + '" d="M' + f(x2 + 6) + "," + f(y2 - 4) + 'l8,8m0,-8l-8,8"/>');
+    });
+    var sig = flow.clientWidth + "x" + flow.clientHeight + out.join("");
+    if (sig === flowSig && svg.innerHTML) return;  // same geometry: leave the running animation alone
+    flowSig = sig;
+    svg.setAttribute("viewBox", "0 0 " + flow.clientWidth + " " + flow.clientHeight);
+    svg.innerHTML = out.join("");
+  }
+  function banners(withBlocked) {
+    var out = "";
+    if (LIVE && S.conn === "auth") out += '<div class="banner tone-red">' + icon("warn") + '<span class="tx">The session token was rejected. Re-run the command and open the new link.</span></div>';
+    else if (LIVE && S.conn === "down") out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">Lost the local server. Decisions are paused until it runs again.</span></div>';
+    var errs = arr(B && B.report_errors);
+    if (errs.length) out += '<div class="banner tone-amber">' + icon("warn") + '<div class="tx"><b>MIGRATION.json doesn’t match the format</b>, so parts of this page may be missing:<ul>' + errs.slice(0, 6).map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + (errs.length > 6 ? "<li>and " + (errs.length - 6) + " more</li>" : "") + "</ul></div></div>";
+    running().forEach(function (r) { out += '<div class="banner tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><span class="tx"><b>Apply session ' + esc(r.session) + " is running</b> on " + r.items.length + " " + plural(r.items.length, "request") + ". This page updates as it works.</span></div>"; });
+    if (withBlocked && blocked() && pend().length) out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">' + md(blocked()) + "</span></div>";
+    return out;
+  }
+
+  // ---------------- calls ----------------
+  function routeCell(c) {
+    var r = ROUTE[c.route] || ROUTE.unknown;
+    return '<span class="route ' + tone(r[2]) + '"><span class="sdot' + (r[3] ? " o" : "") + '"></span>' + esc(r[0]) + "</span>" +
+      '<div class="sub">' + esc(c.reason ? (c.route === "stays" ? c.reason : r[1] + ": " + c.reason) : r[1]) + "</div>";
+  }
+  function renderCalls() {
+    var h = [], l = calls(), tr = obj(hl().traffic);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Calls</div><h1>Every production LLM call</h1><p class="sub">Where each call goes now, by the outside check’s route truth where it could see, and the item that covers it. ' +
+      fmtInt(tr.verified || 0) + " verified, " + fmtInt(tr.unverified || 0) + " on Router but not verifiable statically, " + fmtInt(tr.stays || 0) + " staying" + (tr.not_routing ? ", " + tr.not_routing + " reported moved but not routing" : "") + ".</p></div></header>");
+    if (!l.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in <code>MIGRATION.json</code>.</div>'); return h.join(""); }
+    h.push('<div class="panel tblw"><table class="ctbl"><thead><tr><th>Call</th><th>Model · task</th><th>Who waits</th><th>Where it goes now</th><th>Item</th></tr></thead><tbody>' + l.map(function (c, i) {
+      return '<tr id="call-' + i + '"><td><div class="site">' + esc(c.site) + "</div>" + (c.feature ? '<div class="sub">feature: ' + esc(c.feature) + "</div>" : "") + "</td>" +
+        '<td data-l="Model"><div><div class="mdl">' + esc(c.model || "set at run time") + "</div>" + (c.task ? '<div class="sub">' + esc(c.task) + "</div>" : "") + "</div></td>" +
+        '<td data-l="Who waits"><span class="lat">' + esc(LAT[c.latency] || "–") + "</span></td>" +
+        '<td data-l="Now"><div>' + routeCell(c) + "</div></td>" +
+        '<td data-l="Item"><div>' + (c.item ? itemLink(c.item) + '<div class="sub">' + esc(kindOf(c.item_kind)[0]) + " · " + esc(lower1(statusOf(byId(c.item) || {status: c.item_status})[0])) + "</div>" : '<span class="sub">no item</span>') + "</div></td></tr>";
+    }).join("") + "</tbody></table></div>");
+    return h.join("");
+  }
+
+  // ---------------- changes ----------------
+  function renderChanges() {
+    var h = [], all = items();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Changes</div><h1>Every decision and improvement</h1><p class="sub">The agent’s migration decisions, what stays, and the improvements it built, each with what it gains, what it gives up, what was checked, and its diff from git.</p></div></header>');
+    if (!all.length) { h.push('<div class="panel empty">No items yet.</div>'); return h.join(""); }
+    var kc = {}, sc = {};
+    all.forEach(function (i) { kc[i.kind] = (kc[i.kind] || 0) + 1; if (S.fk === "all" || i.kind === S.fk) sc[i.status] = (sc[i.status] || 0) + 1; });
+    if (S.fs !== "all" && !sc[S.fs]) S.fs = "all";
+    function chip(kind, v, label, n, t) { return '<button class="fchip' + (t ? " " + tone(t) : "") + '" type="button" data-act="filter" data-f="' + kind + '" data-v="' + esc(v) + '" aria-pressed="' + ((kind === "k" ? S.fk : S.fs) === v) + '">' + (t ? '<span class="sdot"></span>' : "") + esc(label) + ' <span class="n">' + n + "</span></button>"; }
+    h.push('<div class="filters"><span class="lbl">Kind</span>' + chip("k", "all", "All", all.length) + KIND_ORDER.filter(function (k) { return kc[k]; }).map(function (k) { var x = kindOf(k); return chip("k", k, x[0], kc[k], x[1]); }).join("") + "</div>");
+    var stTotal = Object.keys(sc).reduce(function (a, k) { return a + sc[k]; }, 0);
+    h.push('<div class="filters"><span class="lbl">Status</span>' + chip("s", "all", "All", stTotal) + STATUS_ORDER.filter(function (s) { return sc[s]; }).map(function (s) { return chip("s", s, (STATUS[s] || [s])[0].replace(" · ready to apply", ""), sc[s], (STATUS[s] || [0, "neutral"])[1]); }).join("") + "</div>");
+    var shown = all.filter(function (i) { return (S.fk === "all" || i.kind === S.fk) && (S.fs === "all" || i.status === S.fs); });
+    var any = false;
+    GROUPS.forEach(function (g) {
+      var list = shown.filter(function (i) { return g[1].indexOf(i.kind) >= 0; });
+      if (!list.length) return; any = true;
+      h.push('<section class="group"><div class="group-h"><h2>' + esc(g[0]) + '<span class="n">' + list.length + "</span></h2><p>" + esc(g[2]) + '</p></div><div class="stack">' + list.map(card).join("") + "</div></section>");
+    });
+    var other = shown.filter(function (i) { return KIND_ORDER.indexOf(i.kind) < 0; });
+    if (other.length) { any = true; h.push('<section class="group"><div class="stack">' + other.map(card).join("") + "</div></section>"); }
+    if (!any) h.push('<div class="panel empty" style="margin-top:24px">Nothing matches these filters.</div>');
+    return h.join("");
+  }
+
+  // ---------------- queue ----------------
+  function applyResultHtml() {
+    var r = S.applyResult, ln = obj(B && B.launch);
+    if (!r && !ln.mode) return "";
+    if (r && !r.ok) return '<div class="banner ' + tone(r.status === 501 ? "amber" : "red") + '">' + icon("warn") + '<span class="tx"><b>Apply didn’t start.</b> ' + md(r.error) + '</span><button class="btn ghost" type="button" data-act="close-result">Close</button></div>';
+    var d = r ? r.data : ln;
+    if (d.mode === "command" || (!d.mode && d.command)) return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + icon("play") + '<span class="tx"><b>Start the apply session in Claude Code.</b> Paste this; it reads the request list from this repo and says what it did.</span>' +
+      copyVal(d.command || "/router-migrate apply") + '<button class="btn ghost" type="button" data-act="close-result">Close</button></div></div>';
+    var tail = arr(ln.tail);
+    return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + (running().length ? '<span class="spin"></span>' : icon("check")) + '<span class="tx"><b>Apply session ' + esc(d.session || ln.session || "") + (running().length ? " is working" : " started") + ".</b> " +
+      (running().length ? "It merges, reverts and commits on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>, then the outside check runs. This page updates as it works." : "Its result shows in History when it finishes.") + "</span>" +
+      '<button class="btn ghost" type="button" data-tab="history">History' + icon("arrow") + "</button></div>" + (tail.length ? '<pre class="term">' + esc(tail.join("\n")) + "</pre>" : "") + "</div>";
+  }
+  function pendRow(r) {
+    var t = r.action === "undo" ? ["Undo", "amber"] : ["Apply", "blue"];
+    return '<div class="prow"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"pill tone-red\">not in the report</span>") +
+      '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "from the CLI" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
+      '<div class="pa">' + (r.stale ? '<span class="pill tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div></div>";
+  }
+  function renderQueue() {
+    var h = [], p = pend(), wi = waitingItems(), dec = decidedItems(), st = applyState();
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Your queue</div><h1>' + (wi.length ? wi.length + " " + plural(wi.length, "item") + " waiting on you" : p.length ? "Ready to apply" : "Nothing waits on you") + "</h1>" +
+      '<p class="sub">Decide here. One Apply hands the whole list to an apply session: it chooses the order, merges, reverts and adapts later work, commits each result and says what it did. The outside check runs after it.</p></div></header>');
+    if (FROZEN) h.push('<div class="banner tone-blue">' + icon("info") + '<span class="tx"><b>Frozen report.</b> Actions are off here; open the live dashboard to approve, undo or apply.</span></div>');
+    h.push(applyResultHtml());
+    var u = p.filter(function (r) { return r.action === "undo"; }).length;
+    h.push('<section class="sec" style="margin-top:0"><div class="sec-h"><div class="t"><h2>Ready to apply<span class="n">' + p.length + "</span></h2><p>" + (p.length ? "Approved improvements and undo requests no session has taken yet." : "Approve an improvement or mark a decision for undo, and it lands here.") + "</p></div></div>" +
+      '<div class="panel">' + (p.length ? p.map(pendRow).join("") : '<div class="empty">The list is empty.</div>') +
+      '<div class="applybar"><span class="tx"><b>' + p.length + " " + plural(p.length, "request") + "</b>" + (p.length ? " (" + (p.length - u) + " to apply, " + u + " to undo)" : "") + " go to one apply session.</span>" +
+      '<button class="btn primary lg" type="button" data-act="apply"' + (st.off || S.busy ? " disabled" : "") + (st.why ? ' title="' + esc(st.why.replace(/`/g, "")) + '"' : "") + ">" + (S.busy === "apply" ? '<span class="spin"></span>Handing off' : icon("play") + "Apply " + p.length + " " + plural(p.length, "request")) + "</button>" +
+      (st.why && (p.length || !LIVE) ? '<span class="why">' + icon(st.off ? "warn" : "info") + "<span>" + md(st.why) + "</span></span>" : "") + "</div></div></section>");
+    h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Needs your decision<span class="n">' + wi.length + "</span></h2><p>Improvements to approve, dismiss or postpone; choices only you can make; anything the apply session declined.</p></div></div>" +
+      (wi.length ? '<div class="stack">' + wi.map(card).join("") + "</div>" : '<div class="panel empty"><b>Nothing waits on you.</b> Every item is decided.</div>') + "</section>");
+    if (dec.length) h.push('<section class="sec"><div class="sec-h"><div class="t"><h2>Decided earlier<span class="n">' + dec.length + "</span></h2><p>Dismissed or postponed. Withdraw to decide again.</p></div></div><div class=\"panel\">" +
+      dec.map(function (i) { var r = obj(i.request); return '<div class="prow dec">' + statusChip(i) + '<div class="tx">' + itemLink(i.id) + '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</div></div>" + '<div class="pa">' + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div></div>"; }).join("") + "</div></section>");
+    return h.join("");
+  }
+
+  // ---------------- history ----------------
+  function renderHistory() {
+    var h = [], hs = arr(B.history).slice().reverse(), bh = obj(hl().behaviour);
+    h.push(banners(false));
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">History</div><h1>Apply sessions</h1><p class="sub">What each session did with your list, what it declined and why, its commits, and the outside check after it.</p></div></header>');
+    if (bh.checked) h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + icon("check") + '</span><div class="tx"><b>Latest outside check</b><span class="mt">' + esc(bh.ref || "") + (bh.at ? " · " + esc(fmtTime(bh.at)) : "") + "</span></div>" +
+      '<span class="sc ' + tone(bh.ok === false ? "red" : "green") + '"><span class="dot"></span>' + (bh.ok === false ? "Failed" : "Passed") + "</span></div>" +
+      (arr(bh.entries).length ? '<div class="sess-ck"><ul class="evl">' + bh.entries.map(evRow).join("") + "</ul></div>" : "") + "</div>");
+    if (!hs.length && !running().length) { h.push('<div class="panel empty">No apply sessions yet. When you Apply from your queue, each session’s log lands here.</div>'); return h.join(""); }
+    running().forEach(function (r) {
+      h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + esc(r.session) + '</span><div class="tx"><b>Apply session ' + esc(r.session) + '</b><span class="mt">Running · ' + r.items.length + " " + plural(r.items.length, "request") + '</span></div><span class="sc tone-blue"><span class="spin"></span>Running</span></div>' +
+        '<div class="sess-ck">' + r.items.map(itemLink).join(" ") + "</div></div>");
+    });
+    h.push('<div class="stack">' + hs.map(function (s) {
+      var ck = obj(s.check), mins = minutes(s.started, s.finished), rs = arr(s.results);
+      var sum = {done: 0, declined: 0, failed: 0}; rs.forEach(function (r) { sum[r.status] = (sum[r.status] || 0) + 1; });
+      return '<section class="panel sess"><div class="sess-h"><span class="sid">' + esc(s.id || "?") + '</span><div class="tx"><b>Apply session ' + esc(s.id || "") + "</b>" +
+        '<span class="mt">' + esc(fmtTime(s.started)) + (s.finished ? " → " + esc(fmtClock(s.finished)) : "") + (mins != null ? " · " + mins + " min" : "") + " · " + rs.length + " " + plural(rs.length, "result") +
+        (sum.declined || sum.failed ? " · " + [sum.done ? sum.done + " done" : "", sum.declined ? sum.declined + " declined" : "", sum.failed ? sum.failed + " failed" : ""].filter(Boolean).join(", ") : "") + "</span></div>" +
+        (s.check ? '<span class="sc ' + tone(ck.ok === false ? "red" : "green") + '"><span class="dot"></span>Check after: ' + (ck.ok === false ? "failed" : "passed") + "</span>" : '<span class="sc tone-muted"><span class="dot"></span>No check recorded</span>') + "</div>" +
+        (s.summary ? '<p class="sess-sum">' + esc(s.summary) + "</p>" : "") +
+        rs.map(function (r) {
+          var bad = r.status === "declined" || r.status === "failed";
+          return '<div class="rrow"><div class="tx">' + itemLink(r.item) + (r.note ? '<div class="nt">' + esc(r.note) + "</div>" : "") +
+            (arr(r.commits).length ? '<div class="cm">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div>" +
+            '<div class="rt"><span class="atag ' + tone(r.action === "undo" ? "amber" : "blue") + '">' + esc(r.action || "") + '</span><span class="sc ' + tone(bad ? "red" : "green") + '"><span class="dot"></span>' + esc(r.status || "") + "</span></div></div>";
+        }).join("") +
+        (arr(s.check_entries).length ? '<div class="sess-ck"><span class="lbl">The outside check after it</span><ul class="evl">' + s.check_entries.map(evRow).join("") + "</ul></div>" : "") + "</section>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- router setup ----------------
+  function setupSteps() {
+    var su = obj(B && B.setup), mc = arr(su.model_changes).map(byId).filter(Boolean);
+    return [
+      {id: "golive", title: "Turn Router on in production", prio: ["Go live", "solar"], lead: "Nothing changes at run time until the app’s own environment has a Router key. Set it where the app runs (not in the repo), then deploy. The migration key the agent used is separate: use a production key here.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("RAMP_ROUTER_API_KEY=") + "</div></div>", link: "https://app.router.com/"},
+      {id: "off", title: "Know the off switch", prio: ["Rollback", "amber"], lead: "Set this and restart: every call goes back to its original provider, with no code change. Unset it to return to Router.",
+        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("ROUTER_MIGRATE_DISABLE=1") + "</div></div>"},
+      {id: "cap", title: "Set a spend cap on the production key", prio: ["Before rollout", "solar"], lead: "Router stops requests at the cap, so give the key one before traffic moves. Size it from the models these calls use and your monthly volume.",
+        where: ["API keys", "your production key", "Spend cap"], link: "https://app.router.com/",
+        body: arr(su.models).length ? '<div class="s-block"><span class="lbl">Models behind this key</span><div class="taglist">' + su.models.map(function (m) { return '<span class="chip mono">' + esc(m) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "spend", title: "Watch spend by feature", prio: ["After rollout", "neutral"], lead: "Each routed request carries the feature label the agent wired, so Router can show spend per feature.",
+        body: arr(su.features).length ? '<div class="s-block"><span class="lbl">Feature labels in this repo</span><div class="taglist">' + su.features.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "flex", title: "Decide the account Flex default", prio: ["Decide once", "neutral"], where: ["Routing", "Cost-efficient routing"], link: "https://app.router.com/strategies",
+        lead: "Flex trades latency for price and is on by default for the account. A call only stays at the standard tier where its code sends service_tier \"default\" (the migration does this where a person waits), so check the calls below before deciding.",
+        body: arr(su.background).length ? '<div class="s-block"><span class="lbl">Background work nobody waits on</span><div class="taglist">' + su.background.map(function (f) { return '<span class="chip mono">' + esc(f) + "</span>"; }).join("") + "</div></div>" : ""},
+      {id: "shadow", title: "Shadow a model before you switch", prio: mc.length ? ["Before a model change", "lilac"] : ["Optional", "neutral"], where: ["Routing", "Shadow models"], link: "https://app.router.com/strategies",
+        lead: "Samples are evidence, not proof. Before a model change ships, let Router shadow the candidate on a slice of real traffic and compare cost and latency.",
+        body: mc.length ? '<div class="s-block"><span class="lbl">Model changes proposed here</span><div class="rel" style="margin-top:0">' + mc.map(function (i) { return itemLink(i.id); }).join("") + "</div></div>" : ""}];
+  }
+  function setupKey(s) { return "rm6.setup." + ((B && B.repo) || "repo") + "." + s.id; }
+  function setupDone(s) { return store(setupKey(s)) === "1"; }
+  function renderSetup() {
+    var steps = setupSteps(), done = steps.filter(setupDone).length, h = [];
+    h.push('<header class="ph"><div class="ph-t"><div class="eyebrow">Router setup</div><h1>Going live</h1><p class="sub">The code is ready; these steps happen outside it. The tool never changes your Router account or your app’s environment, so each step says where to go and what to set.</p></div>' +
+      '<div class="ph-side"><div class="prog"><div class="prog-bar">' + steps.map(function (s) { return '<i class="' + (setupDone(s) ? "on" : "") + '"></i>'; }).join("") + '</div><span class="tx"><b>' + done + "</b> of " + steps.length + " done</span></div></div></header>");
+    h.push('<div class="stack">' + steps.map(function (s, k) {
+      var d = setupDone(s), link = safeLink(s.link);
+      return '<article class="card scard' + (d ? " done" : "") + '"><div class="s-rail"><span class="s-num">0' + (k + 1) + '</span><button class="check' + (d ? " on" : "") + '" type="button" data-act="setup-done" data-id="' + esc(s.id) + '" aria-pressed="' + d + '" aria-label="Mark done">' + (d ? icon("check") : "") + "</button></div>" +
+        '<div class="s-body"><div class="s-head"><h3>' + esc(s.title) + '</h3><span class="prio ' + tone(s.prio[1]) + '">' + esc(s.prio[0]) + "</span></div>" + '<p class="s-lead">' + esc(s.lead) + "</p>" +
+        (arr(s.where).length ? '<div class="where"><span>Router app</span>' + s.where.map(function (w, i) { return icon("chev") + '<span class="' + (i === s.where.length - 1 ? "r" : "") + '">' + esc(w) + "</span>"; }).join("") + "</div>" : "") +
+        (s.body || "") + '<div class="s-foot">' + (link ? '<a class="btn" href="' + esc(link) + '" target="_blank" rel="noopener noreferrer">Open Router ' + icon("ext") + "</a>" : "") + '<span class="nt">' + (d ? "Marked done in this browser" : "Tick the circle when it’s set") + "</span></div></div></article>";
+    }).join("") + "</div>");
+    return h.join("");
+  }
+
+  // ---------------- render ----------------
+  function renderAll(enter) {
+    S.pending = false;
+    renderSide(); renderTop();
+    var main = document.getElementById("main");
+    if (!B || (!B.has_report && !arr(B.report_errors).length)) {
+      main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + (B ? banners(false) : "") + '<header class="ph"><div class="ph-t"><div class="eyebrow">router-migrate</div><h1>No migration report yet</h1><p class="sub">This page shows what the agent wrote in <code>.router-migrate/MIGRATION.json</code>, checked by <code>router-migrate finish</code>. Run the migration first; this page updates when the report lands.</p></div></header></div>';
+      document.getElementById("sticky").innerHTML = ""; return;
+    }
+    var fn = {overview: renderOverview, calls: renderCalls, changes: renderChanges, queue: renderQueue, history: renderHistory, setup: renderSetup}[S.tab] || renderOverview;
+    var y = window.scrollY;
+    main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + fn() + "</div>";
+    if (!enter) window.scrollTo(0, y);
+    renderSticky();
+    var wires = document.getElementById("wires");
+    if (wires) { if (enter) wires.classList.add("fresh"); flowSig = ""; requestAnimationFrame(drawFlow); }
+  }
+  function setTab(t, push) {
+    if (!PAGES.concat(MORE).some(function (x) { return x[0] === t; })) t = "overview";
+    var changed = t !== S.tab; S.tab = t;
+    if (push && location.hash !== "#" + t) { try { history.replaceState(null, "", location.pathname + location.search + "#" + t); } catch (e) {} }
+    renderAll(changed);
+    if (changed) window.scrollTo(0, 0);
+  }
+  function goTo(id) {
+    var el = document.getElementById(id); if (!el) return;
+    var bar = document.getElementById("topbar"), off = (bar ? bar.getBoundingClientRect().bottom : 0) + 20;
+    window.scrollTo({top: el.getBoundingClientRect().top + window.scrollY - off, behavior: "smooth"});
+    el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  }
+  function go(tab, id) { setTab(tab, true); if (id) requestAnimationFrame(function () { requestAnimationFrame(function () { goTo(id); }); }); }
+  function applyTheme() { if (S.theme === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", S.theme); }
+
+  // ---------------- events ----------------
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-tab],[data-act],[data-go-call],[data-go-item],[data-go-kind]");
+    if (!t) return;
+    if (t.hasAttribute("data-go-call")) { go("calls", "call-" + callIndex(t.getAttribute("data-go-call"))); return; }
+    if (t.hasAttribute("data-go-item")) {
+      var gid = t.getAttribute("data-go-item"), here = document.getElementById("item-" + gid);
+      if (here && !t.closest("#item-" + cssId(gid))) { goTo("item-" + gid); return; }
+      S.fk = "all"; S.fs = "all"; go("changes", "item-" + gid); return;
+    }
+    if (t.hasAttribute("data-go-kind")) { S.fk = t.getAttribute("data-go-kind"); S.fs = "all"; go("changes"); return; }
+    if (t.hasAttribute("data-tab") && !t.hasAttribute("data-act")) { go(t.getAttribute("data-tab")); return; }
+    var a = t.getAttribute("data-act"), id = t.getAttribute("data-id");
+    if (a === "filter") { if (t.getAttribute("data-f") === "k") { S.fk = t.getAttribute("data-v"); S.fs = "all"; } else S.fs = t.getAttribute("data-v"); renderAll(false); }
+    else if (a === "approve") request(id, "apply");
+    else if (a === "withdraw") withdraw(id);
+    else if (a === "apply") doApply();
+    else if (a === "close-result") { S.applyResult = null; if (B) delete B.launch; renderAll(false); }
+    else if (a && a.indexOf("form-") === 0 && a !== "form-cancel") {
+      var k = a.slice(5), cur = S.form[id];
+      if (cur && cur.k === k) delete S.form[id]; else S.form[id] = {k: k, v: k === "postpone" ? plusDays(14) : ""};
+      renderAll(false);
+      var inp = document.querySelector('[data-form="' + cssId(id) + '"]'); if (inp) inp.focus({preventScroll: true});
+    }
+    else if (a === "form-cancel") { delete S.form[id]; renderAll(false); }
+    else if (a === "confirm") {
+      var f = S.form[id]; if (!f) return; var v = String(f.v || "").trim();
+      if (f.k === "postpone") { if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { toast("Pick a date", true); return; } request(id, "postpone", {until: v}); }
+      else request(id, f.k, {reason: v});
+    }
+    else if (a === "theme") { S.theme = S.theme === "auto" ? "light" : S.theme === "light" ? "dark" : "auto"; store("rm.theme", S.theme === "auto" ? null : S.theme); applyTheme(); renderTop(); }
+    else if (a === "setup-done") { var s = setupSteps().filter(function (x) { return x.id === id; })[0]; if (s) { store(setupKey(s), setupDone(s) ? null : "1"); renderAll(false); } }
+    else if (a === "copy") {
+      var val = t.getAttribute("data-v"), ok = function () { var old = t.textContent; t.textContent = "Copied"; setTimeout(function () { t.textContent = old; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(val).then(ok, function () { toast("Copy failed", true); }); else toast(val);
+    }
+  });
+  document.addEventListener("toggle", function (e) { var d = e.target; if (d.tagName === "DETAILS" && d.hasAttribute("data-key")) S.open[d.getAttribute("data-key")] = d.open; }, true);
+  document.addEventListener("input", function (e) { var t = e.target; if (t.hasAttribute && t.hasAttribute("data-form")) { var f = S.form[t.getAttribute("data-form")]; if (f) f.v = t.value; } });
+  document.addEventListener("keydown", function (e) {
+    var t = e.target; if (!t.hasAttribute || !t.hasAttribute("data-form")) return;
+    if (e.key === "Enter") { var b = t.parentNode.querySelector('[data-act="confirm"]'); if (b) b.click(); }
+    if (e.key === "Escape") { delete S.form[t.getAttribute("data-form")]; renderAll(false); }
+  });
+  document.addEventListener("focusout", function () { setTimeout(function () { if (S.pending) { var ae = document.activeElement; if (!ae || !/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) renderAll(false); } }, 0); });
+  var rz; window.addEventListener("resize", function () { clearTimeout(rz); rz = setTimeout(drawFlow, 100); });
+  window.addEventListener("hashchange", function () { var h = location.hash.replace(/^#/, ""); if (h && h !== S.tab) setTab(h, false); });
+
+  // ---------------- boot ----------------
+  S.theme = store("rm.theme") || "auto"; if (["auto", "light", "dark"].indexOf(S.theme) < 0) S.theme = "auto"; applyTheme();
+  var h0 = location.hash.replace(/^#/, ""); if (h0) S.tab = h0;
+  if (!PAGES.concat(MORE).some(function (x) { return x[0] === S.tab; })) S.tab = "overview";
+  S.sig = sigOf(B);
+  renderAll(true);
+  if (LIVE) {
+    refresh(false);
+    setInterval(function () { if (document.visibilityState !== "hidden") refresh(false); }, 2000);
+    document.addEventListener("visibilitychange", function () { if (document.visibilityState !== "hidden") refresh(false); });
+  }
+})();
+</script>
+</body>
+</html>
