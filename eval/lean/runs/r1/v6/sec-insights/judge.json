@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 6,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 7,
+ "best": [
+  "Found and routed all three LLM call paths through the two llama_index client constructors \u2014 including the easily-missed deep copy in tools.py that feeds the per-filing financials sub-agent \u2014 and the outside check confirms all three sites verified with nothing unverified or left behind.",
+  "Made the migration a no-op until RAMP_ROUTER_API_KEY is set, kept gpt-4o-mini and every parameter unchanged, and backed it with 6 new structural tests (transport present under both clients, survives the deep copy, absent on the embedding client, absent entirely with no key) on top of a passing baseline.",
+  "Correctly identified that the app had zero cross-provider fallback and zero timeout anywhere in its LLM path, and shipped a Router-only policy fixing both on a separate branch \u2014 with honest limits stated (no fall-through mid-stream, fallback answers differ and bill at their own price) and a model-specific detail caught (temperature=0 in engine.py rules out the *-5-5 models for chat)."
+ ],
+ "misses": [
+  "No per-stage model differentiation. Settings.llm serves sub-question generation, answer synthesis and the financials tool agent as one undifferentiated client; the cheap/structured sub-question step and the quality-critical synthesis step are separate decisions on Router and could use different catalog ids. The report collapses all of it into one all-or-nothing 'swap the whole app' decision item.",
+  "Punted the model swap to 'a product call' without proposing the thing that would settle it: a small golden-question eval over saved SEC filings, which is cheap on Router (same key, both candidates) and is exactly the ranked improvement an expert would have written up even if unbuilt. 'needs-decision' with no path to the decision is a half-answer.",
+  "Fallback compatibility was never tested for the shapes that matter. SubQuestionQueryEngine's generator and the OpenAIAgent tool loop depend on OpenAI-style function calling and streaming; the live check only proved gpt-4o-mini served first (provider=openai on all 4 requests), so claude-haiku-* and gpt-oss-120b as fallbacks for filing-qa and chat are completely unexercised \u2014 a forced-fallback run was the obvious check and wasn't done."
+ ],
+ "wrong": [
+  "The prompt-caching dismissal (n1) is reasoned only from the ~300-token fixed system prefix and concludes 'no stable prefix at all' for filing-qa. That ignores the agentic loop: within one chat turn the OpenAIAgent re-sends system message + document titles + accumulated history + prior tool calls/results on every iteration, and within filing-qa the synthesis prompt plus retrieved chunks repeat across sub-questions \u2014 prefixes that routinely exceed 1,024 tokens. The conclusion may still hold, but the analysis as written doesn't support it and no prompt_cache_key experiment was run.",
+  "In i1's 'loses': claude-haiku-4-5 is called 'up to 6.7x gpt-4o-mini's output price'. 6.7x is the input ratio ($1 vs $0.15); the output ratio is 8.3x ($5 vs $0.60). The label understates the worst case on the axis it names.",
+  "The s1 rationale asserts the OpenAI key is also needed for 'the runtime's fallback path when Router refuses a request before generating'. That provider-passthrough behaviour is a property of the vendored runtime and is stated with no evidence entry, while the embeddings reason alone is sufficient \u2014 an unsupported claim riding on a correct conclusion.",
+  "Both evidence blocks report the live/sim checks as pass with concrete request counts, but validation.json records requests: 0 and valid: 0 for both refs, so the outside check did not corroborate any of the request-level claims \u2014 only the test counts (21 vs 15 baseline) are independently confirmed."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 14.1,
+  "usd": 7.3563,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 5,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 1,
+   "needs-decision": 1,
+   "note": 1
+  },
+  "improvements": 1,
+  "built": 1,
+  "levels": {
+   "-": 1
+  },
+  "branch_ok": 1,
+  "report_ok": true
+ }
+}

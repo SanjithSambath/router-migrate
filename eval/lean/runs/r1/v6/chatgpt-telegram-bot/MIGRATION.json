@@ -1,0 +1,161 @@
+{
+  "version": 6,
+  "summary": "All four of this Telegram bot's LLM calls - chat, vision, the plugin follow-up and the history summary - now reach Router through the vendored runtime under the single openai.AsyncOpenAI client, each labelled with what it is for. Two things had to change for them to work there: Router's catalog has no gpt-4o, the bot's default model, so router.policy.json serves that traffic with gpt-4.1-mini (its closest catalog model: non-reasoning, image input, function calling, temperature allowed, and cheaper); and the legacy function-calling flow relied on two Chat Completions leniencies the Responses API does not share, which broke plugins outright until fixed. Image generation, text to speech and transcription stay on OpenAI because Router serves no endpoint for them. Nothing changes until RAMP_ROUTER_API_KEY is set.",
+  "reviewed": "Looked at the model behind each call, who waits for it, Flex eligibility, prompt caching, the hand-rolled rate-limit retry and request timeouts; the two changes that paid for themselves were a cheaper model for the history summary (nobody reads its output) and keeping base64 image data out of that summary's prompt, where it was costing up to 2.9M tokens per request. Flex is moot here - gpt-4.1-mini has no Flex tier and every call has someone waiting - and Router fallbacks in place of the 20-second rate-limit retry were left alone because a silent cross-model swap mid-conversation is a product decision, not a tuning one.",
+  "calls": [
+    {"site": "bot/openai_helper.py:276", "feature": "chat", "model": "gpt-4o", "task": "chat", "latency": "interactive", "now": "router", "item": "m1"},
+    {"site": "bot/openai_helper.py:355", "feature": "plugin_call", "model": "gpt-4o", "task": "tool-use follow-up", "latency": "interactive", "now": "router", "item": "m2"},
+    {"site": "bot/openai_helper.py:499", "feature": "vision", "model": "gpt-4o", "task": "image understanding", "latency": "interactive", "now": "router", "item": "m1"},
+    {"site": "bot/openai_helper.py:664", "feature": "summary", "model": "gpt-4o", "task": "summarization", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "bot/openai_helper.py:373", "feature": null, "model": "dall-e-2", "task": "image generation", "latency": "user_waiting", "now": "provider", "item": "m4"},
+    {"site": "bot/openai_helper.py:401", "feature": null, "model": "tts-1", "task": "text to speech", "latency": "user_waiting", "now": "provider", "item": "m4"},
+    {"site": "bot/openai_helper.py:422", "feature": null, "model": "whisper-1", "task": "transcription", "latency": "user_waiting", "now": "provider", "item": "m4"}
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the shared OpenAI client",
+      "summary": "The one OpenAI client in OpenAIHelper now sends its chat, vision and summary requests to Router, each labelled with the feature it serves.",
+      "calls": ["bot/openai_helper.py:276", "bot/openai_helper.py:499", "bot/openai_helper.py:664"],
+      "gains": "Chat, vision and history-summary traffic on Router behind one key, with spend recorded per feature (chat / vision / plugin_call / summary) instead of per file:function",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Every LLM call in the bot goes through the single openai.AsyncOpenAI client built in OpenAIHelper.__init__, so the runtime under that one client covers all of them; it translates each Chat Completions request to POST /v1/responses and leaves images, speech and transcription on OpenAI. The bot already knows what each request is for, so each call site sends that name in the x-router-migrate-feature header - the OpenAI API ignores the header, so the direct-provider path is unaffected. Two configuration options keep the app working but off Router: N_CHOICES > 1 and a non-zero PRESENCE_PENALTY are shapes the Responses API has no equivalent for, so the runtime sends those requests to OpenAI unchanged.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "check --run --live driving OpenAIHelper with minimal inputs: 8 requests, all 200 from openai via /v1/responses, labelled chat (3), plugin_call (3), vision (1), summary (1); buffered chat, streamed chat, a streamed plugin loop, vision and the summary all returned usable answers"},
+        {"check": "router-live", "result": "pass", "detail": "a second live run at the bot's own vision defaults (512x512 PNG, VISION_DETAIL=auto): 200, and the model described the picture correctly"}
+      ],
+      "commit": "70b6b4a",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "port",
+      "title": "Keep plugin calls working on the Responses API",
+      "summary": "The legacy function-calling flow is fixed in two places so plugin calls survive translation to the Responses API, for the plugin follow-up call and every chat request that uses a plugin.",
+      "calls": ["bot/openai_helper.py:355", "bot/openai_helper.py:276"],
+      "gains": "Plugins keep working on Router, streamed and buffered; the streamed plugin path, which returned an empty message, now answers",
+      "loses": "A conversation that used plugins carries one extra assistant message per plugin call, so its token count and the /stats figure are a few tokens higher and history trims marginally sooner",
+      "price": "no change",
+      "why": "Two leniencies of Chat Completions that the Responses API does not share. First, a plugin result was appended to the history alone, with no record of the assistant call that asked for it; Responses rejects the orphan ('No tool call found for function call output with call_id call_legacy'), so the assistant's own function_call is now stored just before its result - the shape OpenAI documents for both APIs - and __count_tokens prices it. Second, the streamed detector assumed the first chunk already carries the call, which is true of OpenAI (it merges the opening role delta into it) but not of the translated Responses stream, which sends role on its own first; it now skips an opening chunk carrying neither content nor a call, and replays any chunk it read, so no token is dropped on either path.",
+      "evidence": [
+        {"check": "simulator", "result": "fail", "detail": "before the fix, check --run: the plugin follow-up request was INVALID - 400 'No tool call found for function call output with call_id call_legacy'"},
+        {"check": "router-live", "result": "fail", "detail": "before the streaming fix, check --run --live: the streamed chat request returned an empty answer because the role-only opening chunk made the detector abandon the function call"},
+        {"check": "router-live", "result": "pass", "detail": "after both fixes, check --run --live: 8 of 8 requests 200, and the streamed plugin request returned the plugin's answer ('The echo_word tool returned the word \"banana\"')"}
+      ],
+      "commit": "e5af8df",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "trade-off",
+      "title": "Serve the bot's gpt-4o traffic with gpt-4.1-mini",
+      "summary": "Requests that reach Router naming gpt-4o - chat, vision and the summary, at the bot's defaults - are served by gpt-4.1-mini instead.",
+      "calls": ["bot/openai_helper.py:276", "bot/openai_helper.py:355", "bot/openai_helper.py:499", "bot/openai_helper.py:664"],
+      "gains": "Without this the bot's default model 404s on Router and every request falls back to OpenAI, so this is what puts the traffic on Router at all; list price also drops from gpt-4o's $2.50/$10.00 to $0.40/$1.60 per 1M tokens",
+      "loses": "Answers will differ: gpt-4.1-mini, not gpt-4o, answers every routed chat, vision and summary request. No side-by-side was possible, because Router cannot serve gpt-4o at all. Any other model an operator configures that Router does not serve is not mapped, and those requests fall back to OpenAI unchanged.",
+      "price": "$0.40/$1.60 per 1M input/output tokens (gpt-4.1-mini, live catalog) in place of gpt-4o, which Router does not list",
+      "why": "gpt-4o is this bot's default for both OPENAI_MODEL and VISION_MODEL, and Router's live catalog does not have it. gpt-4.1-mini is its closest catalog model: like gpt-4o it is non-reasoning, takes image input, does function calling and accepts temperature, so no request shape changes. The map lives in router.policy.json, which the runtime applies only to Router-bound requests, so the app's own config still reads gpt-4o - that keeps its tiktoken encoding, its context-window arithmetic and its vision token estimate working untouched (all three raise NotImplementedError for a model they do not know), and keeps the direct-OpenAI path on real gpt-4o.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "live catalog via router-migrate levers: gpt-4.1-mini $0.40 in / $1.60 out per 1M tokens; no gpt-4o, gpt-4.1, gpt-5.4 or o3 id is listed for this key"},
+        {"check": "router-live", "result": "pass", "detail": "check --run --live: all 8 requests reached Router as model=gpt-4.1-mini and returned 200 from openai, covering chat, streamed chat, the plugin loop, vision and the summary"}
+      ],
+      "commit": "8ea8077",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "stays",
+      "title": "Images, speech and transcription stay on OpenAI",
+      "summary": "DALL-E image generation, TTS speech and Whisper transcription keep going straight to OpenAI.",
+      "calls": ["bot/openai_helper.py:373", "bot/openai_helper.py:401", "bot/openai_helper.py:422"],
+      "gains": "nothing: these three features keep working exactly as before",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Router serves only /v1/responses, /v1/messages and /v1/models; it has no images endpoint, no audio endpoints and no files. The runtime recognises these three calls and leaves them on the provider, so /image, /tts and voice-message transcription are unchanged and still need OPENAI_API_KEY.",
+      "evidence": [],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Summarise chat history with gpt-4o-mini",
+      "summary": "The history-summary request moves from gpt-4.1-mini to gpt-4o-mini; chat and vision stay where they are.",
+      "calls": ["bot/openai_helper.py:664"],
+      "gains": "About -62% list price on every summary request, on both input and output",
+      "loses": "Answers will differ: a different model writes the summary, so the condensed history a long conversation carries forward changes",
+      "price": "$0.15/$0.60 instead of $0.40/$1.60 per 1M input/output tokens",
+      "why": "When a conversation outgrows MAX_HISTORY_SIZE or the model's context, __summarise condenses it into 700 characters so the chat can continue. Nobody reads that output - it goes back into the history, never to the user - and the task is fully specified by its one-line instruction, so it does not need the model that answers the user. These requests are input-heavy (the whole conversation goes in), which is where the saving lands. One line of router.policy.json keyed on the summary feature label that m1 already sends; no code change.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "live catalog: gpt-4o-mini $0.15/$0.60 vs gpt-4.1-mini $0.40/$1.60 per 1M tokens"},
+        {"check": "simulator", "result": "pass", "detail": "check --run: the summary request reaches Router as model=gpt-4o-mini while chat and vision stay on gpt-4.1-mini; 9 of 9 requests valid"},
+        {"check": "router-live", "result": "pass", "detail": "check --run --live on a 7-message conversation: 200, model=gpt-4o-mini, and the summary was a faithful 540-character condensation well inside the 700-character instruction"}
+      ],
+      "commit": "641e862",
+      "branch": "router-migrate/improve/cheap-history-summary",
+      "depends_on": ["m1", "m3"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "title": "Keep base64 images out of the summary prompt",
+      "summary": "The history summary replaces each image in the conversation with the text '[image]' instead of its base64 data URI.",
+      "calls": ["bot/openai_helper.py:664"],
+      "gains": "A summary request for a conversation with a 512x512 image costs 73 prompt tokens instead of 1,520; with a 1024x1024 photo it is 73 instead of 2,867,403, which no context window accepts - so long vision conversations now get a summary at all instead of silently losing their history",
+      "loses": "The summariser no longer sees the image, so a summary of an image-heavy chat describes what was said about the pictures rather than what was in them. It could not see them before either: it only ever received base64 text.",
+      "price": "no change per 1M tokens; the change is in how many tokens a summary request sends",
+      "why": "__summarise stringifies the whole conversation into its prompt. With ENABLE_VISION_FOLLOW_UP_QUESTIONS on, which is the default, images stay in the history, so that string carries each image's full base64 data URI - unreadable to the model and billed as input. Today a summary of a vision conversation therefore fails on context length and the bot falls back to dropping the oldest messages; with the placeholder it succeeds. The replacement happens only when building the summary prompt, so the conversation the user is actually having still carries its images.",
+      "evidence": [
+        {"check": "other", "result": "pass", "detail": "measured with the repo's own tiktoken encoding: a three-message conversation holding a 512x512 PNG makes the summary prompt 1,520 tokens, 73 with the placeholder; a 1024x1024 photo-like PNG (3 MiB) makes it 2,867,403 tokens, 73 with the placeholder"},
+        {"check": "simulator", "result": "pass", "detail": "check --run on the branch: 9 of 9 requests valid, summary request unchanged in shape"}
+      ],
+      "commit": "1ea10ef",
+      "branch": "router-migrate/improve/summary-without-images",
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "No request timeout on a waiting Telegram user",
+      "summary": "The bot sets no timeout on its LLM calls, so a hung provider call blocks the reply for the OpenAI SDK's 10-minute default.",
+      "calls": ["bot/openai_helper.py:276", "bot/openai_helper.py:499"],
+      "gains": "nothing yet: this is a note, not a change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "A Telegram user watching a streamed reply has no way to tell a slow model from a dead one, and the handler holds on for ten minutes. Router has provider_timeout (1-660s, Responses only) which router.policy.json can set per feature, and the bot's own 20-second-by-3 tenacity retry on rate limits sits in front of it. Picking a number is a product judgement about how long a reply may take - STREAM defaults to true, where provider_timeout measures idle time between events, but with STREAM=false it caps a whole 4,096-token answer - so it is left for the operator rather than guessed at here.",
+      "evidence": [],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "Prompt caching would need a per-chat key",
+      "summary": "Nothing was done about prompt caching, because the bot's only fixed prefix is one short system line.",
+      "calls": ["bot/openai_helper.py:276"],
+      "gains": "nothing yet: this is a note, not a change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Caching pays only for an identical prefix above about 1,024 tokens. The bot's shared prefix is ASSISTANT_PROMPT, a single sentence; what repeats between turns is the rest of one chat's own history, which differs per chat_id. A policy-wide prompt_cache_key would lump every chat under one key, and keying it per conversation means passing prompt_cache_key per request from the chat handler. That is worth doing only against a measurement of real conversation lengths, which this repository does not provide.",
+      "evidence": [],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

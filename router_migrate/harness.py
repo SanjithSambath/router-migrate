@@ -396,6 +396,20 @@ def cmd_policy(a):
     return 0
 
 
+def live_summary(led):
+    """What the agent's live Router checks recorded (the pass-through saw them, so they are not self-reported)."""
+    reqs = [r for p in led.get("live_probes") or [] for r in p.get("requests") or []]
+    by = {}
+    for r in reqs:
+        k = r.get("feature") or "(unlabelled)"
+        e = by.setdefault(k, {"ok": 0, "error": 0, "models": set()})
+        e["ok" if (r.get("status") or 999) < 400 else "error"] += 1
+        if r.get("model"):
+            e["models"].add(r["model"])
+    return {"runs": len(led.get("live_probes") or []), "requests": len(reqs), "ok": sum(e["ok"] for e in by.values()),
+            "by_feature": {k: dict(e, models=sorted(e["models"])) for k, e in by.items()}}
+
+
 def route_truth(root, led, doc, mig):
     """verified (the route check or a valid request from the call's feature, simulated or live), unverified, not routing, stays."""
     rows = (mig.get("routes") or {}).get("rows") or []
@@ -659,6 +673,7 @@ def validate(root, led, tests=True):
     mig = check_tree(root, led, tests=tests, report=True)
     mig.update(ref=MIGRATION_BRANCH, commit=_g(root, "rev-parse", "HEAD"))
     mig["routes"] = route_truth(root, led, doc, mig)
+    mig["live"] = live_summary(led)
     branches = {}
     for it in (doc or {}).get("items") or []:
         b = it.get("branch") if isinstance(it, dict) else None

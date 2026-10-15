@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Got effectively all of the app's LLM traffic onto Router with a minimal, reversible hook: passing the runtime as http_client/async_http_client under both llama_index OpenAI clients leaves the request shapes llama_index builds untouched, and correctly reasons that the per-document API agent in tools.py inherits the routed transport via its deep copy of Settings.llm \u2014 the outside check confirms no not_routing sites and an unchanged 15/15 test baseline, with RAMP_ROUTER_API_KEY as the rollout switch and ROUTER_MIGRATE_DISABLE as the kill switch.",
+  "Proved the routing with real traffic rather than leaning on the suite: the repo's tests make zero LLM requests (validation shows requests=0), and the engineer noticed that gap and drove all three paths \u2014 buffered Settings.llm, the copied agent llm, and the streaming chat llm \u2014 through both the simulator (3/3 valid /v1/responses) and the live Router (3/3 200, provider=openai), which is the only evidence that actually covers the streaming path.",
+  "Router-specific judgment on what not to do, with the right reasons stated concretely: embeddings stay because /v1/embeddings 404s and OPENAI_API_KEY must therefore remain set (and is what the provider-fallback path uses), Flex is ruled out because gpt-4o-mini has no Flex tier, and prompt caching is called unpayable on a ~280-token system prompt against the ~1,024-token minimum. The honesty on losses is real too \u2014 translation layer in the request path, unmeasured Router latency, and the plain-text 504 that handle_chat_message will surface as a failed message instead of a partial answer."
+ ],
+ "misses": [
+  "No rework-level thinking about where the calls sit at all \u2014 every item is a policy tweak on top of the existing shape. The report itself establishes that one user question fans out into ~10 buffered calls while the user waits, and that the SDK's Chat Completions shape is being translated to /v1/responses on every request; an expert would have proposed the structural items that follow from that (parallelise or move the fan-out off the user-waiting path, or migrate the hot paths to /v1/responses natively so Router-only fields and future levers stop depending on a translation shim), and would have proposed per-call-site model/timeout split rather than one global policy.",
+  "The stated blocker for both of the big levers (i2 fallbacks, i3 model_map) is that 'the labels this app produces do not cleanly separate the buffered RAG calls from the streaming chat request' \u2014 but that is self-inflicted and cheap to fix, and fixing it is the actual prerequisite work the engineer could have shipped. Setting an explicit per-path feature label (rag-fanout vs chat-stream, e.g. via metadata on the policy globs or distinct call-site labelling) would have made both proposals one-line policy additions with no human decision needed first. Deferring instead left the two highest-value Router levers blocked on something the engineer was in a position to unblock.",
+  "'Nothing in this repo measures answer quality' is used to defer both the fallback and the cheaper-model decision, yet no step was taken to change that \u2014 no side-by-side harness over a handful of real SEC questions through gpt-4o-mini vs gpt-6-luna/gpt-5-nano, no capture of the sub-question generator's JSON parse rate (the named failure mode), and no Router-vs-direct latency measurement despite latency being flagged twice as an unknown. A day of cheap measurement would have converted the biggest cost lever from a price-list argument into a decision a human could actually make."
+ ],
+ "wrong": [
+  "i1's headline gain overstates the status quo: 'a hung provider fails in 120s instead of holding a user's SSE stream open indefinitely'. llama_index's OpenAI client already carries a client-side request timeout (and the OpenAI SDK has its own default), so nothing was hanging indefinitely \u2014 provider_timeout=120 moves the cutoff server-side and changes the error surface (plain-text 504 rather than a client timeout), which is a different and smaller benefit than the one claimed. The chosen 120s is also far looser than the ~1s p95 the report cites, so as written it would rarely fire before whatever client timeout is already in effect.",
+  "The claim that the policy 'caps a provider call at 120s' for the streaming path is not supported by the evidence given: the simulator check resolved the policy for app/chat/messaging.py:handle_chat_message and for an unlabelled call, and the live check exercised a single non-streaming /v1/responses request carrying the fields. How provider_timeout interacts with an in-flight stream (where the report elsewhere admits a fallback cannot help once the first token is out) was never tested.",
+  "Mild tension with the outside check on coverage evidence: validation lists backend/app/chat/tools.py:152 as unverified, while the summary asserts all three paths were seen routing. The engineer's own simulator probe is plausible evidence and the reasoning about the deep copy is sound, but the report states it as settled fact without acknowledging that the check could not confirm it.",
+  "The calls table labels the embedding site latency as 'user_waiting', which is only half true \u2014 query-time embedding is user-waiting, but the document-seeding path it also describes is batch; it is a small classification slip in an otherwise careful table.",
+  "i3's price line mixes a measured catalog figure with an extrapolation: '-30% on input tokens for the fan-out ... potentially -50% more at Flex' leans on 'the one model anybody measured came in at exactly half price' for a different model, and the ~10x fan-out ratio driving the whole cost argument is an estimate from reading the code, not something counted. The report does flag both as unmeasured, so this is overreach in framing rather than an invented number."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 15.4,
+  "usd": 7.0502,
+  "check_ok": true,
+  "verified": 2,
+  "unverified": 1,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 6,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "note": 1,
+   "improvement": 3
+  },
+  "improvements": 3,
+  "built": 1,
+  "levels": {
+   "quick-win": 1,
+   "change": 2
+  },
+  "branch_ok": 1,
+  "report_ok": true
+ }
+}

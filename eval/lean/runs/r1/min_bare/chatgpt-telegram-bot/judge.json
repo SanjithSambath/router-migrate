@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the one chokepoint (the single AsyncOpenAI client in OpenAIHelper.__init__) and migrated at it \u2014 a two-line app diff that puts all four chat call sites on /v1/responses, with env-level reversibility (RAMP_ROUTER_API_KEY / ROUTER_MIGRATE_DISABLE) and an ImportError shim so deleting the runtime restores stock behaviour; the outside check confirms all four routes verified, none unverified.",
+  "Did not trust the repo's near-empty test suite (5 compile/import tests) as behaviour evidence: drove OpenAIHelper's real methods against the simulator (6/6 valid, including base64 vision and SSE), made live Router calls on the buffered, streamed and vision paths, and separately verified the legacy functions/role=function translation that the plugin loop depends on \u2014 exactly the paths where a Chat->Responses translation would break silently.",
+  "Read the application's own economics, not just its API calls: spotted that usage_tracker prices every chat token at a flat $0.002/1K so gpt-4o output undercharges ~5x and USER_BUDGETS/GUEST_BUDGET are meaningless, and proposed Router's usage.cost as the fix (i4); and in d1 identified the real blocker for any model change \u2014 the bot's hardcoded model lists (default_max_tokens, __max_model_tokens, __count_tokens) make setting OPENAI_MODEL fatal, so a Router-boundary model_map is the correct mechanism. Both are Router-specific leverage an expert would prize."
+ ],
+ "misses": [
+  "No cross-vendor thinking at all. Router's whole premise is one key over many vendors and it also serves /v1/messages, yet every candidate model in the report is OpenAI-family (gpt-4o-mini, gpt-5.4-mini, gpt-6-luna). An expert would at least have priced an Anthropic or other-vendor model for the reply/vision paths and for fallbacks (cross-vendor fallback is what actually survives a provider outage; a gpt-4o -> gpt-4o-mini fallback shares the same provider, so it covers 403s and bad params but not an OpenAI incident).",
+  "Identified the per-conversation cache-key limitation and then stopped. For a bot that resends the entire history on every turn, a prompt_cache_key per chat_id is the single biggest recurring input-cost lever (~50% off the resent prefix), and it needs only the same kind of small code path as i4 \u2014 it should have been a ranked rework item, not a one-line 'loses' caveat under i1.",
+  "Ignored the bot's existing tenacity retry (stop_after_attempt/wait_fixed around the chat calls) and how it composes with Router. provider_timeout 60 multiplied by the app's own retries sets the real user-visible deadline, retried/fallback attempts are billed, and Router-side fallbacks plus app-side retries can stack \u2014 none of this is analysed, nor is any latency comparison of the streamed path through the translation layer against the pre-migration baseline."
+ ],
+ "wrong": [
+  "d1 is internally inconsistent on Flex: it says Flex 'is on by default for eligible models' and then instructs adding allow_flex_tier: true. One of those is wrong, and the reader cannot tell which.",
+  "d1's own evidence notes a gpt-5-nano Flex call that took 61 seconds, but the report never connects that to i1's provider_timeout 60 \u2014 shipping i1 and then adopting Flex on a user-waiting path would convert slow Flex requests into hard failures. The two recommendations collide and the report presents both as safe.",
+  "i1 treats an HTTP 200 as proof the policy fields took effect ('a 200 is the acceptance test'). A 200 shows the request was not rejected; it does not show provider_timeout was enforced, prompt_cache_key created affinity, or the metadata landed in spend views. The claim 'Router accepted provider_timeout, prompt_cache_key and the metadata keys' overstates what was verified.",
+  "The gpt-4o cached-input figure ($1.25 vs $2.50 per 1M) and the 'plain-text 504 with no request id' timeout behaviour are asserted without evidence; the cited catalog entry lists only $2.50/$10. These are plausible but unverified numbers in a report that is otherwise careful to cite.",
+  "Count mismatch: the summary claims '4 live calls, all 200, provider=openai' while m1's evidence lists 3 (the fourth live call is i2's, and it ran gpt-4o-mini on a branch, not the migration).",
+  "i1 and i2 both create router.policy.json on separate branches and therefore conflict; the schema's depends_on field was left empty and the resolution offloaded to the reader as a hand-written merge snippet. Two policy improvements that cannot be applied together as shipped is an avoidable packaging defect, and it means the combined configuration was never tested."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 16.7,
+  "usd": 6.9566,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 8,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 4,
+   "needs-decision": 1,
+   "note": 1
+  },
+  "improvements": 4,
+  "built": 2,
+  "levels": {
+   "quick-win": 1,
+   "change": 2,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

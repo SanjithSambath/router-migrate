@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and routed all three real LLM construction/call sites including the non-obvious one \u2014 the per-document deep copy of Settings.llm in chat/tools.py that a scanner cannot see \u2014 and verified live that the copied client actually reaches Router rather than assuming it; the outside check confirms 3/3 routes verified with none unverified or not_routing.",
+  "Put the migration behind the vendored runtime as the httpx client with correct reasoning (llama-index speaks Chat Completions, which Router does not serve), kept it inert until RAMP_ROUTER_API_KEY is set, gave it a runtime kill switch, and kept tests at baseline parity \u2014 a genuinely low-risk landing.",
+  "Set explicit x-router-migrate-feature labels after observing that the runtime's frame-derived default produced 'drive.py:<module>' and null in the same run \u2014 correctly treating a stable spend/policy key as a prerequisite, and then building the rest of the proposals (model_map per feature, cache key) on top of it."
+ ],
+ "misses": [
+  "Flex tier is dismissed too quickly. The fan-out behind one question (sub-question generation, refine synthesis, the polygon.io agents) is exactly the non-interactive, high-volume, latency-tolerant traffic Flex exists for, and the report itself notes gpt-5-nano/gpt-6-luna have Flex. An expert would have proposed 'move sec-retrieval to a Flex-tier model' as a first-class, costed item (potentially the largest single saving here) instead of a clause inside a rework proposal.",
+  "Prompt caching was proposed only for sec-chat, the lowest-volume path, while the biggest repeated-prefix prize is sec-retrieval: the same system prompt and the same retrieved document context replayed once per sub-question per document per message. A cache key (plus provider affinity) on the fan-out path, and a per-conversation key for chat, would have been the better-ranked caching item.",
+  "Only one of five improvements was actually built. i3 (give the SEC API agents their own explicitly constructed, separately labelled client) is small, dependency-free, zero-behaviour-change, and the report calls it the enabler for everything else \u2014 it should have been a branch. Likewise the O(n^2) websocket re-send is a standalone quick-win fix buried inside a rework proposal. Also no per-path differentiation in the policy: identical fallback and 45s provider_timeout for a user-watched stream and for background fan-out, no second candidate, and no alerting/visibility on when fallback actually fires."
+ ],
+ "wrong": [
+  "Test evidence says '7 passed' on both the migration and the failover branch; the outside check ran 15 passed / 15 baseline on the same commits. The engineer evidently ran a subset and reported it as the suite, so the test evidence understates (and misdescribes) what was verified.",
+  "m1's 'loses: nothing' is overclaimed. Routing through the runtime adds Router as a new dependency in the hot path and interposes a Chat Completions -> /v1/responses translation (including SSE re-synthesis) on a user-facing stream; the report acknowledges elsewhere that the capability guard silently drops parameters such as temperature. 'Nothing' should have been 'no behaviour change observed, plus a new gateway dependency and a translation layer in the streaming path'.",
+  "i5 slightly overstates causality: prompt_cache_key buys provider affinity for the cached prefix, it does not itself create the cache (OpenAI prefix caching applies regardless). The honest framing is 'makes cache hits more reliable', not 'gets the prefix to cache'.",
+  "'claude-haiku-4-5 is 6.7x the price of gpt-4o-mini ($1/$5 vs $0.15/$0.60)' uses the input ratio as the overall multiplier; output is 8.3x, so a realistic blended figure is higher than stated.",
+  "Validation reports router requests 0 / valid 0 for both refs, so none of the live-Router or simulator evidence cited in the items is independently corroborated by the outside check \u2014 the claims may well be true, but they rest entirely on the engineer's own driver."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 16.4,
+  "usd": 7.889,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 8,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 5
+  },
+  "improvements": 5,
+  "built": 1,
+  "levels": {
+   "change": 2,
+   "rework": 2,
+   "quick-win": 1
+  },
+  "branch_ok": 1,
+  "report_ok": true
+ }
+}

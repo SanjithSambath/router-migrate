@@ -1,0 +1,83 @@
+{
+  "version": 6,
+  "summary": "SEC Insights' backend makes all of its LLM calls through two llama_index OpenAI clients (the global Settings.llm and the streaming chat LLM in the chat engine), both on gpt-4o-mini. I put the vendored router-migrate runtime under both of them with http_client/async_http_client, so their Chat Completions requests are translated to Router's /v1/responses and billed to one Router key; the app behaves exactly as before until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 turns it off again. I left the OpenAI embedding client alone, because Router serves no embeddings endpoint, so OPENAI_API_KEY must stay configured (it is also what the runtime's provider-fallback path uses). All three LLM paths were exercised through the real code (buffered chat, the deep-copied llm of the per-document API agent, and the streaming agent LLM): 3 of 3 requests reached the Router simulator valid, and 3 of 3 were served 200 by the real Router with provider=openai. The repo suite (7 tests) passes unchanged with Router on.",
+  "reviewed": "I read every LLM path in the backend (the global Settings.llm that drives sub-question generation, per-document retrieval synthesis and the refine/QA synthesizer; the streaming top-level agent; the API agent that deep-copies Settings.llm; and the embedding model) against the Router fact sheet's levers, prices and measured limits. Spend labelling plus a bounded provider timeout were worth building now (one policy file, no behaviour change). The two levers that would change answers in a financial-analysis product -- cross-vendor fallbacks and a cheaper model for the RAG fan-out -- are written up as proposals, because nothing in this repo measures answer quality and that call belongs to a human. Flex is not available on gpt-4o-mini, prompt caching cannot pay on the 280-token system prompt alone, and Router's built-in server tools are not used by this app.",
+  "calls": [
+    {"site": "backend/app/chat/engine.py:287", "feature": "chat", "model": "gpt-4o-mini", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/llama_index_settings.py:28", "feature": "rag", "model": "gpt-4o-mini", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/chat/tools.py:152", "feature": "sec-api-agent", "model": "gpt-4o-mini", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/llama_index_settings.py:18", "feature": "embeddings", "model": "text-embedding-3-small",
+     "task": "embedding", "latency": "user_waiting", "now": "provider", "item": "s1"}
+  ],
+  "items": [
+    {"id": "m1", "kind": "move", "title": "Route both llama_index OpenAI clients through Router",
+     "summary": "The runtime goes under the global Settings.llm and the streaming chat LLM, so every gpt-4o-mini call in the backend is served by Router.",
+     "calls": ["backend/app/chat/engine.py:287", "backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+     "gains": "One Router key and one spend record for all of the app's LLM traffic, per-request provider metadata, and model/vendor choice without an SDK change. Nothing changes until RAMP_ROUTER_API_KEY is set, and the runtime sends a refused request to OpenAI once so a Router-side problem is not an outage.",
+     "loses": "Nothing the app uses. Chat Completions requests are translated to /v1/responses on the way out and the response translated back, so there is a translation layer in the request path; Router adds latency that nobody has measured against calling OpenAI directly.",
+     "price": "no change: gpt-4o-mini is $0.15/$0.60 per 1M tokens on Router, which matched OpenAI list price exactly in the fact sheet's measurements",
+     "why": "Both clients are built in app code with an explicit api_key, so passing the runtime as http_client/async_http_client routes them without touching the request shapes llama_index builds. The per-document API agent in tools.py does not build a client of its own: it deep-copies Settings.llm, and the copy keeps the routed transport (the simulator saw its request arrive with client=app/llama_index_settings.py). The embedding client is deliberately not wrapped (see s1).",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "the repo's own command: 8 import and construction checks plus pytest tests/ -- 7 passed, unchanged test files"},
+       {"check": "simulator", "result": "pass", "detail": "router-migrate check --run on a script that drives Settings.llm.complete, the API agent's copied llm and the engine's streaming chat llm: 3 requests reached router-sim, 3 valid, 0 invalid, all /v1/responses model=gpt-4o-mini"},
+       {"check": "router-live", "result": "pass", "detail": "the same script with --live against the real Router: 3 requests, 3 ok (200 /v1/responses, provider=openai), including the streaming call"},
+       {"check": "other", "result": "pass", "detail": "router-migrate check --all: 2 of 2 scanner-visible calls ROUTE"}
+     ],
+     "commit": "1403aff", "branch": null, "depends_on": [], "excludes": []},
+
+    {"id": "s1", "kind": "stays", "title": "Embeddings stay on OpenAI",
+     "summary": "The OpenAIEmbedding client is left unwrapped because Router has no embeddings endpoint.",
+     "calls": ["backend/app/llama_index_settings.py:18"],
+     "gains": "Retrieval and the seeding scripts keep working exactly as today.",
+     "loses": "text-embedding-3-small traffic is not on Router: it is not in Router's spend record, and OPENAI_API_KEY has to stay configured in production for it (the runtime's provider-fallback path needs that key anyway).",
+     "price": "no change",
+     "why": "/v1/embeddings returns 404 on Router and the runtime keeps embedding requests on the provider by design, so wrapping that client would add a transport that never routes. Every query embeds the user's question and every seeded document embeds its chunks, so this is real traffic that one Router key does not cover.",
+     "evidence": [{"check": "other", "result": "info", "detail": "Router fact sheet sections 2 and 9: /v1/embeddings is 404 and the runtime keeps embeddings, images, audio, files and model lists on the provider"}],
+     "commit": "1403aff", "branch": null, "depends_on": [], "excludes": []},
+
+    {"id": "n1", "kind": "note", "title": "What production needs for the switch",
+     "summary": "Set RAMP_ROUTER_API_KEY to turn Router on; keep OPENAI_API_KEY set, and router.policy.json's compiled copy ships with the app.",
+     "calls": [],
+     "gains": "", "loses": "",
+     "why": "The runtime is inactive without RAMP_ROUTER_API_KEY, so deploying this commit changes nothing by itself; that is the rollout switch and ROUTER_MIGRATE_DISABLE=1 is the kill switch. OPENAI_API_KEY must stay set for embeddings and for the one-shot provider retry when Router refuses a request before generating. Two things to watch after the switch: a Router timeout arrives as a plain-text 504 with no JSON body, which handle_chat_message will surface as a failed message rather than a partial answer; and gpt-4o-mini has no Flex tier on Router, so cost-efficient routing does not apply to this app's traffic as it stands.",
+     "evidence": [{"check": "other", "result": "info", "detail": "Router fact sheet sections 6.1, 6.5 and 9"}],
+     "commit": null, "depends_on": [], "excludes": []},
+
+    {"id": "i1", "kind": "improvement", "level": "quick-win", "title": "Tag Router spend and bound provider calls",
+     "summary": "A router.policy.json that labels every Router-bound request with product/team, caps a provider call at 120s, and sets a prompt cache key on the labelled chat path.",
+     "calls": ["backend/app/chat/engine.py:287", "backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+     "gains": "Router spend for this app becomes attributable (product=sec-insights, team=backend) instead of a single undifferentiated key total, and a hung provider fails in 120s instead of holding a user's SSE stream open indefinitely. prompt_cache_key gives the chat path provider affinity, which is what lets OpenAI's own prefix cache hit across turns of a conversation (cache reads are $0.075 vs $0.15 per 1M on gpt-4o-mini).",
+     "loses": "A provider call that legitimately needs more than 120s now returns a plain-text 504 that the chat path reports as a failed message. 120s is far above the measured p95 of about 1s for gpt-4o-mini, but it is a new failure mode, and nobody has measured how often a slow call would have eventually succeeded. The cache-key gain is unmeasured for this app: the system prompt alone is about 280 tokens, below the provider's ~1,024-token cache minimum, so hits depend on conversation length.",
+     "price": "no change to list price; cache reads, when they hit, are half the input price",
+     "why": "This is config, not code: the policy only touches Router-bound /v1/responses requests, so the provider-fallback path still sends exactly what llama_index built, and deleting the file restores today's behaviour. The labels go in defaults so that calls llama_index makes from its own async tasks -- where no app frame is on the stack and the runtime derives no label -- are tagged too; prompt_cache_key sits under the app/** glob because it is only meaningful for a labelled request.",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "the repo's own command on the branch: 7 passed, test files unchanged"},
+       {"check": "simulator", "result": "pass", "detail": "the compiled policy resolved to {metadata product/team, prompt_cache_key=$feature, provider_timeout=120} for app/chat/messaging.py:handle_chat_message and to metadata+timeout only for an unlabelled call; the 3-request simulator probe stayed 3 valid, 0 invalid with the policy active"},
+       {"check": "router-live", "result": "pass", "detail": "a /v1/responses call carrying exactly the fields this policy adds (metadata product/team/feature, prompt_cache_key, provider_timeout=120) was served 200 by the real Router, provider=openai, usage.cost $0.0000033"}
+     ],
+     "commit": "d8d3c68", "branch": "router-migrate/improve/policy-labels-timeout", "depends_on": ["m1"], "excludes": []},
+
+    {"id": "i2", "kind": "improvement", "level": "change", "title": "Cross-vendor fallbacks for the RAG fan-out",
+     "summary": "Add a fallbacks list to the policy so sub-question generation and answer synthesis survive an OpenAI incident on a second vendor.",
+     "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+     "gains": "One user question fans out into roughly ten buffered LLM calls (sub-question generation, per-document synthesis, the refine chain, the API agent), and any one of them failing fails the whole answer. A fallbacks list of, say, [gpt-4o-mini, claude-haiku-5-5] makes Router fall through a 403, a missing model or a bad parameter silently, and -- per Router's docs, not measured -- through a provider outage, without the app knowing.",
+     "loses": "A different model answers those requests, so a financial answer can change between two identical questions with no signal in the response that a fallback happened; the response does not say which candidate failed. The least capable candidate in the list caps tools, structured output and context for every request matching that label, Flex is ignored whenever a list applies, and a truncated attempt is still billed. It cannot help the user-facing stream once the first token is out.",
+     "price": "unchanged while the first candidate serves; the serving candidate's price otherwise (claude-haiku-5-5 is $0.10/$0.50 against gpt-4o-mini's $0.15/$0.60)",
+     "why": "I did not build it because the policy applies fallbacks by label, and the labels this app produces do not cleanly separate the buffered RAG calls from the streaming chat request: a human has to decide whether a second vendor silently answering part of a financial analysis is acceptable, and which vendor. Once that is decided it is a one-key addition to router.policy.json on top of i1, testable against the simulator in minutes.",
+     "evidence": [{"check": "other", "result": "not-run", "detail": "proposal; Router fact sheet section 6.2 for the measured fall-through behaviour and the stream limitation"}],
+     "commit": null, "branch": null, "depends_on": ["i1"], "excludes": []},
+
+    {"id": "i3", "kind": "improvement", "level": "change", "title": "Move the fan-out to a cheaper newer model",
+     "summary": "Map gpt-4o-mini to a cheaper catalog model (gpt-6-luna or gpt-5-nano) for the RAG fan-out via the policy's model_map, keeping the user-facing agent where it is.",
+     "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+     "gains": "Most of this app's tokens are in the fan-out, not the reply: sub-question generation plus synthesis over retrieved chunks runs about ten calls per question against the chat agent's one. gpt-6-luna is $0.10/$0.50 against gpt-4o-mini's $0.15/$0.60 (-33% input, -17% output) and, unlike gpt-4o-mini, has a Flex tier, where the one model anybody measured came in at exactly half price. gpt-5-nano is $0.05/$0.40. It is a policy line, not a code change, so it reverts without a deploy.",
+     "loses": "Answer quality in a financial-analysis product, with nothing in this repo to measure it: no eval set, no golden answers, and the sub-question generator parses the model's output as JSON, so a model that formats differently degrades retrieval rather than erroring loudly. Flex also showed one 61s call in the fact sheet's small sample, which would be felt in a user-waiting path.",
+     "price": "about -30% on input tokens for the fan-out at gpt-6-luna list price, potentially -50% more at Flex; both unmeasured for this workload",
+     "why": "This is the biggest cost lever Router offers this app, and the one I am least able to justify alone. Building it would mean swapping the model that answers questions about SEC filings on the strength of a price list. The honest sequence is: a human approves a candidate model, we build the model_map on top of i1, and we compare a handful of real questions side by side through both models before it ships.",
+     "evidence": [{"check": "price", "result": "info", "detail": "live catalog via router-migrate levers: gpt-4o-mini $0.15/$0.60 no flex; gpt-6-luna $0.10/$0.50 flex yes; gpt-5-nano $0.05/$0.40 flex yes"}],
+     "commit": null, "branch": null, "depends_on": ["i1"], "excludes": []}
+  ]
+}

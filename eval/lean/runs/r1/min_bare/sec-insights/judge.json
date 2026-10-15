@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 6,
+ "improvement_quality": 7,
+ "report_clarity": 8,
+ "overall": 7,
+ "best": [
+  "Complete, low-risk coverage of everything that can move: all three LLM construction sites (engine.py:289, llama_index_settings.py:30, and the deep-copied sub-agent in tools.py:154) route, confirmed 3/3 by the outside check, behind a single env var with ROUTER_MIGRATE_DISABLE as rollback and tests unchanged at 15 against baseline \u2014 a rollout that is a config flip, not a deploy.",
+  "Diagnosed and fixed a real Router-specific defect nobody would have caught from the docs: the runtime's stack-frame labelling produces garbage features for LlamaIndex traffic (it actually observed 'router_smoke.py:main'), so it pinned sec-insights-chat / sec-insights-rag as headers \u2014 and then honestly refused to ship a third label on the deep-copied LLM after measuring that a header set after the SDK client is built never reaches the wire.",
+  "Argued the 'stays' and the built improvement with real evidence rather than assertion: embeddings stay because /v1/embeddings 404s, with the consequence spelled out that OPENAI_API_KEY must remain in production for embeddings and the runtime's provider retry; and the prompt-cache-key + metadata.team policy is measured, output-identical, reversible by deleting two files, and explicitly caveated that -49% is a one-pair ceiling that only applies where a ~1,024-token prefix actually repeats."
+ ],
+ "misses": [
+  "No path off the vendored translation shim. The whole migration depends on an unversioned runtime file wedged under the OpenAI SDK's HTTP client, silently translating Chat Completions to /v1/responses \u2014 with an ImportError fallback that degrades to no routing at all. An expert would have proposed, at the rework level, calling Router's /v1/responses natively (or a Responses-capable LLM class) so prompt_cache_key, fallbacks and provider_timeout are first-class app config rather than shim magic, and would have added one test that asserts routing actually happens \u2014 today all 15 tests pass whether the shim works or not (the check recorded 0 router requests during tests).",
+  "No attention to the fan-out itself, which is where the app's cost and latency actually live. One chat turn is sub-question generation plus a synthesis pass per selected document plus the polygon.io agent; capping sub-questions, caching per-document summaries across turns, or deduplicating synthesis would dominate any per-token model swap. Relatedly, no latency-tier split: ingest-time and other non-user-waiting work was never separated from the user-waiting chat path, so Flex was dismissed on model availability instead of being considered for the background half of the traffic.",
+  "No work on making the prompt cache actually hit, and no failure-handling plan for the user-waiting path. The measured saving needs a stable long prefix, but this app's system prompt interpolates the selected filings' titles ahead of the static SEC instructions \u2014 reordering so the invariant block comes first is the cheap change that turns the caveat into a real hit rate. Nothing was proposed for retry/timeout budgets on the streaming chat call (where fallbacks admittedly cannot help), nor any monitoring of Router error rates or silent fall-through to the provider after cutover."
+ ],
+ "wrong": [
+  "'loses: nothing' on m1 is overstated and contradicted inside the same report: i3 states that the runtime silently drops temperature when translating for models that reject it, and a Chat Completions\u2192Responses translation generally loses or reshapes seed/n/logprobs, usage and finish-reason detail, and SSE chunk structure. The migration also adds a vendored runtime file as a permanent maintenance dependency, which is a cost, not nothing.",
+  "Catalog inconsistency between items: i2 prices the fallback candidate claude-haiku-4-5 at $1/$5 and derives 'about 6x per token', while i3 cites claude-haiku-5-5 at $0.10/$0.50 \u2014 cheaper than gpt-4o-mini on both sides. The 6x cost-of-fallback framing is therefore misleading; the obvious second candidate is the cheaper newer Haiku the report itself names one item later.",
+  "'Verified live against the real Router: 4 of 4 requests 200' rests entirely on the engineer's own smoke script. The outside check records router.requests = 0 / valid = 0 for both the migration ref and the improvement branch, so no independent evidence shows the app's real code paths producing Router traffic, and the 15 passing tests make no LLM calls and would pass identically with the shim broken.",
+  "Minor accounting mismatch: i1's tests evidence says '7 passed, imports ok' while the same suite is reported as 15 passed everywhere else and the outside check shows 15 passed on that branch."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 18.8,
+  "usd": 9.9959,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 7,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 2,
+   "needs-decision": 1,
+   "note": 1
+  },
+  "improvements": 2,
+  "built": 1,
+  "levels": {
+   "-": 2
+  },
+  "branch_ok": 1,
+  "report_ok": true
+ }
+}

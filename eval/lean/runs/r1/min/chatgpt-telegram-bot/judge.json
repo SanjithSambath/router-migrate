@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Caught a real pre-production break: the plugin loop appended only the function result and never the assistant message that requested it, which Chat Completions tolerates and Responses rejects (400 'No tool call found for function call output'). They found it by driving the path against Router/sim before shipping, fixed the history shape to match the documented API, and also fixed the token counter so /stats wouldn't crash on a None content or a function_call dict.",
+  "Migration is minimal, complete and reversible: one wrap at the single AsyncOpenAI client covers all four chat.completions sites (chat, vision, plugin follow-up, summarisation) with no call-site edits, is inert without RAMP_ROUTER_API_KEY so rollback is an env var not a deploy, and images/TTS/Whisper stay on the same client \u2014 matching the outside check exactly (4 verified, 0 unverified, 3 stays on hard limits). The deployment consequence (OPENAI_API_KEY must remain, that spend stays outside Router reporting) is stated.",
+  "Unusually honest, well-levelled reporting: the streamed-plugin empty-reply bug was reproduced on the provider path with the runtime disabled and explicitly labelled pre-existing rather than quietly fixed or blamed on Router; the configurations that silently stay on the provider (n>1, non-zero presence_penalty, off-catalog models including the gpt-3.5/gpt-4 ids the bot still lists) are documented; and the one-sample gpt-4o-mini comparison is called out as not evidence about long transcripts."
+ ],
+ "misses": [
+  "The real caching lever was left on the table. A per-feature prompt_cache_key is shared across every chat, so it buys provider affinity for the shared system prefix only \u2014 exactly the part that is cheap \u2014 not the growing per-conversation history the gain text describes. An expert would have proposed (or built) a chat_id-scoped cache key, which is where a multi-turn bot's prefix reuse actually lives, and said plainly that the policy-file form cannot express it so it needs a few lines at the call site.",
+  "No one asked who is waiting. Every call is labelled user_waiting, including __summarise, which runs inline on the user's turn and makes one unlucky message pay for compressing the whole transcript \u2014 moving it off the critical path (or doing it after the reply) is the obvious system-level change and is never proposed. Relatedly, i2 switches summarisation to gpt-4o-mini but never pairs it with Flex, even though the report's own reason for no Flex anywhere is that gpt-4o lacks a tier: summarisation is the one call where nobody would notice Flex latency, and the mini model it now uses makes it available without the i4 rework.",
+  "Failure handling was described but not bounded. provider_timeout 120s sits underneath the app's existing tenacity retry on the chat path, so a stalled provider can leave a Telegram user waiting multiple timeouts, and nothing reconciles the two (lower the timeout, or drop retries now that Router handles transport failures). Likewise the n1/n2 findings were documented and then left inert \u2014 no startup warning when a deployment's config silently keeps traffic on OpenAI, no guard or test, so an operator on PRESENCE_PENALTY or a gpt-4 pin believes they migrated and did not."
+ ],
+ "wrong": [
+  "The outside check records requests: 0, valid: 0 on the migration ref and both improvement branches, so the central evidence \u2014 '8 live requests to Router, all 200' and the router-sim counts \u2014 is self-reported and not corroborated by validation.json. The claims are plausible and detailed, but a reviewer should not read them as verified.",
+  "i1's gain overstates prompt caching: 'Every turn of a conversation resends the system prompt plus the whole history; a prompt_cache_key gives Router provider affinity so that prefix can be served from cache' does not follow from a key set per feature rather than per conversation. The 1,024-token floor and the $2.50 \u2192 $1.25 cache_read arithmetic are right; the attribution of the saving to this bot's history prefix is not, and the evidence only shows Router accepted the field.",
+  "'The timeout (120 s for chat and vision, 60 s for summarisation) bounds the worst case for a user who is waiting in Telegram' is not true as stated \u2014 the chat path is wrapped in tenacity retry (stop_after_attempt(3), wait_fixed), so the user-visible worst case is a multiple of the timeout, not the timeout.",
+  "i3 asserts as fact that 'Fallbacks and Flex do not combine' and that 'the least capable candidate caps what the request may contain', while its own evidence is not-run. Reasonable as a caution to check, but stated with more confidence than it was earned.",
+  "The function-call history fix is unconditional app code, so it changes behaviour on the plain-OpenAI path too (one extra history message, different MAX_HISTORY_SIZE and /stats token counts for deployments that never set a Router key). The report discloses the cost under i2's 'loses' but frames it as a Router port; it is a behaviour change for non-Router users as well."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 16.6,
+  "usd": 5.863,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "port": 1,
+   "stays": 2,
+   "note": 2,
+   "improvement": 4
+  },
+  "improvements": 4,
+  "built": 2,
+  "levels": {
+   "quick-win": 1,
+   "change": 2,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 7,
+ "improvement_depth": 6,
+ "improvement_quality": 7,
+ "report_clarity": 8,
+ "overall": 7,
+ "best": [
+  "Found the real chokepoint and covered its leaks: all traffic goes through create_client / the two llm.py helpers, and the engineer also caught the stray openai.OpenAI() constructed inside both launchers' review stage and the ICLR benchmark harness, wrapping them via one factory \u2014 then confirmed the OpenAI and Anthropic legs live (6 x 200) rather than asserting them.",
+  "Identified and cleared the three things that actually blocked the OpenAI side (fixed seed=0 rejected by /v1/responses, retired model ids absent from the catalog, and n=5 which the Responses API has no equivalent for), and did it as a Router-bound-only policy plus an n=1 fan-out, so a run with no RAMP_ROUTER_API_KEY is behaviourally identical and tests match baseline 10/10.",
+  "Looked past this repo's own calls to where the spend really is \u2014 aider's LiteLLM traffic during experiments and writeup, the biggest token consumer in a run and entirely outside llm.py \u2014 and shipped it as a tested branch, honestly scoped to LiteLLM's OpenAI path only with the Anthropic path explicitly still direct."
+ ],
+ "misses": [
+  "No use of Router's reliability levers on a pipeline whose whole point is running unattended for hours: model fallbacks and provider_timeout on /v1/responses are the single highest-value Router-only fields here, since today one provider 5xx or a stalled request inside a 3-5 round reflection loop wastes the entire idea's run, and the app's only defence is a local backoff decorator against the same provider. The report says timeouts and cross-provider retries were 'reviewed' but proposes nothing.",
+  "No proposal to replace the extract_json_between_markers / retry-until-parsable pattern with structured outputs or a JSON schema on the Router-bound requests. Every stage (ideas, novelty, review, meta-review) burns extra rounds and tokens on malformed JSON and asserts on failure; this is the clearest correctness-and-cost win available on /v1/responses and it is not even listed as a needs-decision.",
+  "Model choice was examined only for the hard-coded reviewer (d1). Nothing on the novelty-check and citation stages, which are high-volume, short, mechanical calls currently answered by whatever --model the whole run uses (claude-sonnet-5 or gpt-4o) and are the obvious candidates for a cheap model; and no opt-in model-map improvement offered for the llama/DeepSeek/Gemini paths even though the outside check hands over the exact adapt command, leaving the decision to the human as a branch rather than closing it off in prose."
+ ],
+ "wrong": [
+  "The call accounting contradicts the outside check's route truth: the report says 'six of the nine call sites are on Router' and marks llm.py:277, :293 and :307 (DeepSeek x2, Gemini) as 'provider', but validation.json verifies seven sites as routing and lists only the two llama sites (:137, :261) as stays. Either the report undercounts its own coverage or those three sites are routing in a way the report denies \u2014 and m6's stated reason ('their clients point at api.deepseek.com / generativelanguage.googleapis.com, which the runtime does not touch') cannot be true for sites the check verified.",
+  "m5 leaves seed=0 on every one of the five now-separate ensemble requests. On the provider path (no Router key) five identical prompts to the same model with the same seed are best-effort deterministic, so the review ensemble can collapse to near-identical samples and perform_review's averaging over 'diverse' reviews loses its meaning. The old single n=5 call did not have this problem. This is a real behaviour regression on the unrouted path and it is not mentioned anywhere; the fix (drop seed in the fan-out, or vary it per sample) is one line.",
+  "i1's claim that prompt caching 'takes most of the extra input cost back' for the ensemble is not supported. Prefix caching requires a prior completed request with that prefix; m5 issues the five identical requests concurrently in a ThreadPoolExecutor, so they will mostly all miss. The caching argument is sound for the reflection loops (sequential, growing conversation) but wrong for the case the report uses to offset m5's up-to-5x input cost.",
+  "The measured caching figure ('9,020-token gpt-4o-mini prompt cached 8,832 tokens, $0.00069 vs $0.00135') is carried over from the Router fact sheet, not measured on this app's prompts, yet it is presented inside i1's gains as if it characterises this pipeline. It is labelled in the evidence block, but the gains line reads as an app-specific measurement.",
+  "m1 and m2 both record 'loses: nothing' while m4 \u2014 which m1's own call list depends on to reach Router \u2014 silently swaps the app's documented default model (claude-3-5-sonnet-20240620) for a model two generations newer. m4 states this honestly, but the top-level framing of the move items understates that the headline 'nothing changes without a Router key' has a mirror: with a key, the default run's model changes.",
+  "n2's conclusion that Flex needs no change is right for the current models but is argued from gpt-4o/gpt-4o-mini Flex ineligibility, which quietly conflicts with d1, where the proposed gpt-5.4-mini does have Flex and a measured -50%. The two items should have been resolved together rather than left pointing in opposite directions."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 22.2,
+  "usd": 9.8449,
+  "check_ok": true,
+  "verified": 7,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 11,
+  "kinds": {
+   "move": 2,
+   "trade-off": 1,
+   "port": 2,
+   "stays": 1,
+   "note": 2,
+   "needs-decision": 1,
+   "improvement": 2
+  },
+  "improvements": 2,
+  "built": 2,
+  "levels": {
+   "-": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found that all LLM traffic funnels through one AsyncOpenAI client and moved everything with a single wrap at that construction point: all four chat sites (buffered reply, streamed reply, plugin follow-up, vision, summary) route, the outside check verifies 4/4 with no unverified or not-routing sites, request shape and model (gpt-4o, in catalog) are unchanged, and each path was exercised live rather than assumed.",
+  "Identified the bot's real cost shape \u2014 the entire history is resent verbatim every turn \u2014 and fixed it with a per-chat prompt_cache_key, measured end-to-end on Router (2,175-token prefix: 0 cached / $0.00546 without a key vs 2,048 cached / $0.00290 with one, 47% off), at the right granularity, with the one-off summariser deliberately excluded.",
+  "Connected Router's per-request usage.cost to the thing that actually matters in this app: USER_BUDGETS/GUEST_BUDGET are the only guard on a public bot's key and are enforced against a fictional flat $0.002/1k price (5x under for gpt-4o output, 13x over for 4o-mini input). Correctly scoped as rework because it changes stored data and user-visible /stats, and honest that usage.cost is absent on the provider-fallback path."
+ ],
+ "misses": [
+  "Nothing about getting the history summary off the user-blocking path. __summarise runs inline while a Telegram user watches 'typing\u2026' and sends the largest prompt the bot ever builds; the real fix is to summarise out-of-band between turns (or on a trim threshold) rather than only making it cheaper \u2014 and that is the one call where Router's Flex tier would apply. Flex is never mentioned anywhere in the report.",
+  "No item proposes closing the silent-bypass paths the report itself discovered. N_CHOICES>1, any non-zero presence/frequency penalty, and the retired dated model ids this file still lists all keep chat traffic on OpenAI with no Router label, fallback or timeout \u2014 supported configurations of this bot that would show zero Router traffic. An expert would have proposed normalising model aliases, dropping the unsupported penalties with a logged warning, or fanning out n>1, instead of leaving it as an unranked note.",
+  "No behavioural verification beyond compile/import smoke tests and five manual live calls. The migration translates Chat Completions to Responses, including the legacy functions/function_call protocol the plugin loop parses and the usage fields usage_tracker reads (prompt_tokens/completion_tokens off the translated reply) \u2014 none of that is pinned by a test or an A/B diff against the unwrapped client, and no test was added on any branch."
+ ],
+ "wrong": [
+  "The Claude fallback candidate is internally inconsistent: i1 uses claude-haiku-4-5 at $1/$5 per 1M, while d1 prices 'claude-haiku-5-5' at $0.10/$0.50 and says it rejects temperature. One of those ids looks invented, and if the haiku actually in the chain rejects temperature (this code always sends it), the capability guard the report relies on would drop that candidate \u2014 making the headline claim 'the second candidate is a different vendor, so an OpenAI outage is survivable' untrue in practice. Cross-vendor failover is admitted as 'documented, not measured'.",
+  "The outside check records router.requests = 0 and valid = 0 on the migration ref and on all three branches, so every live Router figure in the report \u2014 5 requests ok, the 47% cache measurement, the usage.cost values, the 99-model catalog \u2014 is self-reported and independently uncorroborated. The report presents these as verified without that caveat.",
+  "'repo suite: 5 passed' is compileall plus four module imports. It is reported honestly in m1's detail line but then treated as behaviour evidence (and paired with 'loses: nothing' on a Chat Completions\u2192Responses translation), which overstates what was proven; baseline parity here means only that nothing stopped importing.",
+  "i3 ships a user-visible behaviour change on by default \u2014 SUMMARY_MODEL defaults to gpt-4o-mini, and that weaker summary becomes the chat's persistent memory \u2014 while side-by-side quality is explicitly not-run. Defaulting to the chat model and letting the operator opt in would have been the honest default for an unmeasured change.",
+  "Two smaller overstatements: 'every Responses lever now reachable' glosses over the fact that the app still goes through a Chat Completions shim, so Responses-only fields need extra_body (as i2 itself demonstrates); and 'gpt-4o is now the most expensive model this bot could plausibly use' is not true against a 99-model catalog that includes o1 and the larger frontier models the bot's own env vars accept."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 15.9,
+  "usd": 6.2402,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "improvement": 6,
+   "needs-decision": 1,
+   "stays": 1,
+   "note": 1
+  },
+  "improvements": 6,
+  "built": 3,
+  "levels": {
+   "change": 3,
+   "quick-win": 1,
+   "rework": 2
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

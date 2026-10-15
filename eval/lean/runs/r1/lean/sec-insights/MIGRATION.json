@@ -1,0 +1,168 @@
+{
+  "version": 6,
+  "summary": "SEC Insights has exactly two places where an LLM client is built, and between them they serve every generative call the product makes: the streaming top-level agent a user watches token by token (engine.py), and the shared Settings.llm that drives sub-question decomposition, response synthesis and the per-document SEC API agents (llama_index_settings.py, deep-copied in tools.py). Both now take the vendored Router runtime as their httpx client, so all of it is translated to Router's /v1/responses with a per-request fallback to OpenAI, and nothing changes until RAMP_ROUTER_API_KEY is set. Each client also sends an explicit x-router-migrate-feature label (sec-chat, sec-retrieval), because the runtime's default label is the calling frame and inside llama-index that is an internal function name -- useless for spend reporting and unsafe as a router.policy.json key. Verified live against real Router: all three paths (Settings.llm, the deep-copied SEC API LLM, and the streaming tool-calling agent) returned answers, 3 of 3 requests ok, and the same three paths also returned when every request was remapped to claude-haiku-4-5, which is the evidence behind the failover branch. OpenAI embeddings stay on OpenAI -- Router serves no /v1/embeddings -- so the OpenAI key must remain configured both for ingestion and for the runtime's provider-fallback path.",
+  "reviewed": "I read every LLM path in the backend: the websocket chat flow (api/endpoints/conversation -> messaging.handle_chat_message -> engine.get_chat_engine), both SubQuestionQueryEngines and the refine-based response synthesizer, the polygon.io SEC API agents in chat/tools.py, the embedding/ingestion path used by scripts/seed_db.py, and the dev CLI (scripts/chat_llama.py, an HTTP client with no LLM of its own). The improvements below are the ones the code's shape actually invites: one model for four different jobs, an unbounded single-vendor dependency, and a streaming contract that cannot fail over. I did not propose Flex (gpt-4o-mini has no Flex tier), Anthropic cache_control (the app speaks Chat Completions, translated to Responses), or anything on the embedding path, which Router cannot serve.",
+  "calls": [
+    {"site": "backend/app/chat/engine.py:289", "feature": "sec-chat", "model": "gpt-4o-mini", "task": "chat", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/llama_index_settings.py:31", "feature": "sec-retrieval", "model": "gpt-4o-mini", "task": "chat", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/chat/tools.py:152", "feature": "sec-retrieval", "model": "gpt-4o-mini", "task": "chat", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/llama_index_settings.py:38", "feature": null, "model": "text-embedding-3-small", "task": "embedding", "latency": "background", "now": "provider", "item": "s1"}
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route both OpenAI LLM clients through Router",
+      "summary": "Both llama-index OpenAI LLMs take the vendored runtime as their httpx client, so every generative call is translated to Router's /v1/responses with a fallback to OpenAI.",
+      "calls": ["backend/app/chat/engine.py:289", "backend/app/llama_index_settings.py:31", "backend/app/chat/tools.py:152"],
+      "gains": "One key and one gateway in front of every generative call in the product, per-request spend and provider visibility, and the whole catalog reachable without an SDK change. The app is unchanged until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 reverts it at runtime.",
+      "loses": "nothing",
+      "price": "no change: gpt-4o-mini at $0.15/$0.60 per 1M either way, and usage.cost matched list price exactly for gpt-4o-mini in the fact sheet's measurements.",
+      "why": "The runtime under the existing client was the right lever here rather than pointing the client at Router: llama-index's OpenAI LLM speaks Chat Completions, which Router does not serve at all, and the runtime translates it (and the SSE stream back) while keeping per-request provider fallback. The third site matters and the scanner cannot see it -- chat/tools.py deep-copies Settings.llm once per SEC document per message, so each polygon.io agent inherits the routed transport. I confirmed that copy really routes rather than assuming it.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "A driver exercising Settings.llm.complete, the deep-copied tools.py LLM, and engine.stream_chat through the real Router: 3 of 3 requests ok, 0 errors, all three returned answers."},
+        {"check": "simulator", "result": "pass", "detail": "5 of 5 requests valid on /v1/responses, labelled sec-retrieval (3) and sec-chat (2)."},
+        {"check": "tests", "result": "pass", "detail": "7 passed, plus the import/compile/engine-construction smoke check, with Router active and inactive."}
+      ],
+      "commit": "7818c46",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Label the two LLM paths for spend and policy",
+      "summary": "Each client sends x-router-migrate-feature, so Router reports spend per path and router.policy.json can target each path by name.",
+      "calls": ["backend/app/chat/engine.py:289", "backend/app/llama_index_settings.py:31"],
+      "gains": "Stable names for the two halves of the product's LLM bill (sec-chat, the streaming agent; sec-retrieval, the fan-out behind one question) and a policy key that does not move when llama-index is upgraded.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Without an explicit label the runtime derives one from the calling frame, which for a framework client is whatever llama-index function happened to call it -- I saw it come out as both the driver module and null in the same run. That is unusable for a spend view and actively dangerous as a policy key, because a library upgrade would silently stop matching the policy entry. Two labels, not four, because that is how many clients exist today; splitting further is proposal i2.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "Requests arrive with feature=sec-chat and feature=sec-retrieval; before this commit the same run showed feature=drive.py:<module> and feature=None."},
+        {"check": "tests", "result": "pass", "detail": "7 passed."}
+      ],
+      "commit": "93ba9a6",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "Embeddings and ingestion stay on OpenAI",
+      "summary": "The OpenAI embedding model keeps calling OpenAI directly because Router serves no embeddings endpoint.",
+      "calls": ["backend/app/llama_index_settings.py:38"],
+      "gains": "nothing changes for document ingestion or query-time retrieval",
+      "loses": "Embedding spend stays outside Router's reporting, and a Router key alone cannot run this app: the OpenAI key is still required for embeddings, and the runtime also needs it for the provider-fallback path.",
+      "price": "no change",
+      "why": "Router 404s /v1/embeddings, so there is nothing to route. This is worth stating plainly because it is the one thing a reader might assume the migration covered: seed_db.py and every retrieval query still depend on an OpenAI key being present, and so does the runtime's refusal-fallback. Nothing the app could do was lost here, but the single-key story is not complete.",
+      "evidence": [{"check": "other", "result": "info", "detail": "Router fact sheet section 2: /v1/embeddings returns a plain-text 404; the runtime keeps embedding requests on the provider by design."}],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Fail over to Claude when OpenAI is unavailable",
+      "summary": "router.policy.json adds claude-haiku-4-5 as a second candidate and a 45s provider_timeout on both features, and the SDK's retry count drops from 3 to 1.",
+      "calls": ["backend/app/chat/engine.py:289", "backend/app/llama_index_settings.py:31"],
+      "gains": "Removes the product's single-vendor dependency. Every generative call is gpt-4o-mini today, and the runtime's own retry on a Router refusal goes back to OpenAI, so an OpenAI outage is a full product outage -- the chat window simply hangs. With a second candidate Router walks to Anthropic itself, at no cost until it serves. provider_timeout=45 bounds a stuck provider (buffered: the whole attempt; streaming: idle time between events), and dropping the SDK retries from 3 to 1 stops the fan-out from multiplying the worst case: the old ceiling was 60s x 4 attempts per call, once per sub-question per document.",
+      "loses": "answers will differ when the fallback serves, and claude-haiku-4-5 is 6.7x the price of gpt-4o-mini ($1/$5 vs $0.15/$0.60 per 1M) for the minutes it does. A genuinely slow call that would have finished past 45s now fails, and with max_retries=1 the client absorbs fewer 429s before surfacing an error. Because Router cannot fail over once a stream has started, the sec-chat path is protected only up to its first token; sec-retrieval is not streamed and gets the full benefit.",
+      "price": "$0 in steady state -- a fallback candidate is billed only when it serves. claude-haiku-4-5 at $1/$5 per 1M during an OpenAI outage, against a product that is otherwise down.",
+      "why": "This is the change I would make first as the owner, because the failure it removes is total and the steady-state cost is zero. I picked the candidate by measurement, not by price: claude-haiku-5-5 is cheaper than gpt-4o-mini ($0.10/$0.50) and was my first choice, but the runtime's capability guard dropped it on every real request -- the app sends temperature=0 and the *-5-5 generation rejects temperature. claude-haiku-4-5 survives the guard, and I confirmed live that Claude can actually serve this app's streaming tool-calling agent before proposing it as the thing that catches an outage.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "With every request remapped to claude-haiku-4-5 through the runtime, all three paths including the streaming agent returned: 3 of 3 requests ok."},
+        {"check": "router-live", "result": "pass", "detail": "With the policy in place, real Router accepted the models list plus provider_timeout on all three paths: 3 of 3 ok."},
+        {"check": "simulator", "result": "pass", "detail": "5 of 5 requests carry a models list instead of a single model, with no capability-guard drop; the earlier claude-haiku-5-5 attempt logged '1 of 1 candidates dropped by the capability guard'."},
+        {"check": "tests", "result": "pass", "detail": "7 passed on the branch."}
+      ],
+      "commit": "46ef39d",
+      "branch": "router-migrate/improve/failover",
+      "depends_on": ["m1", "m2"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Choose a model per task, not one global default",
+      "summary": "Split OPENAI_CHAT_LLM_NAME into per-job model choices so mechanical fan-out work runs on a cheap model and user-facing synthesis can run on a better one.",
+      "calls": ["backend/app/chat/engine.py:289", "backend/app/llama_index_settings.py:31", "backend/app/chat/tools.py:152"],
+      "gains": "One setting currently decides four very different jobs: the top-level agent that picks a tool and writes the answer; sub-question decomposition; the refine loop that synthesises over retrieved chunks; and the polygon.io agents that call one function and format numbers. Jobs 2 and 4 are mechanical and are also the highest-volume -- one call per sub-question per document, plus one per API agent per message -- so they are where the bill is. gpt-5-nano is $0.05/$0.40 against gpt-4o-mini's $0.15/$0.60 (-67% input, -33% output) and has a Flex tier, which the fact sheet measured at exactly -50% on gpt-5.4-mini. Freeing that budget is what makes a stronger model on the two user-facing jobs affordable rather than a straight cost increase.",
+      "loses": "answers will differ, on every path that changes. gpt-5-nano is a reasoning model: it rejects temperature (the runtime drops it rather than failing), needs room in max_output_tokens or it returns incomplete with no text, and its sub-question decomposition would need checking against real filings before anyone trusts it. This is a quality conversation with a measurement plan attached, not a config flip -- which is why it is a proposal and not a branch.",
+      "price": "Per-call input cost on the mechanical jobs falls about 67% if they move to gpt-5-nano; the user-facing jobs' price depends on which model is chosen for them. No measurement of this app's actual call mix exists yet, so the net is unknown -- the first step is a week of per-feature spend from the labels in m2.",
+      "why": "The labels from m2 make this tractable: once each job has its own name, a model can be assigned per feature in router.policy.json (model_map) without touching the agent code, which means it can be tried and reverted from config. The honest sequencing is i3 first (so the SEC API agents are a separately named client rather than a deep copy of the shared one), then a week of spend data, then this.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "Live catalog: gpt-4o-mini $0.15/$0.60, gpt-5-nano $0.05/$0.40 with a Flex tier, gpt-6-luna $0.10/$0.50 with Flex, per 1M tokens."},
+        {"check": "side-by-side", "result": "not-run", "detail": "No quality comparison on real SEC filings was run; that is the work this proposal asks for."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["m2", "i3"],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Build the SEC API agents their own client",
+      "summary": "Replace the per-document deep copy of Settings.llm in chat/tools.py with an explicitly constructed, separately labelled LLM.",
+      "calls": ["backend/app/chat/tools.py:152"],
+      "gains": "Separates the cheapest job in the product from the most expensive one in both spend reporting and routing policy: the polygon.io agents would get their own feature label instead of sharing sec-retrieval with response synthesis, which is what unlocks i2. It also stops the app deep-copying a live httpx client -- connection pool and Router transport included -- once per SEC document per user message. That works today (I verified the copy routes correctly against real Router), but copying transport objects per request is not something to leave in a hot path.",
+      "loses": "nothing functional; the agent keeps the same model and prompt unless i2 changes it. It is a small amount of new code where there used to be one line, and the new client no longer inherits future changes to Settings.llm automatically.",
+      "price": "no change on its own",
+      "why": "This is the enabler, worth doing even if i2 is never approved, because the deep copy is the one piece of the routed path that is clever rather than obvious. A reader of tools.py has no way to tell that line 152 is an LLM call site at all -- the scanner could not see it either -- and anything a reviewer cannot see, they cannot route, price or protect.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "The deep-copied client does reach Router today: the driver's copied-LLM call was among the 3 of 3 live requests that succeeded."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Make the streaming failure path visible to the user",
+      "summary": "Buffer the first tokens before committing to the websocket stream, so a pre-first-token failure can fail over and a mid-stream failure reaches the user as an error rather than a truncated answer.",
+      "calls": ["backend/app/chat/engine.py:289"],
+      "gains": "Closes the gap Router's streaming contract makes concrete: no fallback once a stream has started. handle_chat_message streams tokens straight to the browser, and if the provider dies mid-answer the loop ends -- the user sees a sentence that stops, with no error and a persisted message that looks complete. Holding the first chunk until the response is known to be alive both widens the window where i1's fallback can actually fire and gives the app a place to send an explicit error frame. It would also fix the accompanying O(n^2) websocket traffic, since the handler currently re-sends the whole accumulated string per token.",
+      "loses": "time to first token, by however long the buffer holds -- the one metric this product is judged on. Any version of this needs the buffer measured in tokens or tens of milliseconds, not seconds, and the fact sheet has no measurement of Router's added latency to budget against.",
+      "price": "no change in token cost",
+      "why": "A redesign worth a conversation rather than a patch, because it trades the product's most visible quality (first-token latency) for correctness under failure, and the right balance depends on numbers nobody has yet. I am raising it because putting the app on Router is what made the failure mode legible: i1 protects sec-retrieval fully and sec-chat only up to its first token, and that asymmetry is a property of the app's streaming design, not of Router.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "Router fact sheet section 6.2: no fallback once a stream has started; truncated attempts are still billed. messaging.py:handle_chat_message has no except around the async_response_gen loop."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Add a prompt cache key to the chat path",
+      "summary": "Set prompt_cache_key for sec-chat in router.policy.json so the growing system-prompt-plus-history prefix of a conversation gets provider affinity and caches.",
+      "calls": ["backend/app/chat/engine.py:289"],
+      "gains": "The top-level agent replays the system prompt, both tool schemas and the full chat history on every turn, so from a few turns in the prefix is stable and above the ~1,024-token provider minimum. A cache read on gpt-4o-mini is $0.075 against $0.15 per 1M input, so turn N of a long conversation gets roughly half off its replayed prefix; the fact sheet measured a 9,020-token gpt-4o-mini prompt dropping from $0.00135 to $0.00069 on the second call.",
+      "loses": "nothing functional, but less than it sounds. The policy can only set a single key per feature ($feature), not one per conversation, so all sec-chat traffic shares one affinity key -- the win is real for long conversations and nil for the first turn or two, which is most of them.",
+      "price": "-50% on the cached portion of input tokens for the sec-chat path; nothing for short conversations.",
+      "why": "One line of config with no behavioural risk, which is why it is worth proposing despite the modest size of the prize. It is listed below i1-i3 deliberately: unlike those, it changes nothing about how the product fails or what it costs at the volumes that dominate the bill. A per-conversation key would be worth more and needs code.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "Live catalog: gpt-4o-mini input $0.15, cache_read_input $0.075 per 1M."},
+        {"check": "router-live", "result": "not-run", "detail": "No cache-hit measurement was taken on this app's own prompts."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["m2"],
+      "excludes": []
+    }
+  ]
+}

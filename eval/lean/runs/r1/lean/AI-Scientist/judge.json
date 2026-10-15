@@ -1,0 +1,54 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Diagnosed and removed the two things that actually blocked routing \u2014 seed=0 (no such field on /v1/responses) and the app's retired pinned model ids (claude-3-5-sonnet-20240620, gpt-4o-2024-05-13, o1/o3) \u2014 and put both in a single revertable router.policy.json instead of editing AVAILABLE_LLMS; without this the wrapped clients would have routed almost nothing.",
+  "Covered the paths a scanner alone would miss: the four inline openai.OpenAI() reviewer clients in both launchers, review_iclr_bench's copied create_client dispatch, and aider's traffic via install_litellm() \u2014 i.e. the review fan-out and the single largest token consumer in a run, not just llm.py.",
+  "Reported negative findings honestly rather than claiming success: that `router-migrate check --all` falsely shows llm.py:248/263/276 as routing when those clients point at DeepSeek/Gemini hosts, that the default Claude path is already dead on the installed anthropic 1.13.0 (temperature TypeError, pre-existing), that LiteLLM's Anthropic handler bypasses the installed session, and that side-by-side review quality was never measured (evidence marked not-run)."
+ ],
+ "misses": [
+  "Flex tier is never proposed as its own item even though every call in this app is explicitly 'background' and runs unattended for hours \u2014 a 50%-off tier on the OpenAI-side traffic is the largest Router-specific cost lever here, and it is buried inside the i5 rework instead of being the top quick win (and it is noted as incompatible with the fallbacks item without resolving which the owner should take).",
+  "Nothing is proposed to make the default Claude path cheap or robust at the app level: the reflections/paper-text prefix on /v1/messages is left uncached with 'Router applies no policy fields there', when Anthropic cache_control breakpoints in llm.py would cache exactly that prefix; likewise provider_timeout and a retry ceiling are mentioned in passing but never turned into an item replacing the unbounded @backoff.expo loop that is named as the real failure mode.",
+  "The promised path for the non-routed vendors is missing: s1 says unlock_hosts plus a model map for DeepSeek/OpenRouter/Llama is 'proposed as i4', but no such item exists, so the three biggest 'stays' end with no actionable proposal; and nothing proposes fixing the n1 temperature bug, which leaves the app's default --model path unrunnable and the main routed path unverifiable end-to-end."
+ ],
+ "wrong": [
+  "s1 cross-references a non-existent proposal: it says routing DeepSeek/OpenRouter 'is proposed as i4', but i4 is the cross-vendor fallback item \u2014 the unlock_hosts/model-map proposal was never written.",
+  "i1's cost figure doesn't follow from its own numbers: 4 extra ~10k-token prompts at $0.004 is +$0.016 uncached and ~+$0.004 with the i2 cache key, not '+$0.012 per ensemble'.",
+  "The model map goes beyond the retired ids it justifies: gpt-4.1 -> gpt-4.1-mini and gpt-4.1-nano -> gpt-4o-mini are silent downgrades of ids that are not 2024-pinned, and t2's 'loses' discusses only gpt-4o and the o-series, so that quality change is unstated. Mapping the reviewer's gpt-4o to mini (rather than a same-class target, with mini offered as a separate cost item) also invalidates the ICLR benchmark baseline as a migration default.",
+  "t2 states 'Input price per 1M falls from $3 to $3 (unchanged)' \u2014 framed as a reduction when nothing changes.",
+  "The live evidence is self-reported only: the outside check records router requests 0 / valid 0 and lists 10 of 17 sites (including every launcher, aider and iclr_analysis site) as route-unverified, so the summary's 'verified live against real Router' claim is not corroborated by the check it cites alongside it.",
+  "The 'tests pass vs baseline' evidence is compileall plus six module imports \u2014 it cannot detect behaviour change in any routed call path; the report says so in the detail field but still presents it as the behaviour evidence for m1/m2/i1/i2.",
+  "i1 masks rather than fixes the runtime defect it found: running the first sample inline hides the policy-load race in router_runtime, which still misroutes the first requests of any other concurrent Router-bound caller, and that is not recorded as a note or a fix item."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 21.6,
+  "usd": 9.986,
+  "check_ok": true,
+  "verified": 7,
+  "unverified": 10,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 15,
+  "kinds": {
+   "move": 3,
+   "trade-off": 2,
+   "stays": 2,
+   "note": 1,
+   "improvement": 7
+  },
+  "improvements": 7,
+  "built": 2,
+  "levels": {
+   "change": 4,
+   "quick-win": 2,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

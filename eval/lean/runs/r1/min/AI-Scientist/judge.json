@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 7,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 7,
+ "report_clarity": 8,
+ "overall": 7,
+ "best": [
+  "Found and covered all three traffic channels, including the non-obvious one: installing the LiteLLM hook at ai_scientist.llm import time so aider's OpenAI-provider calls route, after correctly reasoning that aider never touches create_client's clients, plus the two inline openai.OpenAI() clients in the launchers and the iclr_analysis harness that a scanner-only pass would have missed.",
+  "Diagnosed the two things that actually blocked most of the traffic (Responses rejecting seed=0, and claude-3-5-sonnet-20240620 / gpt-4o-2024-05-13 not being catalog ids) and fixed them as policy-only, separately revertable commits, so the provider-fallback path still sends the original id and parameters \u2014 with the model-substitution loss (reviewer scoring calibrated on gpt-4o-2024-05-13) stated plainly rather than buried.",
+  "Rewrote get_batch_responses_from_llm to sample the five-way reviewer ensemble one request at a time instead of dropping `n`, which makes the one genuinely untranslatable workload routable with the same number of samples, and shipped it as a tested branch with the extra prompt billing and the 5x wall-clock honestly priced \u2014 rather than silently turning a 5-sample ensemble into 1."
+ ],
+ "misses": [
+  "Flex tier is never mentioned, even though the report labels the latency of all 20 call sites 'background' and describes unattended multi-hour runs. For a batch pipeline with no human waiting, Flex is the largest Router-specific cost lever available and should have been the first proposal (arguably built, since it is policy-only and reversible); instead the cheapest-win slot went to a prompt cache key.",
+  "aider on the default Claude model is the self-identified largest spender in the pipeline and it stays entirely off Router, with no branch even attempted. Router serves /v1/messages, so pointing aider's LiteLLM Anthropic provider (or aider's own --openai-api-base) at Router with the same model family was a buildable, behaviour-preserving option worth a branch plus measurement; the report lists three options and picks none, so the biggest spend decision is handed back untouched.",
+  "No proposal to map the DeepSeek and Gemini paths onto catalog ids (deepseek-v4*, Vertex Gemini 2.5+) even as an opt-in policy entry, and nothing on parallelising the now-serialised 5-sample ensemble with a thread pool so i2's 5x wall-clock penalty disappears. Also absent: how Router fallbacks and provider_timeout interact with the existing backoff retry decorator around these calls (double retry, multiplied billed attempts), and any per-run cost estimate for 'what does one paper cost' despite naming that as the app's economics question."
+ ],
+ "wrong": [
+  "The stays list contradicts the outside check's route truth: the report declares ai_scientist/llm.py:104 (the n=5 ensemble), :256, :271 and :284 (DeepSeek, Gemini) as staying on vendor keys, but validation.json lists all four under routes.verified and only the two Llama sites (:122, :241) under stays. Either the report under-claims coverage or its routing analysis for those sites is wrong; either way it does not match the check.",
+  "s2 refers the reader to 'i3's sibling proposal i5' for the DeepSeek/Gemini mapping decision. i3 is the fallback proposal and i5 is the reviewer-model flag \u2014 neither proposes any DeepSeek or Gemini mapping, so the pointer is dangling and the promised proposal does not exist.",
+  "i2's '+$0.05 per review ensemble at gpt-4o list prices' is an undemonstrated figure and looks low: four extra paper-sized prompts at the report's own $2.50/1M input price is roughly $0.10 for a 10k-token paper and scales with paper length. No derivation is given.",
+  "i1 presents the cache saving as 'Router measured a 9,020-token prompt caching 8,832 tokens \u2026 cost dropping from $0.00135 to $0.00069'. That is ROUTER.md's generic measurement, not a measurement of this app's prompts; the evidence block admits it, but the gains text reads as a measured result for this pipeline.",
+  "i2's rationale that per-sample sampling is 'what the function already does for every other model' overstates it \u2014 the Llama branch of get_batch_responses_from_llm also issues a single n=n_responses request; only the Claude branch loops.",
+  "The check reports typecheck as empty ({}), so no typecheck-vs-baseline evidence exists, and the report never mentions typechecking at all while citing tests as its behaviour proof."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 23.6,
+  "usd": 7.5646,
+  "check_ok": true,
+  "verified": 13,
+  "unverified": 1,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 15,
+  "kinds": {
+   "move": 1,
+   "trade-off": 2,
+   "stays": 4,
+   "needs-decision": 1,
+   "improvement": 5,
+   "note": 2
+  },
+  "improvements": 5,
+  "built": 2,
+  "levels": {
+   "-": 5
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

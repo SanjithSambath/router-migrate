@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 6,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and fixed the two Chat-Completions leniencies the Responses API does not share in the legacy function-calling path (a function result with no preceding assistant function_call, and a detector that assumed the first stream chunk carries the call), with before/after evidence showing plugins were outright broken on Router and then worked streamed and buffered - this is the kind of breakage a migration usually ships silently.",
+  "Discovered that __summarise stringifies the whole history into the prompt, so vision conversations send full base64 data URIs as text, measured it with the repo's own tiktoken encoding (1,520 vs 73 tokens for a 512x512 image, ~2.87M for a 1024x1024 one, i.e. summaries were failing on context length), and fixed it only in the summary prompt so the live conversation keeps its images.",
+  "Solved the 'Router has no gpt-4o' problem at the policy layer (router.policy.json model_map) instead of editing the app's config, which keeps tiktoken encoding, context-window arithmetic and the vision token estimate working and leaves the direct-provider path on real gpt-4o - and stated the unavoidable answer-quality change plainly rather than burying it."
+ ],
+ "misses": [
+  "No rework-level item: the app still speaks the deprecated functions/function_call Chat Completions shape through a translation layer. Moving it to a Responses-native tools flow is where Router's own leverage (prompt_cache_key, provider_timeout, fallbacks, Flex on models that have it) actually becomes reachable; the engineer patched the legacy shape and never raised the design question.",
+  "Failure handling was left as prose. The hand-rolled tenacity retry (20s x 3) can make a waiting Telegram user sit for a minute on a 429, and provider_timeout was identified but not configured. A same-tier Router fallback list scoped to 429/5xx only - not a silent mid-conversation quality swap - plus a concrete provider_timeout per feature, were buildable and testable here; 'that's a product decision' over-dismisses them.",
+  "No follow-through on cost/accounting or alternative vendors: usage tracking and /stats still price traffic with the configured gpt-4o token prices while Router serves gpt-4.1-mini (gpt-4o-mini for summaries), so reported spend is now wrong; nothing was said about non-OpenAI models reachable via /v1/messages despite Router being multi-vendor; and the summary call still blocks the user's reply when it could run off the hot path."
+ ],
+ "wrong": [
+  "The outside check records requests: 0, valid: 0 for the migration ref and both improvement branches, so the report's headline evidence ('8 of 8 live 200s', '9 of 9 valid') is not corroborated by the validation run - the only independent signal is a 5-test suite matching baseline, which exercises none of the routed paths.",
+  "The new stream handling can exit the async for loop with function_name still empty (a stream that ends without a finish_reason chunk now falls through the skip branch instead of returning), after which it logs 'Calling function' and calls plugin_manager with an empty name; the pre-fix code always returned the response on that path.",
+  "m1 claims 'loses: nothing' - true only because the model substitution is booked separately under m3. Read on its own, that item hides the fact that routed chat and vision are no longer answered by gpt-4o.",
+  "i1's '-62% list price' is arithmetic on list prices with no volume behind it; combined with m3 the summary path is being compared against a baseline (gpt-4.1-mini) that itself only existed for hours, so the absolute saving on real traffic is unquantified rather than demonstrated."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 19.6,
+  "usd": 8.0066,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 8,
+  "kinds": {
+   "move": 1,
+   "port": 1,
+   "trade-off": 1,
+   "stays": 1,
+   "improvement": 2,
+   "note": 2
+  },
+  "improvements": 2,
+  "built": 2,
+  "levels": {
+   "-": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}
