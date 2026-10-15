@@ -252,8 +252,8 @@ wrapper) decide per request [runtime]:
   as `metadata.feature` (Responses), as the header `x-router-migrate-feature`, and as the key for `router.policy.json`.
   `ROUTER_MIGRATE_FEATURE_TAG=off` stops labels and the automatic Claude cache key.
 - Other environment: `ROUTER_MIGRATE_MODEL_MAP='{"old":"catalog-id"}'`; `ROUTER_MIGRATE_SERVICE_TIER` (unset: the account
-  default; set: one tier on every routed request); `ROUTER_MIGRATE_POLICY=off`; `ROUTER_MIGRATE_TRACE=<file>` (one line
-  per request: where it went and why).
+  default; set: one tier on every routed request); `ROUTER_MIGRATE_POLICY=off`; `ROUTER_MIGRATE_TRACE=<file>` (Python runtime
+  only: one line per request, where it went and why).
 - Entry points: Python `wrap_openai(client, responses=True, unlock_hosts=None, operator_key_only=False)`,
   `wrap_anthropic(client, drop_betas=None, operator_key_only=False)`, `wrap_langchain(llm, ...)`, `http_client()` /
   `async_http_client()` (pass as `http_client=`), `install_openai_module()`, `install_litellm()`. TypeScript

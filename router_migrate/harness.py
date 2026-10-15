@@ -618,6 +618,10 @@ def setup(root, a):
            "" if "nofacts" in sc else "Router fact sheet: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
                                                                      os.environ.get("RM_FACTS") or "ROUTER.md"),
            "Report format: %s" % os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas", "V7_CONTRACTS.md"),
+           "The runtime `wrap` adds (router_runtime.py or routerRuntime.ts, copied into the repo from %s): what it routes "
+           "and leaves alone, how it labels requests and its settings are in the fact sheet, section 9; `check --run` shows "
+           "every request it sends and where it went. You shouldn't need its source."
+           % os.path.join(os.path.dirname(os.path.abspath(__file__)), "runtime"),
            "Base commit %s; you are on branch %s (commit your work here; built recommendations go on branches %s<name>)."
            % ((base or "")[:9], MIGRATION_BRANCH, R.IMPROVE_PREFIX),
            ("Test command: %s%s. The final check runs the full suite with Router on; how you test along the way is up to you."
