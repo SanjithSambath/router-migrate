@@ -35,6 +35,36 @@ def _is_router_call(node):
     return isinstance(node, cst.Call) and isinstance(node.func, cst.Name) and node.func.value.startswith("_router_")
 
 
+
+def _append_args(call, extra):
+    """`call` with keyword args appended in its own layout: one per line, at the existing indent, when the call is
+    multi-line (the closing paren stays where it was); inline after a comma otherwise."""
+    args = list(call.args)
+    if not args:
+        inline = cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))
+        return call.with_changes(args=[a.with_changes(comma=inline) for a in extra[:-1]] + list(extra[-1:]))
+    sep = None
+    for a in args[:-1]:
+        if isinstance(a.comma, cst.Comma) and isinstance(a.comma.whitespace_after, cst.ParenthesizedWhitespace):
+            sep = a.comma.whitespace_after
+            break
+    if sep is None and isinstance(call.whitespace_before_args, cst.ParenthesizedWhitespace):
+        sep = call.whitespace_before_args
+    last = args[-1]
+    tail = last.whitespace_after_arg  # whatever sat before ")" (a newline + dedent in a multi-line call)
+    if isinstance(last.comma, cst.Comma):  # trailing comma already there: its whitespace leads into the closing paren
+        tail = last.comma.whitespace_after
+    gap = sep if sep is not None else cst.SimpleWhitespace(" ")
+    args[-1] = last.with_changes(comma=cst.Comma(whitespace_after=gap), whitespace_after_arg=cst.SimpleWhitespace(""))
+    for i, a in enumerate(extra):
+        if i < len(extra) - 1:
+            args.append(a.with_changes(comma=cst.Comma(whitespace_after=gap)))
+        elif isinstance(tail, cst.ParenthesizedWhitespace):  # ")" on its own line: trailing comma, paren stays put
+            args.append(a.with_changes(comma=cst.Comma(whitespace_after=tail)))
+        else:
+            args.append(a.with_changes(whitespace_after_arg=tail))
+    return call.with_changes(args=args)
+
 class _AlreadyPatched(cst.CSTVisitor):
     """Positions of constructor calls that an earlier run already wrapped (`_router_wrap_x(Ctor(...))`)."""
     METADATA_DEPENDENCIES = (PositionProvider,)
@@ -104,15 +134,8 @@ class _Patcher(cst.CSTTransformer):
                 have = {a.keyword.value for a in updated.args if a.keyword is not None}
                 extra = [kv for kv in self._wrap_kwargs(kind, opts) if kv[0] not in have and kv[0] != "responses"]
                 if extra:
-                    new = list(updated.args)
-                    new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-                    for i, (k, v) in enumerate(extra):
-                        arg = _kw(k, v)
-                        if i < len(extra) - 1:
-                            arg = arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-                        new.append(arg)
                     self.added.add(kind)
-                    return updated.with_changes(args=new)
+                    return _append_args(updated, [_kw(k, v) for k, v in extra])
             return updated
         if key not in self.targets:
             return updated
@@ -150,16 +173,10 @@ class _Patcher(cst.CSTTransformer):
             new = [a.with_changes(value=cst.parse_expression(vals[a.keyword.value])) if a.keyword is not None and a.keyword.value in vals else a
                    for a in updated.args]
             missing = [k for k in ("base_url", "api_key") if k not in old]
-            if missing and new and new[-1].comma == cst.MaybeSentinel.DEFAULT:
-                new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-            for i, k in enumerate(missing):
-                arg = _kw(k, vals[k])
-                if i < len(missing) - 1:
-                    arg = arg.with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-                new.append(arg)
             self.done[key] = kind
             self.native = True
-            return updated.with_changes(args=new)
+            out = updated.with_changes(args=new)
+            return _append_args(out, [_kw(k, vals[k]) for k in missing]) if missing else out
         if kind == "kwargs_llamaindex":
             names = {a.keyword.value for a in updated.args if a.keyword is not None}
             if "http_client" in names or "async_http_client" in names:
@@ -168,14 +185,10 @@ class _Patcher(cst.CSTTransformer):
             if any(a.star == "**" for a in updated.args):
                 self.skipped[key] = "constructor takes **kwargs, which may already carry http_client"
                 return updated
-            new = list(updated.args)
-            if new and new[-1].comma == cst.MaybeSentinel.DEFAULT:
-                new[-1] = new[-1].with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" ")))
-            new += [_kw("http_client", alias("http_client") + "()").with_changes(comma=cst.Comma(whitespace_after=cst.SimpleWhitespace(" "))),
-                    _kw("async_http_client", alias("async_http_client") + "()")]
             self.done[key] = kind
             self.added.add(kind)
-            return updated.with_changes(args=new)
+            return _append_args(updated, [_kw("http_client", alias("http_client") + "()"),
+                                          _kw("async_http_client", alias("async_http_client") + "()")])
         self.skipped[key] = "unknown patch kind %s" % kind
         return updated
 
