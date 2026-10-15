@@ -38,9 +38,13 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; "
        "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
-CHECK_OF_GATE = {"tests": "tests", "tests-edited": "tests", "typecheck": "typecheck", "router": "simulator"}
-FLAG_TEXT = {"deleted-file": "Deleted files", "dependencies": "Dependencies changed", "provider-key": "Provider key",
-             "runtime-edit": "Runtime edited"}
+CHECK_OF_GATE = {"tests": "tests", "tests-edited": "tests", "typecheck": "typecheck", "router": "simulator", "sim": "simulator"}
+# the check's gates in plain words: a label for a check of its own, and what failed (for "Apply is off because ...")
+GATE_LABEL = {"parse": "Syntax", "policy": "Router policy", "report": "Report file"}
+GATE_FAILED = {"tests": "tests fail", "tests-edited": "an existing test file was edited", "typecheck": "there are new type errors",
+               "router": "Router's rules reject some requests", "sim": "Router's rules reject some requests",
+               "parse": "a file no longer parses", "policy": "the Router policy is out of date", "report": "the report file has errors"}
+SIM = "a local copy of Router's rules"
 WAITING = ("proposed", "check failed", "declined", "your step")
 
 
@@ -64,6 +68,52 @@ def _load(root, name, default):
 
 def _num(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _count(n, word):
+    return "%s %s" % ("{:,}".format(n), word if n == 1 else word + "s")
+
+
+def cap(t):
+    return t[:1].upper() + t[1:]
+
+
+def _plain(t):
+    """The check's own wording, with its internal tool name spelled out."""
+    return re.sub(r"\brouter-sim\b", SIM, t)
+
+
+def _flag(f):
+    """A flag from the check (deleted files, dependency files, ...) with its detail in plain words."""
+    f = _d(f)
+    kind, files = _s(f.get("kind")), [x for x in _l(f.get("files")) if isinstance(x, str)]
+    det = _s(f.get("detail"))
+    if kind in ("deleted-file", "dependencies", "runtime-edit") and files:
+        det = ""  # the label says what happened; the files say where
+    elif kind == "provider-key":
+        names = det.split(": ", 1)[1] if ": " in det else det
+        det = ("%s no longer referenced. Keep the provider key set where the app runs: calls Router can't serve still use it."
+               % (names + (" is" if "," not in names else " are"))) if names else det
+    return dict(f, detail=_plain(det), files=files)
+
+
+def blocked_text(validation):
+    """Why Apply is off, in plain words, or None (same conditions as report_v6.apply_blocked)."""
+    if not R.apply_blocked(validation):
+        return None
+    m = _d(_d(validation).get("migration"))
+    if not m:
+        return "Apply is off until the migration has been checked. Run `router-migrate finish` first."
+    if _d(m.get("tests")).get("status") == "running":
+        return "The full test suite is still running. Apply turns on when it passes."
+    why = []
+    for f in _l(m.get("failures")):
+        g = _s(_d(f).get("gate"))
+        w = GATE_FAILED.get(g, g or "something failed")
+        if w not in why:
+            why.append(w)
+    return ("Apply is off because the migration's check failed%s. Fix it and run `router-migrate finish` again. "
+            "Undos are still allowed." % ((": " + "; ".join(why)) if why else ""))
 
 
 # ------------------------------------------------------------------------------------------------ git
@@ -121,7 +171,7 @@ def _shape(ok, text, ref, how):
 
 def _commit_diff(root, commit):
     if not COMMIT_RE.match(commit or ""):
-        return _shape(False, "not a commit id: %r" % commit, commit, "git show")
+        return _shape(False, "%r isn't a commit id" % commit, commit, "git show")
     key = (os.path.abspath(root), "c", commit)
     with _CACHE_LOCK:
         if key in _CACHE:
@@ -137,13 +187,13 @@ def _commit_diff(root, commit):
 def _branch_diff(root, branch, refs, base):
     how = "git diff %s...%s" % (base, branch)
     if not (REF_RE.match(branch or "") and ".." not in branch and branch.startswith(R.IMPROVE_PREFIX)):
-        return _shape(False, "not a recommendation branch name: %r" % branch, branch, how)
+        return _shape(False, "%r isn't a recommendation branch" % branch, branch, how)
     if refs is None:
-        return _shape(False, "not a git repository", branch, how)
+        return _shape(False, "this folder isn't a git repository", branch, how)
     if branch not in refs:
-        return _shape(False, "branch %s not found" % branch, branch, how)
+        return _shape(False, "branch %s was not found in this repository" % branch, branch, how)
     if base not in refs:
-        return _shape(False, "branch %s not found" % base, branch, how)
+        return _shape(False, "branch %s was not found in this repository" % base, branch, how)
     key = (os.path.abspath(root), "b", refs[base], refs[branch])
     with _CACHE_LOCK:
         if key in _CACHE:
@@ -170,18 +220,18 @@ def _tests_entry(t, where):
             if _num(x.get(k)) is not None and (k == "passed" or x.get(k)):
                 bits.append("%s %s" % ("{:,}".format(x[k]), k))
         return ", ".join(bits)
-    detail = "%s on %s" % (st, where)
+    detail = "Tests %s on %s" % (st, where)
     if counts(c):
         detail = "%s on %s" % (counts(c), where)
         if counts(b):
             same = (_num(c.get("passed")) or 0) >= (_num(b.get("passed")) or 0) and \
                 (_num(c.get("failed")) or 0) + (_num(c.get("errors")) or 0) <= (_num(b.get("failed")) or 0) + (_num(b.get("errors")) or 0)
-            detail += "; before: %s%s" % (counts(b), " (same as before)" if same else "")
+            detail += (", the same as before (%s)" if same else ". Before: %s") % counts(b)
     result = {"passed": "pass", "failed": "fail", "running": "info", "skipped": "not-run"}.get(st, "info")
     if st == "running":
-        detail = "still running on %s" % where
+        detail = "Tests are still running on %s" % where
     if st == "skipped":
-        detail = "skipped on %s" % where
+        detail = "Tests were skipped on %s" % where
     return {"check": "tests", "result": result, "detail": detail, "source": "check"}
 
 
@@ -192,7 +242,7 @@ def _typecheck_entry(t, where):
         return None
     ok = e <= (b or 0)
     return {"check": "typecheck", "result": "pass" if ok else "fail", "source": "check",
-            "detail": "%d %s on %s%s" % (e, "error" if e == 1 else "errors", where, "" if b is None else "; before: %d" % b)}
+            "detail": "%d type %s on %s%s" % (e, "error" if e == 1 else "errors", where, "" if b is None else " (before: %d)" % b)}
 
 
 def _router_entry(r, where):
@@ -201,9 +251,9 @@ def _router_entry(r, where):
     if not n:
         return None
     bad = _l(r.get("invalid"))
-    detail = "Router accepts %d of %d requests from %s (router-sim)" % (v or 0, n, where)
+    detail = "%d of %d requests from %s were accepted by %s" % (v or 0, n, where, SIM)
     if bad:
-        detail += ": " + "; ".join(str(x.get("detail") if isinstance(x, dict) else x) for x in bad[:3])
+        detail += ". Rejected: " + "; ".join(str(x.get("detail") if isinstance(x, dict) else x) for x in bad[:3])
     return {"check": "simulator", "result": "pass" if not bad and v == n else "fail", "detail": detail, "source": "check"}
 
 
@@ -214,9 +264,12 @@ def _live_entry(lv):
     if not n:
         return None
     feats = sorted(_d(lv.get("by_feature")))
-    return {"check": "router-live", "label": None, "result": "pass" if lv.get("ok") == n else "info", "source": "check",
-            "detail": "%d live request(s) through Router recorded, %d ok%s" % (n, lv.get("ok") or 0,
-                                                                              (" (features: %s)" % ", ".join(feats[:6])) if feats else "")}
+    named = [f for f in feats if not f.startswith("(")][:6]  # "(unlabelled)": requests without a feature label
+    ok = lv.get("ok") or 0
+    return {"check": "router-live", "label": None, "result": "pass" if ok == n else "info", "source": "check",
+            "detail": "%s sent to real Router during the run; %s%s" % (
+                _count(n, "request"), "all succeeded" if ok == n else "%d succeeded" % ok,
+                (" (labelled %s%s)" % (", ".join(named), "; some had no label" if len(named) < len(feats) else "")) if named else "")}
 
 
 def check_entries(v, where):
@@ -226,7 +279,7 @@ def check_entries(v, where):
                        _router_entry(v.get("router"), where), _live_entry(v.get("live"))) if x]
     for f in _l(v.get("failures")):
         f = _d(f)
-        gate, det = _s(f.get("gate")) or "check", _s(f.get("detail"))
+        gate, det = _s(f.get("gate")) or "check", _plain(_s(f.get("detail")))
         chk = CHECK_OF_GATE.get(gate)
         same = [x for x in out if x["check"] == chk] if chk else []
         if same:
@@ -234,11 +287,11 @@ def check_entries(v, where):
             if det and det not in same[0]["detail"]:
                 same[0]["detail"] += "; " + det
         else:
-            out.append({"check": chk or "other", "label": None if chk else gate.capitalize(), "result": "fail",
-                        "detail": det or "%s failed on %s" % (gate, where), "source": "check"})
+            out.append({"check": chk or "other", "label": None if chk else GATE_LABEL.get(gate, gate.capitalize()), "result": "fail",
+                        "detail": det or "Failed on %s: %s" % (where, GATE_FAILED.get(gate, gate)), "source": "check"})
     if v.get("ok") is False and not any(x["result"] == "fail" for x in out):
-        out.append({"check": "other", "label": "Check", "result": "fail", "detail": "the outside check failed on %s" % where,
-                    "source": "check"})
+        out.append({"check": "other", "label": "Independent check", "result": "fail",
+                    "detail": "router-migrate's own check failed on %s" % where, "source": "check"})
     return out
 
 
@@ -266,18 +319,17 @@ def _route_entry(sites, routes):
         by.setdefault(r["route"], []).append((s, r))
     bits, result = [], "pass"
     if by.get("verified"):
-        n = len(by["verified"])
-        bits.append("%d %s seen going through Router" % (n, "call" if n == 1 else "calls"))
+        bits.append("%s confirmed going through Router" % _count(len(by["verified"]), "call"))
     if by.get("unverified"):
-        bits.append("wired, not verifiable statically: " + ", ".join(s for s, _ in by["unverified"]))
+        bits.append("set up to use Router, but can't be confirmed without running the app: " + ", ".join(s for s, _ in by["unverified"]))
         result = "info"
     if by.get("stays"):
-        bits.append("; ".join("%s stays%s" % (s, ": " + r["reason"] if r["reason"] else "") for s, r in by["stays"]))
+        bits.append("; ".join("%s stays with its provider%s" % (s, ": " + r["reason"] if r["reason"] else "") for s, r in by["stays"]))
         result = "info" if result == "pass" else result
     if by.get("not_routing"):
-        bits.append("reported moved but doesn't route: " + ", ".join(s for s, _ in by["not_routing"]))
+        bits.append("said to be moved, but still going to the provider: " + ", ".join(s for s, _ in by["not_routing"]))
         result = "fail"
-    return {"check": "other", "label": "Route", "result": result, "detail": "; ".join(bits) + " (route truth)", "source": "check"}
+    return {"check": "other", "label": "Routing", "result": result, "detail": cap("; ".join(bits)), "source": "check"}
 
 
 def _setting(item):
@@ -360,7 +412,7 @@ def bundle(root):
             running.setdefault(rq["session"], []).append(iid)
 
     # migration flags belong to the item whose commit touched the flagged files; the rest stay on the overview
-    mig_flags = [dict(_d(f), files=[x for x in _l(_d(f).get("files")) if isinstance(x, str)]) for f in _l(mig.get("flags"))]
+    mig_flags = [_flag(f) for f in _l(mig.get("flags"))]
     claimed = set()
     items = []
     for it in raw_items:
@@ -392,10 +444,10 @@ def bundle(root):
         if kind == "recommendation" and not setting:
             b = _s(it.get("branch"))
             bv = _d(branches.get(b))
-            checked += check_entries(bv, "this branch") if bv else [{"check": "other", "label": "Check", "result": "not-run", "source": "check",
-                                                          "detail": ("the outside check hasn't run on %s yet" % b) if b else
-                                                          "proposed, not built yet: the apply session builds it after you approve, and the check runs then"}]
-            flags = [dict(_d(f), files=_l(_d(f).get("files"))) for f in _l(bv.get("flags"))]
+            checked += check_entries(bv, "this branch") if bv else [{"check": "other", "label": "Independent check", "result": "not-run", "source": "check",
+                                                          "detail": ("router-migrate's own check hasn't run on branch %s yet" % b) if b else
+                                                          "Not built yet. The agent builds it after you approve it and press Apply, and the check runs then."}]
+            flags = [_flag(f) for f in _l(bv.get("flags"))]
             diff = _branch_diff(root, b, refs, mig_ref) if b else None
         elif kind in R.MIGRATION_KINDS:
             if mig:
@@ -409,7 +461,7 @@ def bundle(root):
                         claimed.add(n)
         elif it.get("commit"):
             diff = _commit_diff(root, _s(it.get("commit")))
-        # route truth is the migration's: it says where a change's (or a stay's, or a product call's) calls go now
+        # where calls go is the migration's to say: it covers a change's (or a stay's, or a product call's) calls
         re_ = _route_entry(calls, routes) if kind in R.MIGRATION_KINDS + ("stays",) or it.get("actor") == "product-call" else None
         if re_:
             checked.append(re_)
@@ -417,10 +469,12 @@ def bundle(root):
         if (kind in R.MIGRATION_KINDS or (kind == "recommendation" and not setting)) and not measured \
                 and not any(c["check"] == "router-live" for c in checked):
             checked.append({"check": "router-live", "result": "not-run", "source": "check", "label": None,
-                            "detail": "not checked live by the agent" if live else "not checked: no key (simulator only)"})
+                            "detail": "The agent didn't run this on real Router" if live else
+                            "Not run on real Router: there was no Router key, so it was only tested against %s" % SIM})
         if model_change and not any(c["check"] == "side-by-side" for c in checked):
             checked.append({"check": "side-by-side", "result": "not-run", "source": "check", "label": None,
-                            "detail": "answers will differ; no side-by-side samples" + ("" if live else " (no key: simulator only)")})
+                            "detail": "Answers will change, and no before and after answers were compared" +
+                            ("" if live else " (there was no Router key to run them)")})
         due = status == "postponed" and bool(req) and _s(req.get("until")) and req["until"] <= time.strftime("%Y-%m-%d")
         # a request a session has taken but not finished: item_status can't see it yet, so the card says it's in progress
         in_session = req.get("session") if req and req.get("session") and req["session"] not in finished else None
@@ -463,7 +517,7 @@ def bundle(root):
     pending = [{"item": i, "action": r.get("action"), "reason": r.get("reason"), "until": r.get("until"), "at": r.get("at"),
                 "by": r.get("by"), "stale": bool((by_id.get(i) or {}).get("stale")), "title": (by_id.get(i) or {}).get("title"),
                 "kind": (by_id.get(i) or {}).get("kind"), "known": i in by_id} for i, r in pend.items()]
-    blocked = R.apply_blocked(validation)
+    blocked = blocked_text(validation)
     waiting = [i["id"] for i in items if i["waiting"] and not (i["request"] and not i["request"].get("session") and not i["due"])]
 
     tests = _d(mig.get("tests"))
@@ -480,7 +534,7 @@ def bundle(root):
                         "results": [dict(r, title=(by_id.get(r.get("item")) or {}).get("title"), kind=(by_id.get(r.get("item")) or {}).get("kind"))
                                     for r in _l(s.get("results")) if isinstance(r, dict)],
                         "check": _d(s.get("check")) or None,
-                        "check_entries": check_entries(s.get("check"), "the result of this session") if _d(s.get("check")) else []})
+                        "check_entries": check_entries(s.get("check"), "the branch after this session") if _d(s.get("check")) else []})
     recs = sorted((i for i in items if i["kind"] == "recommendation"), key=lambda i: (i["rank"] is None, i["rank"] or 0))
     return {
         "version": 7,
@@ -604,13 +658,13 @@ class _App(object):
             validation = _load(self.root, "validation.json", {})
             pend = R.pending_requests(self.root)
             if not pend:
-                raise HttpError(409, "Nothing to apply: approve a recommendation or mark something for undo first.")
+                raise HttpError(409, "Nothing to apply yet. Approve a recommendation or mark a change for undo first.")
             sessions = {s.get("id") for s in _l(_load(self.root, "apply_log.json", {}).get("sessions")) if isinstance(s, dict)}
             taken = sorted({r.get("session") for r in _d(_load(self.root, "requests.json", {}).get("requests")).values()
                             if isinstance(r, dict) and r.get("session") and r.get("session") not in sessions})
             if taken:
-                raise HttpError(409, "An apply session is still running (%s). Wait for it to finish." % ", ".join(taken))
-            blocked = R.apply_blocked(validation)
+                raise HttpError(409, "The agent is still applying your last batch (session %s). Wait for it to finish." % ", ".join(taken))
+            blocked = blocked_text(validation)
             if blocked and not all(r.get("action") == "undo" for r in pend.values()):
                 raise HttpError(409, blocked)
             try:
@@ -619,8 +673,8 @@ class _App(object):
             except ImportError:
                 launch = None
             if not callable(launch):
-                raise HttpError(501, "Apply isn't available in this version: run `/router-migrate apply` in Claude Code "
-                                     "(or `router-migrate apply`) to hand the list to an apply session.")
+                raise HttpError(501, "This version can't start Apply from the page. Run `/router-migrate apply` in Claude Code "
+                                     "(or `router-migrate apply` in a terminal) to carry out your decisions.")
             result = launch(self.root)
             self.launch = dict(result if isinstance(result, dict) else {"result": result},
                                requests=sorted(pend), at=time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -685,9 +739,9 @@ def _make_handler(app):
                         raise HttpError(400, "body must be {\"item\": \"<id>\"}")
                     rq = _d(_d(_load(app.root, "requests.json", {})).get("requests")).get(payload["item"])
                     if not rq:
-                        raise HttpError(400, "no request for %r" % payload["item"])
+                        raise HttpError(400, "There's no decision to cancel for %r" % payload["item"])
                     if _d(rq).get("session"):
-                        raise HttpError(409, "apply session %s already took this request" % rq["session"])
+                        raise HttpError(409, "The agent is already working on this (session %s), so it can't be cancelled" % rq["session"])
                     R.clear_request(app.root, payload["item"])
                     self._json(200, {"ok": True, "item": payload["item"]})
                 else:

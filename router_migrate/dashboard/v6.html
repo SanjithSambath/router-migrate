@@ -357,7 +357,7 @@ details.dtl > .more-b { padding: 2px 22px 20px; }
 .kvs > dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .kvs > dd.hi { color: var(--text); }
 .evl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.ev { display: grid; grid-template-columns: 62px 96px minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline; }
+.ev { display: grid; grid-template-columns: 62px 172px minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline; }
 .ev .r { display: inline-flex; align-items: center; gap: 5px; font: 500 11px/20px var(--mono); color: var(--c); white-space: nowrap; }
 .ev .r svg.i { width: 12px; height: 12px; align-self: center; }
 .ev .k { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -602,26 +602,27 @@ a.btn { text-decoration: none; }
   var MODE = window.__RM_MODE__ || "static", LIVE = MODE === "live", FROZEN = MODE === "frozen";
   var B = window.__RM__ || null, TOKEN = "";
   try { TOKEN = new URLSearchParams(location.search).get("t") || ""; } catch (e) {}
-  var FROZEN_NOTE = "Frozen report: open the live dashboard to approve, undo or apply.";
+  var FROZEN_NOTE = "This is a read-only snapshot. To approve, undo or apply, run router-migrate dashboard and use the live page.";
 
   // one job per page
   var PAGES = [["overview", "Overview", "grid"], ["migrate", "Migrate", "route"], ["review", "Review", "spark"], ["queue", "Your turn", "inbox"]];
   var MORE = [["setup", "Router setup", "sliders"], ["history", "History", "clock"]];
   var ALIAS = {calls: "migrate", changes: "review", decisions: "queue", improve: "review", audit: "history"};
-  var LEVEL = {"quick-win": ["Quick win", "Quick wins", "bolt", "Small and safe: hours, not days."], change: ["Change", "Changes", "layers", "A real change: one reviewable PR."], rework: ["Rework", "Reworks", "cycle", "Rethinks how part of the product works."]};
+  var LEVEL = {"quick-win": ["Quick win", "Quick wins", "bolt", "Small and safe: hours of work, not days."], change: ["Change", "Changes", "layers", "A real change, about one pull request."], rework: ["Rework", "Reworks", "cycle", "Rethinks how part of the product works."]};
   var LEVEL_ORDER = ["quick-win", "change", "rework"];
-  var ACTOR = {code: ["Code", "branch", "blue", "Code"], "router-setting": ["Router setting", "sliders", "solar", "Router settings"], "product-call": ["Your call", "help", "amber", "Your calls"]};
+  var ACTOR = {code: ["Code change", "branch", "blue", "Code changes"], "router-setting": ["Router setting", "sliders", "solar", "Router settings"], "product-call": ["Your decision", "help", "amber", "Your decisions"]};
   var ACTOR_ORDER = ["code", "router-setting", "product-call"];
-  var STATUS = {"in code": ["In code", "green"], proposed: ["Proposed", "solar"], "your step": ["Your step", "solar"], approved: ["Approved", "blue"], applied: ["Applied", "green"],
+  var STATUS = {"in code": ["In code", "green"], proposed: ["Proposed", "solar"], "your step": ["To do in Router", "solar"], approved: ["Approved", "blue"], applied: ["Applied", "green"],
     done: ["Done", "green"], "undo requested": ["Undo requested", "amber"], undone: ["Undone", "muted"], dismissed: ["Dismissed", "muted"], postponed: ["Postponed", "muted"],
-    declined: ["Declined", "red"], "check failed": ["Check failed", "red"], info: ["Info", "neutral"]};
-  var CHECK = {tests: "Tests", typecheck: "Typecheck", "router-live": "Router live", simulator: "Simulator", "side-by-side": "Side-by-side", price: "Price", other: "Other"};
-  var RESULT = {pass: ["pass", "check", "green"], fail: ["fail", "x", "red"], info: ["info", "info", "blue"], "not-run": ["not run", "dash", "muted"]};
+    declined: ["Agent declined", "red"], "check failed": ["Check failed", "red"], info: ["Note", "neutral"]};
+  // what each check is, in a word or two; the tooltip and Details say what it found
+  var CHECK = {tests: "Tests", typecheck: "Type check", "router-live": "Ran on real Router", simulator: "Ran on local Router copy", "side-by-side": "Answers compared", price: "Price", other: "Other"};
+  var RESULT = {pass: ["passed", "check", "green"], fail: ["failed", "x", "red"], info: ["note", "info", "blue"], "not-run": ["not run", "dash", "muted"]};
   var RANK = {fail: 3, info: 2, pass: 1, "not-run": 0};
-  var ROUTE = {verified: ["Router", "verified by the outside check", "green", ""], unverified: ["Router", "wired, not verifiable statically", "green", "o"],
-    unchecked: ["Router", "the agent’s claim; not checked yet", "green", "o"], not_routing: ["Provider", "reported moved, doesn’t route", "red", ""],
-    stays: ["Provider", "stays", "muted", "o"], provider: ["Provider", "stays", "muted", "o"], unknown: ["Unknown", "", "muted", "o"]};
-  var FLAG = {"deleted-file": "Deleted files", dependencies: "Dependencies changed", "provider-key": "Provider key", "runtime-edit": "Runtime edited"};
+  var ROUTE = {verified: ["Router", "Confirmed going through Router", "green", ""], unverified: ["Router", "Set up for Router; can’t be confirmed without running it", "green", "o"],
+    unchecked: ["Router", "The agent says it goes to Router; not checked yet", "green", "o"], not_routing: ["Provider", "Said to be moved, but still goes to the provider", "red", ""],
+    stays: ["Provider", "Stays with its provider", "muted", "o"], provider: ["Provider", "Stays with its provider", "muted", "o"], unknown: ["Unknown", "", "muted", "o"]};
+  var FLAG = {"deleted-file": "Deletes files", dependencies: "Changes dependencies", "provider-key": "Removes provider key references", "runtime-edit": "Hand-edits the Router runtime"};
 
   var S = {tab: "overview", fl: "all", fa: "all", busy: null, sig: "", pending: false, conn: "ok", form: {}, open: {}, applyResult: null, stickyN: 0};
 
@@ -678,9 +679,6 @@ a.btn { text-decoration: none; }
     commit: '<circle cx="8" cy="8" r="2.4"/><path d="M1.5 8h4.1M10.4 8h4.1"/>',
     repo: '<path d="M3.5 13V3.3c0-.7.6-1.3 1.3-1.3h7.7v9.2H4.8c-.7 0-1.3.6-1.3 1.3s.6 1.3 1.3 1.3h7.7"/><path d="M6.5 2v4.8l1.3-1 1.3 1V2"/>',
     key: '<circle cx="5" cy="10.5" r="2.7"/><path d="M7 8.6 13.5 2.2M11 4.6l1.8 1.8M9.6 6l1.4 1.4"/>',
-    sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/>',
-    moon: '<path d="M13 9.6A5.5 5.5 0 0 1 6.4 3a5.5 5.5 0 1 0 6.6 6.6z"/>',
-    auto: '<circle cx="8" cy="8" r="6"/><path d="M8 2v12" /><path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none"/>',
     ext: '<path d="M6.5 3.5H3v9.5h9.5V9.5M9 2.5h4.5V7M13.5 2.5 7.5 8.5"/>',
     play: '<path d="M4.5 3v10l8-5z"/>',
     undo: '<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>',
@@ -708,17 +706,19 @@ a.btn { text-decoration: none; }
   function blocked() { return (B && B.apply_blocked) || ""; }
   function undoOnly() { var p = pend(); return p.length > 0 && p.every(function (r) { return r.action === "undo"; }); }
   function applyState() {
-    if (!LIVE) return {off: true, why: FROZEN ? FROZEN_NOTE : "Static page: no server."};
-    if (S.conn !== "ok") return {off: true, why: "The local server isn’t reachable."};
-    if (running().length) return {off: true, why: "Apply session " + running().map(function (r) { return r.session; }).join(", ") + " is running. This page updates as it works."};
-    if (!pend().length) return {off: true, why: "Nothing to apply yet: approve a recommendation or mark something for undo."};
+    if (!LIVE) return {off: true, why: FROZEN ? FROZEN_NOTE : "This page has no server behind it, so nothing can be applied from here."};
+    if (S.conn !== "ok") return {off: true, why: "Can’t reach the dashboard server."};
+    if (running().length) return {off: true, why: "The agent is already applying your last batch (session " + running().map(function (r) { return r.session; }).join(", ") + "). This page updates as it works."};
+    if (!pend().length) return {off: true, why: "Nothing to apply yet. Approve a recommendation or mark a change for undo first."};
     if (blocked() && !undoOnly()) return {off: true, why: blocked()};
-    return {off: false, why: blocked() ? "Only undos are on the list, so Apply is allowed. " + blocked() : ""};
+    return {off: false, why: blocked() ? "Only undos are on the list, and undos are always allowed. " + blocked() : ""};
   }
   function measuredVal(m) {
     var b = m.before, a = m.after;
     return b != null && a != null ? String(b) + " → " + String(a) : b != null ? "now " + String(b) : "→ " + String(a);
   }
+  function capWord(t) { t = String(t || ""); return /^[a-z]+(?=[\s,:;(]|$)/.test(t) ? cap(t) : t; }  // "cost per reply" → "Cost …"; "on_message …" stays
+  function samplesText(n) { return n === 1 ? "1 sample" : fmtInt(n) + " samples"; }
   function bestMeasured(list) {  // the first full before → after among ranked items
     for (var i = 0; i < list.length; i++) { var ms = arr(list[i].measured); for (var j = 0; j < ms.length; j++) if (ms[j].before != null && ms[j].after != null) return {it: list[i], m: ms[j]}; }
     return null;
@@ -757,7 +757,7 @@ a.btn { text-decoration: none; }
     toast._o = setTimeout(function () { var el = t.firstChild; if (el) el.classList.add("out"); }, err ? 5600 : 2700);
     toast._t = setTimeout(function () { t.innerHTML = ""; }, err ? 5800 : 2900);
   }
-  var DONE = {apply: "Approved", dismiss: "Dismissed", postpone: "Postponed", undo: "Marked for undo", done: "Marked done"};
+  var DONE = {apply: "Approved", dismiss: "Dismissed", postpone: "Postponed", undo: "Marked for undo", done: "Marked done"};  // toast: "<verb>: <title>"
   function title(id) { var it = byId(id); return it ? it.title : id; }
   function finish() { S.busy = null; renderAll(false); return refresh(true); }
   function request(id, action, extra) {
@@ -772,15 +772,15 @@ a.btn { text-decoration: none; }
   function withdraw(id) {
     if (!LIVE || S.busy) return;
     S.busy = id; renderAll(false);
-    api("POST", "/api/request/clear", {item: id}).then(function () { toast("Withdrawn: " + title(id)); })
-      .catch(function (e) { toast("Couldn’t withdraw: " + e.message, true); }).then(finish);
+    api("POST", "/api/request/clear", {item: id}).then(function () { toast("Cancelled: " + title(id)); })
+      .catch(function (e) { toast("Couldn’t cancel: " + e.message, true); }).then(finish);
   }
   function doApply() {
     var st = applyState();
     if (st.off || S.busy) { if (st.why) toast(st.why.replace(/`/g, ""), true); return; }
     S.busy = "apply"; renderAll(false);
     api("POST", "/api/apply", {})
-      .then(function (res) { var d = obj(res.json && res.json.result); S.applyResult = {ok: true, data: d}; toast(d.mode === "headless" ? "Apply session " + (d.session || "") + " started" : "Ready: paste the command to start the apply session"); })
+      .then(function (res) { var d = obj(res.json && res.json.result); S.applyResult = {ok: true, data: d}; toast(d.mode === "headless" ? "The agent started applying (session " + (d.session || "") + ")" : "Ready: paste the command into Claude Code to start"); })
       .catch(function (e) { S.applyResult = {ok: false, error: e.message, status: e.status}; toast("Apply didn’t start: " + e.message, true); })
       .then(function () { S.busy = null; setTab("queue", true); window.scrollTo({top: 0}); return refresh(true); });
   }
@@ -789,7 +789,7 @@ a.btn { text-decoration: none; }
   function tone(t) { return "tone-" + (t || "neutral"); }
   function statusOf(it) {
     var x = STATUS[it.status] || [cap(it.status), "neutral"], label = x[0], t = x[1], rq = obj(it.request);
-    if (it.status === "postponed" && rq.until) label = it.due ? "Postponed · due " + fmtDate(rq.until) : "Postponed to " + fmtDate(rq.until);
+    if (it.status === "postponed" && rq.until) label = it.due ? "Postponed until " + fmtDate(rq.until) + ": decide now" : "Postponed until " + fmtDate(rq.until);
     if (it.due) t = "solar";
     if (it.in_session) { label = (rq.action === "undo" ? "Undoing" : "Applying") + " · session " + it.in_session; t = "blue"; }
     return [label, t];
@@ -797,7 +797,7 @@ a.btn { text-decoration: none; }
   function statusChip(it) { var s = statusOf(it); return '<span class="sc ' + tone(s[1]) + '">' + (it.in_session ? '<span class="spin" style="width:10px;height:10px"></span>' : '<span class="dot"></span>') + esc(s[0]) + "</span>"; }
   function callRef(site) {
     var i = callIndex(site), c = i >= 0 ? calls()[i] : null;
-    if (!c) return '<span class="cref" title="Not in the calls table">' + esc(site) + "</span>";
+    if (!c) return '<span class="cref" title="Not in the list of calls">' + esc(site) + "</span>";
     return '<button class="cref" type="button" data-go-call="' + esc(site) + '" title="' + esc(site + (c.feature ? " · " + c.feature : "")) + '">' + esc(site) + "</button>";
   }
   function itemLink(id) {
@@ -812,7 +812,7 @@ a.btn { text-decoration: none; }
   function actorChip(it) { var a = ACTOR[it.actor]; return a ? '<span class="chip ' + tone(a[2]) + '">' + icon(a[1]) + esc(a[0]) + "</span>" : ""; }
   function builtChip(it) {
     if (it.kind !== "recommendation" || it.actor === "router-setting" || it.built == null) return "";
-    return it.built ? '<span class="chip tone-green">' + icon("check") + "Built and tested</span>" : '<span class="chip dash tone-muted">Not built yet</span>';
+    return it.built ? '<span class="chip tone-green">' + icon("check") + "Built and tested</span>" : '<span class="chip dash tone-muted" title="The agent builds it after you approve and press Apply">Not built yet</span>';
   }
   function whereParts(w) {
     var parts = String(w || "").split(/\s*(?:>|›|→)\s*/).filter(Boolean);
@@ -903,15 +903,16 @@ a.btn { text-decoration: none; }
       }
       return '<div class="cf">' + fileHead(f) + codeRows(f) + "</div>";
     }).join("");
-    if (d.truncated) body += '<div class="code-more">First ' + fmtInt(String(d.text).split("\n").length) + " of " + fmtInt(d.lines) + " lines. Run <code>" + esc(d.how) + "</code> for the rest.</div>";
+    if (d.truncated) body += '<div class="code-more">First ' + fmtInt(String(d.text).split("\n").length) + " of " + fmtInt(d.lines) + " lines shown. Run <code>" + esc(d.how) + "</code> to see the rest.</div>";
     return '<div class="blk"><span class="lbl">Code change · ' + p.files.length + " " + plural(p.files.length, "file") + '</span><div class="code">' + body + "</div></div>";
   }
   function measuredPanel(it) {
     var ms = arr(it.measured); if (!ms.length) return "";
-    return '<div class="blk"><span class="lbl">Measured' + (B && B.live ? " on Router" : "") + '</span><div class="mp">' + ms.map(function (m) {
-      var a = m.after != null ? '<span class="a">' + esc(m.after) + "</span>" : '<span class="a na">after: not measured yet</span>';
-      return '<div class="mr"><div class="mk">' + esc(m.metric) + '</div><div class="mv">' + (m.before != null ? '<span class="b">' + esc(m.before) + '</span><span class="ar">→</span>' : "") + a +
-        (num(m.n) != null ? '<span class="n" title="samples">n=' + m.n + "</span>" : "") + "</div>" + (m.how ? '<div class="mh" title="' + esc(m.how) + '">' + esc(m.how) + "</div>" : "") + "</div>";
+    // one row per number: what was measured, before → after, how many samples; how it was measured underneath, quieter
+    return '<div class="blk"><span class="lbl">Measured by the agent</span><div class="mp">' + ms.map(function (m) {
+      var a = m.after != null ? '<span class="a" title="After the change">' + esc(m.after) + "</span>" : '<span class="a na">' + (m.before != null ? "not measured after the change yet" : "not measured yet") + "</span>";
+      return '<div class="mr"><div class="mk">' + esc(capWord(m.metric)) + '</div><div class="mv">' + (m.before != null ? '<span class="b" title="Before the change">' + esc(m.before) + '</span><span class="ar">→</span>' : "") + a +
+        (num(m.n) != null ? '<span class="n" title="How many times it was measured">' + samplesText(m.n) + "</span>" : "") + "</div>" + (m.how ? '<div class="mh" title="' + esc(m.how) + '">' + esc(m.how) + "</div>" : "") + "</div>";
     }).join("") + "</div></div>";
   }
   function panels(it) {
@@ -927,24 +928,24 @@ a.btn { text-decoration: none; }
       var name = e.label || CHECK[e.check] || cap(e.check);
       if (!by[name]) { by[name] = {name: name, result: e.result, det: []}; order.push(name); }
       if ((RANK[e.result] || 0) > (RANK[by[name].result] || 0)) by[name].result = e.result;
-      if (e.detail) by[name].det.push((e.source === "agent" ? "agent: " : "check: ") + e.detail);
+      if (e.detail) by[name].det.push((e.source === "agent" ? "The agent: " : "Independent check: ") + e.detail);
     });
     return order.filter(function (k) { return by[k].result !== "not-run"; }).map(function (k) {  // what didn't run is in Details
       var c = by[k], r = RESULT[c.result] || RESULT.info;
-      return '<span class="ck ' + tone(r[2]) + '" title="' + esc(c.name + " " + r[0] + (c.det.length ? "\n" + c.det.join("\n") : "")) + '">' + icon(r[1]) + esc(c.name) + "</span>";
+      return '<span class="ck ' + tone(r[2]) + '" title="' + esc(c.name + ": " + r[0] + (c.det.length ? "\n" + c.det.join("\n") : "")) + '">' + icon(r[1]) + esc(c.name) + "</span>";
     }).join("");
   }
   function evRow(e) {
     var r = RESULT[e.result] || RESULT.info, name = e.label || CHECK[e.check] || cap(e.check), agent = e.source === "agent";
     return '<li class="ev"><span class="r ' + tone(r[2]) + '">' + icon(r[1]) + esc(r[0]) + '</span><span class="k">' + esc(name) + '</span><span class="d">' + esc(e.detail || name + ": " + r[0]) + "</span>" +
-      '<span class="s' + (agent ? " agent" : "") + '" title="' + (agent ? "Reported by the agent" : "Measured by the outside check: code the agent can’t influence") + '">' + (agent ? "agent" : "check") + "</span></li>";
+      '<span class="s' + (agent ? " agent" : "") + '" title="' + (agent ? "The agent reported this" : "router-migrate measured this itself, so the agent can’t influence it") + '">' + (agent ? "agent" : "independent") + "</span></li>";
   }
   function samplesHtml(list) {
     list = arr(list).filter(function (s) { return s && typeof s === "object"; }).slice(0, 6);
     if (!list.length) return "";
     return '<div class="samples">' + list.map(function (s) {
       var a = s.before != null ? s.before : s.old, b = s.after != null ? s.after : s.new, same = String(a) === String(b);
-      return '<div class="sample' + (same ? "" : " diff") + '"><div><span class="lbl">Input</span>' + esc(s.input || "") + '</div><div><span class="lbl">Before</span>' + esc(a) + '</div><div><span class="lbl">After' + (same ? " · same" : " · differs") + "</span>" + esc(b) + "</div></div>";
+      return '<div class="sample' + (same ? "" : " diff") + '"><div><span class="lbl">Input</span>' + esc(s.input || "") + '</div><div><span class="lbl">Before</span>' + esc(a) + '</div><div><span class="lbl">After' + (same ? " · same" : " · different") + "</span>" + esc(b) + "</div></div>";
     }).join("") + "</div>";
   }
   function flagsHtml(flags, withItems) {
@@ -959,7 +960,7 @@ a.btn { text-decoration: none; }
     var out = "";
     if (it.model_change) {
       var sbs = arr(it.checked).filter(function (e) { return e.check === "side-by-side" && e.result !== "not-run"; });
-      out += '<div class="ln tone-lilac">' + icon("swap") + '<span class="tx"><b>Answers will differ:</b> a different model answers. ' + (sbs.length ? "Compare the side-by-side samples in Details first." : "Not compared side by side.") + "</span></div>";
+      out += '<div class="ln tone-lilac">' + icon("swap") + '<span class="tx"><b>Answers will change.</b> ' + (sbs.length ? "Compare the before and after answers in Details before you approve." : "Nobody has compared before and after answers yet.") + "</span></div>";
     }
     if (!noLoss(it.loses)) out += '<div class="ln tone-amber">' + icon("warn") + '<span class="tx"><b>You give up:</b> ' + esc(it.loses) + "</span></div>";
     out += flagsHtml(it.flags);
@@ -967,23 +968,24 @@ a.btn { text-decoration: none; }
   }
   function requestNote(it) {
     var r = it.request;
-    if (r && it.in_session) return '<div class="note tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><div class="tx"><b>Apply session ' + esc(it.in_session) + " is working on this.</b> The outside check runs when it finishes.</div></div>";
+    if (r && it.in_session) return '<div class="note tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><div class="tx"><b>The agent is applying this now</b> (session ' + esc(it.in_session) + "). The independent check runs when it finishes.</div></div>";
     if (!r || r.session) return "";
-    var what = {apply: "Approved. It goes to the next apply session.", undo: "Marked for undo. It goes to the next apply session.",
+    var what = {apply: "Approved. It goes out the next time you press Apply.", undo: "Marked for undo. It goes out the next time you press Apply.",
       dismiss: "Dismissed.", postpone: "Postponed" + (r.until ? " until " + fmtDate(r.until) : "") + ".", done: "Marked done: it’s switched on in Router."}[r.action] || r.action;
     var t = {apply: "blue", undo: "amber", dismiss: "muted", postpone: it.due ? "solar" : "muted", done: "green"}[r.action] || "neutral";
     return '<div class="note ' + tone(t) + '">' + icon(r.action === "undo" ? "undo" : r.action === "apply" || r.action === "done" ? "check" : "clock") + '<div class="tx"><b>' + esc(what) + "</b>" +
       (r.reason ? " “" + esc(r.reason) + "”" : "") + (r.at ? ' <span class="meta">· ' + esc(fmtTime(r.at)) + "</span>" : "") +
-      (it.stale ? '<div style="margin-top:6px"><span class="chip tone-amber">' + icon("warn") + "Changed since your request: review it again</span></div>" : "") +
-      (it.due ? '<div style="margin-top:6px"><span class="chip tone-solar">' + icon("clock") + "The date has passed: decide now</span></div>" : "") + "</div></div>";
+      (it.stale ? '<div style="margin-top:6px"><span class="chip tone-amber">' + icon("warn") + "It changed after you decided. Look at it again.</span></div>" : "") +
+      (it.due ? '<div style="margin-top:6px"><span class="chip tone-solar">' + icon("clock") + "The postpone date has passed. Decide now.</span></div>" : "") + "</div></div>";
   }
   function resultsHtml(it) {
     var rs = arr(it.results); if (!rs.length) return "";
     return rs.slice(-2).map(function (r) {
       var bad = r.status === "declined" || r.status === "failed";
-      var verb = (r.action === "undo" ? "Undo " : "Apply ") + (r.status === "done" ? "done" : r.status);
+      var verb = r.action === "undo" ? {done: "Undone", declined: "The agent declined to undo it", failed: "Undo failed"}[r.status] : {done: "Applied", declined: "The agent declined to apply it", failed: "Apply failed"}[r.status];
+      verb = verb || cap((r.action || "apply") + " " + (r.status || ""));
       return '<div class="note ' + tone(bad ? "red" : r.status === "done" ? "green" : "neutral") + '">' + icon(bad ? "warn" : "check") + '<div class="tx"><b>' + esc(verb) + "</b> " +
-        '<span class="meta">in session ' + esc(r.session || "?") + (r.finished ? ", " + esc(fmtTime(r.finished)) : "") + "</span>" + (r.note ? '<div style="margin-top:2px">' + esc(r.note) + "</div>" : "") + "</div></div>";
+        '<span class="meta">session ' + esc(r.session || "?") + (r.finished ? ", " + esc(fmtTime(r.finished)) : "") + "</span>" + (r.note ? '<div style="margin-top:2px">' + esc(r.note) + "</div>" : "") + "</div></div>";
     }).join("");
   }
   function btn(cls, act, id, label, ic) {
@@ -1002,7 +1004,7 @@ a.btn { text-decoration: none; }
       if (a === "dismiss") return btn("ghost", "form-dismiss", it.id, it.actor === "product-call" ? "Leave as is" : "Dismiss");
       if (a === "postpone") return btn("ghost", "form-postpone", it.id, "Postpone");
       if (a === "undo") return btn("warn", "form-undo", it.id, "Undo", "undo");
-      if (a === "withdraw") return btn("ghost", "withdraw", it.id, "Withdraw request");
+      if (a === "withdraw") return btn("ghost", "withdraw", it.id, "Cancel request");
       return "";
     }).join("") + "</div>";
   }
@@ -1010,24 +1012,24 @@ a.btn { text-decoration: none; }
     var f = S.form[it.id]; if (!f || !LIVE) return "";
     var label = {dismiss: it.actor === "product-call" ? "Leave as is" : "Dismiss", postpone: "Postpone", undo: "Mark for undo"}[f.k];
     var input = f.k === "postpone" ? '<input type="date" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" min="' + today() + '" aria-label="Postpone until">'
-      : '<input type="text" maxlength="2000" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" placeholder="' + (f.k === "undo" ? "Why? The apply session reads this (optional)" : "Why? (optional)") + '" aria-label="Reason">';
+      : '<input type="text" maxlength="2000" data-form="' + esc(it.id) + '" value="' + esc(f.v) + '" placeholder="' + (f.k === "undo" ? "Why? The agent reads this when it undoes it (optional)" : "Why? (optional)") + '" aria-label="Reason">';
     return '<div class="form">' + input + '<button class="btn primary" type="button" data-act="confirm" data-id="' + esc(it.id) + '">' + esc(label) + '</button><button class="btn ghost" type="button" data-act="form-cancel" data-id="' + esc(it.id) + '">Cancel</button>' +
-      (f.k === "undo" ? '<span class="hint">The apply session undoes it and adapts later work, or says why it couldn’t.</span>' : "") + "</div>";
+      (f.k === "undo" ? '<span class="hint">When you press Apply, the agent undoes this and adjusts any later work that depends on it, or tells you why it couldn’t.</span>' : "") + "</div>";
   }
   function detailsHtml(it) {
     var kv = [];
-    if (it.gains) kv.push(["Gains", '<span class="hi">' + esc(it.gains) + "</span>", true]);
-    if (it.loses && noLoss(it.loses) && String(it.loses).trim().length > 8) kv.push(["Gives up", esc(it.loses)]);
+    if (it.gains) kv.push(["You gain", '<span class="hi">' + esc(it.gains) + "</span>", true]);
+    if (it.loses && noLoss(it.loses) && String(it.loses).trim().length > 8) kv.push(["You give up", esc(it.loses)]);
     if (it.price) kv.push(["Price", esc(it.price)]);
     if (it.why) kv.push(["Why", esc(it.why)]);
     var ev = arr(it.checked);
-    if (ev.length) kv.push(["Checked", '<ul class="evl">' + ev.map(evRow).join("") + "</ul>" + ev.filter(function (e) { return e.check === "side-by-side"; }).map(function (e) { return samplesHtml(e.samples); }).join("")]);
+    if (ev.length) kv.push(["Checks", '<ul class="evl">' + ev.map(evRow).join("") + "</ul>" + ev.filter(function (e) { return e.check === "side-by-side"; }).map(function (e) { return samplesHtml(e.samples); }).join("")]);
     if (arr(it.calls).length) kv.push([plural(it.calls.length, "Call"), '<span class="ckl">' + it.calls.map(callRef).join("") + "</span>"]);
-    if (arr(it.depends_on).length) kv.push(["Depends on", it.depends_on.map(itemLink).join(" · ")]);
-    if (arr(it.excludes).length) kv.push(["Excludes", it.excludes.map(itemLink).join(" · ")]);
-    var refs = (it.commit ? '<span class="ref" title="commit">' + icon("commit") + "<span>" + esc(it.commit) + "</span></span> " : "") + (it.branch ? '<span class="ref" title="branch">' + icon("branch") + "<span>" + esc(it.branch) + "</span></span>" : "");
+    if (arr(it.depends_on).length) kv.push(["Needs first", it.depends_on.map(itemLink).join(" · ")]);
+    if (arr(it.excludes).length) kv.push(["Can’t go with", it.excludes.map(itemLink).join(" · ")]);
+    var refs = (it.commit ? '<span class="ref" title="Commit">' + icon("commit") + "<span>" + esc(it.commit) + "</span></span> " : "") + (it.branch ? '<span class="ref" title="Branch">' + icon("branch") + "<span>" + esc(it.branch) + "</span></span>" : "");
     if (refs) kv.push(["In git", refs]);
-    if (it.diff && (it.diff.error || !it.diff.text)) kv.push(["Diff", '<span class="nodiff">Not available: ' + esc(it.diff.error || "no changes") + "</span>"]);
+    if (it.diff && (it.diff.error || !it.diff.text)) kv.push(["Code change", '<span class="nodiff">Can’t show it: ' + esc(it.diff.error || "the commit has no changes") + "</span>"]);
     if (!kv.length) return "";
     return more("d-" + it.id, "Details", "", '<dl class="kvs">' + kv.map(function (x) { return "<dt>" + x[0] + "</dt><dd" + (x[2] ? ' class="hi"' : "") + ">" + x[1] + "</dd>"; }).join("") + "</dl>", "dtl");
   }
@@ -1054,10 +1056,10 @@ a.btn { text-decoration: none; }
   // ---------------- shell ----------------
   function setupSteps() {
     return [
-      {id: "golive", title: "Turn Router on in production", prio: ["Go live", "solar"], lead: "Nothing changes at run time until the app’s environment has a Router key. Use a production key, not the migration key.",
-        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("RAMP_ROUTER_API_KEY=") + "</div></div>", link: "https://app.router.com/"},
-      {id: "off", title: "Know the off switch", prio: ["Rollback", "amber"], lead: "Set this and restart: every call goes back to its original provider, no code change. Unset it to return to Router.",
-        body: '<div class="s-block"><span class="lbl">In the app’s environment</span><div class="taglist">' + copyVal("ROUTER_MIGRATE_DISABLE=1") + "</div></div>"}];
+      {id: "golive", title: "Turn Router on in production", prio: ["Go live", "solar"], lead: "Your app keeps calling its current providers until this key is set where it runs. Use a production key, not the one the migration used.",
+        body: '<div class="s-block"><span class="lbl">Where your app runs</span><div class="taglist">' + copyVal("RAMP_ROUTER_API_KEY=") + "</div></div>", link: "https://app.router.com/"},
+      {id: "off", title: "Know the off switch", prio: ["Rollback", "amber"], lead: "Set this and restart the app, and every call goes back to its original provider with no code change. Remove it to go back to Router.",
+        body: '<div class="s-block"><span class="lbl">Where your app runs</span><div class="taglist">' + copyVal("ROUTER_MIGRATE_DISABLE=1") + "</div></div>"}];
   }
   function settingSteps() {
     return arr(obj(B && B.setup).settings).map(byId).filter(Boolean).map(function (it) {
@@ -1086,10 +1088,10 @@ a.btn { text-decoration: none; }
   }
   function renderTop() {
     var el = document.getElementById("topbar"), page = PAGES.concat(MORE).filter(function (x) { return x[0] === S.tab; })[0];
-    var st = LIVE ? (S.conn === "ok" ? ["live", "Live", true] : ["err", S.conn === "auth" ? "Session expired" : "Server stopped", false]) : ["", FROZEN ? "Frozen report" : "Static page", false];
+    var st = LIVE ? (S.conn === "ok" ? ["live", "Live", true] : ["err", S.conn === "auth" ? "Link expired" : "Server stopped", false]) : ["", FROZEN ? "Read-only snapshot" : "Static page", false];
     el.innerHTML = '<div class="topbar-in"><div class="repo-chip" title="' + esc(B && B.root) + '"><span class="repo-ic">' + icon("repo") + '</span><span class="repo-id">' + esc((B && B.repo) || "No repo") + "</span></div>" +
       (page ? '<span class="crumb">' + esc(page[1]) + "</span>" : "") + '<span class="sp"></span>' +
-      (B && B.generated ? '<span class="meta">' + (FROZEN ? "Report from " : "Updated ") + esc(fmtTime(B.generated)) + "</span>" : "") +
+      (B && B.generated ? '<span class="meta">' + (FROZEN ? "Snapshot from " : "Updated ") + esc(fmtTime(B.generated)) + "</span>" : "") +
       '<span class="status ' + st[0] + '" title="' + esc(FROZEN ? FROZEN_NOTE : "") + '"><span class="dot' + (st[2] ? " ping" : "") + '"></span><span class="lbl2">' + esc(st[1]) + "</span></span>" + "</div>";
   }
   function renderSticky() {
@@ -1098,16 +1100,16 @@ a.btn { text-decoration: none; }
     var first = !S.stickyN; S.stickyN = n;
     var u = pend().filter(function (r) { return r.action === "undo"; }).length, a = n - u;
     var what = [a ? a + " to apply" : "", u ? u + " to undo" : ""].filter(Boolean).join(", ");
-    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + " " + plural(n, "request") + "</b> ready for the apply session: " + esc(what) + "." +
-      (running().length ? " A session is running now." : "") + '</span><button class="btn primary" type="button" data-tab="queue">Your turn' + icon("arrow") + "</button></div></div>";
+    el.innerHTML = '<div class="sticky' + (first ? " in" : "") + '"><div class="sticky-in"><span class="tx"><b>' + n + " " + plural(n, "decision") + "</b> ready to apply: " + esc(what) + "." +
+      (running().length ? " The agent is applying an earlier batch right now." : "") + '</span><button class="btn primary" type="button" data-tab="queue">Your turn' + icon("arrow") + "</button></div></div>";
   }
   function banners(withBlocked) {
     var out = "";
-    if (LIVE && S.conn === "auth") out += '<div class="banner tone-red">' + icon("warn") + '<span class="tx">The session token was rejected. Re-run the command and open the new link.</span></div>';
-    else if (LIVE && S.conn === "down") out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">Lost the local server. Decisions are paused until it runs again.</span></div>';
+    if (LIVE && S.conn === "auth") out += '<div class="banner tone-red">' + icon("warn") + '<span class="tx">This link has expired. Run <code>router-migrate dashboard</code> again and open the new link.</span></div>';
+    else if (LIVE && S.conn === "down") out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">Can’t reach the dashboard server. You can’t make decisions until it’s running again.</span></div>';
     var errs = arr(B && B.report_errors);
-    if (errs.length) out += '<div class="banner tone-amber">' + icon("warn") + '<div class="tx"><b>MIGRATION.json doesn’t match the format</b>, so parts of this page may be missing:<ul>' + errs.slice(0, 6).map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + (errs.length > 6 ? "<li>and " + (errs.length - 6) + " more</li>" : "") + "</ul></div></div>";
-    running().forEach(function (r) { out += '<div class="banner tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><span class="tx"><b>Apply session ' + esc(r.session) + " is running</b> on " + r.items.length + " " + plural(r.items.length, "request") + ". This page updates as it works.</span></div>"; });
+    if (errs.length) out += '<div class="banner tone-amber">' + icon("warn") + '<div class="tx"><b>The agent’s report (MIGRATION.json) has format problems</b>, so parts of this page may be missing:<ul>' + errs.slice(0, 6).map(function (e) { return "<li>" + esc(e) + "</li>"; }).join("") + (errs.length > 6 ? "<li>and " + (errs.length - 6) + " more</li>" : "") + "</ul></div></div>";
+    running().forEach(function (r) { out += '<div class="banner tone-blue"><span class="spin" style="margin-top:4px;color:var(--blue)"></span><span class="tx"><b>The agent is applying ' + r.items.length + " " + plural(r.items.length, "decision") + "</b> (session " + esc(r.session) + "). This page updates as it works.</span></div>"; });
     if (withBlocked && blocked() && pend().length) out += '<div class="banner tone-amber">' + icon("warn") + '<span class="tx">' + md(blocked()) + "</span></div>";
     return out;
   }
@@ -1120,11 +1122,11 @@ a.btn { text-decoration: none; }
     t = obj(t); if (!t.status) return null;
     var c = obj(t.counts), b = obj(t.baseline);
     if (t.status === "running") return ["Tests still running", "amber"];
-    if (t.status === "skipped") return ["Tests skipped", "muted"];
+    if (t.status === "skipped") return ["Tests were skipped", "muted"];
     var bad = (c.failed || 0) + (c.errors || 0), all = (c.passed || 0) + bad;
     var same = num(b.passed) != null && num(c.passed) != null && c.passed >= b.passed && bad <= (b.failed || 0) + (b.errors || 0);
     if (num(c.passed) == null) return ["Tests " + t.status, t.status === "passed" ? "green" : "red"];
-    return ["Tests " + fmtInt(c.passed) + "/" + fmtInt(all) + (same ? " · unchanged" : bad ? " · " + bad + " failing" : ""), same || (t.status === "passed" && !bad) ? "green" : "red"];
+    return [(!bad && all > 1 ? "All " + fmtInt(all) + " tests pass" : fmtInt(c.passed) + " of " + fmtInt(all) + " " + plural(all, "test") + " pass") + (same ? ", as before" : bad ? ", " + bad + " failing" : ""), same || (t.status === "passed" && !bad) ? "green" : "red"];
   }
   function waitSplit() {
     var w = {approve: 0, setting: 0, call: 0};
@@ -1132,7 +1134,7 @@ a.btn { text-decoration: none; }
     return w;
   }
   function waitPhrase(w) {
-    return [[w.approve, "approval", "approvals"], [w.setting, "Router setting", "Router settings"], [w.call, "call only you can make", "calls only you can make"]]
+    return [[w.approve, "to approve", "to approve"], [w.setting, "Router setting to switch on", "Router settings to switch on"], [w.call, "decision only you can make", "decisions only you can make"]]
       .filter(function (x) { return x[0]; }).map(function (x) { return x[0] + " " + (x[0] === 1 ? x[1] : x[2]); });
   }
   function joinAnd(l) { return l.length < 2 ? l.join("") : l.slice(0, -1).join(", ") + " and " + l[l.length - 1]; }
@@ -1142,23 +1144,23 @@ a.btn { text-decoration: none; }
     h.push(banners(true));
     var s1 = !tot ? "No production LLM calls listed yet." : on === tot ? (tot === 1 ? "The production LLM call goes through Router." : "All " + tot + " production LLM calls go through Router.") : on + " of " + tot + " production LLM calls go through Router.";
     var s2 = rs.length ? rs.length + " " + plural(rs.length, "change") + " worth making." : "Nothing else worth changing.";
-    var sub = wi.length ? cap(joinAnd(waitPhrase(w))) + " " + (wi.length === 1 ? "waits" : "wait") + " on you." : "Nothing waits on you.";
-    if (p.length) sub += " " + p.length + " " + plural(p.length, "request") + " ready to apply.";
-    if (tr.stays) sub = tr.stays + " " + plural(tr.stays, "call stays", "calls stay") + " on " + (tr.stays === 1 ? "its" : "their") + " provider by design. " + sub;
+    var sub = wi.length ? wi.length + " " + plural(wi.length, "thing needs", "things need") + " you: " + joinAnd(waitPhrase(w)) + "." : "Nothing needs you right now.";
+    if (p.length) sub += " " + p.length + " " + plural(p.length, "decision is", "decisions are") + " ready to apply.";
+    if (tr.stays) sub = tr.stays + " " + plural(tr.stays, "call stays", "calls stay") + " with " + (tr.stays === 1 ? "its" : "their") + " current provider on purpose. " + sub;
     h.push('<header class="ph hl"><div class="ph-t"><h1>' + esc(s1) + ' <span class="b">' + esc(s2) + '</span></h1><p class="sub">' + esc(sub) + "</p></div></header>");
 
     // STEP 01 Migrate
     var segs = [["verified", "green", ""], ["unverified", "green", "o"], ["not_routing", "red", ""], ["stays", "muted", "muted"]].filter(function (s) { return tr[s[0]]; });
     var bar = '<div class="segbar" role="img" aria-label="' + esc(segs.map(function (s) { return tr[s[0]] + " " + s[0].replace("_", " "); }).join(", ")) + '">' +
       (segs.length ? segs.map(function (s) { return '<i class="' + tone(s[1]) + " " + s[2] + '" style="flex:' + tr[s[0]] + '"></i>'; }).join("") : '<i class="muted" style="flex:1"></i>') + "</div>";
-    var tl = !bh.checked ? ["Not checked yet", "muted"] : bh.ok === false ? ["Outside check failed", "red"] : testsShort(bh.tests) || ["Checked", "green"];
+    var tl = !bh.checked ? ["Not checked yet", "muted"] : bh.ok === false ? ["The independent check failed", "red"] : testsShort(bh.tests) || ["Checked", "green"];
     var door1 = '<button class="door" type="button" data-tab="migrate"><div class="door-top"><span class="ic">' + icon("route") + '</span><div class="t"><div class="eyebrow">Step 01</div><h3>Migrate</h3></div></div>' +
       '<div class="door-big"><span class="v">' + fmtInt(on) + "<small>/" + fmtInt(tot) + '</small></span><span class="u">' + plural(tot, "call") + " through Router</span></div>" + bar +
-      '<div class="mini"><span class="tone-green"><span class="sdot"></span><b>' + fmtInt(tr.verified || 0) + "</b>verified by the outside check</span>" +
-      (tr.unverified ? '<span class="tone-green"><span class="sdot o"></span><b>' + fmtInt(tr.unverified) + "</b>wired, not verifiable statically</span>" : "") +
-      (tr.not_routing ? '<span class="tone-red"><span class="sdot"></span><b>' + fmtInt(tr.not_routing) + "</b>don’t route</span>" : "") +
-      (tr.stays ? '<span class="tone-muted"><span class="sdot o"></span><b>' + fmtInt(tr.stays) + "</b>" + (tr.stays === 1 ? "stays" : "stay") + " on " + (tr.stays === 1 ? "its" : "their") + " provider</span>" : "") + "</div>" +
-      '<div class="door-foot"><span class="' + tone(tl[1]) + '" style="color:var(--c)">' + esc(tl[0]) + '</span><span class="sp"></span><span class="go">Every call' + icon("arrow") + "</span></div></button>";
+      '<div class="mini"><span class="tone-green"><span class="sdot"></span><b>' + fmtInt(tr.verified || 0) + "</b>confirmed going through Router</span>" +
+      (tr.unverified ? '<span class="tone-green"><span class="sdot o"></span><b>' + fmtInt(tr.unverified) + "</b>set up for Router, not confirmed</span>" : "") +
+      (tr.not_routing ? '<span class="tone-red"><span class="sdot"></span><b>' + fmtInt(tr.not_routing) + "</b>still " + (tr.not_routing === 1 ? "goes" : "go") + " to the provider</span>" : "") +
+      (tr.stays ? '<span class="tone-muted"><span class="sdot o"></span><b>' + fmtInt(tr.stays) + "</b>" + (tr.stays === 1 ? "stays" : "stay") + " with " + (tr.stays === 1 ? "its" : "their") + " provider</span>" : "") + "</div>" +
+      '<div class="door-foot"><span class="' + tone(tl[1]) + '" style="color:var(--c)">' + esc(tl[0]) + '</span><span class="sp"></span><span class="go">See every call' + icon("arrow") + "</span></div></button>";
 
     // STEP 02 Review
     var lc = {}; rs.forEach(function (i) { if (i.level) lc[i.level] = (lc[i.level] || 0) + 1; });
@@ -1166,24 +1168,24 @@ a.btn { text-decoration: none; }
     var door2 = '<button class="door" type="button" data-tab="review"><div class="door-top"><span class="ic">' + icon("spark") + '</span><div class="t"><div class="eyebrow">Step 02</div><h3>Review</h3></div></div>' +
       '<div class="door-big"><span class="v">' + fmtInt(rs.length) + '</span><span class="u">' + plural(rs.length, "recommendation") + ", ranked</span></div>" +
       (rs.length ? '<div class="lchips">' + LEVEL_ORDER.filter(function (k) { return lc[k]; }).map(function (k) { return '<span class="chip">' + icon(LEVEL[k][2]) + esc(LEVEL[k][0]) + " <b>" + lc[k] + "</b></span>"; }).join("") + "</div>" : "") +
-      (best ? '<div class="best" title="' + esc(best.m.metric + " (#" + best.it.rank + " " + best.it.title + ")") + '"><span class="v">' + esc(measuredVal(best.m)) + '</span><span class="k">' + esc(best.m.metric) + "</span></div>" : B.reviewed && !rs.length ? '<div class="best"><span class="k">Reviewed: nothing to recommend</span></div>' : "") +
-      '<div class="door-foot"><span>' + (nb ? nb + " built and tested" : rs.length ? "None built yet" : "Nothing to rank") + '</span><span class="sp"></span><span class="go">Ranked list' + icon("arrow") + "</span></div></button>";
+      (best ? '<div class="best" title="' + esc(capWord(best.m.metric) + ", measured for #" + best.it.rank + ": " + best.it.title) + '"><span class="v">' + esc(measuredVal(best.m)) + '</span><span class="k">' + esc(best.m.metric) + "</span></div>" : B.reviewed && !rs.length ? '<div class="best"><span class="k">Reviewed, and nothing to recommend</span></div>' : "") +
+      '<div class="door-foot"><span>' + (nb ? nb + " already built and tested" : rs.length ? "None built yet" : "Nothing to rank") + '</span><span class="sp"></span><span class="go">See the list' + icon("arrow") + "</span></div></button>";
 
     // YOUR TURN
     var n3 = wi.length, hot = n3 + p.length > 0;
-    var bits = [[w.approve, "approve", "to approve or dismiss"], [w.setting, "sliders", "Router " + plural(w.setting, "setting") + " to switch on"], [w.call, "help", plural(w.call, "call") + " only you can make"]]
+    var bits = [[w.approve, "approve", "to approve or dismiss"], [w.setting, "sliders", "Router " + plural(w.setting, "setting") + " to switch on"], [w.call, "help", plural(w.call, "decision") + " only you can make"]]
       .filter(function (x) { return x[0]; }).map(function (x) { return "<span><b>" + x[0] + "</b>" + esc(x[2]) + "</span>"; });
     if (p.length) bits.push('<span class="tone-blue" style="color:var(--c)"><b>' + p.length + "</b>ready to apply</span>");
-    if (running().length) bits.push('<span><span class="spin"></span>apply session ' + esc(running().map(function (r) { return r.session; }).join(", ")) + " running</span>");
+    if (running().length) bits.push('<span><span class="spin"></span>the agent is applying a batch</span>');
     var door3 = '<button class="door' + (hot ? " hot" : "") + '" type="button" data-tab="queue"><div class="door-top"><span class="ic">' + icon("inbox") + '</span><div class="t"><div class="eyebrow">Your turn</div><h3>Decide</h3></div></div>' +
       '<div class="door-big"><span class="v">' + fmtInt(n3) + '</span><span class="u">' + (n3 ? "waiting on you" : "nothing to decide") + "</span></div>" +
-      '<div class="mini">' + (bits.length ? bits.join("") : "<span>Every item is decided.</span>") + "</div>" +
-      '<div class="door-foot"><span>Nothing ships until you apply</span><span class="sp"></span><span class="go">Decide' + icon("arrow") + "</span></div></button>";
+      '<div class="mini">' + (bits.length ? bits.join("") : "<span>You’ve decided everything.</span>") + "</div>" +
+      '<div class="door-foot"><span>Nothing changes until you apply</span><span class="sp"></span><span class="go">Decide' + icon("arrow") + "</span></div></button>";
     h.push('<div class="doors">' + door1 + door2 + door3 + "</div>");
 
     // start here: the three most valuable open recommendations
     var top = rs.filter(openRec).slice(0, 3);
-    if (top.length) h.push('<section class="sec"><div class="sec-h"><h2>Start here</h2><span class="n">top ' + top.length + " of " + rs.length + '</span><span class="sp"></span><button class="link" type="button" data-tab="review">Ranked list' + icon("arrow") + "</button></div>" +
+    if (top.length) h.push('<section class="sec"><div class="sec-h"><h2>Start here</h2><span class="n">the ' + top.length + " most valuable of " + rs.length + '</span><span class="sp"></span><button class="link" type="button" data-tab="review">See all' + icon("arrow") + "</button></div>" +
       '<div class="panel">' + top.map(function (it, k) {
         var m = arr(it.measured).filter(function (x) { return x.before != null && x.after != null; })[0];
         return '<button class="srow" type="button" data-go-item="' + esc(it.id) + '"><span class="rkn">' + (num(it.rank) != null ? it.rank : k + 1) + '</span><span class="tt">' + esc(it.title || it.id) + "</span>" +
@@ -1191,22 +1193,22 @@ a.btn { text-decoration: none; }
       }).join("") + "</div></section>");
     h.push(flowHtml());
     var c = obj(B.cost), facts = [];
-    facts.push("<span>" + icon("key") + (B.live ? "<b>Checked live on Router</b>" : "<b>No Router key: simulator only</b>") + "</span>");
-    if (num(c.agent_usd) != null) facts.push("<span>Agent cost <b>" + usd(c.agent_usd) + "</b></span>");
-    if (num(c.agent_minutes) != null) facts.push("<span>Agent time <b>" + Math.round(c.agent_minutes) + " min</b></span>");
-    if (B.migration_ref) facts.push("<span>" + icon("branch") + "<b>" + esc(B.migration_ref) + "</b></span>");
+    facts.push("<span>" + icon("key") + (B.live ? "<b>Tested on real Router</b>" : "<b>No Router key, so tested only on a local copy of Router’s rules</b>") + "</span>");
+    var spent = [num(c.agent_usd) != null ? "cost <b>" + usd(c.agent_usd) + "</b>" : "", num(c.agent_minutes) != null ? "took <b>" + Math.round(c.agent_minutes) + " min</b>" : ""].filter(Boolean);
+    if (spent.length) facts.push("<span>The agent’s run " + spent.join(" and ") + "</span>");
+    if (B.migration_ref) facts.push("<span>" + icon("branch") + "Changes are on <b>" + esc(B.migration_ref) + "</b></span>");
     h.push('<div class="facts-line">' + facts.join("") + "</div>");
     return h.join("");
   }
   // how your traffic moved: each call from its file to Router; the wire's colour is the call's route truth
   var ON_ROUTER = {verified: 1, unverified: 1, unchecked: 1};
-  var FLOW_KEY = [["verified", "Verified by the outside check"], ["unverified", "On Router, not verifiable statically"], ["unchecked", "On Router, the agent’s claim"],
-    ["not_routing", "Reported moved, doesn’t route"], ["stays", "Stays on its provider"], ["unknown", "Not known"]];
+  var FLOW_KEY = [["verified", "Confirmed going through Router"], ["unverified", "Set up for Router, not confirmed"], ["unchecked", "Router, by the agent’s word only"],
+    ["not_routing", "Said to be moved, still goes to the provider"], ["stays", "Stays with its provider"], ["unknown", "Unknown"]];
   function wired(c) { return !!ON_ROUTER[c.route] || c.route === "not_routing"; }
   function siteParts(s) { s = String(s || ""); var m = /^(.*):(\d+)$/.exec(s); return m ? {file: m[1], line: m[2]} : {file: s, line: ""}; }
   function flowNode(c) {
     var r = ROUTE[c.route] || ROUTE.unknown, p = siteParts(c.site), name = p.file.split("/").pop() + (p.line ? ":" + p.line : "");
-    var tip = [c.site, r[0] + (r[1] ? ": " + r[1] : ""), c.reason, c.feature ? "feature: " + c.feature : ""].filter(Boolean).join(" · ");
+    var tip = [c.site, r[1] || r[0], c.reason, c.feature ? "label: " + c.feature : ""].filter(Boolean).join(" · ");
     return '<button class="fnode ' + tone(r[2]) + '" type="button" data-route="' + esc(c.route) + '" data-go-call="' + esc(c.site) + '" title="' + esc(tip) + '">' +
       '<span class="sdot' + (r[3] ? " o" : "") + '"></span><span class="tx"><span class="fn">' + esc(name) + '</span><span class="sub">' + esc(c.model || c.feature || "model set at run time") + "</span></span>" + icon("arrow", "go") + "</button>";
   }
@@ -1218,20 +1220,20 @@ a.btn { text-decoration: none; }
     on.forEach(function (c) { var f = siteParts(c.site).file; if (!groups[f]) { groups[f] = []; order.push(f); } groups[f].push(c); });
     var left = on.length ? order.map(function (f) {
       return '<div class="fgroup"><div class="fgroup-h"><span class="p" title="' + esc(f) + '">' + esc(f) + '</span><span class="n">' + groups[f].length + "</span></div>" + groups[f].map(flowNode).join("") + "</div>";
-    }).join("") : '<div class="flow-empty">Nothing goes through Router yet.</div>';
+    }).join("") : '<div class="flow-empty">No calls go through Router yet.</div>';
     var chips = items().filter(function (i) { return i.kind === "recommendation" && i.status === "applied"; }).map(function (i) {
-      return '<button class="rchip tone-lilac" type="button" data-go-item="' + esc(i.id) + '" title="Applied: ' + esc(i.title || i.id) + '">' + icon("spark") + "<span>" + esc(i.title || i.id) + "</span></button>";
+      return '<button class="rchip tone-lilac" type="button" data-go-item="' + esc(i.id) + '" title="Applied recommendation: ' + esc(i.title || i.id) + '">' + icon("spark") + "<span>" + esc(i.title || i.id) + "</span></button>";
     }).join("");
     var MAX = 9, stay = "";
     if (off.length) stay = '<div class="flow-stay"><div class="eyebrow">Not on Router · ' + off.length + '</div><div class="stay-grid">' + off.slice(0, MAX).map(flowNode).join("") + "</div>" +
-      (off.length > MAX ? '<button class="link" type="button" data-tab="migrate" style="margin-top:10px">' + (off.length - MAX) + " more on Migrate" + icon("arrow") + "</button>" : "") + "</div>";
+      (off.length > MAX ? '<button class="link" type="button" data-tab="migrate" style="margin-top:10px">' + (off.length - MAX) + " more on the Migrate page" + icon("arrow") + "</button>" : "") + "</div>";
     var cnt = {};
     all.forEach(function (c) { var k = c.route === "provider" ? "stays" : ROUTE[c.route] ? c.route : "unknown"; cnt[k] = (cnt[k] || 0) + 1; });
     var legend = FLOW_KEY.filter(function (k) { return cnt[k[0]]; }).map(function (k) {
       var r = ROUTE[k[0]], sw = ON_ROUTER[k[0]] || k[0] === "not_routing" ? '<svg class="' + (r[3] ? "o" : "") + '" viewBox="0 0 22 8" aria-hidden="true"><line x1="1" y1="4" x2="21" y2="4"/></svg>' : '<span class="box"></span>';
       return '<span class="' + tone(r[2]) + '">' + sw + esc(k[1]) + " <b>" + cnt[k[0]] + "</b></span>";
     }).join("");
-    return '<section class="sec"><div class="sec-h"><h2>How your traffic moved</h2><p>Each production LLM call, from its file to Router. The line’s colour is what the outside check saw.</p></div>' +
+    return '<section class="sec"><div class="sec-h"><h2>How your traffic moved</h2><p>Each production LLM call, from the file that makes it to Router. The line’s colour shows what router-migrate’s own check saw, not what the agent claimed.</p></div>' +
       '<div class="panel flow" id="flow"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="flow-grid"><div class="fcol">' + left + '</div><div class="flow-mid" aria-hidden="true"></div>' +
       '<div class="router-node" id="router-node"><div class="nm"><span class="ic t tone-green">' + icon("router") + "</span>Router</div>" +
       '<div class="host mono">api.router.com · ' + fmtInt(nOn) + " " + plural(nOn, "call") + "</div>" + (chips ? '<div class="rchips">' + chips + "</div>" : "") + "</div></div>" + stay +
@@ -1269,24 +1271,24 @@ a.btn { text-decoration: none; }
   function renderMigrate() {
     var h = [], l = calls(), tr = obj(hl().traffic), bh = obj(hl().behaviour), ch = ofKind("change"), st = ofKind("stays");
     h.push(banners(false));
-    var tl = bh.checked ? (bh.ok === false ? ["Outside check failed", "red"] : testsShort(bh.tests)) : ["Not checked yet", "muted"];
-    h.push(header("Step 01", "Migrate", "Every production LLM call, and the commits that moved it. Each commit can be undone.",
+    var tl = bh.checked ? (bh.ok === false ? ["The independent check failed", "red"] : testsShort(bh.tests)) : ["Not checked yet", "muted"];
+    h.push(header("Step 01", "Migrate", "Every production LLM call in the app, and the commit that moved each one to Router. You can undo any commit.",
       tl ? '<span class="sc ' + tone(tl[1]) + '">' + icon(tl[1] === "green" ? "check" : tl[1] === "red" ? "x" : "dash") + esc(tl[0]) + "</span>" : ""));
-    if (!l.length && !ch.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in <code>MIGRATION.json</code>.</div>'); return h.join(""); }
+    if (!l.length && !ch.length) { h.push('<div class="panel empty">No calls listed yet. The agent lists every production LLM call in its report, <code>MIGRATION.json</code>.</div>'); return h.join(""); }
     if (l.length) {
-      h.push('<section><div class="sec-h"><h2>Calls</h2><span class="n">' + fmtInt(tr.on_router || 0) + " of " + fmtInt(l.length) + " on Router</span></div>" +
-        '<div class="panel tblw"><table class="tbl"><thead><tr><th>Call</th><th>Model</th><th>Goes to</th><th>Covered by</th></tr></thead><tbody>' + l.map(function (c, i) {
+      h.push('<section><div class="sec-h"><h2>Calls</h2><span class="n">' + fmtInt(tr.on_router || 0) + " of " + fmtInt(l.length) + " " + ((tr.on_router || 0) === 1 ? "goes" : "go") + " through Router</span></div>" +
+        '<div class="panel tblw"><table class="tbl"><thead><tr><th>Call</th><th>Model</th><th>Goes to</th><th>Moved by</th></tr></thead><tbody>' + l.map(function (c, i) {
           return '<tr id="call-' + i + '"><td><div class="site">' + esc(c.site) + "</div>" + (c.feature ? '<div class="sub">' + esc(c.feature) + "</div>" : "") + "</td>" +
             '<td data-l="Model"><span class="mdl">' + esc(c.model || "set at run time") + "</span></td>" +
             '<td data-l="Goes to"><div>' + routeCell(c) + "</div></td>" +
-            '<td data-l="Covered by"><div>' + (c.item ? itemLink(c.item) : '<span class="sub">–</span>') + "</div></td></tr>";
+            '<td data-l="Moved by"><div>' + (c.item ? itemLink(c.item) : '<span class="sub">–</span>') + "</div></td></tr>";
         }).join("") + "</tbody></table></div></section>");
     }
     var fl = arr(bh.unclaimed_flags);
     if (fl.length) h.push('<div class="lines" style="margin-top:20px">' + flagsHtml(fl) + "</div>");
-    if (ch.length) h.push('<div class="grp-h tone-green"><span class="eyebrow">Changes · ' + ch.length + "</span><p>One commit each on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>.</p></div>" +
+    if (ch.length) h.push('<div class="grp-h tone-green"><span class="eyebrow">Changes · ' + ch.length + "</span><p>Each is one commit on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>.</p></div>" +
       '<div class="stack">' + ch.map(card).join("") + "</div>");
-    if (st.length) h.push('<div class="grp-h"><span class="eyebrow">Stays · ' + st.length + "</span><p>Calls that stay where they are, and why.</p></div>" +
+    if (st.length) h.push('<div class="grp-h"><span class="eyebrow">Stays · ' + st.length + "</span><p>Calls that keep going to their current provider, and why.</p></div>" +
       '<div class="panel tblw"><table class="tbl"><tbody>' + st.map(function (it) {
         return '<tr id="item-' + esc(it.id) + '"><td><div style="color:var(--text-hi)">' + esc(it.title) + '</div><div class="sub" style="font-size:13px;color:var(--text-2)">' + esc(it.summary) + "</div></td>" +
           '<td data-l="Calls" style="width:1%;white-space:nowrap">' + (arr(it.calls).length ? '<span class="ckl">' + it.calls.map(callRef).join("") + "</span>" : '<span class="sub">–</span>') + "</td></tr>";
@@ -1300,7 +1302,7 @@ a.btn { text-decoration: none; }
     h.push(banners(false));
     h.push(header("Step 02", "Review", "What the agent would change, ranked by value. Nothing reaches your code until you approve and apply."));
     if (!rs.length) {
-      h.push('<div class="panel empty"><b>Reviewed: nothing to recommend.</b> ' + esc(B.reviewed || "") + "</div>");
+      h.push('<div class="panel empty"><b>The agent reviewed the app and has nothing to recommend.</b> ' + esc(B.reviewed || "") + "</div>");
     } else {
       var lc = {}, lw = {}, lb = {}, ac = {};
       rs.forEach(function (i) { if (i.level) { lc[i.level] = (lc[i.level] || 0) + 1; if (i.waiting) lw[i.level] = (lw[i.level] || 0) + 1; if (i.built) lb[i.level] = (lb[i.level] || 0) + 1; } });
@@ -1312,7 +1314,7 @@ a.btn { text-decoration: none; }
         var L = LEVEL[k], n = lc[k] || 0;
         return '<button class="tile" type="button" data-act="filter" data-f="l" data-v="' + k + '" aria-pressed="' + (S.fl === k) + '"' + (n ? "" : " disabled") + '><span class="ic">' + icon(L[2]) + '</span><div class="t">' +
           '<div class="nm">' + esc(L[1]) + '<span class="c">' + n + '</span></div><div class="hn">' + esc(L[3]) + "</div>" +
-          '<div class="stt">' + (lw[k] ? '<span class="w">' + lw[k] + " waiting on you</span>" : n ? "<span>none waiting</span>" : "<span>none</span>") + (lb[k] ? "<span>" + lb[k] + " built</span>" : "") + "</div></div></button>";
+          '<div class="stt">' + (lw[k] ? '<span class="w">' + lw[k] + " waiting on you</span>" : n ? "<span>none waiting on you</span>" : "<span>none</span>") + (lb[k] ? "<span>" + lb[k] + " built and tested</span>" : "") + "</div></div></button>";
       }).join("") + "</div>");
       function fchip(v, label, n, ic) { return '<button class="fchip" type="button" data-act="filter" data-f="a" data-v="' + esc(v) + '" aria-pressed="' + (S.fa === v) + '">' + (ic ? icon(ic) : "") + esc(label) + ' <span class="n">' + n + "</span></button>"; }
       h.push('<div class="filters">' + fchip("all", "All", lvl.length) + ACTOR_ORDER.filter(function (k) { return ac[k]; }).map(function (k) { return fchip(k, ACTOR[k][3], ac[k], ACTOR[k][1]); }).join("") + "</div>");
@@ -1320,7 +1322,7 @@ a.btn { text-decoration: none; }
       h.push('<div class="grp-h"><span class="eyebrow">Ranked · ' + shown.length + (shown.length !== rs.length ? " of " + rs.length : "") + "</span><p>Most valuable first.</p></div>" +
         '<div class="stack">' + shown.map(card).join("") + "</div>");
     }
-    if (notes.length) h.push('<section class="sec">' + more("notes", "Notes", notes.length + " · what the agent considered and rejected, and other things worth knowing",
+    if (notes.length) h.push('<section class="sec">' + more("notes", "Notes", notes.length + " · ideas the agent considered and rejected, and other things worth knowing",
       '<div class="panel tblw"><table class="tbl"><tbody>' + notes.map(function (it) {
         return '<tr id="item-' + esc(it.id) + '"><td><div style="color:var(--text-hi)">' + esc(it.title) + '</div><div class="sub" style="font-size:13px;color:var(--text-2)">' + esc(it.summary) + "</div></td></tr>";
       }).join("") + "</tbody></table></div>") + "</section>");
@@ -1333,18 +1335,18 @@ a.btn { text-decoration: none; }
     if (!r && !ln.mode) return "";
     if (r && !r.ok) return '<div class="banner ' + tone(r.status === 501 ? "amber" : "red") + '">' + icon("warn") + '<span class="tx"><b>Apply didn’t start.</b> ' + md(r.error) + '</span><button class="btn ghost" type="button" data-act="close-result">Close</button></div>';
     var d = r ? r.data : ln;
-    if (d.mode === "command" || (!d.mode && d.command)) return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + icon("play") + '<span class="tx"><b>Start the apply session in Claude Code.</b> Paste this; it reads the request list from this repo.</span>' +
+    if (d.mode === "command" || (!d.mode && d.command)) return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + icon("play") + '<span class="tx"><b>Finish in Claude Code.</b> Paste this command there. It picks up your decisions from this repo and carries them out.</span>' +
       copyVal(d.command || "/router-migrate apply") + '<button class="btn ghost" type="button" data-act="close-result">Close</button></div></div>';
     var tail = arr(ln.tail);
-    return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + (running().length ? '<span class="spin"></span>' : icon("check")) + '<span class="tx"><b>Apply session ' + esc(d.session || ln.session || "") + (running().length ? " is working" : " started") + ".</b> " +
-      (running().length ? "It merges, reverts and commits on <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code>, then the outside check runs." : "Its result shows in History when it finishes.") + "</span>" +
+    return '<div class="panel" style="margin-bottom:24px"><div class="result-h">' + (running().length ? '<span class="spin"></span>' : icon("check")) + '<span class="tx"><b>' + (running().length ? "The agent is applying your decisions" : "The agent started applying your decisions") + " (session " + esc(d.session || ln.session || "") + ").</b> " +
+      (running().length ? "It merges approved changes into <code>" + esc((B && B.migration_ref) || "router-migrate/migration") + "</code> and reverts the ones you undid, then the independent check runs." : "The result shows up in History when it finishes.") + "</span>" +
       '<button class="btn ghost" type="button" data-tab="history">History' + icon("arrow") + "</button></div>" + (tail.length ? '<pre class="term">' + esc(tail.join("\n")) + "</pre>" : "") + "</div>";
   }
   function pendRow(r) {
     var t = r.action === "undo" ? ["Undo", "amber"] : ["Apply", "blue"];
-    return '<div class="drow pend"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"chip tone-red\">not in the report</span>") +
-      '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "from the CLI" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
-      '<div class="pa">' + (r.stale ? '<span class="chip tone-amber">' + icon("warn") + "Changed since</span>" : "") + btn("ghost", "withdraw", r.item, "Withdraw") + "</div></div>";
+    return '<div class="drow pend"><span class="atag ' + tone(t[1]) + '">' + t[0] + '</span><div class="tx">' + (r.known ? itemLink(r.item) : '<span class="cref">' + esc(r.item) + "</span> <span class=\"chip tone-red\">no longer in the report</span>") +
+      '<div class="ss">' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : "", r.by === "cli" ? "decided on the command line" : ""].filter(Boolean).join(" · ")) + "</div></div>" +
+      '<div class="pa">' + (r.stale ? '<span class="chip tone-amber">' + icon("warn") + "Changed since you decided</span>" : "") + btn("ghost", "withdraw", r.item, "Cancel") + "</div></div>";
   }
   function decisionRow(it) {
     var m = arr(it.measured).filter(function (x) { return x.before != null || x.after != null; })[0];
@@ -1356,28 +1358,28 @@ a.btn { text-decoration: none; }
   function renderQueue() {
     var h = [], p = pend(), wi = waitingItems().slice().sort(byRank), dec = decidedItems(), st = applyState();
     h.push(banners(false));
-    h.push(header("Your turn", wi.length ? wi.length + " waiting on you" : p.length ? "Ready to apply" : "Nothing waits on you",
-      "Decide here. One Apply hands everything approved to an apply session; it commits each result and the outside check runs after it."));
-    if (FROZEN) h.push('<div class="banner tone-blue">' + icon("info") + '<span class="tx"><b>Frozen report.</b> Actions are off here; open the live dashboard to approve, undo or apply.</span></div>');
+    h.push(header("Your turn", wi.length ? wi.length + " waiting on you" : p.length ? "Ready to apply" : "Nothing needs you",
+      "Decide here. When you press Apply, an agent makes every change you approved and commits each one, then router-migrate’s own check runs on the result."));
+    if (FROZEN) h.push('<div class="banner tone-blue">' + icon("info") + '<span class="tx"><b>This is a read-only snapshot.</b> To approve, undo or apply, run <code>router-migrate dashboard</code> and use the live page.</span></div>');
     h.push(applyResultHtml());
     var u = p.filter(function (r) { return r.action === "undo"; }).length;
     h.push('<section><div class="sec-h"><h2>Ready to apply</h2><span class="n">' + p.length + "</span></div>" +
       '<div class="panel">' + (p.length ? p.map(pendRow).join("") : "") +
-      '<div class="applybar"><span class="tx">' + (p.length ? "<b>" + p.length + " " + plural(p.length, "request") + "</b> (" + (p.length - u) + " to apply, " + u + " to undo) go to one apply session." : "Approve a recommendation or mark a change for undo and it lands here.") + "</span>" +
-      '<button class="btn primary lg" type="button" data-act="apply"' + (st.off || S.busy ? " disabled" : "") + (st.why ? ' title="' + esc(st.why.replace(/`/g, "")) + '"' : "") + ">" + (S.busy === "apply" ? '<span class="spin"></span>Handing off' : icon("play") + "Apply " + p.length + " " + plural(p.length, "request")) + "</button>" +
+      '<div class="applybar"><span class="tx">' + (p.length ? "<b>" + p.length + " " + plural(p.length, "decision") + "</b> " + (p.length === 1 ? "is ready" : "go out together") + ": " + [p.length - u ? (p.length - u) + " to apply" : "", u ? u + " to undo" : ""].filter(Boolean).join(", ") + "." : "When you approve a recommendation or mark a change for undo, it lands here.") + "</span>" +
+      '<button class="btn primary lg" type="button" data-act="apply"' + (st.off || S.busy ? " disabled" : "") + (st.why ? ' title="' + esc(st.why.replace(/`/g, "")) + '"' : "") + ">" + (S.busy === "apply" ? '<span class="spin"></span>Starting' : icon("play") + (p.length ? "Apply " + p.length + " " + plural(p.length, "decision") : "Apply")) + "</button>" +
       (st.why && (LIVE ? p.length : !FROZEN) ? '<span class="why">' + icon(st.off ? "warn" : "info") + "<span>" + md(st.why) + "</span></span>" : "") + "</div></div></section>");
-    var GROUPS = [["approve", "Approvals", "Approve, dismiss or postpone. Approved ones go to the apply session."],
-      ["setting", "Router settings", "Switch each on at app.router.com, then mark it done."],
-      ["call", "Your calls", "Product decisions only you can make; an apply session builds what you approve."]];
+    var GROUPS = [["approve", "To approve", "Approve, dismiss or postpone each one. What you approve is built the next time you press Apply."],
+      ["setting", "Router settings", "Switch each one on at app.router.com, then mark it done here."],
+      ["call", "Your decisions", "Product choices only you can make. If you approve one, the agent builds it the next time you press Apply."]];
     GROUPS.forEach(function (g) {
       var list = wi.filter(function (i) { return askOf(i) === g[0]; });
       if (!list.length) return;
       h.push('<section class="sec" style="margin-top:40px"><div class="sec-h"><h2>' + g[1] + '</h2><span class="n">' + list.length + "</span><p>" + g[2] + '</p></div><div class="panel">' + list.map(decisionRow).join("") + "</div></section>");
     });
-    if (!wi.length) h.push('<div class="panel empty" style="margin-top:24px"><b>Nothing waits on you.</b> Every item is decided.</div>');
-    if (dec.length) h.push('<section class="sec" style="margin-top:40px"><div class="sec-h"><h2>Decided earlier</h2><span class="n">' + dec.length + "</span><p>Withdraw to decide again.</p></div><div class=\"panel\">" +
+    if (!wi.length) h.push('<div class="panel empty" style="margin-top:24px"><b>Nothing needs you.</b> You’ve decided everything.</div>');
+    if (dec.length) h.push('<section class="sec" style="margin-top:40px"><div class="sec-h"><h2>Decided earlier</h2><span class="n">' + dec.length + "</span><p>Reopen one to decide it again.</p></div><div class=\"panel\">" +
       dec.map(function (i) { var r = obj(i.request); return '<div class="drow"><span class="rkn">' + (num(i.rank) != null ? i.rank : "–") + '</span><div class="tx">' + itemLink(i.id) + '<div class="ss"><span>' + esc([r.reason ? "“" + r.reason + "”" : "", r.at ? fmtTime(r.at) : ""].filter(Boolean).join(" · ")) + "</span></div></div>" +
-        '<div class="pa">' + statusChip(i) + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Withdraw") : "") + "</div></div>"; }).join("") + "</div></section>");
+        '<div class="pa">' + statusChip(i) + (arr(i.actions).indexOf("withdraw") >= 0 ? btn("ghost", "withdraw", i.id, "Reopen") : "") + "</div></div>"; }).join("") + "</div></section>");
     return h.join("");
   }
 
@@ -1385,30 +1387,30 @@ a.btn { text-decoration: none; }
   function renderHistory() {
     var h = [], hs = arr(B.history).slice().reverse(), bh = obj(hl().behaviour);
     h.push(banners(false));
-    h.push(header("", "History", "Each apply session: what it did with your list, what it declined and why, and the outside check after it."));
-    if (bh.checked) h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + icon("check") + '</span><div class="tx"><b>Latest outside check</b><span class="mt">' + esc(bh.ref || "") + (bh.at ? " · " + esc(fmtTime(bh.at)) : "") + "</span></div>" +
+    h.push(header("", "History", "Each time you pressed Apply: what the agent did with your decisions, what it declined and why, and the independent check that ran afterwards."));
+    if (bh.checked) h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + icon("check") + '</span><div class="tx"><b>Latest independent check</b><span class="mt">' + esc(bh.ref || "") + (bh.at ? " · " + esc(fmtTime(bh.at)) : "") + "</span></div>" +
       '<span class="sc ' + tone(bh.ok === false ? "red" : "green") + '"><span class="dot"></span>' + (bh.ok === false ? "Failed" : "Passed") + "</span></div>" +
       (arr(bh.entries).length ? '<div class="sess-ck"><ul class="evl">' + bh.entries.map(evRow).join("") + "</ul></div>" : "") + "</div>");
-    if (!hs.length && !running().length) { h.push('<div class="panel empty">No apply sessions yet. When you apply from Your turn, each session lands here.</div>'); return h.join(""); }
+    if (!hs.length && !running().length) { h.push('<div class="panel empty">Nothing applied yet. Each time you press Apply on Your turn, the result shows up here.</div>'); return h.join(""); }
     running().forEach(function (r) {
-      h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + esc(r.session) + '</span><div class="tx"><b>Apply session ' + esc(r.session) + '</b><span class="mt">Running · ' + r.items.length + " " + plural(r.items.length, "request") + '</span></div><span class="sc tone-blue"><span class="spin"></span>Running</span></div>' +
+      h.push('<div class="panel sess" style="margin-bottom:16px"><div class="sess-h"><span class="sid">' + esc(r.session) + '</span><div class="tx"><b>Applying now</b><span class="mt">Session ' + esc(r.session) + " · " + r.items.length + " " + plural(r.items.length, "decision") + '</span></div><span class="sc tone-blue"><span class="spin"></span>Running</span></div>' +
         '<div class="sess-ck">' + r.items.map(itemLink).join(" · ") + "</div></div>");
     });
     h.push('<div class="stack">' + hs.map(function (s) {
       var ck = obj(s.check), mins = minutes(s.started, s.finished), rs = arr(s.results);
       var sum = {done: 0, declined: 0, failed: 0}; rs.forEach(function (r) { sum[r.status] = (sum[r.status] || 0) + 1; });
-      return '<section class="panel sess"><div class="sess-h"><span class="sid">' + esc(s.id || "?") + '</span><div class="tx"><b>Apply session ' + esc(s.id || "") + "</b>" +
-        '<span class="mt">' + esc(fmtTime(s.started)) + (s.finished ? " → " + esc(fmtClock(s.finished)) : "") + (mins != null ? " · " + mins + " min" : "") + " · " + rs.length + " " + plural(rs.length, "result") +
+      return '<section class="panel sess"><div class="sess-h"><span class="sid">' + esc(s.id || "?") + '</span><div class="tx"><b>Applied in session ' + esc(s.id || "") + "</b>" +
+        '<span class="mt">' + esc(fmtTime(s.started)) + (s.finished ? " → " + esc(fmtClock(s.finished)) : "") + (mins != null ? " · " + mins + " min" : "") + " · " + rs.length + " " + plural(rs.length, "decision") +
         (sum.declined || sum.failed ? " · " + [sum.done ? sum.done + " done" : "", sum.declined ? sum.declined + " declined" : "", sum.failed ? sum.failed + " failed" : ""].filter(Boolean).join(", ") : "") + "</span></div>" +
-        (s.check ? '<span class="sc ' + tone(ck.ok === false ? "red" : "green") + '"><span class="dot"></span>Check after: ' + (ck.ok === false ? "failed" : "passed") + "</span>" : '<span class="sc tone-muted"><span class="dot"></span>No check recorded</span>') + "</div>" +
+        (s.check ? '<span class="sc ' + tone(ck.ok === false ? "red" : "green") + '"><span class="dot"></span>Check afterwards ' + (ck.ok === false ? "failed" : "passed") + "</span>" : '<span class="sc tone-muted"><span class="dot"></span>No check afterwards</span>') + "</div>" +
         (s.summary ? '<p class="sess-sum">' + esc(s.summary) + "</p>" : "") +
         rs.map(function (r) {
           var bad = r.status === "declined" || r.status === "failed";
           return '<div class="rrow"><div class="tx">' + itemLink(r.item) + (r.note ? '<div class="nt">' + esc(r.note) + "</div>" : "") +
             (arr(r.commits).length ? '<div class="cm">' + r.commits.map(function (c) { return '<span class="ref">' + icon("commit") + "<span>" + esc(c) + "</span></span>"; }).join("") + "</div>" : "") + "</div>" +
-            '<div class="rt"><span class="atag ' + tone(r.action === "undo" ? "amber" : "blue") + '">' + esc(r.action || "") + '</span><span class="sc ' + tone(bad ? "red" : "green") + '"><span class="dot"></span>' + esc(r.status || "") + "</span></div></div>";
+            '<div class="rt"><span class="atag ' + tone(r.action === "undo" ? "amber" : "blue") + '">' + esc(r.action || "") + '</span><span class="sc ' + tone(bad ? "red" : "green") + '"><span class="dot"></span>' + esc(cap(r.status || "")) + "</span></div></div>";
         }).join("") +
-        (arr(s.check_entries).length ? '<div class="sess-ck"><span class="lbl">The outside check after it</span><ul class="evl">' + s.check_entries.map(evRow).join("") + "</ul></div>" : "") + "</section>";
+        (arr(s.check_entries).length ? '<div class="sess-ck"><span class="lbl">The independent check afterwards</span><ul class="evl">' + s.check_entries.map(evRow).join("") + "</ul></div>" : "") + "</section>";
     }).join("") + "</div>");
     return h.join("");
   }
@@ -1418,14 +1420,14 @@ a.btn { text-decoration: none; }
   // recommendations, whose state is the item's status (Mark done records a request)
   function renderSetup() {
     var fixed = setupSteps(), sets = settingSteps(), steps = fixed.concat(sets), done = steps.filter(setupDone).length, h = [];
-    h.push(header("", "Router setup", "Steps outside the code. The tool never changes your Router account or the app’s environment.",
+    h.push(header("", "Router setup", "Things to do outside the code. router-migrate never changes your Router account or where your app runs, so these steps are yours.",
       '<div class="prog"><div class="prog-bar">' + steps.map(function (s) { return '<i class="' + (setupDone(s) ? "on" : "") + '"></i>'; }).join("") + '</div><span class="tx"><b>' + done + "</b> of " + steps.length + " done</span></div>"));
     function step(s, k) {
       var d = setupDone(s), link = safeLink(s.link), it = s.item, n = k + 1;
       var check = it ? '<button class="check' + (it.status === "done" ? " on" : "") + '" type="button" data-act="done" data-id="' + esc(it.id) + '" aria-pressed="' + (it.status === "done") + '" aria-label="Mark done"' +
           (arr(it.actions).indexOf("done") < 0 || !LIVE || S.busy || S.conn !== "ok" ? " disabled" : "") + ">" + (it.status === "done" ? icon("check") : "") + "</button>"
         : '<button class="check' + (d ? " on" : "") + '" type="button" data-act="setup-done" data-id="' + esc(s.id) + '" aria-pressed="' + d + '" aria-label="Mark done">' + (d ? icon("check") : "") + "</button>";
-      var note = it ? (it.status === "done" ? "Marked done" : it.status === "your step" ? (LIVE ? "Mark it done once it’s on" : "") : "") : d ? "Done (saved in this browser)" : "Tick the circle when it’s set";
+      var note = it ? (it.status === "done" ? "Marked done" : it.status === "your step" ? (LIVE ? "Mark it done once it’s on" : "") : "") : d ? "Done (remembered in this browser only)" : "Tick the circle once it’s set";
       return '<article class="card scard' + (d ? " done" : "") + '"' + (it ? ' id="step-' + esc(it.id) + '"' : "") + '><div class="s-rail"><span class="s-num">' + (n < 10 ? "0" : "") + n + "</span>" + check + "</div>" +
         '<div class="s-body"><div class="s-head"><h3>' + esc(s.title) + '</h3><span class="chip ' + tone(s.prio[1]) + '">' + esc(s.prio[0]) + "</span>" + (it ? statusChip(it) : "") + "</div>" + (s.lead ? '<p class="s-lead">' + esc(s.lead) + "</p>" : "") +
         (s.where ? '<div class="s-block">' + whereHtml(s.where) + "</div>" : "") + (s.body || "") + (it ? requestNote(it) : "") +
@@ -1433,7 +1435,7 @@ a.btn { text-decoration: none; }
         (it ? actionsHtml(it) : "") + (it ? formHtml(it) : "") + "</div></div></article>";
     }
     h.push('<div class="stack">' + fixed.map(step).join("") + "</div>");
-    h.push('<section class="sec"><div class="sec-h"><h2>Recommended for this app</h2><span class="n">' + sets.length + "</span><p>Router settings from the review, ranked. Mark each done when it’s on; none goes to an apply session.</p></div>" +
+    h.push('<section class="sec"><div class="sec-h"><h2>Recommended for this app</h2><span class="n">' + sets.length + "</span><p>Router settings the review recommends, most valuable first. Switch each one on in Router, then mark it done here. These don’t go through Apply.</p></div>" +
       (sets.length ? '<div class="stack">' + sets.map(function (s, k) { return step(s, fixed.length + k); }).join("") + "</div>" : '<div class="panel empty">No Router settings recommended for this app.</div>') + "</section>");
     return h.join("");
   }
@@ -1445,7 +1447,7 @@ a.btn { text-decoration: none; }
     renderSide(); renderTop();
     var main = document.getElementById("main");
     if (!B || (!B.has_report && !arr(B.report_errors).length)) {
-      main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + (B ? banners(false) : "") + header("router-migrate", "No migration report yet", "This page shows what the agent wrote in <code>.router-migrate/MIGRATION.json</code>, checked by <code>router-migrate finish</code>. Run the migration first; this page updates when the report lands.") + "</div>";
+      main.innerHTML = '<div class="' + (enter ? "enter" : "") + '">' + (B ? banners(false) : "") + header("router-migrate", "No migration report yet", "This page shows the agent’s report, <code>.router-migrate/MIGRATION.json</code>, after <code>router-migrate finish</code> has checked it. Run the migration first; this page fills in when the report is ready.") + "</div>";
       document.getElementById("sticky").innerHTML = ""; return;
     }
     var fn = RENDER[S.tab] || renderOverview;

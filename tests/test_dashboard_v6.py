@@ -88,7 +88,7 @@ def test_items_carry_evidence_flags_actions_and_model_change(repo):
     by = {i["id"]: i for i in I.bundle(str(repo))["items"]}
     m1 = by["m1"]
     assert {e["source"] for e in m1["checked"]} == {"agent", "check"}
-    assert any(e["source"] == "check" and e.get("label") == "Route" and e["result"] == "pass" for e in m1["checked"])
+    assert any(e["source"] == "check" and e.get("label") == "Routing" and e["result"] == "pass" for e in m1["checked"])
     fail = [e for e in by["i4"]["checked"] if e["source"] == "check" and e["check"] == "tests"]
     assert fail and fail[0]["result"] == "fail" and "tests/reply.test.ts" in fail[0]["detail"]
     for i in by.values():  # never a bare result: every entry says what ran
@@ -188,7 +188,7 @@ def test_bundle_tolerates_partial_state(tmp_path):
 # ------------------------------------------------------------------------------------------------ REPORT.html
 def test_render_report_is_frozen_self_contained_and_shows_every_item(repo):
     html = I.render_report(str(repo))
-    assert I.PLACEHOLDER not in html and 'window.__RM_MODE__ = "frozen"' in html and "Frozen report" in html
+    assert I.PLACEHOLDER not in html and 'window.__RM_MODE__ = "frozen"' in html and "read-only snapshot" in html
     m = re.search(r"window\.__RM__ = (\{.*?\}); window\.__RM_MODE__", html, re.S)
     b = json.loads(m.group(1))
     titles = [i["title"] for i in state(repo, "MIGRATION.json")["items"]]
@@ -229,8 +229,7 @@ DOM_STUB = """
 var els = {};
 function el(id) { return els[id] || (els[id] = {id: id, innerHTML: "", firstChild: null, classList: {add: function () {}, remove: function () {}}, setAttribute: function () {}}); }
 global.window = global;
-global.document = {getElementById: el, addEventListener: function () {}, querySelector: function () { return null; }, activeElement: null, visibilityState: "visible", title: "",
-  documentElement: {setAttribute: function () {}, removeAttribute: function () {}}};
+global.document = {getElementById: el, addEventListener: function () {}, querySelector: function () { return null; }, activeElement: null, visibilityState: "visible", title: ""};
 global.location = {search: "", hash: "", pathname: "/"};
 global.history = {replaceState: function () {}};
 global.localStorage = {getItem: function () { return null; }, setItem: function () {}, removeItem: function () {}};
@@ -256,11 +255,11 @@ def test_overview_is_where_things_stand(repo):
     out = render_tab(repo, "overview")
     head = out[:out.index('class="doors"')]
     assert "4 of 6 production LLM calls go through Router." in head and "10 changes worth making." in head
-    assert "3 approvals and 1 Router setting wait on you. 2 requests ready to apply." in head  # i1 i4 i5 / r8; i2 and p1 pending
+    assert "4 things need you: 3 to approve and 1 Router setting to switch on. 2 decisions are ready to apply." in head  # i1 i4 i5 / r8; i2 and p1 pending
     doors = out[out.index('class="doors"'):out.index("Start here")]
     assert [d for d in re.findall(r'class="door[^"]*" type="button" data-tab="([a-z]+)"', doors)] == ["migrate", "review", "queue"]
     assert "Step 01" in doors and "Step 02" in doors and "Your turn" in doors
-    assert "$0.0021 → $0.0004" in doors and "Tests 947/948 · unchanged" in doors
+    assert "$0.0021 → $0.0004" in doors and "947 of 948 tests pass, as before" in doors
     top = out[out.index("Start here"):out.index('id="flow"')]
     rows = re.findall(r'class="srow" type="button" data-go-item="([^"]+)"><span class="rkn">(\d+)</span>', top)
     assert rows == [("i1", "2"), ("i4", "5"), ("i5", "6")]  # the three most valuable open ones; approved/applied/decided left out
@@ -277,20 +276,20 @@ def test_migrate_and_review_pages(repo):
     rev = render_tab(repo, "review")
     assert re.findall(r'<article class="card item" id="item-([^"]+)"', rev) == ["d1", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "r8", "r9"]
     assert 'data-f="l" data-v="quick-win"' in rev and 'data-f="a" data-v="router-setting"' in rev  # level tiles, actor filter
-    assert "Your call" in rev and "Shadow models" in rev and "Measured" in rev and "$0.0004" in rev
+    assert "Your decision" in rev and "Shadow models" in rev and "Measured" in rev and "$0.0004" in rev
     assert 'id="item-n1"' in rev and 'data-key="notes"' in rev  # notes, collapsed at the bottom
     assert 'id="item-m1"' not in rev and 'id="item-i1"' not in mig  # one job per page
 
 
 def test_your_turn_groups_what_waits(repo):
     out = render_tab(repo, "queue")
-    groups = re.findall(r'<h2>(Approvals|Router settings|Your calls|Ready to apply|Decided earlier)</h2>', out)
-    assert groups == ["Ready to apply", "Approvals", "Router settings", "Decided earlier"]  # no product call waits (d1 is postponed)
-    appr = out[out.index("<h2>Approvals"):out.index("<h2>Router settings")]
+    groups = re.findall(r'<h2>(To approve|Router settings|Your decisions|Ready to apply|Decided earlier)</h2>', out)
+    assert groups == ["Ready to apply", "To approve", "Router settings", "Decided earlier"]  # no product call waits (d1 is postponed)
+    appr = out[out.index("<h2>To approve"):out.index("<h2>Router settings")]
     assert re.findall(r'class="drow" id="q-([^"]+)"', appr) == ["i1", "i4", "i5"] and "Approve anyway" in appr and "Approve again" in appr
     sets = out[out.index("<h2>Router settings"):out.index("<h2>Decided earlier")]
     assert 'id="q-r8"' in sets and "Mark done" in sets and "Shadow models" in sets
-    assert 'data-act="apply"' in out and "Frozen report" in out
+    assert 'data-act="apply"' in out and "read-only snapshot" in out
 
 
 def test_setup_page_from_router_settings(repo):
@@ -334,7 +333,7 @@ def test_overview_draws_how_your_traffic_moved(repo):
     assert "api.router.com · 4 calls" in out and "Not on Router · 2" in stay
     assert 'data-go-item="i3"' in out[out.index('id="router-node"'):out.index('class="legend"')]  # the applied improvement
     legend = out[out.index('class="legend"'):]
-    assert "Verified by the outside check <b>3</b>" in legend and "Stays on its provider <b>2</b>" in legend
+    assert "Confirmed going through Router <b>3</b>" in legend and "Stays with its provider <b>2</b>" in legend
 
 
 # ------------------------------------------------------------------------------------------------ server
