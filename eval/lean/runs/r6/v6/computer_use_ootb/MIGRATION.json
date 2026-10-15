@@ -1,0 +1,287 @@
+{
+  "version": 6,
+  "summary": "The app's one hosted-vendor LLM call is the GPT planner, and it now runs on Router: its raw HTTP POST to api.openai.com was rewritten onto the OpenAI SDK with the vendored runtime beneath it, and a policy entry sends the dated gpt-4o snapshot by its catalog id so the app's default planner routes too, at the same model and price. Nothing else can move: the Claude path is Anthropic's computer-use beta on a model Router's catalog does not carry, and the UI-TARS, SSH-Qwen and local ShowUI/Qwen paths are models the user hosts themselves. On review the planner had no retry and no timeout, and labelled every PNG screenshot as JPEG, so no non-OpenAI vendor could ever have served it; one branch fixes that and gives the planner a cross-provider fallback, another stops it rebuilding its HTTP client on every step.",
+  "reviewed": "Model and price per planner step, who waits on each call, Flex exposure, prompt caching, the planner's failure and timeout behaviour, client reuse, and spend labels. Two changes paid for themselves \u2014 a Router fallback for a loop where one failed step ends the task, and reusing the HTTP client across steps; Flex and prompt caching did not, because none of the planner models has a Flex tier and the fixed prompt prefix is well under the ~1,024-token cache minimum.",
+  "calls": [
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/oai.py:74",
+      "feature": "planner",
+      "model": "gpt-4o, gpt-4o-mini",
+      "task": "GUI planning from a screenshot",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "computer_use_demo/gui_agent/planner/anthropic_agent.py:118",
+      "feature": "computer_use_demo/gui_agent/planner/anthropic_agent.py:__call__",
+      "model": "claude-3-5-sonnet-20241022",
+      "task": "computer use: plan and emit desktop tool calls",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "computer_use_demo/gui_agent/actor/uitars_agent.py:55",
+      "feature": "computer_use_demo/gui_agent/actor/uitars_agent.py:__call__",
+      "model": "ui-tars",
+      "task": "GUI grounding: turn an instruction into a click",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/oai.py:183",
+      "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_ssh_llm_interleaved",
+      "model": "Qwen2.5-VL-7B-Instruct",
+      "task": "GUI planning from a screenshot",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "computer_use_demo/gui_agent/llm_utils/qwen.py:52",
+      "feature": "computer_use_demo/gui_agent/llm_utils/qwen.py:run_qwen",
+      "model": "qwen-vl-max-latest",
+      "task": "GUI planning from a screenshot",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s3"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "port",
+      "title": "Route the GPT planner through Router",
+      "summary": "The GPT planner's call stops being a hand-built HTTP POST to OpenAI and goes through the OpenAI SDK, so Router serves it.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "The app's only hosted-vendor call that Router can serve is on Router: one key, and its spend recorded under the feature 'planner'",
+      "loses": "The hand-built HTTP request is gone: on a failed call the function now returns the SDK's error body rather than OpenAI's raw response body (the caller crashes on either, as it unpacks a tuple), and once a Router key is set each request passes through the runtime's Chat-Completions-to-Responses translation instead of going straight to OpenAI.",
+      "price": "no change",
+      "why": "run_oai_interleaved built the request by hand and posted it to https://api.openai.com/v1/chat/completions with requests, which no runtime can intercept. It now builds the same payload (model, messages, max_tokens, temperature) through openai.OpenAI().chat.completions.create with the vendored runtime installed under the client, which translates Chat Completions to Router's /v1/responses. The function still returns (text, total_tokens) and still prints-and-returns an error body on failure, so api_vlm_planner and the planner loop are unchanged. The planner passes feature='planner' in x-router-migrate-feature, which is the label Router records and the key router.policy.json matches. Neither gpt-4o nor gpt-4o-mini has a Flex tier, so Router's Flex default cannot slow the step a person is waiting on, and no service_tier pin is needed. Without RAMP_ROUTER_API_KEY the runtime is inert and the request goes to OpenAI as before.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live driving run_oai_interleaved with a real screenshot: 2 requests, both 200 on /v1/responses (model=gpt-4o-mini and model=gpt-4o), provider=openai, feature=planner; both returned the planner's fenced JSON with Thinking and Next Action, which extract_data and json.loads consume, and the function returned (str, int)"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run: the gpt-4o-mini request reaches router-sim as a valid /v1/responses request labelled planner; with the policy off, the dated gpt-4o-2024-11-20 is kept on the provider by the runtime, as designed"
+        }
+      ],
+      "commit": "39b28e5",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Send the dated gpt-4o id by its catalog id",
+      "summary": "The planner's gpt-4o choice asks Router for the catalog id gpt-4o instead of the dated snapshot it names in code.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "The app's default planner model routes to Router instead of being the one GPT request left on OpenAI",
+      "loses": "nothing",
+      "price": "no change: gpt-4o is $2.50/$10 per 1M input/output tokens, the same model the dated id names",
+      "why": "api_vlm_planner turns the 'gpt-4o' dropdown choice into the dated id gpt-4o-2024-11-20. Router serves gpt-4o but 404s dated snapshot ids, and gpt-4o-2024-11-20 is not among the dated ids the runtime maps on its own, so that request stayed on OpenAI while gpt-4o-mini moved \u2014 and gpt-4o is the app's default planner. router.policy.json maps the dated id to gpt-4o for the 'planner' label, and a policy entry only touches Router-bound requests, so the OpenAI path still asks for the dated snapshot. The only difference is that OpenAI, rather than the app, now pins which snapshot sits behind gpt-4o.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live: the gpt-4o planner request reached Router as model=gpt-4o, 200, provider=openai, feature=planner, and came back in the planner's JSON format"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog (GET /v1/models, 2026-10-15): gpt-4o in $2.50 / out $10 per 1M tokens, temperature true, image input, no Flex tier"
+        }
+      ],
+      "commit": "a386fa5",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "Claude computer use stays on Anthropic",
+      "summary": "The unified Claude path keeps calling Anthropic directly, with its computer-use beta and its own model.",
+      "calls": [
+        "computer_use_demo/gui_agent/planner/anthropic_agent.py:118"
+      ],
+      "gains": "nothing: this call is unchanged",
+      "loses": "nothing: the call and its capability are untouched",
+      "price": "no change",
+      "why": "AnthropicActor sends betas=['computer-use-2024-10-22'] with the computer, bash and edit tools: the beta is the feature, not a performance flag, and it is the whole of this mode of the app. Two further things block it. Router's catalog carries no claude-3-5-sonnet id, dated or undated, and the tool schemas in computer_use_demo/tools are written against the 20241022 computer-use version, so moving would mean choosing a new model and a new tool version at once. Router's behaviour with anthropic-beta features is also unmeasured, and the runtime deliberately keeps any request carrying an anthropic-beta header on Anthropic. The Anthropic client is therefore left unwrapped rather than wrapped as a no-op, so nothing sits in the path of the app's core feature.",
+      "evidence": [],
+      "commit": "a386fa5",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s2",
+      "kind": "stays",
+      "title": "Self-hosted vision models stay where they run",
+      "summary": "The UI-TARS actor and the SSH Qwen planner keep calling the server the user runs.",
+      "calls": [
+        "computer_use_demo/gui_agent/actor/uitars_agent.py:55",
+        "computer_use_demo/gui_agent/llm_utils/oai.py:183"
+      ],
+      "gains": "nothing: these calls are unchanged",
+      "loses": "nothing",
+      "price": "no change: no vendor bills these calls",
+      "why": "Both talk to a host the user supplies \u2014 ui_tars_url in the UI, and host:port typed into the planner key box \u2014 serving models the user installed (install_tools/install_uitars-2b-sft.py; computer_use_demo/remote_inference.py is the app's own OpenAI-compatible server for Qwen2.5-VL). The model ids ui-tars and Qwen2.5-VL-7B-Instruct are not Router catalog ids and these are the local models the app exists to use, so there is nothing for Router to serve. The UI-TARS OpenAI client is left unwrapped: the runtime would pass its traffic through untouched, and leaving it alone keeps the local path exactly as it was. The same holds for the ShowUI actor and the local Qwen planner, which load weights in-process and make no request at all.",
+      "evidence": [],
+      "commit": "a386fa5",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s3",
+      "kind": "stays",
+      "title": "Qwen-VL stays on DashScope",
+      "summary": "The qwen2-vl-max planner keeps calling Alibaba's DashScope with the user's Qwen key.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/qwen.py:52"
+      ],
+      "gains": "nothing: this call is unchanged",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "run_qwen calls dashscope.MultiModalConversation with model qwen-vl-max-latest. Router speaks the OpenAI Responses and Anthropic Messages surfaces, not DashScope's, and its catalog has no Qwen-VL id \u2014 the one Qwen entry, qwen3p8-max, is a different model \u2014 so moving this would mean both porting to another SDK and swapping the model a user chose by name from the dropdown. The app also expects the DashScope response shape (response.output.choices[0].message.content[0]['text']). It stays, so the 'qwen2-vl-max' choice keeps doing what its label says.",
+      "evidence": [],
+      "commit": "a386fa5",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Keep planning when a provider fails",
+      "summary": "A failed or hung planner step is answered by claude-haiku-4-5 through Router instead of ending the task.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "One transient provider failure no longer ends a whole computer-use task; a planner step that hangs is cut off at 60s instead of the SDK's 600s default",
+      "loses": "When the fallback serves, a different model plans that step, so answers will differ; those requests cost claude-haiku-4-5's $1/$5 per 1M instead of gpt-4o-mini's $0.15/$0.60 (gpt-4o's $2.50/$10). The media-type fix also changes every planner request's data URI from image/jpeg to the file's real type.",
+      "price": "fallback requests only: claude-haiku-4-5 $1/$5 per 1M input/output tokens, against gpt-4o-mini $0.15/$0.60 and gpt-4o $2.50/$10",
+      "why": "A computer-use task is dozens of planner steps and run_oai_interleaved has no retry at all: a 5xx or a hang prints 'This may due to your invalid OPENAI_API_KEY', returns a dict where the caller unpacks a tuple, and the loop dies with the desktop half-driven. Rather than hand-rolling a retry, router.policy.json gives the 'planner' label a fallback list and provider_timeout 60; both candidates accept temperature=0 and image input, so Router's policy guard keeps the candidate instead of dropping it. Testing the candidate turned up why it could never have worked: oai.py labelled every screenshot data:image/jpeg while get_screenshot writes PNGs. OpenAI tolerates the wrong media type, Anthropic returns 400, so llm_utils gained image_media_type and the planner now labels the data URI from the file extension. run_ssh_llm_interleaved keeps image/jpeg, which is right there because it re-encodes to JPEG.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live with the fallback policy: 2 planner requests, both 200 on /v1/responses with no single model field (a models list), feature=planner, served by openai \u2014 Router accepts the shape and the primary still serves"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "the fallback candidate driven directly (ROUTER_MIGRATE_MODEL_MAP to claude-haiku-4-5): before the media-type fix, 400 'the image was specified using the image/jpeg media type, but the image appears to be a image/png image'; after it, 200 provider=anthropic returning the planner's fenced JSON with Thinking and Next Action"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog (2026-10-15): claude-haiku-4-5 in $1 / out $5 per 1M, temperature true, image input \u2014 the cheaper claude-haiku-5-5 was rejected as a candidate because its catalog entry has temperature false, so the policy guard drops it from a request sending temperature=0"
+        },
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "Router falling back on a real provider outage is documented but not measured, here or in the fact sheet; what is verified is that Router accepts the request and that the candidate can do the planner's job"
+        }
+      ],
+      "commit": null,
+      "branch": "router-migrate/improve/planner-fallback",
+      "depends_on": [
+        "m1",
+        "m2"
+      ],
+      "excludes": [],
+      "level": "change"
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "title": "Reuse the planner's HTTP client across steps",
+      "summary": "The planner keeps one OpenAI client per API key instead of building a new one on every step.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "Saves a connection setup and TLS handshake on every planner step \u2014 once per step of a task, on the call a person is waiting for",
+      "loses": "nothing: one idle connection is held per API key for the life of the process",
+      "price": "no change",
+      "why": "run_oai_interleaved built a fresh OpenAI client per call, so each planner step opened a new connection pool and paid a new handshake before uploading its screenshot, and the runtime reinstalled its transport each time. The clients now live in a dict keyed by API key, so a key typed into the Gradio box mid-session still gets its own client and switching keys behaves as before. tests/test_oai_client_reuse.py covers reuse per key, isolation between keys, and the base URL.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "tests/test_oai_client_reuse.py: 3 passed (new file; the repo's own suite is compile-and-import only and is unchanged)"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run after the change: both planner requests still reach router-sim as valid /v1/responses requests labelled planner, as gpt-4o-mini and gpt-4o"
+        }
+      ],
+      "commit": null,
+      "branch": "router-migrate/improve/reuse-planner-client",
+      "depends_on": [
+        "m1",
+        "m2"
+      ],
+      "excludes": [],
+      "level": "quick-win"
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Why Flex and prompt caching were left alone",
+      "summary": "Two standard Router levers do not pay here, for reasons worth recording.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "nothing: nothing changes",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Flex: none of gpt-4o, gpt-4o-mini or claude-haiku-4-5 has a Flex tier in the live catalog, so Router's Flex-by-default cannot slow the planner step a person waits on and no service_tier pin is needed. If the planner model is ever changed to a gpt-5.x or gpt-6.x id, that changes \u2014 those are Flex-eligible, one Flex call in the fact sheet took 61s, and an interactive planner would then need service_tier 'default'. Prompt caching: the planner's only fixed prefix is its system prompt, a few hundred tokens, well under the ~1,024-token provider minimum, and the rest of each request is fresh history and a fresh screenshot, so prompt_cache_key would buy nothing. The message order is already cache-friendly \u2014 fixed instructions first, the screenshot appended last.",
+      "evidence": [
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog (2026-10-15): gpt-4o, gpt-4o-mini and claude-haiku-4-5 all show no Flex tier"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "A Router key alone will not start the planner",
+      "summary": "The planner still demands an OpenAI key even when Router would serve the request.",
+      "calls": [
+        "computer_use_demo/gui_agent/llm_utils/oai.py:74"
+      ],
+      "gains": "nothing: nothing changes",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "run_oai_interleaved raises 'OPENAI_API_KEY is not set' before building the request, and app.py pre-fills the planner key box from OPENAI_API_KEY, so an operator who sets only RAMP_ROUTER_API_KEY cannot start a GPT planner run. This was left as it is on purpose: the runtime needs the provider key for the path where Router refuses a request and it retries once against OpenAI, and relaxing the check would turn a clear startup error into a confusing 401 mid-task. It is listed here because it is the one place where the app does not yet deliver the one-key promise, and because changing it is a product decision about whether the provider key stays mandatory.",
+      "evidence": [],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

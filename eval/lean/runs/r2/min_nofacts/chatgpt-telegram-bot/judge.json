@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and fixed a real latent break instead of just claiming success: the bot appended a plugin's `function` result with no preceding assistant function_call, which Chat Completions tolerated but /v1/responses rejects with 400 'No tool call found for function call output' \u2014 caught by actually driving the plugin path through the simulator (1 of 4 requests INVALID before, 7/7 valid after), fixed the way the API documents, and the token counter was updated to handle the new non-string message value.",
+  "The any-router-model branch is the improvement that makes the gateway worth anything for this app: default_max_tokens returned None (int(None) kills startup) and __max_model_tokens/__count_tokens/__count_tokens_vision raised NotImplementedError for anything outside the frozen early-2024 tables, so no Router catalog model was configurable. Fixing that conservatively (tables still decide what they used to, unknown models get logged defaults) and finding the separate encode_image bug \u2014 every image labelled image/jpeg while the bot sends PNG, which OpenAI ignores and Anthropic rejects \u2014 then proving six paths live on claude-haiku-5-5 and regression-testing gpt-4o, is senior work.",
+  "Minimal, well-gated migration with real per-path evidence: one wrap of the single AsyncOpenAI client covers all four chat sites, it is inert until RAMP_ROUTER_API_KEY is set with ROUTER_MIGRATE_DISABLE as a kill switch, every production path was driven once against the simulator and once against real Router (6/6 200, labels per call site), and the n1 note names the exact configs (N_CHOICES>1, PRESENCE_PENALTY\u22600, OPENAI_BASE_URL) that would silently leave traffic on the provider."
+ ],
+ "misses": [
+  "No provider_timeout anywhere \u2014 the single most relevant Router-only field for this app. Every routed call is on the user's Telegram turn, the app's only resilience is a tenacity retry that catches RateLimitError alone (3 attempts, 20s apart), so a slow or hung upstream just stalls the turn. An expert would have paired a short provider_timeout with the i3 fallback list (timeout bounds the primary, fallback supplies the answer) and said what the timeout budget should be, rather than proposing fallbacks alone.",
+  "Nothing at the rework level, and no attention to who waits. Summarisation is listed as latency: user_waiting yet no item proposes getting it off the critical path (summarise after replying, trim instead of summarise, or run it on Flex since nobody is waiting on it by design) \u2014 and i4 only makes the resent history cheaper rather than questioning why the whole history is resent every turn. Flex is mentioned only in passing inside d1 instead of being costed as its own lever for the calls that qualify.",
+  "No regression test for the behaviour that actually broke. The repo 'suite' is 5 compileall/import checks, so the plugin-history fix is guarded only by a one-off simulator script and the report itself admits the live run never exercised the plugin follow-up. A cheap unit test asserting the assistant function_call precedes the function result in self.conversations (and a case for a failing plugin) would have made the fix durable; as shipped, the one change with real behavioural risk has the weakest standing coverage."
+ ],
+ "wrong": [
+  "m1's \"loses\": \"nothing\" is not honest against the rest of the report: the migration required p1, which changes conversation history and the request sent on the provider path too, and n1 shows configurations that lose Router without telling the operator. s1 also means OPENAI_API_KEY must stay configured. 'Nothing' belongs on s1, not m1.",
+  "i2's \"The user never sees the summary\" conflates visibility with latency. The engineer's own calls table marks openai_helper.py:628 as user_waiting \u2014 summarisation runs inline in the turn, so routing it to another vendor's model adds that vendor's latency to a user's reply, and no latency was measured. The cost argument stands; the risk statement is wrong about who pays for it.",
+  "The p1 fix appends the assistant function_call to history before plugin_manager.call_function runs, so if the plugin raises or returns nothing usable, the history keeps a function_call with no matching output \u2014 the mirror image of the bug just fixed, and the Responses API path is the one that cares. Untested and unmentioned; appending both messages together after the call returns would avoid it.",
+  "i4's depends_on: [\"i1\"] is wrong \u2014 passing extra_body={'prompt_cache_key': ...} on the reply calls has nothing to do with unfreezing the model tables. It only depends on m1. Minor, but it makes the dependency graph on a dashboard misleading about what can ship first.",
+  "i3's claim that the runtime's guards drop candidates that cannot do tools or image input, so \"one list is safe for both labels\", is asserted from reading the runtime and carries a not-run evidence row. It is the load-bearing safety argument for the proposal and should have been exercised (a tools request with a non-tool candidate) rather than inferred, especially since the report elsewhere separates measured from documented behaviour carefully."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 12.5,
+  "usd": 7.3904,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 9,
+  "kinds": {
+   "move": 1,
+   "port": 1,
+   "stays": 1,
+   "note": 1,
+   "improvement": 4,
+   "needs-decision": 1
+  },
+  "improvements": 4,
+  "built": 2,
+  "levels": {
+   "change": 2,
+   "quick-win": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

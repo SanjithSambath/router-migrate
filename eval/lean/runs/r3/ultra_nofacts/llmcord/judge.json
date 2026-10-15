@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Caught that the Dockerfile copies an explicit file list, so without router_runtime.py the container would import the no-op fallback and silently bypass Router in the one deployment path the project documents \u2014 the kind of miss that makes a 'migration' route zero production traffic.",
+  "Diagnosed that the system prompt's {time} at second resolution sat at offset zero of every request, making the prompt cache unreachable, and fixed it by moving the volatile text behind the replayed history rather than deleting the clock \u2014 then A/B measured both arms on live Router (0 vs 3,328 of 3,918 tokens cached, -74% on the follow-up turn) instead of asserting the gain.",
+  "Took the bare `except Exception: logging.exception` seriously as a production bug and attacked it from both sides: a user-visible failure notice (quick win, generic text so provider errors can't leak model ids or prompt content into a channel) plus a Router fallback list with provider_timeout 60 to replace the openai client's 600 s default on a path where a human watches a typing indicator."
+ ],
+ "misses": [
+  "The cacheable-prefix fix doesn't survive llmcord's own sliding window: the chain is capped at max_messages (25 by default), so once a thread passes the cap each turn drops the oldest message and the prefix changes at byte zero again \u2014 the cache dies exactly in the long threads the item claims to help most. An expert would have pinned or bucketed the window start (and measured a thread past the cap) so the prefix is stable at steady state.",
+  "No rework-level item on the real cost driver: every turn re-fetches and replays up to 25 Discord messages at gpt-5.5 with reasoning_effort high. Trimming or summarising the tail, dropping reasoning effort for ordinary chat turns, or a per-channel prompt_cache_key to keep multi-turn requests landing on the same cache were never raised \u2014 the proposals stop at quick-win and change.",
+  "Left the one measurement that would settle two of their own items undone: Flex was never measured on gpt-5.5 (the only model that serves traffic), so d1 rests on a -50% sample from gpt-5.4-mini and a 61 s latency sample from gpt-5-nano, and i2's biggest stated loss ('this may move the reply path to the standard tier and give up a Flex discount') stays unquantified. Also unaddressed: claude-sonnet-5 as fallback candidate caches on entirely different (explicit cache_control) semantics, so the i1 gain silently vanishes whenever the fallback serves."
+ ],
+ "wrong": [
+  "i1's gains overstate the steady state \u2014 'the saving grows with the thread, up to the configured 25-message chain' is backwards past the cap, where the sliding window invalidates the prefix every turn; the -74% was measured on a harness that evidently didn't exercise the slide.",
+  "m1 claims 'loses: nothing' while m3 documents that extra_headers and extra_query are dropped on the Router path and the README states provider keys must stay configured for the pre-generation retry \u2014 both are losses of the move, recorded elsewhere but not in the item that incurs them.",
+  "'One Router key instead of a per-provider key' is contradicted by the same migration's README line telling operators to keep the provider API keys configured for the retry-to-origin path.",
+  "d1's evidence is cross-model extrapolation (gpt-5.4-mini discount, gpt-5-nano latency) presented as the factual basis for a gpt-5.5 tier decision; honestly flagged as unmeasured, but it is still the only thing the decision rests on."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 17.2,
+  "usd": 8.4036,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "note": 2,
+   "improvement": 4,
+   "needs-decision": 2
+  },
+  "improvements": 4,
+  "built": 3,
+  "levels": {
+   "change": 3,
+   "quick-win": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

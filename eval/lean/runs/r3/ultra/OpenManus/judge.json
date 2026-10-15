@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found the single chokepoint (one AsyncOpenAI per LLM config in app/llm.py) and routed all five call sites with a one-line, key-gated, revertible wrap \u2014 outside check confirms 5/5 verified, 0 unverified, 0 not-routing, tests identical to baseline, plus 23 live 200s across both vendors including tool-calling and image turns.",
+  "Noticed that this repo's own shipped configs point the OpenAI SDK at Anthropic/Jiekou/PPIO/Google, so an openai.com-only unlock would have routed almost nothing in practice \u2014 unlocked exactly the configured host while deliberately excluding loopback/private hosts (Ollama/vLLM data-residency and the gpt-oss-120b name collision).",
+  "Tied the prompt-cache lever to this codebase's actual shape (ToolCallAgent re-sends system prompt + all tool schemas + full history for up to 30 steps) and measured it on the live account rather than asserting it: 4,218-token prefix, 4,096 cached on the repeat, $0.0006339 \u2192 $0.0003267; paired with metadata.product for attribution and provider_timeout matching the deadlines the app already enforces client-side."
+ ],
+ "misses": [
+  "No per-feature model or tier differentiation was built or even proposed concretely: ask_with_images (interactive screenshots), the VMind chart path and summarisation are lumped with the agent hot path on one configured model, when Router makes a cheap vision/background model per feature a one-line policy change. Everything model-shaped was deferred to d1 on the grounds that config.toml is absent, but a ranked, conditional recommendation ('if primary is X, put ask_with_images on haiku-5-5, keep ask_tool on Y') needed no production config.",
+  "Fallbacks were deferred entirely with no decision-ready branch, and the interaction with the app's existing six-retry-with-backoff loop was waved at rather than analysed \u2014 on Router the two stack (Router falls through candidates, then the app retries the whole thing six times), which multiplies worst-case latency and spend on the one hot, non-streaming path. An expert would have proposed the retry count reduction alongside the models list.",
+  "The tokenizer bug in n2 was left as a note instead of a branch: the app adds tiktoken estimates to total_input_tokens for streamed calls and enforces max_input_tokens against them, which is simply wrong for Claude and open-weight models now that Router serves them \u2014 Router returns exact usage and usage.cost on every Responses reply, so stream_options.include_usage plus reading usage is a small, testable fix to a real correctness problem the migration itself makes more likely. Similarly the largest unrouted spend (the VMind subprocess) got no routing proposal at all \u2014 doing the LLM call in Python and handing VMind the result, or a tiny chat/completions\u2192Responses shim, was worth costing out rather than only reporting."
+ ],
+ "wrong": [
+  "m1 and m2 both claim \"loses: nothing\", which is not honest for m2: the price field itself says billing moves from whatever the deployment configured (plausibly a cheaper reseller or a negotiated rate) to Router list price, and the serving endpoint changes. That is a real loss, not nothing.",
+  "The vision-catalog branch widens MULTIMODAL_MODELS unconditionally whenever the runtime is vendored \u2014 not only for Router-bound requests. With RAMP_ROUTER_API_KEY unset or ROUTER_MIGRATE_DISABLE=1, images that used to be stripped are now sent straight to the configured provider/reseller, which can newly 400 or newly bill for image tokens. The report frames the Router-only fields carefully but does not flag this one behaviour change on the provider path.",
+  "The summary says the calling file:function is sent as metadata.feature on every request, yet the outside check's live tally shows 5 of 23 requests under \"(unlabelled)\" \u2014 either some path (the probe's own calls, or a client-level construction) is unlabelled or the labelling is not as universal as claimed; unexplained in the report.",
+  "\"All five call sites route\" is stated as a property of the app, but routing is conditional on the configured model being a current catalog id \u2014 and the report's own i3 shows three of four shipped example configs name retired Claude 3.7 ids that do not route. The migration's real-world coverage is therefore contingent in a way the summary's phrasing understates, even though i3 explains it."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 25.4,
+  "usd": 13.5826,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 13,
+  "kinds": {
+   "move": 2,
+   "stays": 4,
+   "needs-decision": 1,
+   "note": 3,
+   "improvement": 3
+  },
+  "improvements": 3,
+  "built": 3,
+  "levels": {
+   "-": 3
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

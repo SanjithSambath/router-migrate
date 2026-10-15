@@ -1,0 +1,597 @@
+{
+ "version": 6,
+ "summary": "SEC Insights is a RAG chat over SEC filings whose production LLM traffic is entirely LlamaIndex: two OpenAI clients (a shared Settings.llm and a streaming client for the answering OpenAIAgent) behind which sit five distinct workloads -- answer streaming, sub-question generation, per-document retrieval synthesis, final synthesis, and a per-document agent over polygon.io. One user turn is five to twenty gpt-4o-mini calls, all of them inside the person's wait. Both clients now carry the vendored runtime's http_client/async_http_client, so every one of those calls goes to Router when RAMP_ROUTER_API_KEY is set and stays on OpenAI otherwise; Settings.embed_model is deliberately untouched because Router serves no embeddings endpoint. Verified against router-sim (every app path reaches /v1/responses) and live against Router. Ranked by value, the five improvement branches are: a per-conversation prompt cache key on the answer agent (measured 39% off that call on gpt-4o-mini, 65% on claude-haiku-5-5); one LLM per workload with its own model setting and Router spend label, defaults unchanged; a router.policy.json that pins the standard tier, bounds provider time and adds cross-vendor fallbacks; answering per-document financial questions without the inner one-tool agent (2 Router calls -> 1, measured); and not offering the agent a question engine that has no sources. Seven further items -- a measured 71% cheaper RAG model, the answer model, Shadow models, Switchyard, collapsing the two-level agent, caching the chat engine per conversation, and lifting LlamaIndex's model-name restriction -- are proposals with no branch, because each is either a quality judgement nothing offline settles or a strategy a human switches on at app.router.com.",
+ "reviewed": "The review walked the whole request path for one user message -- handle_chat_message -> get_chat_engine -> the top-level OpenAIAgent -> two SubQuestionQueryEngines -> per-document vector query engines and per-document polygon.io agents -> the shared response synthesiser -- and priced each layer live through Router on this app's real prompt shapes across gpt-4o-mini, gpt-6-luna, claude-haiku-5-5, gpt-5-nano and gpt-5.4-nano. It looked for calls that could be cheaper (model, tier, caching), calls that could be fewer (the one-tool inner agent, the sourceless question engine) and levers this app's latency profile rules out: Flex is the main one, because nothing here runs unattended.",
+ "calls": [
+  {
+   "site": "backend/app/llama_index_settings.py:28",
+   "feature": "sec_rag",
+   "model": "gpt-4o-mini",
+   "task": "sub-question generation, per-document retrieval answers, response synthesis (refine/compact)",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "backend/app/chat/tools.py:152",
+   "feature": "sec_doc_financials",
+   "model": "gpt-4o-mini",
+   "task": "per-document agent over the polygon.io financials tool",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "backend/app/chat/engine.py:287",
+   "feature": "sec_chat_answer",
+   "model": "gpt-4o-mini",
+   "task": "the OpenAIAgent that picks a question engine and streams the user's answer",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m2"
+  },
+  {
+   "site": "backend/app/llama_index_settings.py:34",
+   "feature": "sec_embeddings",
+   "model": "text-embedding-3-small",
+   "task": "embedding document chunks and queries",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "m3"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "level": "quick-win",
+   "title": "Route the shared LlamaIndex LLM through Router",
+   "summary": "Settings.llm -- the LLM behind sub-question generation, every per-document query engine, response synthesis and the per-document polygon.io agent -- gets the runtime's http_client / async_http_client.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28",
+    "backend/app/chat/tools.py:152"
+   ],
+   "gains": "Router serves the majority of this app's calls (and all of its input tokens): one key, per-request spend and metadata, and every Responses lever reachable from router.policy.json without touching LlamaIndex.",
+   "loses": "nothing",
+   "price": "no change (same model, same request shape; usage.cost matched gpt-4o-mini list price exactly in the live checks)",
+   "why": "Everything except the top-level answer agent reaches the network through this one client, including clients the scanner cannot see: the OpenAIQuestionGenerator's function-calling program, the response synthesiser, each index.as_query_engine() and the per-document agent built by Settings.llm.model_copy(deep=True). LlamaIndex passes http_client straight into every OpenAI SDK client it builds, so one hook covers all of them, and the runtime's clients survive the deep copy that app/chat/tools.py performs. The requests are Chat Completions, which Router has no endpoint for, so the runtime translates each one to POST /v1/responses. Nothing moves until RAMP_ROUTER_API_KEY is set: http_client() returns None when the runtime is inactive, which is exactly the constructor's default.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "A probe exercising Settings.llm.chat, .achat, a deep model_copy of it and the engine's streaming client: 4 of 4 requests reached router-sim as valid /v1/responses with model=gpt-4o-mini. The 22 remaining api.openai.com attempts were the embedding retries, which stay on the provider by design."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "router-migrate check --run ... --live on this branch's clients: each path returned 200 from /v1/responses, x-router-provider: openai. (The named feature labels in this report's call list arrive with item i2; on this branch the runtime's automatic <file>:<function> label is used.)"
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "8 smoke assertions + 7 pytest tests, unchanged from the baseline (15 passed before and after)."
+    }
+   ],
+   "commit": "61db89f",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m2",
+   "kind": "move",
+   "level": "quick-win",
+   "title": "Route the streaming chat agent through Router",
+   "summary": "The OpenAI client that app/chat/engine.py builds for the answering OpenAIAgent gets the same runtime hook.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "The one user-visible generation in the product -- the streamed answer -- is on Router, so its model, tier, timeout and fallbacks are all changeable from configuration.",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "This client is separate from Settings.llm (it adds temperature=0 and streaming=True) and is rebuilt per conversation, so it needs its own hook. The request is a streaming Chat Completions call with two function tools; the runtime translates the request and translates the SSE stream back, so app/chat/messaging.py keeps consuming the same StreamingAgentChatResponse and the SSE contract to the frontend is unchanged.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "Building the real chat engine and streaming through it: one valid /v1/responses request, client=app/chat/engine.py:get_chat_engine."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "A live streamed turn through this client returned 200 from Router's /v1/responses, x-router-provider: openai."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed, same as the baseline."
+    }
+   ],
+   "commit": "94a1fcb",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m3",
+   "kind": "stays",
+   "level": "quick-win",
+   "title": "Embeddings stay on OpenAI",
+   "summary": "Settings.embed_model (text-embedding-3-small) keeps calling api.openai.com: Router has no embeddings endpoint.",
+   "calls": [
+    "backend/app/llama_index_settings.py:34"
+   ],
+   "gains": "nothing; this records what did not move and why",
+   "loses": "nothing (the call is unchanged), but note that embedding spend stays outside Router's per-key reporting, so Router will not show the whole AI bill for this service",
+   "price": "no change",
+   "why": "/v1/embeddings returns a plain-text 404 on Router, and the runtime keeps embedding requests on the provider unchanged. This app embeds on every query (retrieval) and on every document ingest, so OPENAI_API_KEY must stay configured and funded even after the migration. The simulator run shows these as blocked api.openai.com attempts; that is the correct behaviour, not a missed call.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "info",
+     "detail": "The embedding probe produced api.openai.com attempts the sandbox blocked and zero router-sim requests, confirming the runtime leaves embeddings on the provider."
+    },
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "Router fact sheet section 2: /v1/embeddings is 404 on Router."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "level": "quick-win",
+   "title": "Cache the chat agent's prefix per conversation",
+   "summary": "A stable prompt_cache_key per conversation on the answer agent, so the system message, both tool schemas and the chat history are read from the provider's prompt cache instead of charged at full input price every turn.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Measured live on a 4-turn conversation: gpt-4o-mini's turn-6 call fell from $0.000365 to $0.000221 with 1,920 of 2,128 input tokens cached; claude-haiku-5-5 fell from $0.000498 to $0.000173 with 3,687 of 3,977 cached. The saving grows with conversation length, and it applies to the one call that carries the whole history. It also gives this conversation provider affinity, which is what makes the cache hit at all.",
+   "loses": "nothing functional: prompt_cache_key is accepted by OpenAI's Chat Completions API and by Router, so the field is valid on both the Router path and the provider path, and it changes no output. The only cost is that the key reveals conversation identity to the provider's cache, exactly as the conversation content already does.",
+   "price": "-39% on the answer-agent call on gpt-4o-mini at four turns of history, -65% on claude-haiku-5-5 (n=1 per arm, live usage.cost)",
+   "why": "This is the one place in the app with a long, stable, repeated prefix. Every other call carries fresh retrieved text, and the fixed parts of the synthesis templates are far below the ~1,024-token provider minimum, so caching cannot pay there. Without a key Claude caches nothing at all through Router -- measured: two identical arms, 0 cached tokens -- so this line is also the precondition for ever moving the answer model to Claude (item p2). The key is set on additional_kwargs where it survives whatever LlamaIndex does with the request.",
+   "evidence": [
+    {
+     "check": "price",
+     "result": "pass",
+     "detail": "Live /v1/responses, same 4-turn conversation, with and without the key: gpt-4o-mini $0.000365 -> $0.000221 (cached 1,920/2,128); claude-haiku-5-5 $0.000498 -> $0.000173 (cached 3,687/3,977). Recomputed against catalog prices and matched usage.cost exactly."
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "Asserted the engine's LLM carries prompt_cache_key=conversation-<uuid>, then issued a real request through the runtime: 1 valid /v1/responses."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed."
+    }
+   ],
+   "commit": "b2650df",
+   "branch": "router-migrate/improve/prompt-cache-per-conversation",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i2",
+   "kind": "improvement",
+   "level": "change",
+   "title": "One LLM per workload: own model setting and spend label",
+   "summary": "build_llm(LLMRole.X) becomes the single place a client is constructed; each of the three workloads gets its own x-router-migrate-feature label and its own model setting, with defaults identical to today.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28",
+    "backend/app/chat/tools.py:152",
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Router's spend views split into sec_chat_answer / sec_rag / sec_doc_financials instead of one undifferentiated stream, which is the only way to see where five-to-twenty calls per turn actually go. More importantly it makes every other lever targetable: router.policy.json matches on these labels, so a tier, a timeout, a fallback list or a model_map can be set for one workload without touching the other two. CHAT_ANSWER_LLM_NAME / RAG_LLM_NAME / DOC_FINANCIALS_LLM_NAME give the same split in app configuration.",
+   "loses": "The per-document financials LLM is no longer a deep copy of Settings.llm, so it stops inheriting later mutations of Settings.llm -- which is the point, but it is a behaviour change for anyone who was relying on that coupling. app/chat/engine.py no longer constructs an OpenAI client, so the router-migrate wrap artifact in that file is removed and a plain revert of commit 94a1fcb on top of this branch will not apply cleanly.",
+   "price": "no change by default: all three settings are unset, so every role resolves to OPENAI_CHAT_LLM_NAME (gpt-4o-mini) with the same temperature and streaming flags as before",
+   "why": "The three workloads have nothing in common. The answer role streams prose to a waiting person and should be judged on quality; the RAG role reads ~2,000 tokens of filing text per call and is where almost all input spend is, so it should be judged on price per input token; the financials role turns one fixed polygon.io payload into a sentence and is the cheapest work in the app. Pricing them live shows how far apart the right answers are: on the RAG synthesis shape gpt-6-luna costs $0.000119 against gpt-4o-mini's $0.000405, while on the same shape claude-haiku-5-5 costs $0.000731 because it writes four times as much. One OPENAI_CHAT_LLM_NAME cannot express that, and neither can one spend line. Stated limit, also in build_llm's docstring: LlamaIndex validates model names against its own table and raises for anything else, so only 13 of Router's ~90 catalog ids can be named in these settings (gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4-turbo, gpt-3.5-turbo, gpt-4, o1, o3, o3-mini, o3-pro, o4-mini). Everything else is reached with model_map in router.policy.json -- see p1 and p7.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "A probe driving all three workloads produced three valid /v1/responses requests with feature=sec_rag, sec_doc_financials and sec_chat_answer, all model=gpt-4o-mini."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "The same three paths live through Router: 200 each, with the three distinct feature labels recorded."
+    },
+    {
+     "check": "router-live",
+     "result": "info",
+     "detail": "RAG_LLM_NAME=gpt-6-luna fails in LlamaIndex before any request (ValueError: Unknown model 'gpt-6-luna'), which is what the docstring's stated limit is about."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed."
+    }
+   ],
+   "commit": "7f12e88",
+   "branch": "router-migrate/improve/llm-roles",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i3",
+   "kind": "improvement",
+   "level": "quick-win",
+   "title": "Policy: standard tier, bounded provider time, fallbacks",
+   "summary": "A router.policy.json keyed on the three workload labels: service_tier \"default\", provider_timeout 60, and a cross-vendor fallback list.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28",
+    "backend/app/chat/tools.py:152",
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Three guardrails on the user-facing path, none of which the app can express today. (1) The standard tier: the account default is cost-efficient routing, and measured live, plain gpt-6-luna is served at Flex while the same request with service_tier \"default\" is served standard -- so this line stops the first person who changes the model from silently moving the whole user-waiting path onto a queueing tier, where the fact sheet records a 61 s gpt-5-nano call. (2) A 60 s provider_timeout where there is none today, so a hung provider no longer hangs the SSE stream. (3) fallbacks [gpt-4.1-mini, gpt-oss-120b] -- one OpenAI sibling and one model served off OpenAI entirely (Fireworks/Baseten) -- so a model- or key-level refusal returns an answer instead of a 500.",
+   "loses": "A fallback means a different model may answer, in a different voice, and the response does not say which candidate served. The fact sheet also records that there is no fallback once a stream has started, so for the answer agent this only protects the phase before the first token, and that gpt-oss-120b has been seen switching provider mid tool loop. The 60 s timeout turns a very slow call into a plain-text 504 instead of an eventual answer; measured latencies are 1-6 s, so this is roughly 45x p95 headroom, but it is a real change in failure mode. Fallback behaviour on genuine provider outages is documented by Router, not measured.",
+   "price": "no change while gpt-4o-mini serves (it has no Flex tier, so service_tier \"default\" is a no-op today); a fallback turn is billed at whichever candidate serves, and the fact sheet notes truncated attempts are still billed",
+   "why": "Every LLM call in this app sits inside a person's wait: the answer is not streamed until the sub-question engine and the synthesiser have both finished, so there is no unattended work anywhere for Flex to be right about. That makes pinning the standard tier the correct default for this product and worth writing down rather than inheriting from an account setting. The fallback candidates were chosen for capability, not price: both accept temperature and tools, which this app always sends, so neither is dropped by the policy's capability guard -- confirmed, no guard message and the list survives intact. Candidates that reject temperature (gpt-6-luna, every claude *-5-5) would have been silently dropped from the list. This branch is cut from router-migrate/improve/llm-roles rather than from the migration branch, because it edits the same lines, so its diff against the migration branch shows item i2's changes as well; apply i2 first or together with it.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "Per-feature matching is real, not inherited from defaults: removing the list from two features left only sec_chat_answer carrying a models list (model=None) while the other two carried model=gpt-4o-mini."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "All three workloads 200 through Router with the policy applied, plus the streaming answer path; no capability-guard message, so both fallback candidates survived."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "service_tier \"default\" measured on a Flex-eligible model: gpt-6-luna plain -> service_tier flex, 1.92 s, $0.0000418; with service_tier \"default\" -> service_tier default, 1.44 s, $0.0000792 (n=1 per arm)."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed; the compiled copy at backend/app/router_policy.py is current (hash 3c36d6bf)."
+    }
+   ],
+   "commit": "5aa4cab",
+   "branch": "router-migrate/improve/router-policy",
+   "depends_on": [
+    "i2"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "p1",
+   "kind": "needs-decision",
+   "level": "change",
+   "title": "Serve the RAG workload with gpt-6-luna",
+   "summary": "Map sec_rag's model to gpt-6-luna in router.policy.json: measured 71% cheaper on this app's synthesis shape, at roughly twice the latency on a single sample.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28"
+   ],
+   "gains": "This is where the money is. Priced live on this app's real prompts: response synthesis over ~1,900 tokens of retrieved 10-K text costs $0.000405 on gpt-4o-mini and $0.000119 on gpt-6-luna (-71%); sub-question generation costs $0.000248 against $0.000185 (-25%). Those two shapes are most of a turn, so a two-document qualitative turn would fall from roughly $0.0017 to roughly $0.0008. gpt-6-luna is also a current model with a 128k context against gpt-4o-mini's 16k output cap.",
+   "loses": "Latency, which this app can least afford: on the synthesis shape gpt-6-luna took 5.39 s against gpt-4o-mini's 2.30 s, and on sub-question generation 4.92 s against 3.30 s (n=1 each, standard tier). Those calls are serial inside the user's wait, so a turn could get several seconds slower. And temperature is silently dropped -- gpt-6-luna's catalog entry says temperature: false and the runtime drops the field rather than failing -- so the RAG calls stop being near-deterministic. Answer quality on financial text is not measured; nothing offline measures it.",
+   "price": "-71% on synthesis, -25% on sub-question generation, roughly -50% on a whole qualitative turn",
+   "why": "Apply it as a model_map on the sec_rag label, not as RAG_LLM_NAME: LlamaIndex raises ValueError for any model outside its own table, and gpt-6-luna is not in it, whereas model_map swaps the model on the way to Router and leaves the request LlamaIndex built alone. Verified live end to end -- with features.sec_rag.model_map = {\"gpt-4o-mini\": \"gpt-6-luna\"} the app's own code still says gpt-4o-mini and Router served gpt-6-luna, 200. drop_params is not needed; the runtime already drops temperature for models whose catalog says temperature: false (tested both with and without, both 200). This is a proposal rather than a branch because the decision is a latency-for-cost trade on a product where people are watching a spinner, and because one sample per arm is not enough to set a latency budget -- settle it with Shadow models (p3) on real traffic first.",
+   "evidence": [
+    {
+     "check": "price",
+     "result": "pass",
+     "detail": "Live /v1/responses at standard tier on this app's prompts: synthesis gpt-4o-mini $0.000405 / 2.30 s vs gpt-6-luna $0.000118921 / 5.39 s; sub-question generation $0.000248 / 3.30 s vs $0.000185 / 4.92 s (n=1 per arm)."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "features.sec_rag.model_map = {\"gpt-4o-mini\": \"gpt-6-luna\"} on the policy branch: the app sent gpt-4o-mini, Router served model=gpt-6-luna, 200, reply correct. Also 200 without drop_params, so the runtime's automatic temperature drop covers it."
+    },
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "Both answers to 'What supply chain risks does Apple describe?' over the same three chunks were on-topic and grounded; one sample each, no quality judgement."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "i2",
+    "i3"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i4",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Answer per-document financials without an inner agent",
+   "summary": "Replace each document's one-tool OpenAIAgent with a query engine that fetches the polygon.io financials and makes a single call to answer from them: 2 Router requests become 1, measured.",
+   "calls": [
+    "backend/app/chat/tools.py:152"
+   ],
+   "gains": "Every SEC document in a conversation had its own OpenAIAgent whose only tool takes no arguments and returns the same financials whatever is asked, so the agent spent one call deciding to call the only thing it could call and a second writing the answer. Measured against router-sim on the same question and document: 2 requests before, 1 after. That is half the calls and one fewer serial round trip per document per quantitative sub-question -- a conversation over four filings asking one quantitative question drops from eight calls to four, and loses one full round trip from the user's wait.",
+   "loses": "The inner agent's FUNCTION_CALL callback events, which app/chat/messaging.py forwards to the frontend as sub-process rows under a message, so the quantitative path shows fewer of them. The wording of each sub-answer also changes, because it now comes from one prompt holding the data rather than from a tool result fed back into an agent loop.",
+   "price": "-50% on the quantitative path's LLM calls",
+   "why": "This is the clearest case in the app of a model being asked to make a decision that has exactly one possible outcome. extract_data_from_sec_document ignores its arguments entirely and is keyed only on the filing's ticker and period of report; the agent's system prompt tells it to use its tools; there is one tool. Making the fetch unconditional removes the decision and the round trip without removing any capability. get_polygon_io_sec_tool still exists and still works -- the fetch moved into get_sec_financials_fetcher and the FunctionTool is built from it -- so nothing that wanted the tool has lost it. This branch is cut from router-migrate/improve/llm-roles rather than from the migration branch, because it edits the same lines, so its diff against the migration branch shows item i2's changes as well; apply i2 first or together with it.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "Same document, same question, through router-sim: the inner-agent version issued 2 /v1/responses requests (both feature=sec_doc_financials), the new engine issued 1."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed, including the smoke assertion that builds get_api_query_engine_tool for a SEC document."
+    }
+   ],
+   "commit": "85469eb",
+   "branch": "router-migrate/improve/financials-without-agent",
+   "depends_on": [
+    "i2"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "p5",
+   "kind": "needs-decision",
+   "level": "rework",
+   "title": "Collapse the two-level agent so the answer streams sooner",
+   "summary": "The top-level agent spends two extra serial round trips to make a binary routing choice and then reword an answer it already has; give it the per-document tools directly, or stream the sub-question engine's synthesis to the user.",
+   "calls": [
+    "backend/app/chat/engine.py:287",
+    "backend/app/llama_index_settings.py:28"
+   ],
+   "gains": "The product's real problem is time to first useful token, and it is architectural rather than a model choice. A turn today is: agent decides which engine (~1.2 s), sub-question generation (~3.3 s), N per-document retrievals with synthesis in parallel (~2.3 s), synthesis over the sub-answers (~2.3 s), then the agent re-reads all of it and starts streaming (~2 s). Nothing user-visible appears for the first four of those. Removing one of the two levels removes two serial Router round trips and two LLM calls per turn from the critical path -- more latency than any model or tier change in this report can buy, and a cost saving on top.",
+   "loses": "The top-level agent's framing of the answer, which is where the SYSTEM_MESSAGE persona, the document list, the current date and the refusal behaviour for non-financial questions live; those would have to move into whatever streams instead. Flattening to per-document tools also puts up to N document descriptions into the answer agent's tool list, which changes how it chooses and grows the prefix. This is a redesign of how the product uses models and needs its own design and evaluation, not a patch.",
+   "price": "roughly -30% of a turn's calls, plus whatever the removed round trips are worth in latency",
+   "why": "max_function_calls=3 and two tools mean the top-level agent's entire decision is 'qualitative or quantitative', which the sub-question generator one layer down is already equipped to make per sub-question. Meanwhile the app already streams sub-process events to the frontend, so the UI is built to show progress from the inner layers -- streaming the inner synthesis to the user is a smaller step than it looks. Proposed rather than built because it changes the answer's voice and the sub-process stream the frontend renders, and because the right shape depends on product judgement about how the assistant should sound.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "info",
+     "detail": "Per-call latencies measured live at standard tier on this app's prompts (n=1 each): agent routing decision 1.21 s, sub-question generation 3.30 s, per-document synthesis 2.30 s. The chain is serial, so these add."
+    },
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "No prototype built; the latency gain is arithmetic over measured per-call times, not an end-to-end measurement."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p3",
+   "kind": "needs-decision",
+   "level": "quick-win",
+   "title": "Turn on Shadow models to settle the model questions",
+   "summary": "Switch Shadow models on at app.router.com with gpt-6-luna and claude-haiku-5-5 as candidates, so p1 and p2 are decided on this app's real traffic instead of single samples.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28",
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Every model number in this report is n=1 on prompts reconstructed from the code. Shadow models records cost and latency for one to three candidate models on a 5-10% sample of real /v1/responses traffic and reports them on the Shadow Logs page, which turns p1's 71% and p5's latency arithmetic into distributions over real filings and real questions -- at the cost of the shadow calls on that sample, with no effect on what users see.",
+   "loses": "It records cost and latency only, not quality, so it cannot settle whether gpt-6-luna reads a 10-K as well as gpt-4o-mini; that still needs human review of sampled answers. It also requires content recording to be enabled on the account, which means this app's prompts -- user questions and retrieved filing text -- are stored on Router's side. For public SEC filings that is unlikely to matter, but it is a data decision, not a technical one. Not available on BYOK keys.",
+   "price": "the cost of the shadow calls on 5-10% of traffic",
+   "why": "A human has to switch this on; nothing in the repository can. It is listed first among the proposals that cost nothing to try because it is the cheapest way to de-risk the two largest remaining items. Behaviour is documented by Router, not measured here.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "Account strategy; switched on at app.router.com, not from app code. Described in the Router fact sheet section 1a; quality comparison is explicitly out of scope for it."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p2",
+   "kind": "needs-decision",
+   "level": "change",
+   "title": "Serve the streamed answer with claude-haiku-5-5",
+   "summary": "Map sec_chat_answer's model to claude-haiku-5-5: a current model, cheapest of the candidates on this shape once i1's cache key is in, but verbose.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "The answer is the only generation a user reads, and it is being written by a 2024 mini model on a financial-analysis product. On the answer-agent shape with a 4-turn history and a per-conversation cache key, claude-haiku-5-5 cost $0.000173 per turn against gpt-4o-mini's $0.000365 -- 53% cheaper, not more expensive -- and it was the fastest candidate on the routing call (0.92 s against gpt-4o-mini's 1.21 s). It also picked the right tool on this app's real tool schemas.",
+   "loses": "Verbosity: on the same prompts Claude produced 639-800 output tokens where gpt-4o-mini produced 192-348, which is a different answer length in the product and the reason it is 80% more expensive than gpt-4o-mini on the RAG synthesis shape ($0.000731 vs $0.000405) -- so this belongs on the answer role only, never on sec_rag. temperature: false, so temperature=0 is silently dropped and answers stop being near-deterministic. The saving is entirely contingent on i1: without a cache key Claude cached nothing at all through Router, measured, and cost $0.000498 per turn. Answer quality is not measured.",
+   "price": "-53% per answer-agent turn with i1 applied; +23% on the first turn of a conversation, before the cache is warm",
+   "why": "Apply as model_map on sec_chat_answer in router.policy.json for the same reason as p1: LlamaIndex will not accept the name. Claude's larger input-token count on identical content (3,691 vs 1,961 tokens for the same 4-turn conversation) is more than offset by the $0.01 per 1M cache-read price against gpt-4o-mini's $0.075. A proposal rather than a branch because this is the user-visible voice of the product and the decision is about quality, which no offline check settles; pair it with p3 and a human read of sampled answers.",
+   "evidence": [
+    {
+     "check": "price",
+     "result": "pass",
+     "detail": "Live, 4-turn conversation with this app's system message and tool schemas: gpt-4o-mini $0.000365 uncached / $0.000221 cached; claude-haiku-5-5 $0.000498 uncached / $0.000173 cached (3,687 of 3,977 input tokens cached)."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "claude-haiku-5-5 on this app's real tool schemas returned the correct function_call (qualitative_question_engine) in 0.92 s, x-router-provider: anthropic."
+    },
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "On the synthesis shape claude-haiku-5-5 used 800 output tokens (hitting the cap) against gpt-4o-mini's 192 for the same question -- the verbosity this item warns about."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "i1",
+    "i2",
+    "i3"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i5",
+   "kind": "improvement",
+   "level": "quick-win",
+   "title": "Don't offer a question engine that has no sources",
+   "summary": "Build and offer each SubQuestionQueryEngine only when it has at least one document to read, instead of always offering both.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Removes a call that can only fail. Both engines were constructed and advertised to the top-level agent unconditionally, so a conversation whose documents carry no SEC metadata was still told a quantitative engine existed, and one with no documents at all was told both did -- while the system message insists it must use its tools. Picking an empty engine spends a sub-question generation call that can only come back with nothing.",
+   "loses": "nothing in the normal case, where documents are SEC filings and both engines are offered exactly as before. In the no-documents case the agent now has no tools at all and answers from the system message (which already says 'No documents selected.'), rather than attempting a tool call -- a different, better-behaved response to a request the app could not serve anyway.",
+   "price": "removes one LLM call per turn in the degenerate cases; no change otherwise",
+   "why": "Small, but it is the other half of i4's point: a model should not be asked a question whose answer is already known. The conversation API accepts a conversation with no documents, and build_description_for_document has a non-SEC fallback, so both of these states are reachable in production rather than hypothetical. This branch is cut from router-migrate/improve/llm-roles rather than from the migration branch, because it edits the same lines, so its diff against the migration branch shows item i2's changes as well; apply i2 first or together with it.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "No documents -> no tools offered and the agent answers in a single valid /v1/responses request; a document with no SEC metadata -> qualitative_question_engine only; a SEC document -> both engines, as before."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "15 passed."
+    }
+   ],
+   "commit": "f97be36",
+   "branch": "router-migrate/improve/skip-empty-engines",
+   "depends_on": [
+    "i2"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "p6",
+   "kind": "needs-decision",
+   "level": "rework",
+   "title": "Stop rebuilding the chat engine on every message",
+   "summary": "get_chat_engine() runs from scratch for every user message: S3 filesystem, index load, N query engines, N per-document agents and a fresh client, before any model is called.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Latency the user feels before the first Router request even leaves. Only the storage context is cached (a 5-minute TTLCache of size 10, keyed on a constant); everything built on top of it is rebuilt per turn, including one agent per document. Caching the assembled engine per conversation would cut the pre-LLM part of every turn after the first, and would also let i1's prompt cache key keep a warm provider affinity across turns rather than starting from a fresh client each time.",
+   "loses": "Correctness risk around staleness: a cached engine would not see documents added to the conversation, and the current code's TODO about abstractions is there because this assembly is tangled with S3 and the vector store. It also holds memory per live conversation, on a deployment the comments say is already memory-constrained (three uvicorn workers because of RAM).",
+   "price": "no LLM cost change; latency only",
+   "why": "Listed because it is real and it is in the path of every LLM call, but it is not a Router item and it is the kind of caching change that causes subtle bugs if rushed. The existing get_storage_context cache -- maxsize 10, keyed on the literal string 'global_storage_context' -- suggests this area has been patched under time pressure before.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "Read from app/chat/engine.py and app/chat/messaging.py; no end-to-end timing was taken because the app needs Postgres, pgvector and S3 to run."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p4",
+   "kind": "needs-decision",
+   "level": "change",
+   "title": "Switchyard for the answering agent",
+   "summary": "Let Router pick a cheap or capable model per turn within a conversation, by sending model \"switchyard\" for the sec_chat_answer workload.",
+   "calls": [
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "This app's turns genuinely vary: 'what were revenues' and 'compare the risk factor disclosures across these four filings and tell me which is most exposed' arrive at the same agent and get the same model. Switchyard switches model family within a conversation, which is exactly that shape, and it is set up once as an account strategy rather than coded per request. It works from app code once the strategy is saved, and the catalog lists switchyard with tools and temperature support, so this app's request shape fits.",
+   "loses": "Per-turn predictability of cost, latency and voice -- the same question can be answered by different models on different turns. Router's docs call it experimental and aimed at coding agents, and its quality on non-coding work is not measured. Reached through model_map, so this app cannot fall back to it selectively; if the strategy is not saved the request fails.",
+   "price": "unknown; the point is cheaper easy turns, unmeasured on this workload",
+   "why": "Worth a human's attention because the variance in question difficulty here is large and real, but it needs a strategy saved at app.router.com, it is experimental, and its quality on financial analysis is unmeasured. Try it behind p3's shadow logs before it serves users.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "Account strategy. Catalog confirms switchyard is active with tools: true, temperature: true, surfaces responses+messages; no live call was made with it."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "i2",
+    "i3"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "p7",
+   "kind": "needs-decision",
+   "level": "change",
+   "title": "Let app config name any Router catalog model",
+   "summary": "A thin OpenAI subclass that supplies LLMMetadata for ids LlamaIndex does not know, so the per-role settings can name the other ~77 catalog models instead of only 13.",
+   "calls": [
+    "backend/app/llama_index_settings.py:28",
+    "backend/app/chat/engine.py:287"
+   ],
+   "gains": "Model choice would live in the app's own configuration and in code review, next to the prompts, rather than only in router.policy.json. Today RAG_LLM_NAME=gpt-6-luna raises ValueError inside LlamaIndex before any request is made, so every item in this report that changes a model has to route around it through model_map.",
+   "loses": "Correctness of the metadata LlamaIndex depends on. is_chat_model for an unknown name is False, which would send the request to the completions endpoint, and openai_modelname_to_contextsize raises outright -- so the subclass has to assert a context window and tool-calling support per model. Getting the context window wrong changes how the refine chain splits context and how much history the agent keeps, quietly. It is also app code that duplicates what Router's catalog already knows.",
+   "price": "no change by itself",
+   "why": "Proposed, not built, because model_map already achieves the outcome with no code and no guessed metadata, and because the honest version of this needs per-model context windows kept in step with the catalog. Worth doing if the team decides model choice belongs in the repository rather than in a policy file.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "info",
+     "detail": "RAG_LLM_NAME=gpt-6-luna: ValueError \"Unknown model 'gpt-6-luna'\" raised by LlamaIndex, zero requests to Router."
+    },
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "Intersecting Router's live catalog with llama_index.llms.openai.utils.ALL_AVAILABLE_MODELS gives 13 shared ids out of ~90."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "i2"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "level": "quick-win",
+   "title": "Considered and rejected: Jev auto routing",
+   "summary": "Jev cannot serve this app: its catalog entry has tools: false and it is served only on the systemone and decisions surfaces.",
+   "calls": [],
+   "gains": "nothing; this records a lever that was examined and ruled out on facts rather than taste",
+   "loses": "nothing",
+   "price": "n/a",
+   "why": "Jev auto routing picks among models described in a routing profile and looks like a fit for an app with varied question difficulty. But every LLM call in this app carries function tools -- the answer agent's two question engines, the sub-question generator's forced SubQuestionList call, and the financials tool -- and the live catalog entry for jev-1.14.0 reports tools: false with surfaces [systemone, decisions], not responses. There is no call in this codebase it could take.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "Live catalog: jev-1.14.0, owned_by typesafe, surfaces [systemone, decisions], tools false, structured_outputs true."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "n2",
+   "kind": "note",
+   "level": "quick-win",
+   "title": "Considered and rejected: reasoning models for these roles",
+   "summary": "gpt-5-nano and gpt-5.4-nano are cheap per token but spend the output budget on reasoning, which costs more and breaks tool calls at this app's caps.",
+   "calls": [],
+   "gains": "nothing; records why the two cheapest-looking catalog rows were not proposed",
+   "loses": "nothing",
+   "price": "n/a",
+   "why": "gpt-5-nano is the cheapest model in the catalog at $0.05/$0.40 and was the obvious candidate for the sub-question and financials roles. On this app's answer-agent prompt with a 300-token output cap it produced only a reasoning item, made no tool call, and cost $0.0000617 for nothing. gpt-5.4-nano did answer, but cost $0.000343 on the synthesis shape against gpt-4o-mini's $0.000405 and gpt-6-luna's $0.000119 -- reasoning tokens eat the advantage. The fact sheet's note that reasoning models with small output caps return incomplete with no text matches what was measured.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "gpt-5-nano on the answer-agent prompt, max_output_tokens 300: output [reasoning] only, no function_call, 256 output tokens, 2.80 s. gpt-5.4-nano on the synthesis prompt: $0.000343, 1.55 s, answer produced."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  }
+ ]
+}

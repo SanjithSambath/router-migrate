@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 10,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 9,
+ "best": [
+  "Found and fixed two real regressions that only appear once Chat Completions is translated to Responses \u2014 the orphaned function result that 400'd the follow-up and poisoned the whole conversation, and the first-chunk-only streaming function-call detector that silently stopped plugins from ever running \u2014 and fixed them in the application in the shape both APIs document (with a chunk replay so no text is swallowed), rather than papering over them in the vendored runtime.",
+  "Verified all five call paths live against api.router.com rather than trusting the simulator: 218 requests across buffered chat, streaming chat, vision, buffered and streaming plugin turns and the summariser, with before/after evidence for each fix and 4/4 movable routes confirmed by the outside check with tests equal to baseline.",
+  "Measured the Router-specific levers instead of asserting them: proved prompt caching is off entirely without a prompt_cache_key (cached_tokens 0,0 vs 0,2048,2048 on an identical 2,249-token prompt) and that one shared key doesn't namespace the cache; proved fallback fall-through by making the first candidate a model this key gets 403 for; and rejected two tempting wins with evidence \u2014 Flex (no tier for gpt-4o, 61 s tail wrong for a chat bot) and gpt-4.1-mini vision, which confabulated a factory and a smartphone for a solid red square 4/4 times."
+ ],
+ "misses": [
+  "No regression test for either plugin fix. The repo's 'tests' are compileall plus four imports, so both bugs \u2014 the 400-poisoned conversation and the never-called streaming plugin \u2014 are protected only by manual live runs that nobody will repeat; a small unit test over __add_function_call_to_history's history shape and a fake stream whose first chunk is empty would have locked both in and cost minutes.",
+  "Left the unbounded wait in production as a decision instead of picking a safe default. With fallbacks already built, a conservative provider_timeout (and a client-level timeout override, since nothing currently overrides openai-python's 600 s) is a policy one-liner that strictly improves a chat bot's worst case; parking it as d4 means the shipped state is still 'a slow provider hangs a Telegram user for ten minutes, and a rate limit means 60 s of silence'.",
+  "Never attacked prompt size itself, which is the model-independent half of the bill the review correctly identified: every turn re-sends the system prompt, up to 15 history messages and the full plugin spec list for all enabled plugins, and vision turns send images at default detail. Trimming the history window, sending only the specs the deployment actually enables, and setting image detail are grounded, measurable wins; relatedly, the real caching win \u2014 a per-chat-id prompt_cache_key so a conversation's own prefix caches rather than a per-feature key \u2014 was deferred wholesale into the multi-day d1 port instead of being proposed as a small change to common_args."
+ ],
+ "wrong": [
+  "i1 contradicts itself: 'Redundant if i3 is approved as well \u2014 i3 does not map this feature, so applying both leaves the summariser where this item puts it.' Those two clauses can't both be true, and in fact i1 is not redundant with i3 (i3 maps only the two conversation features). No excludes/depends_on is declared either, so a dashboard reader may well drop the change that saves 84% on the most input-heavy call the bot makes.",
+  "'loses: nothing' is overstated in places. i1 swaps a different model into the summariser on n=3 fact-survival samples \u2014 the honest loss is a small, named quality risk, not nothing. And m1's 'loses: nothing' is contradicted by the report's own n2: N_CHOICES>1, non-zero PRESENCE_PENALTY or MAX_TOKENS<16 silently keep traffic on OpenAI, which is a loss belonging in m1's losses rather than only in a footnote, since it means the spend view can be quietly incomplete.",
+  "The streaming detector's new `continue` branch can fall out of the `async for` with function_name still empty (a stream of content-less chunks that never sets a finish_reason), after which the code proceeds to call plugin_manager with an empty function name instead of replaying the chunks. Unlikely against today's translated stream, but it is a new failure path the replay was meant to prevent, and a guard on empty function_name after the loop would close it.",
+  "m1's simulator evidence ('8 of 8 requests valid on /v1/responses') is not corroborated by the outside check, whose router section reports requests 0 / valid 0 \u2014 the live numbers carry that claim, not the simulator run cited.",
+  "i4's gain language slightly oversells the scope: cache_read pricing applies only to the cached prefix past the ~1,024-token boundary (the measurement itself shows 2,048 of 2,249 cached), so '-50%/-75%' is a per-prefix figure, not a -50% cut to input cost, and the price field would read more honestly with the uncached remainder stated."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 28.6,
+  "usd": 12.6732,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 16,
+  "kinds": {
+   "move": 1,
+   "port": 1,
+   "improvement": 5,
+   "needs-decision": 4,
+   "stays": 2,
+   "note": 3
+  },
+  "improvements": 5,
+  "built": 5,
+  "levels": {
+   "change": 1,
+   "quick-win": 4
+  },
+  "branch_ok": 5,
+  "report_ok": true
+ }
+}

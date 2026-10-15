@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the real cost bug in the app, not just in the routing: the {date}/{time} line sat at the head of the replayed prefix, so every turn of every thread was a full-price cache miss. The fix is correct (clock inserted at the newest end of a newest-first list so it lands last after the reversal) and it is measured end-to-end on Router \u2014 0 cached vs 3,840/4,057 tokens and -78% on turn two \u2014 with the migration's prompt_cache_key put in place to make the saving collectable.",
+  "Routed the one production call honestly rather than claiming more: wrapped the per-message client with a translating runtime so Chat Completions keeps working for ollama/openrouter/Azure/Gemini, ran a planner over every config.yaml provider to show exactly which hosts move (including the sharp case of a catalog id served by localhost staying local), and caught that the Dockerfile only COPYed llmcord.py/config.yaml \u2014 in prod the import would have silently fallen back to the no-op and nothing would have reached Router.",
+  "Replaced the VISION_MODEL_TAGS substring guess with Router's catalog input modalities, which is the right source of truth for a bot where /model changes the model at runtime, and showed it fixes errors in both directions (gpt-6-luna gaining images, gpt-4 stopping being sent images it cannot read) with seven other models unchanged. Each improvement sits on its own branch that passes the check, and all four were merge-tested together, so a reviewer can approve any subset."
+ ],
+ "misses": [
+  "The prompt cache lever is only half-pulled: prompt_cache_key is one constant ($feature) for the whole bot, which buckets the shared system prefix but not the replayed conversation \u2014 the bulk of the tokens. A per-channel/thread cache key (the bot already has a stable channel id and replays up to 25 messages of the same thread turn after turn) would give each conversation its own affinity bucket and is the natural companion to i1; it is not proposed or even dismissed.",
+  "No item addresses the replay itself. The bot resends up to 25 messages, max_text 100000 per message and up to 5 images on every turn, so input tokens grow linearly with thread length \u2014 on Router that is the dominant cost and the dominant time-to-first-token for someone watching a typing indicator. An expert would have proposed a token budget, history trimming or a rolling summary, and would have questioned reasoning_effort: high as the standing default for a bot whose own prompt says 'optimize for brevity' (effort appears only as a footnote inside the model swap). There is no rework-level item of any kind.",
+  "Failure handling on the user-waiting path is under-designed. 429s and 504s come back raw to an except that logs and returns, provider_timeout is set to 180s of silence \u2014 far beyond the life of a Discord reply \u2014 and i6 proposes only an apology message. Missing: a timeout actually sized to the reply (with the Flex 25s streamed deadline and its standard fallback reasoned about for this call, which m6 notes but never turns into a decision), a bounded retry or a degrade-to-cheaper-model path on 429/5xx, and a word on what the runtime's one-shot provider retry does to a stream that has already emitted tokens."
+ ],
+ "wrong": [
+  "m1 and m2 both say 'loses: nothing', which the report itself contradicts: m7 documents that extra_headers/extra_query/extra_body are silently dropped on the Router path, and m5 documents that a Router refusal quietly re-sends to OpenAI. Those are real losses of request fidelity and of 'all traffic on Router', plus a vendored runtime the app now imports in two places (i4 adds CATALOG/resolve_model). Honest in the notes, overclaimed in the gains/loses fields a dashboard reader actually scans.",
+  "i1's 'loses' understates the risk of the split. The clock/stable partition is line-based, so an operator whose system_prompt is a single line or one paragraph ending in 'Today's date is {date}.' gets the entire system prompt moved behind the conversation and no cacheable prefix at all \u2014 the opposite of the stated gain, and a much bigger behaviour change than 'two system messages instead of one'. Worth a guard (split on sentence/trailing clause, or only move when a stable remainder survives) or at least an explicit warning.",
+  "i3's '120x cheaper at the same effort' is a single question, one sample, and it conflates the price gap with an output-length difference: the catalog gap is ~50x input / ~60x output ($5/$30 vs $0.1/$0.5), and the 120x comes from gpt-6-luna also answering in 192 tokens instead of 410. The report says 'one question is one sample' but still leads with the 120x as the headline number; it should be framed as ~50-60x per token with length as a separate, unstable effect.",
+  "m6's Flex claims lean on evidence from outside this app \u2014 '-50% measured on gpt-5.4-mini elsewhere' and 'one 61s Flex call has been seen elsewhere on another model' \u2014 presented next to this bot's own measurements. It is labelled, but the conclusion 'this is what the bot gets today' rests on a candidate list in one 400 error, not on an observed Flex-served reply for gpt-5.5 here.",
+  "Test evidence is thinner than the repeated 'tests: 2 passed' suggests: the suite is compileall plus import llmcord, so it proves nothing about on_message behaviour. The live/fake-Discord drives are what actually carry the safety argument (and the check logs only one llmcord.py:on_message live request, on gpt-6-luna), and the report should say so instead of citing the 2-test baseline on every item."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 24.1,
+  "usd": 13.7992,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 14,
+  "kinds": {
+   "move": 2,
+   "note": 4,
+   "stays": 1,
+   "improvement": 7
+  },
+  "improvements": 7,
+  "built": 4,
+  "levels": {
+   "change": 4,
+   "quick-win": 3
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

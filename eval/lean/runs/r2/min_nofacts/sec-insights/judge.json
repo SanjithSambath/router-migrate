@@ -1,0 +1,48 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Correctly traced that every LLM request in the app funnels through just two OpenAI client constructions \u2014 including the per-document agents that take a deep copy of Settings.llm \u2014 and routed all of it by injecting the Router HTTP clients, so the check finds zero not_routing sites and only embeddings (no Router endpoint) left on the provider; the switch is key-gated and reversible without a release, and tests match the baseline exactly (15/15).",
+  "Actually built and live-measured the prompt-cache-key + spend-label policy rather than proposing it: a side-by-side with the policy off as a control, 2,432 of 2,667 prompt tokens cached, $0.000401 \u2192 $0.000219, and the arithmetic reconciles exactly against the catalog's $0.15/$0.075 cached rate \u2014 the one lever that matches this app's repeated-long-prefix fan-out shape.",
+  "Honest evidence discipline throughout: 'not-run' recorded where no check was run, the -50% Flex figure explicitly attributed to a different model, Router fallback behaviour flagged as documented-but-unmeasured, and a standing note that OPENAI_API_KEY must remain set because it still serves embeddings and the pre-generation fallback path."
+ ],
+ "misses": [
+  "No resilience was actually built. A provider_timeout bound on user-waiting calls is policy-only, zero-code, and testable, and a function-calling-capable fallback candidate is a standard default; an expert would have shipped a measured branch for at least the timeout (plus the 504 handler in the API layer that they correctly identify as absent) instead of leaving the whole resilience half as a proposal.",
+  "The real behaviour risk \u2014 a streamed, tool-calling agent turn translated from Chat Completions into /v1/responses \u2014 was never exercised against live Router. The five live requests were standalone module-level probes, not a conversation through the actual chat engine, and no latency numbers (p50/p95, streaming time-to-first-token) were taken before or after the cutover, which is what would catch a translation-layer regression on the only user-facing path.",
+  "Nothing at the rework level, and no use of the instrumentation just shipped. An expert would have pulled per-call-path token/spend data from the new labels to replace the asserted 'fan-out is the bulk of the tokens', and would have questioned the fan-out itself \u2014 batching sub-questions into one call, collapsing the per-document agent layer, reusing retrieval/synthesis results across a conversation \u2014 plus Router-side budget/spend alerting and a Flex split for genuinely background work."
+ ],
+ "wrong": [
+  "The Flex reasoning in i2 contradicts the report's own latency column: every fan-out call is marked user_waiting (the user waits for the whole turn), so Flex's slow tier is a latency risk on those calls too, not a free discount. The 'fan-out could plausibly cost a third of today's' figure stacks an unmeasured -50% (measured on gpt-5.4-mini only) onto that mistake.",
+  "'The fan-out calls are the bulk of the tokens and none of them are read by a human' is asserted without measurement, in the same report that ships the spend labels which would have proved or disproved it.",
+  "Every entry in `calls` uses pre-patch line numbers, so all three claimed sites land in the check's `unverified` list while the constructions that actually route appear as separate verified entries (engine.py:287, llama_index_settings.py:28). The migration is fine; the route truth on the dashboard reads as unverified for avoidable reasons.",
+  "m1's 'loses: nothing' overstates. The app's entire LLM path now depends on Router availability, requests are translated rather than passed through, and the provider fallback is single-shot and only for refusals before generation \u2014 real, acceptable costs that belong in the losses field rather than in a separate note."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 9.4,
+  "usd": 3.4411,
+  "check_ok": true,
+  "verified": 2,
+  "unverified": 3,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 6,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 3,
+   "note": 1
+  },
+  "improvements": 3,
+  "built": 1,
+  "levels": {
+   "-": 3
+  },
+  "branch_ok": 1,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,256 @@
+{
+ "version": 6,
+ "summary": "Every model call this Obsidian plugin makes - the LangChain providers and the Custom/Anthropic-Legacy providers that POST a hand-built body - goes out through one function, ProxyService.getFetch(), so wrapping that one function with the vendored Router runtime put all of them on Router at once: OpenAI chat requests are translated to /v1/responses and back, Anthropic requests go to /v1/messages, and everything Router cannot serve (Azure, Ollama, Google, Mistral, HuggingFace, Together, Perplexity, Replicate, the /v1/completions instruct provider, model listings, self-hosted endpoints, and any model outside Router's catalog) still goes straight to its provider. The plugin also now tells Router what each request is for, and pins the standard service tier because a person is waiting on every call it makes. Nothing changes until RAMP_ROUTER_API_KEY is set in the environment Obsidian runs in.",
+ "reviewed": "Looked at who waits on each call (everyone - auto-suggest fires while typing, generation streams into the note), the Flex default, Router fallbacks in place of the providers' maxRetries, prompt caching for the template prefix, one client vs many, spend labels, and how an Obsidian user would actually switch Router on; the one change worth building was that last one, because Obsidian is launched from the Finder with almost no environment and the migration is otherwise unreachable for most users. Fallbacks were rejected (the user picks the model in settings; a silent cross-vendor substitution would be wrong), and prompt caching was left alone because the cacheable prefix here is a short handlebars template, usually well under the ~1,024-token minimum.",
+ "calls": [
+  {
+   "site": "src/LLMProviders/langchain/base.tsx:127",
+   "feature": "stream-generate",
+   "model": "user-configured (OpenAI Chat default gpt-4o; Chat Anthropic default claude-3-5-sonnet-latest)",
+   "task": "text generation from a note template",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/custom/base.tsx:17",
+   "feature": "stream-generate",
+   "model": "user-configured (default gpt-3.5-turbo-16k)",
+   "task": "text generation from a note template",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/custom/custom.tsx:47",
+   "feature": "stream-generate",
+   "model": "user-configured (default gpt-3.5-turbo-16k)",
+   "task": "text generation from a note template",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/custom/anthropic.tsx:30",
+   "feature": "stream-generate",
+   "model": "user-configured (default claude-2.1)",
+   "task": "text generation from a note template",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/langchain/openaiInstruct.tsx:53",
+   "feature": "stream-generate",
+   "model": "user-configured (gpt-3.5-turbo-instruct)",
+   "task": "text completion",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "src/LLMProviders/langchain/ollama.tsx:52",
+   "feature": "stream-generate",
+   "model": "user-configured local model",
+   "task": "text generation from a note template",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s1"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route the plugin's model traffic through Router",
+   "summary": "Every OpenAI and Anthropic request the plugin's providers make now goes to Router instead of the provider, once a Router key is set.",
+   "calls": [
+    "src/LLMProviders/langchain/base.tsx:127",
+    "src/LLMProviders/custom/base.tsx:17",
+    "src/LLMProviders/custom/custom.tsx:47",
+    "src/LLMProviders/custom/anthropic.tsx:30"
+   ],
+   "gains": "All of the plugin's OpenAI and Anthropic traffic on one gateway and one key, with spend reported per request; every provider, setting and template works exactly as before",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The LangChain providers (openaiChat, chatanthropic, and the rest) and the Custom providers (which POST a handlebars-rendered body to a user-set endpoint) all get their fetch from ProxyService.getFetch(), so wrapping that one function covers every call site, including the ones a scanner cannot see. The runtime is inactive until RAMP_ROUTER_API_KEY is set, so by default the plugin behaves exactly as before; main.ts polyfills an empty process.env on mobile, so it stays off there too. Router requests are made with providerFetch underneath, so the CORS-bypass proxy and the Obsidian requestUrl fallback apply to them unchanged. Chat Completions is translated to /v1/responses and the reply translated back into chat shape, which is what both the LangChain parsing and the custom providers' sanatization_response scripts read. Anything Router cannot serve stays on the provider untouched - see s1 - and so does any model that is not a Router catalog id, which is why three of the five shipped defaults do not route as they stand (see d1).",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live through ProxyService.getFetch(): POST api.openai.com/v1/chat/completions (gpt-4o-mini) -> 200 /v1/responses served by openai, and POST api.anthropic.com/v1/messages (claude-haiku-4-5) -> 200 /v1/messages served by anthropic; the test asserted the replies still carry choices[0].message.content and content[0].text respectively, i.e. the shapes the providers and the custom sanitization scripts parse"
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run: the same two requests reached router-sim, both valid, as /v1/responses and /v1/messages"
+    }
+   ],
+   "commit": "9739b46",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m2",
+   "kind": "move",
+   "title": "Label each request with what it is for",
+   "summary": "Auto-suggest, streaming generation, batch runs, the playground, the toolbar and one-off prompts each tag their requests, and Router records the label with the spend.",
+   "calls": [
+    "src/LLMProviders/langchain/base.tsx:127",
+    "src/LLMProviders/custom/base.tsx:17",
+    "src/LLMProviders/custom/custom.tsx:47",
+    "src/LLMProviders/custom/anthropic.tsx:30"
+   ],
+   "gains": "Spend split by what the user was doing (auto-suggest vs generation vs batch) instead of one bucket; router.policy.json can target a single feature",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The plugin already knows why it is calling a model - the entry points in api-service, auto-suggest, text-generator, the playground and the overlay toolbar are distinct. Each now passes an optional `feature` on the request params, and the two provider families turn it into the x-router-migrate-feature header (LangChain through the client's default headers, the Custom providers through the headers they build). A provider that is not Router ignores an unknown header. Without it the runtime would fall back to labelling every request with the call stack, which esbuild has already minified away.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run: both Router requests recorded feature=stream-generate; a unit test (proxy-service.router-tier.test.ts) asserts the label arrives as metadata.feature on the /v1/responses body and as the x-router-migrate-feature header"
+    }
+   ],
+   "commit": "6330620",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "m3",
+   "kind": "trade-off",
+   "title": "Keep the standard tier so nobody waits longer",
+   "summary": "router.policy.json pins service_tier \"default\" on every request the plugin sends to Router.",
+   "calls": [
+    "src/LLMProviders/langchain/base.tsx:127",
+    "src/LLMProviders/custom/base.tsx:17",
+    "src/LLMProviders/custom/custom.tsx:47",
+    "src/LLMProviders/custom/anthropic.tsx:30"
+   ],
+   "gains": "No Flex stalls on the models that have a Flex tier; auto-suggest and streaming generation keep the latency they had before the move",
+   "loses": "The Flex discount on Flex-eligible OpenAI models, measured at -50% on gpt-5.4-mini: those requests are billed at standard list price",
+   "price": "gpt-5.4-mini $0.75/$4.50 per 1M tokens at standard instead of about half that at Flex; models without a Flex tier (gpt-4o, gpt-4o-mini, every Claude) unaffected",
+   "why": "Every call this plugin makes has a person waiting on it: auto-suggest fires while the user types and blocks the suggestion popup, template generation streams into the note under the cursor. Cost-efficient (Flex) routing is Router's account default for the OpenAI models that offer it, and Flex can be much slower - one measured gpt-5-nano call took 61 s (ROUTER.md 6.1). A minute of silence mid-sentence is not an acceptable auto-suggest, so the policy pins the standard tier. The policy only applies to requests that reach Router, so the provider path never sees the field.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "proxy-service.router-tier.test.ts captures the request the runtime builds for a gpt-5.4-mini call and asserts service_tier == \"default\" on the /v1/responses body; the same test runs in the suite"
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "catalog list prices (live) and the -50% Flex measurement on gpt-5.4-mini from ROUTER.md 6.1"
+    }
+   ],
+   "commit": "6e09c0e",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Providers Router does not serve",
+   "summary": "Azure, Ollama, Google, Mistral, HuggingFace, Together, Perplexity, Replicate and the OpenAI instruct provider keep calling their own endpoints.",
+   "calls": [
+    "src/LLMProviders/langchain/openaiInstruct.tsx:53",
+    "src/LLMProviders/langchain/ollama.tsx:52"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Router serves /v1/responses and /v1/messages only, for the models in its catalog. The instruct provider uses /v1/completions, which Router returns 404 for. Ollama is a local model server and is one of the reasons people install this plugin; the other vendors' hosts are not OpenAI or Anthropic endpoints and their models are not Router catalog ids, so the runtime leaves all of them exactly as they were. This is not a loss: those paths behave identically with Router on or off.",
+   "evidence": [],
+   "commit": "9739b46",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "d1",
+   "kind": "needs-decision",
+   "title": "Retired model defaults do not reach Router",
+   "summary": "Users left on claude-3-5-sonnet-latest, claude-2.1 or gpt-3.5-turbo-16k keep going straight to the provider, because Router's catalog does not list those ids.",
+   "calls": [
+    "src/LLMProviders/langchain/base.tsx:127",
+    "src/LLMProviders/custom/base.tsx:17",
+    "src/LLMProviders/custom/custom.tsx:47",
+    "src/LLMProviders/custom/anthropic.tsx:30"
+   ],
+   "gains": "Deciding this is what makes the move cover the Anthropic and Custom users, not just the OpenAI Chat ones",
+   "loses": "nothing yet - this is a question, not a change",
+   "price": "no change",
+   "why": "Router only serves catalog ids. Of the five model defaults this plugin ships, only OpenAI Chat's gpt-4o is one; Chat Anthropic (claude-3-5-sonnet-latest), Anthropic Legacy (claude-2.1) and the two Custom providers (gpt-3.5-turbo-16k) are not, so those requests keep going to the provider with the user's own key. The code could map them to current catalog ids (claude-sonnet-4-5, gpt-3.5-turbo) through router.policy.json's model_map, which needs no user action, but it would answer with a different model than the one the user chose in settings - in a tool whose whole settings tab is about picking a model, that is a product call, not an engineering one. The alternative is to leave it: users who pick a current model route, users on an old default do not.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "compared the five shipped default model ids against the live Router catalog (router-migrate levers): gpt-4o present; claude-3-5-sonnet-latest, claude-2.1 and gpt-3.5-turbo-16k absent (the catalog's oldest Claude is claude-sonnet-4-5, and it lists gpt-3.5-turbo but not the -16k variant)"
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Whose key pays once Router is on",
+   "summary": "This plugin has no operator key: every provider key belongs to the person using Obsidian.",
+   "calls": [],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Routing is opt-in by environment variable, so it is switched on by whoever runs the deployment (or by the user, with i1). Once it is on, routed requests are authenticated and billed to the Router key and the user's own OpenAI/Anthropic key is not used for them; the key still has to stay configured, because the runtime resends to the provider if Router rejects a request before generating. The runtime's operator_key_only mode, which would route only an operator's own key, does not apply here: there is no operator key to compare against.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Turn Router on from the settings tab",
+   "summary": "An optional Router API key field in Advanced Settings switches routing on, for users who cannot set an environment variable.",
+   "calls": [
+    "src/LLMProviders/langchain/base.tsx:127",
+    "src/LLMProviders/custom/base.tsx:17",
+    "src/LLMProviders/custom/custom.tsx:47",
+    "src/LLMProviders/custom/anthropic.tsx:30"
+   ],
+   "gains": "Makes the migration reachable at all for normal users: Obsidian started from the Finder or a launcher has almost no environment, so without this the only way to switch Router on is to launch Obsidian from a shell",
+   "loses": "One more place a secret is stored - it goes through the plugin's existing encryptAllKeys()/removeApikeys() handling, so it is encrypted and kept out of data.json like the provider keys, and it is never logged",
+   "price": "no change",
+   "why": "The key is read at settings load and after every save and put into RAMP_ROUTER_API_KEY, which is what the vendored runtime reads; clearing the field takes it back out. A key already present in the environment always wins and is never overwritten or deleted, so a managed deployment that sets the variable behaves exactly as it does today. Storing it under LLMProviderOptions means the plugin's existing secret handling picks it up with no new crypto code.",
+   "evidence": [
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "five new unit tests (src/services/router-key.test.ts) cover switching on, staying off when empty, switching back off when cleared, and never overwriting or deleting a key that came from the environment"
+    }
+   ],
+   "commit": "72dafc4",
+   "branch": "router-migrate/improve/router-key-setting",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  }
+ ]
+}

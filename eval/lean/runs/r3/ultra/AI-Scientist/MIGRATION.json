@@ -1,0 +1,817 @@
+{
+  "version": 6,
+  "summary": "AI-Scientist sends every LLM request through two helpers in ai_scientist/llm.py plus aider (which talks to models through LiteLLM, not through those helpers), so the migration has three hooks and one request-shape fix. I vendored the runtime and wrapped the clients built in create_client (the default openai.OpenAI() and anthropic.Anthropic()), the four inline reviewer clients in launch_scientist.py / experimental/launch_oe_scientist.py, and the two vendor-endpoint clients in review_iclr_bench/iclr_analysis.py; then hooked LiteLLM so aider's OpenAI-provider traffic routes too. Wrapping alone routed nothing on the OpenAI path, because every gpt/o1/o3 request carries seed=0, which Router's Responses API does not accept: router.policy.json now drops seed on the Router-bound copy only (the single trade-off in the migration, and the provider fallback still sends it). Measured live against Router: get_response_from_llm -> 200 /v1/responses model=gpt-4o-mini, and an aider-shaped LiteLLM call -> 200 /v1/responses, both parsed by the app's own code. What still stays on its vendor, by design: the n>1 review ensemble (no n on Responses), the DeepSeek/OpenRouter/Gemini clients (other vendors' hosts, model ids Router does not list), the Bedrock and Vertex Anthropic clients (BYOK), and anything whose model id is not a catalog id - which includes the app's default --model claude-3-5-sonnet-20240620 and the hard-coded reviewer gpt-4o-2024-05-13. Those last two are model decisions, not plumbing, so they are improvement branches for a human to approve rather than silent swaps. Nothing changes in production until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 turns it all off; the tests (10 compile/import checks) pass unchanged.",
+  "reviewed": "I went stage by stage through where the money and the risk actually are in a run - 50 ideas with 3 reflections each, novelty checks, aider writing experiments and the paper, an 11-call review per paper - and matched that against Router's levers: model choice, Flex, prompt caching, spend labels, fallbacks and timeouts. Six improvements came out of it: two mutually exclusive ways to get the hard-coded reviewer onto Router (same-family gpt-4o, or gpt-5.4-mini at Flex for 82% less per call, measured), prompt cache keys (-48% on a repeated review prompt, measured), the ensemble as one request per member so it routes at all, the default Claude path mapped to Sonnet 5 (that branch is also broken today with the installed SDK), and per-stage spend labels so Router can tell ideas from reviews. I deliberately did not propose Router fallbacks or provider timeouts: a silently substituted model in a pipeline that publishes papers is a provenance decision, and a timeout here turns a slow call into an abandoned idea - both are recorded as needs-decision items instead. I also left the DeepSeek/OpenRouter/Gemini side paths alone: routing them means changing vendor and model generation at once.",
+  "calls": [
+    {
+      "site": "ai_scientist/llm.py:98",
+      "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+      "model": "gpt-* only (an o1/o3, Claude, DeepSeek or Gemini ensemble takes the generic loop below and routes)",
+      "task": "review ensemble (n responses in one request)",
+      "latency": "background",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "ai_scientist/llm.py:116",
+      "feature": "ai_scientist/llm.py:get_batch_responses_from_llm",
+      "model": "meta-llama/llama-3.1-405b-instruct",
+      "task": "review ensemble via OpenRouter",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "ai_scientist/llm.py:183",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "claude-3-5-sonnet-20240620 (default --model), also Bedrock/Vertex Claude ids",
+      "task": "ideas, novelty check, write-up, review reflections",
+      "latency": "background",
+      "now": "provider",
+      "item": "s3"
+    },
+    {
+      "site": "ai_scientist/llm.py:204",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-mini / gpt-4o / gpt-4.1* (catalog ids route; dated ids do not)",
+      "task": "ideas, novelty check, write-up, review reflections, meta-review",
+      "latency": "background",
+      "now": "router",
+      "item": "m4"
+    },
+    {
+      "site": "ai_scientist/llm.py:220",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "o1 / o3-mini",
+      "task": "same stages on reasoning models",
+      "latency": "background",
+      "now": "router",
+      "item": "m4"
+    },
+    {
+      "site": "ai_scientist/llm.py:235",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "meta-llama/llama-3.1-405b-instruct",
+      "task": "all stages via OpenRouter",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "ai_scientist/llm.py:250",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "deepseek-chat / deepseek-coder",
+      "task": "all stages via DeepSeek",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "ai_scientist/llm.py:265",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "deepseek-reasoner",
+      "task": "all stages via DeepSeek",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "ai_scientist/llm.py:278",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gemini-1.5/2.0/2.5-*",
+      "task": "all stages via Google's OpenAI-compatible endpoint",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "ai_scientist/perform_experiments.py:130",
+      "feature": "ai_scientist/perform_experiments.py:perform_experiments",
+      "model": "the --model choice, through aider/LiteLLM",
+      "task": "write and debug the experiment code",
+      "latency": "background",
+      "now": "router",
+      "item": "m5"
+    },
+    {
+      "site": "ai_scientist/perform_experiments.py:154",
+      "feature": "ai_scientist/perform_experiments.py:perform_experiments",
+      "model": "the --model choice, through aider/LiteLLM",
+      "task": "experiment notes and next-run prompts",
+      "latency": "background",
+      "now": "router",
+      "item": "m5"
+    },
+    {
+      "site": "ai_scientist/perform_experiments.py:164",
+      "feature": "ai_scientist/perform_experiments.py:perform_experiments",
+      "model": "the --model choice, through aider/LiteLLM",
+      "task": "plotting code",
+      "latency": "background",
+      "now": "router",
+      "item": "m5"
+    },
+    {
+      "site": "ai_scientist/perform_writeup.py:39",
+      "feature": "ai_scientist/perform_writeup.py:perform_writeup",
+      "model": "the --model choice, through aider/LiteLLM",
+      "task": "write the paper section by section",
+      "latency": "background",
+      "now": "router",
+      "item": "m5"
+    },
+    {
+      "site": "launch_scientist.py:275",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-2024-05-13 (hard-coded)",
+      "task": "review the generated paper",
+      "latency": "background",
+      "now": "provider",
+      "item": "n2"
+    },
+    {
+      "site": "launch_scientist.py:301",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-2024-05-13 (hard-coded)",
+      "task": "re-review after the improvement pass",
+      "latency": "background",
+      "now": "provider",
+      "item": "n2"
+    },
+    {
+      "site": "experimental/launch_oe_scientist.py:253",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-2024-05-13 (hard-coded)",
+      "task": "review the generated paper (open-ended variant)",
+      "latency": "background",
+      "now": "provider",
+      "item": "n2"
+    },
+    {
+      "site": "experimental/launch_oe_scientist.py:280",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-2024-05-13 (hard-coded)",
+      "task": "re-review after the improvement pass",
+      "latency": "background",
+      "now": "provider",
+      "item": "n2"
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:249",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "claude-3-5-sonnet-20240620",
+      "task": "benchmark the reviewer against ICLR decisions",
+      "latency": "background",
+      "now": "provider",
+      "item": "s3"
+    },
+    {
+      "site": "review_iclr_bench/iclr_analysis.py:268",
+      "feature": "ai_scientist/llm.py:get_response_from_llm",
+      "model": "gpt-4o-2024-05-13 / gpt-4o-mini-2024-07-18 / gpt-4o-2024-08-06",
+      "task": "benchmark the reviewer against ICLR decisions",
+      "latency": "background",
+      "now": "provider",
+      "item": "n2"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the shared OpenAI and Anthropic clients",
+      "summary": "Wrap the two clients ai_scientist/llm.py:create_client builds, which serve every call in get_response_from_llm and get_batch_responses_from_llm.",
+      "calls": [
+        "ai_scientist/llm.py:98",
+        "ai_scientist/llm.py:183",
+        "ai_scientist/llm.py:204",
+        "ai_scientist/llm.py:220"
+      ],
+      "gains": "One hook covers the whole app's own LLM traffic: ideas, novelty checks, write-up text, review reflections and meta-reviews, on whichever model --model names.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "create_client is the single place that decides which SDK client the app uses, so wrapping it there (router_runtime.wrap_openai / wrap_anthropic, installed in place under the SDK's httpx client) routes every call downstream without touching any call site. The runtime is inactive until RAMP_ROUTER_API_KEY is set and sends anything Router cannot serve to the provider unchanged, so the behaviour with no key is bit-for-bit what it was.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "repo test command (compileall + 6 module imports): 10 passed, 0 failed, same as the recorded baseline"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live: create_client('gpt-4o-mini') + get_response_from_llm -> 200 /v1/responses model=gpt-4o-mini provider=openai, content 'OK.' parsed by the app's own code"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run: feature=ai_scientist/llm.py:get_response_from_llm client=ai_scientist/llm.py:create_client, 1 valid Router request"
+        }
+      ],
+      "commit": "50f23f9",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Route the hard-coded paper-reviewer clients",
+      "summary": "Wrap the four inline openai.OpenAI() clients that launch_scientist.py and experimental/launch_oe_scientist.py build for perform_review.",
+      "calls": [
+        "launch_scientist.py:275",
+        "launch_scientist.py:301",
+        "experimental/launch_oe_scientist.py:253",
+        "experimental/launch_oe_scientist.py:280"
+      ],
+      "gains": "The review stage no longer has an unrouted client of its own; once its model id is a catalog id (route-reviewer-gpt4o or reviewer-on-gpt-5-4-mini) the stage routes with no further code change.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "These two scripts bypass create_client and construct their own client for the review and the post-improvement re-review. The scanner saw neither. Wrapping them keeps the reviewer's model choice visible in the code while making the transport the same one the rest of the app uses.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live: perform_review through a wrapped client of this shape (fewshot=1, 1 reflection) -> 200 /v1/responses, complete 16-field review JSON"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "they still send model=gpt-4o-2024-05-13, which Router 404s, so they reach OpenAI until a reviewer-model improvement is approved (note n2)"
+        }
+      ],
+      "commit": "f74dce0",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "move",
+      "title": "Route the ICLR review-benchmark clients",
+      "summary": "Wrap the OpenAI and Anthropic clients review_iclr_bench/iclr_analysis.py imports lazily inside review_single_paper.",
+      "calls": [
+        "review_iclr_bench/iclr_analysis.py:249",
+        "review_iclr_bench/iclr_analysis.py:268"
+      ],
+      "gains": "The reviewer benchmark runs on the same gateway as the app, so its spend shows up in the same place; it is a 500-paper job, so it is not a rounding error.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "This script builds its clients inside a function with per-model imports, which is why the scanner missed it. Its Bedrock, Vertex, DeepSeek and OpenRouter branches are left alone for the reasons in s2 and s3. The import had to move below sys.path.append('../') so the vendored runtime resolves when the script is run from its own directory.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed; review_iclr_bench is in the compileall set"
+        },
+        {
+          "check": "simulator",
+          "result": "info",
+          "detail": "the module imports and wraps; its own calls go through ai_scientist/llm.py, which is covered live by m1"
+        }
+      ],
+      "commit": "fdd0757",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "trade-off",
+      "title": "Drop seed=0 on Router-bound requests",
+      "summary": "router.policy.json drops seed from the Router-bound copy of requests labelled ai_scientist/llm.py:get_response_from_llm, which is what makes the OpenAI path route at all.",
+      "calls": [
+        "ai_scientist/llm.py:204",
+        "ai_scientist/llm.py:220"
+      ],
+      "gains": "The app's whole single-response OpenAI path moves onto Router. Without it, a wrapped client routed 0 of 6 requests in the probe.",
+      "loses": "OpenAI's best-effort seed hint, and system_fingerprint with it, on routed calls. The original request - seed included - is what goes to OpenAI if Router refuses, so the provider path is unchanged.",
+      "price": "no change",
+      "why": "Every gpt/o1/o3 call in llm.py sends seed=0; Router's /v1/responses rejects seed, so the runtime classes those requests untranslatable and keeps them on OpenAI (ROUTER_MIGRATE_TRACE: 'untranslatable: seed' on all six probe requests). seed was never a determinism guarantee on OpenAI, only a hint within one model snapshot, and these stages run at temperature 0.75 (0.1 for reviews), so nothing in this app was reproducible because of it. Dropping it in the policy rather than in the code keeps the provider fallback byte-identical to what the app built.",
+      "evidence": [
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "before: 0 requests reached router-sim, 6 blocked to api.openai.com, trace reason 'untranslatable: seed'; after: 1 valid /v1/responses for the single-response path"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "200 /v1/responses model=gpt-4o-mini feature=ai_scientist/llm.py:get_response_from_llm provider=openai"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "9c5818b",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "move",
+      "title": "Route aider's LiteLLM traffic",
+      "summary": "Call router_runtime.install_litellm() when ai_scientist/llm.py is imported, so aider's OpenAI-provider calls go through Router.",
+      "calls": [
+        "ai_scientist/perform_experiments.py:130",
+        "ai_scientist/perform_experiments.py:154",
+        "ai_scientist/perform_experiments.py:164",
+        "ai_scientist/perform_writeup.py:39"
+      ],
+      "gains": "aider writes the experiment code, the plots and the paper - the largest token consumer in a run by a wide margin - and it does not use the clients in create_client. This is the only hook that reaches it.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "aider calls models through LiteLLM. install_litellm() puts the Router transport under LiteLLM's HTTP sessions, so its OpenAI-provider calls are translated to /v1/responses and everything else keeps going to its vendor. It sits at llm.py import time because every entry point that builds a Coder (launch_scientist.py, experimental/launch_oe_scientist.py, perform_writeup.py) imports that module first, and it returns without importing litellm at all while RAMP_ROUTER_API_KEY is unset - verified: after importing ai_scientist.llm with no key, litellm is not in sys.modules.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "check --run --live: aider's own Model('gpt-4o-mini') + litellm.completion -> 200 /v1/responses provider=openai, answer returned with finish_reason=stop"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run: 1 valid Router request with client=ai_scientist/llm.py:<module> (the hook), via aider's Model + litellm.completion"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed; with no key set, importing ai_scientist.llm leaves litellm and aider unimported"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "aider's Claude calls send anthropic-beta: prompt-caching-2024-07-31,pdfs-2024-09-25, which the runtime keeps on Anthropic by design; aider on a non-catalog model id also stays with its vendor"
+        }
+      ],
+      "commit": "4d573e1",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "The n>1 review ensemble stays on OpenAI",
+      "summary": "get_batch_responses_from_llm asks for n=5 completions in one request; Router's Responses API has no n, so those requests keep going to OpenAI.",
+      "calls": [
+        "ai_scientist/llm.py:98"
+      ],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Dropping n would silently return one review where the code expects five and then average scores over a single sample, so the runtime is right to keep the request on the provider. The honest fix is to ask for the members one at a time, which is a behaviour and cost change and therefore an improvement a human approves (ensemble-without-n). Until then, with the default --improvement run, about 10 of the 22 review calls per paper stay with the vendor. Note this is the gpt branch only: with an o1/o3, Claude, DeepSeek or Gemini model the ensemble already loops one request per member, and those members route.",
+      "evidence": [
+        {
+          "check": "simulator",
+          "result": "info",
+          "detail": "trace reason 'untranslatable: seed,n' on the batch path; after the seed drop it is 'untranslatable: n'"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "same probe with --model o3-mini: 3 valid Router requests (1 single + 2 ensemble members through the generic loop), so only the gpt n=5 shape is affected"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s2",
+      "kind": "stays",
+      "title": "DeepSeek, OpenRouter and Gemini clients stay with their vendors",
+      "summary": "create_client builds OpenAI-compatible clients pointed at api.deepseek.com, openrouter.ai and generativelanguage.googleapis.com; those hosts and model ids are left untouched.",
+      "calls": [
+        "ai_scientist/llm.py:116",
+        "ai_scientist/llm.py:235",
+        "ai_scientist/llm.py:250",
+        "ai_scientist/llm.py:265",
+        "ai_scientist/llm.py:278"
+      ],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "The runtime only routes a non-OpenAI host when it is explicitly unlocked, and only for catalog model ids. None of these ids are in Router's catalog (deepseek-chat, deepseek-coder, deepseek-reasoner, meta-llama/llama-3.1-405b-instruct, gemini-1.5/2.0 and the preview Gemini ids), and Router's own DeepSeek entries are a different generation (deepseek-v4-flash, deepseek-v4.1-flash). Routing them means changing vendor and model generation in one step, which is a decision for the owner, not a migration step - recorded as needs-decision nd1.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "live catalog (100 ids) contains no deepseek-chat/coder/reasoner, no llama id, and no gemini-1.5/2.0; the Gemini ids it does list are Vertex BYOK and need the caller's own Google credential"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run with --model deepseek-chat, gemini-1.5-flash and llama3.1-405b: 0 requests reached router-sim, traffic went to api.deepseek.com, generativelanguage.googleapis.com and openrouter.ai as before (the static scanner's optimistic 'ROUTES' for these sites links them to the wrong client)"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s3",
+      "kind": "stays",
+      "title": "Claude 3.5 ids, Bedrock and Vertex stay on Anthropic",
+      "summary": "The Anthropic path is wrapped but keeps going to Anthropic: claude-3-5-sonnet-2024* is not a Router catalog id, and AnthropicBedrock/AnthropicVertex clients are never routed.",
+      "calls": [
+        "ai_scientist/llm.py:183",
+        "review_iclr_bench/iclr_analysis.py:249"
+      ],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Router's catalog starts at Claude Sonnet 4.5 / Haiku 4.5, so resolve_model returns nothing for claude-3-5-sonnet-20240620 (the app's default --model) or -20241022, and the wrapped client forwards those requests to Anthropic unchanged. wrap_anthropic also deliberately ignores AnthropicBedrock and AnthropicVertex clients, whose model ids on Router would need the caller's own AWS/GCP credential. Moving the default model forward is improvement claude-default-on-router, which a human approves; see also note n1 - that branch of llm.py cannot run at all with the installed anthropic SDK.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "catalog check: claude-3-5-sonnet-20240620 and -20241022 are neither ids nor aliases nor dated equivalents in the live catalog"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "The Claude branch is already broken with the installed SDK",
+      "summary": "get_response_from_llm's Claude branch raises TypeError with anthropic 1.13.0, which is installed here - a pre-existing failure, not something the migration introduced.",
+      "calls": [
+        "ai_scientist/llm.py:183"
+      ],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "llm.py passes temperature= to client.messages.create, and that keyword no longer exists in the installed SDK (Messages.create() got an unexpected keyword argument 'temperature'). I reproduced it against the base commit's llm.py, so it predates every change here. It means the app's default --model path cannot make a request today on any transport. The improvement claude-default-on-router fixes it together with the model map, because Router's catalog also marks Sonnet 5 and newer as temperature-unsupported.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "fail",
+          "detail": "base commit 685574c02's ai_scientist/llm.py, run in isolation against anthropic 1.13.0: TypeError: Messages.create() got an unexpected keyword argument 'temperature'"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "Dated model ids keep the review stage on OpenAI",
+      "summary": "The reviewer's model is hard-coded as gpt-4o-2024-05-13, and the ICLR benchmark offers only dated ids; Router 404s dated ids, so those wrapped clients still reach OpenAI.",
+      "calls": [
+        "launch_scientist.py:275",
+        "launch_scientist.py:301",
+        "experimental/launch_oe_scientist.py:253",
+        "experimental/launch_oe_scientist.py:280",
+        "review_iclr_bench/iclr_analysis.py:268"
+      ],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Router serves undated catalog ids and returns 404 model_not_found for a dated snapshot. The runtime maps the 22 dated ids Router itself reported as equivalent (gpt-4o-mini-2024-07-18, gpt-4o-2024-08-06, gpt-4.1-*-2025-04-14, o3-mini-2025-01-31 and so on), but gpt-4o-2024-05-13 is not one of them, and neither are o1-mini-2024-09-12 or o1-preview-2024-09-12 from AVAILABLE_LLMS. A run with --model gpt-4o-mini-2024-07-18 does route; the hard-coded reviewer does not. Choosing what serves it instead is improvement route-reviewer-gpt4o or reviewer-on-gpt-5-4-mini.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "dated_equivalents.json (Router's own reported equivalences) has no entry for gpt-4o-2024-05-13, o1-mini-2024-09-12 or o1-preview-2024-09-12"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n3",
+      "kind": "note",
+      "title": "Keep the provider keys configured in production",
+      "summary": "OPENAI_API_KEY and ANTHROPIC_API_KEY must stay set alongside RAMP_ROUTER_API_KEY: the SDK constructors need them and the fallback path uses them.",
+      "calls": [],
+      "gains": "no change",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "create_client builds openai.OpenAI() and anthropic.Anthropic() with no explicit key, so they read the environment and raise at construction without it. The runtime also sends a request back to the provider when Router refuses it before generating (403, 404 model_not_found, unknown or unsupported parameter, 501), and declines that fallback when the request carries no provider credential. DEEPSEEK_API_KEY, OPENROUTER_API_KEY and GEMINI_API_KEY stay required for the side paths in s2 (they are read with os.environ[...] and raise KeyError when missing, which is unchanged behaviour).",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "runtime _fallback_ok() refuses to retry on the provider when neither authorization nor x-api-key is present on the original request"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "nd1",
+      "kind": "needs-decision",
+      "title": "Should the DeepSeek, OpenRouter and Gemini paths move?",
+      "summary": "Router could serve those side paths through unlock_hosts plus a model map, but only by changing both vendor and model generation.",
+      "calls": [
+        "ai_scientist/llm.py:116",
+        "ai_scientist/llm.py:235",
+        "ai_scientist/llm.py:250",
+        "ai_scientist/llm.py:265",
+        "ai_scientist/llm.py:278"
+      ],
+      "gains": "One key and one spend view for every --model choice the CLI offers, instead of four vendor keys; Router's open-weight DeepSeek ids are cheap ($0.13/$0.26 per 1M for deepseek-v4-flash).",
+      "loses": "The exact models: deepseek-chat/coder/reasoner would become DeepSeek V4-generation ids, llama-3.1-405b has no equivalent in the catalog at all, and the catalog's Gemini ids are Vertex BYOK, so they need a Google credential anyway and gain nothing.",
+      "price": "varies by mapping; deepseek-v4-flash is cheaper per token than DeepSeek's own V2-era pricing, llama has no mapping",
+      "why": "These are documented --model choices, not the default, and each would need `unlock_hosts` on that client plus a model_map entry. That is a product decision about which model writes the experiments, so I am not making it in a migration. If you want it, the smallest sensible step is DeepSeek only: unlock api.deepseek.com on that client and map deepseek-chat/coder to deepseek-v4-flash, leaving llama and Gemini where they are.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "no live sample taken: with no mapping approved there is nothing to measure, and a sample would not settle whether a V4-generation model is an acceptable substitute"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "nd2",
+      "kind": "needs-decision",
+      "title": "Fallbacks and timeouts, or fail loudly?",
+      "summary": "Router can fall through to another model when one refuses or stalls; in a pipeline that publishes papers that trades a lost run for unrecorded provenance.",
+      "calls": [
+        "ai_scientist/perform_writeup.py:39",
+        "ai_scientist/llm.py:204"
+      ],
+      "gains": "A run that currently abandons an idea on one LLM error - after the GPU experiments are already done - would finish. The policy change is one line per stage (fallbacks, provider_timeout).",
+      "loses": "The response does not say which candidate served, and this app records only the model it asked for, so a paper or a review could be written by a model the output never names. A provider_timeout has the opposite risk: the 504 Router returns is not in the app's backoff list, so a slow-but-healthy call becomes an abandoned idea.",
+      "price": "the serving candidate's price when it serves; a truncated attempt is still billed",
+      "why": "I did not propose this as an improvement because both options change what a run means rather than how it is plumbed, and the app's own error handling (do_idea catches the exception and returns False) was written on the assumption that an LLM error aborts the idea. If you want it, apply stage-labels first: it makes 'fallbacks for the experiment coder but never for the reviewer' expressible, which is the only version of this I would run. Note that the capability guard also drops any candidate that cannot take the request's temperature, which excludes every Claude from Sonnet 5 on.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "Router's behaviour on real provider outages is documented but unmeasured (ROUTER.md section 12); I did not simulate one"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Reviewer on gpt-4o: route the stage, same family",
+      "summary": "Map the hard-coded gpt-4o-2024-05-13 to catalog gpt-4o so the review stage routes, staying in the same model family.",
+      "calls": [
+        "launch_scientist.py:275",
+        "launch_scientist.py:301",
+        "experimental/launch_oe_scientist.py:253",
+        "experimental/launch_oe_scientist.py:280",
+        "review_iclr_bench/iclr_analysis.py:268"
+      ],
+      "gains": "The review stage - 11 calls per paper with the ensemble, meta-review and reflections, twice with --improvement - moves onto Router with the smallest possible change in what the reviewer is.",
+      "loses": "The pinned snapshot. Router's gpt-4o served gpt-4o-2024-08-06 in the live check, so review wording and scores shift, and the ICLR-benchmark numbers in review_iclr_bench were measured on 2024-05-13.",
+      "price": "no change: both are $2.50/$10 per 1M at list",
+      "why": "The reviewer is the one model id the app hard-codes, and it is a dated snapshot Router does not serve, so wrapping its client was not enough. Mapping it in router.policy.json keeps the code honest about what it asked for and keeps the provider path on the exact snapshot when Router is off or falls back. Take this one if the reviewer's scores need to stay as close as possible to the published benchmark; take reviewer-on-gpt-5-4-mini instead if cost matters more.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "perform_review on the Attention paper (fewshot=1, 1 reflection) -> 200 /v1/responses model=gpt-4o provider=openai, complete review JSON, Overall 9, Accept"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "one review-shaped call (29,973 input tokens) cost $0.0790 on gpt-4o, usage.cost from Router; served model reported as gpt-4o-2024-08-06"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run: the reviewer call arrives as model=gpt-4o, feature=ai_scientist/llm.py:get_response_from_llm"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "ccb1ad4",
+      "branch": "router-migrate/improve/route-reviewer-gpt4o",
+      "depends_on": [
+        "m4"
+      ],
+      "excludes": [
+        "i2"
+      ]
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "title": "Reviewer on gpt-5.4-mini at Flex: 82% less per call",
+      "summary": "Map the hard-coded gpt-4o-2024-05-13 to gpt-5.4-mini, which Router's account default serves at the Flex tier.",
+      "calls": [
+        "launch_scientist.py:275",
+        "launch_scientist.py:301",
+        "experimental/launch_oe_scientist.py:253",
+        "experimental/launch_oe_scientist.py:280",
+        "review_iclr_bench/iclr_analysis.py:268"
+      ],
+      "gains": "The most prompt-heavy stage in the app gets 82% cheaper per call and moves onto Router at the same time. About $0.16 instead of $0.87 per review pass at 11 calls, and the ICLR benchmark run the repo ships (500 papers at the same 11 calls) goes from about $430 to about $80.",
+      "loses": "gpt-4o's review behaviour: a different model generation writes the reviews, so scores and wording are no longer comparable with the paper's ICLR benchmark. It is also a reasoning model, so a future prompt could spend part of the fixed 4096-token output cap on reasoning (0 reasoning tokens in my sample, n=1), and Flex has a documented 25s deadline before Router falls back to the same model at standard tier.",
+      "price": "$0.75/$4.50 per 1M list, served at Flex (measured -50% on this model); $0.0143 per measured review call against $0.0790 on gpt-4o",
+      "why": "Reviewing is a background batch stage - nobody waits for it - which is exactly what Flex is for, and gpt-5.4-mini is the one model whose Flex discount has been measured. The cap risk is the thing to watch: the app fixes max_tokens at 4096 for every call, and a reasoning model that spends that budget thinking returns an incomplete response with no text. In the live sample it used 768 output tokens, 0 of them reasoning, and produced a complete review.",
+      "evidence": [
+        {
+          "check": "price",
+          "result": "pass",
+          "detail": "same review-shaped request on both models, usage.cost from Router: gpt-4o $0.0790 tier=default (in 29,973 / out 409); gpt-5.4-mini $0.0143 tier=flex (in 29,972 / out 768, reasoning 0)"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "perform_review end to end -> 200 /v1/responses model=gpt-5.4-mini, parseable review JSON (Overall 10, Accept; gpt-4o said 9, Accept on the same paper)"
+        },
+        {
+          "check": "side-by-side",
+          "result": "info",
+          "detail": "one paper, one call per arm: enough to show the format holds and the price gap, not enough to compare review quality"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "8f161b5",
+      "branch": "router-migrate/improve/reviewer-on-gpt-5-4-mini",
+      "depends_on": [
+        "m4"
+      ],
+      "excludes": [
+        "i1"
+      ]
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "title": "A stable prompt_cache_key per stage: -48% on a repeat",
+      "summary": "Set prompt_cache_key: \"$feature\" in router.policy.json defaults, so each stage's long constant prefix is served from the prompt cache.",
+      "calls": [
+        "ai_scientist/llm.py:204",
+        "ai_scientist/llm.py:220",
+        "ai_scientist/perform_experiments.py:130",
+        "ai_scientist/perform_writeup.py:39"
+      ],
+      "gains": "Measured -48% on a repeated review prompt on gpt-4o-mini, and this app repeats prompts constantly: every review call begins with the NeurIPS form and a 61KB few-shot paper, idea generation resends the task description and the growing idea list for 50 ideas times 3 reflections, and aider resends its system prompt and the same source files every turn.",
+      "loses": "nothing",
+      "price": "cache reads instead of input tokens on the repeated prefix: gpt-4o-mini $0.075 against $0.15 per 1M, gpt-5.4-mini $0.075 against $0.75, claude-sonnet-5 $0.20 against $2",
+      "why": "On Router an OpenAI model gets no cache at all without a key - I measured an identical 29,973-token prompt twice with cached=0 both times - and the runtime only sets a key automatically for Claude over Responses. The app's prompts are already in the right order for caching (fixed instructions first, the per-request paper or idea last), so a key is the only missing piece. Using $feature gives each stage its own cache namespace, which pairs with stage-labels; with or without that branch it is valid.",
+      "evidence": [
+        {
+          "check": "price",
+          "result": "pass",
+          "detail": "live, the app's own review prompt on gpt-4o-mini: no key -> cached 0 / $0.00464955 twice; with prompt_cache_key -> cached 29,824 on the second call / $0.00241275 (-48%)"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "router_runtime._apply_policy resolves the key per label (ai_scientist/llm.py:get_response_from_llm, ai_scientist/perform_experiments.py:perform_experiments, ...); routed probes still 1 valid request"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "bbc371f",
+      "branch": "router-migrate/improve/prompt-cache-keys",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "title": "Ensemble reviews one request at a time, so they route",
+      "summary": "Ask for the 5 ensemble reviews as 5 requests instead of one n=5 request, which is what every non-OpenAI branch already does.",
+      "calls": [
+        "ai_scientist/llm.py:98"
+      ],
+      "gains": "The last unrouted part of the app's own traffic moves onto Router: with the ensemble on, about half of every paper's review calls were staying with the vendor because of n.",
+      "loses": "The prompt is billed five times instead of once (about 30k input tokens per member), and the members run sequentially rather than in one round trip. With prompt-cache-keys applied four of the five are cache reads, which is why that branch should go first.",
+      "price": "a 5-member ensemble on gpt-4o: about $0.095 as one n=5 request, about $0.40 as five full-price requests, about $0.25 with cache reads; on gpt-5.4-mini at Flex about $0.07 full price, about $0.04 with cache reads (from the measured per-call costs)",
+      "why": "Router's Responses API has no n, so the runtime correctly keeps these requests on OpenAI - dropping n would have returned one review where the code averages five. Looping through get_response_from_llm is the same thing the generic branch already does for Claude, DeepSeek and Gemini, so the ensemble semantics (independent samples at temperature 0.75, scores averaged) are unchanged. This is the one improvement that costs money rather than saving it; it buys a single gateway and per-request spend data for the review stage.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "perform_review with num_reviews_ensemble=2 -> 3 Router calls (2 members + meta-review), all 200 /v1/responses, score averaging produced a complete 16-field review (Overall 8, Accept)"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "the same probe went from 1 routed request (batch path blocked, 'untranslatable: seed,n') to 3 routed requests"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "7319bd6",
+      "branch": "router-migrate/improve/ensemble-without-n",
+      "depends_on": [
+        "i3"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "title": "Put the default --model (Claude) on Router as Sonnet 5",
+      "summary": "Map claude-3-5-sonnet-2024* to claude-sonnet-5 and stop sending temperature on the Claude call, which the installed SDK rejects anyway.",
+      "calls": [
+        "ai_scientist/llm.py:183",
+        "review_iclr_bench/iclr_analysis.py:249"
+      ],
+      "gains": "A default run (--model claude-3-5-sonnet-20240620) currently routes none of its own calls; this is what moves ideas, novelty checks, write-up text and review reflections onto Router. It also repairs a branch that raises TypeError with the installed anthropic SDK, and claude-sonnet-5 is cheaper than Claude 3.5 Sonnet was ($2/$10 against $3/$15 per 1M).",
+      "loses": "Claude 3.5 Sonnet itself - a two-generation jump, so ideas, write-ups and reviews read differently and prompts tuned for 3.5 may need revisiting - and Claude sampling becomes the model default instead of temperature 0.75. aider still talks to Anthropic directly on this path (it sends anthropic-beta headers, which the runtime leaves with the vendor), and /v1/messages carries no prompt_cache_key, so this path gets no prompt caching until the app sends Anthropic cache_control.",
+      "price": "$2/$10 per 1M against Claude 3.5 Sonnet's $3/$15; cache reads $0.20 if the app ever sends cache_control",
+      "why": "Router's catalog starts at Claude 4.5, so the app's default model cannot be served as written. Sonnet 5 is the closest thing to what the app asked for - same vendor, same tier of model, cheaper - and the temperature removal is not optional: the installed anthropic SDK has no temperature parameter, and Router's catalog marks Sonnet 5 and later temperature-unsupported. Approving this changes what the default run produces, which is why it is a branch and not part of the migration.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "create_client('claude-3-5-sonnet-20240620') + get_response_from_llm -> 200 /v1/messages model=claude-sonnet-5 provider=anthropic, answer parsed by the app's code"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "without the temperature removal this path raises TypeError on the installed SDK, at the base commit as well (note n1)"
+        }
+      ],
+      "commit": "7cc5d7d",
+      "branch": "router-migrate/improve/claude-default-on-router",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "title": "Label Router spend by pipeline stage, not by llm.py",
+      "summary": "llm.py sends the calling stage as the x-router-migrate-feature header, so Router sees ideas, novelty checks, write-up and reviews as separate features.",
+      "calls": [
+        "ai_scientist/llm.py:204",
+        "ai_scientist/llm.py:220",
+        "ai_scientist/llm.py:98"
+      ],
+      "gains": "Per-stage spend in Router's own views, and per-stage policy becomes possible at all: Flex or a cheaper model for novelty checks, nothing clever for the reviewer, fallbacks for the experiment coder only. Today every one of these calls bills to ai_scientist/llm.py:get_response_from_llm.",
+      "loses": "nothing in behaviour - it is a header both vendors ignore. Operationally, policy entries are keyed by label, so this branch also moves the migration's seed drop_params from the llm.py glob into defaults, and anything else keyed on the old label has to move with it: if route-reviewer-gpt4o or reviewer-on-gpt-5-4-mini is applied, its model_map belongs in defaults too (one line, same file). Labels also change if someone renames a calling function.",
+      "price": "no change",
+      "why": "This app's cost question is which stage burns the budget, and the runtime's automatic label cannot answer it because every call funnels through the same two helpers. The header is the runtime's own supported way for an app to name its feature, and client.with_options() reuses the wrapped httpx client, so the Router transport and the provider fallback are untouched. It is also the prerequisite for the half of nd2 I would actually run.",
+      "evidence": [
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "two stages calling the same helper now arrive as feature=probe_stages.py:generate_ideas_like and feature=ai_scientist/perform_review.py:perform_review; before this branch both arrived as ai_scientist/llm.py:get_response_from_llm"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "200 /v1/responses feature=probe.py:run - Router accepts the app-set label, and the seed drop still applies from defaults"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed, 0 failed"
+        }
+      ],
+      "commit": "a9ea999",
+      "branch": "router-migrate/improve/stage-labels",
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

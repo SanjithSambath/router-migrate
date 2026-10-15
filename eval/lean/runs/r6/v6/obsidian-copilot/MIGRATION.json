@@ -1,0 +1,302 @@
+{
+ "version": 6,
+ "summary": "Every LLM call this plugin makes is a LangChain chat model built in one factory, ChatModelManager.instantiateChatModel, so the whole application was moved by installing the vendored Router runtime on the HTTP client of every model that factory builds. Requests to OpenAI and Anthropic now go to Router (Chat Completions translated to POST /v1/responses, Messages to POST /v1/messages); local models, the Copilot Plus gateway, OpenRouter and the other vendors the runtime does not claim keep going exactly where they went before, and so does everything else until RAMP_ROUTER_API_KEY is set. Because every call in this plugin is one a person is waiting on, router.policy.json pins the standard service tier so Router's Flex default cannot make the chat pane slower.",
+ "reviewed": "Looked at per-feature spend labels, Flex and latency, Router fallbacks in place of the existing same-model retries, prompt caching for the long fixed system prompt, and whether the remaining vendors should be unlocked. Pinning the standard tier was urgent enough to belong in the migration itself; the one proposal worth a reviewer's time is per-feature spend labels, and fallbacks were rejected because answering a note-taking question with a model the user did not choose is worse than failing.",
+ "calls": [
+  {
+   "site": "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+   "feature": "chat",
+   "model": "user-selected",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:608",
+   "feature": "chat-plus",
+   "model": "user-selected",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:683",
+   "feature": "tool-planning",
+   "model": "user-selected",
+   "task": "tool selection",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:257",
+   "feature": "agent",
+   "model": "user-selected",
+   "task": "agent loop",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/chainUtils.ts:34",
+   "feature": "inline-edit",
+   "model": "user-selected",
+   "task": "note rewriting",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/core/ContextCompactor.ts:184",
+   "feature": "context-compaction",
+   "model": "user-selected",
+   "task": "summarization",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/core/ChatPersistenceManager.ts:567",
+   "feature": "chat-title",
+   "model": "user-selected",
+   "task": "summarization",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/search/v3/QueryExpander.ts:133",
+   "feature": "query-expansion",
+   "model": "user-selected",
+   "task": "query rewriting",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/memory/UserMemoryManager.ts:248",
+   "feature": "memory-extraction",
+   "model": "user-selected",
+   "task": "extraction",
+   "latency": "background",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/memory/UserMemoryManager.ts:362",
+   "feature": "memory-merge",
+   "model": "user-selected",
+   "task": "extraction",
+   "latency": "background",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/LLMProviders/ChatOpenRouter.ts:110",
+   "feature": "chat-gateway",
+   "model": "user-selected",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "src/LLMProviders/selfHostServices.ts:9",
+   "feature": "web-search",
+   "model": "sonar",
+   "task": "web search",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s2"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route every chat model through Router",
+   "summary": "Every LangChain chat model the plugin builds now sends what Router can serve to Router, for all ten call sites that invoke a model.",
+   "calls": [
+    "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+    "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:608",
+    "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:683",
+    "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:257",
+    "src/chainUtils.ts:34",
+    "src/core/ContextCompactor.ts:184",
+    "src/core/ChatPersistenceManager.ts:567",
+    "src/search/v3/QueryExpander.ts:133",
+    "src/memory/UserMemoryManager.ts:248",
+    "src/memory/UserMemoryManager.ts:362"
+   ],
+   "gains": "One key and one spend record for all OpenAI and Anthropic traffic from the plugin, reached from a single place in the code instead of fourteen provider configurations",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Every call site above asks ChatModelManager for the current chat model, and that model is built in exactly one function, instantiateChatModel. Installing the runtime on the fetch of each model configuration there covers all of them at once, including any call site added later. The runtime decides per request: an OpenAI Chat Completions or Responses request, or an Anthropic Messages request, for a model in Router's catalog goes to Router; everything else goes to the original provider byte for byte. withRouterGateway returns the caller's own configuration object by identity when RAMP_ROUTER_API_KEY is absent, so without that variable the plugin is unchanged, including on Obsidian mobile where the bundle's process shim leaves the environment empty.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live replayed the request the plugin now produces: POST /v1/responses {model: gpt-4o-mini, input:[...]} returned 200 from openai at the standard tier, and POST /v1/messages {model: claude-haiku-4-5} returned 200 from anthropic. 2 requests, 2 ok."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "New src/LLMProviders/routerGateway.test.ts drives createModelInstanceFromBridged -> ChatOpenAI -> the wrapped fetch and asserts the outgoing request: api.openai.com/v1/chat/completions with a messages body when no key is set, and <router>/v1/responses with an input body and the Router bearer token when one is; a fifth case makes a real request to a running Router and reads the answer back. Full suite with Router on: 570 suites, 7872 passed (baseline 7867 + 5 new)."
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run over the test suite: 1 request reached router-sim from the production path, POST /v1/responses model=gpt-4o-mini, accepted as valid."
+    }
+   ],
+   "commit": "ec9319e",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m2",
+   "kind": "trade-off",
+   "title": "Keep the standard tier so nobody waits longer",
+   "summary": "router.policy.json sets service_tier \"default\" on every Router-bound Responses request from the plugin.",
+   "calls": [
+    "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+    "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:608",
+    "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:683",
+    "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:257",
+    "src/chainUtils.ts:34",
+    "src/core/ContextCompactor.ts:184",
+    "src/core/ChatPersistenceManager.ts:567",
+    "src/search/v3/QueryExpander.ts:133"
+   ],
+   "gains": "Response times stay where they were before the migration; no chat turn can be parked on a slow cost-efficient attempt",
+   "loses": "Router's Flex discount on the OpenAI models that offer it, measured at -50% on gpt-5.4-mini",
+   "price": "list price, the same as calling the same model directly; Flex would have been about half that on eligible OpenAI models",
+   "why": "This is a plugin inside a note editor: the chat pane streams an answer the user is reading, inline edits rewrite the note in front of them, and even the quieter calls (chat title, query expansion, context compaction) block something on screen. Router's account default is cost-efficient routing for Flex-eligible OpenAI models, and a Flex call can be far slower than standard (one measured gpt-5-nano call took 61 s), so the default alone would have made the move a latency regression. The two memory calls are genuinely background and would be fine on Flex, but they share the same model instance as the interactive ones, so one blanket setting is the honest choice. Deleting router.policy.json and re-running router-migrate policy reverses it.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "The request body captured from the production path after compiling the policy is {model: gpt-4o-mini, input: [...], service_tier: \"default\"}."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live: /v1/responses for gpt-4o-mini came back with service_tier \"default\" and usage.cost 7.2e-06."
+    }
+   ],
+   "commit": "f622a94",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Local models and the plugin's own gateways",
+   "summary": "Ollama, LM Studio, OpenRouter and the Copilot Plus gateway keep talking to their own hosts.",
+   "calls": [
+    "src/LLMProviders/ChatOpenRouter.ts:110"
+   ],
+   "gains": "nothing changes for users who run a local model or pay through Copilot Plus",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Ollama and LM Studio exist so the vault never leaves the machine, which is a large part of why people install this plugin; sending that traffic to a hosted gateway would be the opposite of the feature. OpenRouter and Copilot Plus (api.brevilabs.com) are gateways in their own right, one chosen by the user and one the product bills through. The runtime routes by host, so all four keep going where they went before with no code to maintain; a user who points an OpenAI-compatible model at api.openai.com is routed like any other OpenAI call.",
+   "evidence": [],
+   "commit": "ec9319e",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "s2",
+   "kind": "stays",
+   "title": "Perplexity web search",
+   "summary": "The Perplexity chat completion that backs web search keeps going to api.perplexity.ai.",
+   "calls": [
+    "src/LLMProviders/selfHostServices.ts:9"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Router's catalog has no Perplexity model, and the value of this call is Perplexity's live web index rather than the model behind it, so no catalog model is a substitute. Router's own web_search tool is a different product with different results and citations.",
+   "evidence": [],
+   "commit": "ec9319e",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "d1",
+   "kind": "needs-decision",
+   "title": "Whether to route the other cloud vendors too",
+   "summary": "Google, xAI, Groq, Mistral, DeepSeek and SiliconFlow still call their own endpoints; Router could serve the xAI and open-weight models among them.",
+   "calls": [],
+   "gains": "Grok and the open-weight models (DeepSeek, Kimi, GLM, Qwen, gpt-oss) on the same key and the same spend record as OpenAI and Anthropic",
+   "loses": "Those vendors' own keys stop paying for that traffic, token accounting for grok differs between Router's two surfaces, and open-weight ids can be served by a different upstream provider from one turn to the next",
+   "price": "catalog price per model; grok-4.7 $2/$6 and gpt-oss-120b $0.15/$0.60 per 1M tokens",
+   "why": "The runtime routes only api.openai.com and api.anthropic.com unless another vendor's host is explicitly unlocked, which the runtime treats as a customer decision rather than a default. Router does serve 8 grok ids and 17 open-weight ids, so unlocking api.x.ai and the open-weight hosts would consolidate them, but it sends a user's xAI or DeepSeek key traffic to Router and the ids are not always served by the same upstream. Google models need the caller's own Google key through Router anyway, so there is nothing to gain there.",
+   "evidence": [],
+   "commit": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Record spend per feature, not per plugin",
+   "summary": "Each caller would pass its own name in x-router-migrate-feature so Router's spend record separates chat from agent loops, memory and chat titles.",
+   "calls": [
+    "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+    "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:257",
+    "src/core/ContextCompactor.ts:184",
+    "src/core/ChatPersistenceManager.ts:567",
+    "src/search/v3/QueryExpander.ts:133",
+    "src/memory/UserMemoryManager.ts:248"
+   ],
+   "gains": "Spend split by what the plugin was doing, which is what tells an operator whether agent loops or background memory extraction are the expensive part",
+   "loses": "Nothing at runtime, but it touches every call site rather than the one factory, and the label has to be threaded through LangChain's per-call options, whose shape differs between the OpenAI and Anthropic clients",
+   "price": "no change",
+   "why": "Every routed request currently carries the same origin, src/LLMProviders/routerGateway.ts:withRouterGateway, because the runtime labels by where the client was built and this plugin builds all of its clients in one place. The application does know better: the chain runners, the context compactor, the chat-title generator, the query expander and the memory manager each have a name for what they are doing. Leaving it proposed rather than built because the labels are only worth having if they are right, and a module-level 'current feature' set beside the call would mislabel under the three concurrent requests the model config allows; doing it properly means passing the header through each call's options, which is a change a reviewer should approve before it spreads across six files.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "The request captured from the production path carries x-router-migrate-client: src/LLMProviders/routerGateway.ts:withRouterGateway and no metadata.feature, which is the same for every call the plugin makes."
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Whose key pays once the variable is set",
+   "summary": "With RAMP_ROUTER_API_KEY set, OpenAI and Anthropic calls are authenticated with the Router key instead of the key the user typed into settings.",
+   "calls": [],
+   "gains": "",
+   "loses": "",
+   "price": "no change",
+   "why": "This plugin is installed per person and normally runs on the user's own API key. The runtime replaces the Authorization header on the requests it routes, so in a deployment that sets RAMP_ROUTER_API_KEY, those calls are billed to Router, not to the user's OpenAI or Anthropic account; the key in settings still has to be present, because it is what the runtime falls back to when Router refuses a request before generating. Nothing about this is per-user: there is one Obsidian process per person, so whoever sets the variable chooses this for that installation. Users who set no variable, or who set ROUTER_MIGRATE_DISABLE=1, are unaffected.",
+   "evidence": [],
+   "commit": "ec9319e",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Picked the right migration shape for this app: wrapping the per-message AsyncOpenAI client instead of pinning a base_url, so the single call site (llmcord.py:287) routes every catalog model the operator may select while OpenRouter, Ollama/LM Studio/vLLM and the unused vendor providers keep working untouched \u2014 and proved it end-to-end through the real on_message() with text and an image attachment, streaming back to a green Discord embed, matching the outside check's route truth (1/1 verified, 0 unverified) and baseline tests (2 passed).",
+  "Caught that the Dockerfile copies an explicit file list, so without adding router_runtime.py the shipped image would import the no-op fallback and route nothing while looking like a successful migration \u2014 a silent-failure class of bug most engineers miss, plus a key-gated no-op default and a documented kill switch.",
+  "Measured the Router levers instead of cargo-culting them: ran a 4-cell model/effort cost+latency grid on real Router usage.cost, then explicitly rejected prompt_cache_key with a two-arm A/B (3,743 of 3,746 tokens already cached with no key) and rejected forcing service_tier, and disclosed the 0.55x-1.1x billing variance that bounds how much any single-call number can be trusted."
+ ],
+ "misses": [
+  "The policy branches (i3, i4) add router_policy.py but never add it to the Dockerfile's explicit COPY list \u2014 the exact failure mode the engineer correctly fixed for router_runtime.py. In the shipped image the policy silently vanishes, so provider_timeout, metadata.product and the Anthropic fallback are all no-ops in Docker, and nothing in the report flags it.",
+  "No regression test was added for the translation layer. The repo's 'tests' are compileall plus an import, and the outside check shows typecheck empty and 0 captured requests on every branch, so all migration safety rests on manual live runs; a future change to the Chat-Completions\u2192Responses translation (streaming deltas, image data URLs, finish_reason\u2192stop mapping) would ship green. A small offline test asserting plan_request()'s output shape and the simulator scenarios would have made the wrap durable.",
+  "The history replay was never treated as a lever. llmcord resends up to 25 messages plus image attachments on every turn, which is the other half of the per-reply cost and of time-to-first-token; cache hits are discounted, not free, and image parts cache poorly. Lowering max_messages (or truncating old turns) belongs alongside i1/i2 as a ranked option, and the client-per-message pool leak in n3 was only flagged, not built, even though it is a few lines and the migration makes connection reuse worth more."
+ ],
+ "wrong": [
+  "i3 and i4 both create router.policy.json and router_policy.py from scratch yet declare depends_on: [] and excludes: [], so they are presented as independently applicable when applying both conflicts on the same two files \u2014 one policy's fields would be lost or the apply would fail. They should have been one branch or declared dependent.",
+  "Latency claims lean harder on n=1 than the data supports: '2-5x faster' in i1 and '2-3x faster' in i2 come from one sample per cell through a stream-buffering proxy (completion time, not time-to-first-token, which is what a user watching a typing indicator actually feels). The report concedes this in places but still puts the multiples in the headline gains.",
+  "i2's '27-53% cheaper' is computed from billed costs the report itself says varied 0.55x-1.1x of list for identical token counts \u2014 the noise is the same size as the claimed effect. The honest version is the token-level comparison (516\u21920 and 1,034\u2192312 reasoning tokens), which is in the loses field; the percentage range should not have been the headline.",
+  "nd1's gain overstates reach: it says x-ai/grok-4.7 and google/gemini-* 'would match the catalog directly', then concedes Gemini ids are requires_byok and 403 without the caller's provider key \u2014 so unlocking Google does not actually move that traffic onto the Router key, it just adds a failed round trip. The two statements belong together rather than split across gains and loses."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 25.2,
+  "usd": 13.2701,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 12,
+  "kinds": {
+   "move": 1,
+   "stays": 2,
+   "improvement": 4,
+   "needs-decision": 2,
+   "note": 3
+  },
+  "improvements": 4,
+  "built": 4,
+  "levels": {
+   "-": 4
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

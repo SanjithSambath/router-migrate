@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Drove the real OpenAIHelper methods against the live Router instead of trusting the wrap, which surfaced two plugin-path breakages a code-only migration would have shipped: the missing assistant function_call turn that /v1/responses rejects with a 400, and the STREAM-mode loop giving up on Router's role-only opening chunk (silently empty replies). Both fixed in separate commits with before/after live evidence and a replay stream so no chunk is dropped.",
+  "Measured the model choice rather than asserting it: the bot's three real request shapes (reply, plugin turn, vision) run side by side through Router across six catalog models with per-call costs and latencies, plus the crash-proofing the bot's 2024 model tables need before any non-OpenAI id is usable, and honest disclosure that the headline 25x is list price while the measured reply was 10x because the new model writes longer.",
+  "Declined fallbacks with a specific, correct, Router-grounded reason instead of enabling them for credit: no fallback once a stream has started (and this bot streams by default), and the always-sent temperature drops every candidate whose catalog row says temperature:false, leaving only same-vendor candidates that a single-vendor outage takes down too. Left as a decision with the exact steps to enable."
+ ],
+ "misses": [
+  "Never questioned that __summarise sits on the user's critical path. The one call in this bot with no human waiting on its content is the obvious place for Flex (and for running out-of-band so the next reply isn't blocked by a 1.5-2s compression call); instead the report pins standard tier everywhere and treats Flex purely as a latency tax. A policy that puts the summariser on Flex while replies/vision/plugins stay standard was there to be taken.",
+  "Found that __summarise str()s the whole history \u2014 base64 images included \u2014 into the prompt, then only noted it. Stripping image payloads from the summarise input is a few lines, cuts the heaviest request shape far more than a model swap does, and removes a real context-overflow risk; it should have been a built branch, not a parenthetical in i2's why.",
+  "No modernisation of the plugin path or of spend attribution: the bot still uses the deprecated legacy `functions` field (translated to tools with strict=false on every request) with no proposal to move to the tools API, and metadata carries only product+feature \u2014 no chat/user dimension, so Router's spend view can't answer who or which conversation is expensive. Related: prompt_cache_key is keyed per call site rather than per conversation, which is the wrong unit for a prefix cache."
+ ],
+ "wrong": [
+  "m1 claims 'loses: nothing', which the engineer's own s2 contradicts: 18 of the 24 model ids the bot supports, N_CHOICES>1, non-zero PRESENCE_PENALTY, MAX_TOKENS<16 and a custom OPENAI_BASE_URL all silently keep traffic on OpenAI, OPENAI_API_KEY must stay configured, and on a temperature:false model the TEMPERATURE setting becomes inert. Those are losses of the move, not a separate item.",
+  "i1's -44% caching gain is measured by replaying one identical 1,290-token prefix, but the key is '$feature' \u2014 shared across every user and conversation at that call site. In a Telegram bot each chat has a different prefix, so the measured number does not transfer; the per-conversation key that would earn it was not proposed. The report presents -44% as the gain without that qualification.",
+  "i3's 112,000-token history budget is extrapolated from a single successful 113,694-token request against a catalog that publishes no input context; one 200 is not a context window, and the budget drives when the bot summarises. The side-effect that the bot's tiktoken counts and OpenAI tile arithmetic become estimates is disclosed but its blast radius is understated \u2014 those counts also feed the user-visible '\ud83d\udcb0 tokens' footer and /stats, not only the summarise threshold.",
+  "i1 and i2/i3 both write router.policy.json and bot/router_policy.py, so the branches cannot be applied together without a hand-merge and a re-run of `router-migrate policy`. This is disclosed, but shipping three branches of which the two most valuable collide is a packaging defect, and i3 additionally depends on i1 for its latency claim to hold.",
+  "Every 'tests: pass, 5 passed' line is compileall plus four module imports \u2014 the repo's baseline, and no behavioural coverage at all. The honest statement is that behaviour preservation rests entirely on the engineer's own nine-path probe against a stand-in; the repeated 'tests pass' framing reads stronger than the evidence is."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 32.3,
+  "usd": 18.0669,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 11,
+  "kinds": {
+   "move": 2,
+   "port": 1,
+   "stays": 2,
+   "improvement": 3,
+   "needs-decision": 1,
+   "note": 2
+  },
+  "improvements": 3,
+  "built": 3,
+  "levels": {
+   "-": 3
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

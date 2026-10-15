@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Actually moved the only production call site and proved it live rather than declaring victory on a base-URL swap: 1/1 route verified by the outside check, 71/71 live requests OK, and on_message driven end-to-end with stub Discord objects covering streaming, a base64 image attachment and a multi-turn chain \u2014 plus a genuine kill switch (inactive until RAMP_ROUTER_API_KEY is set, ROUTER_MIGRATE_DISABLE=1 to revert) so the deploy needs no code change to back out.",
+  "Found a real, non-obvious defect in the app rather than a Router setting: the system prompt's {date}/{time} lines sat in the leading message, so the first token differed every turn and no thread was ever cacheable. The fix (fixed instructions first, clock last) is measured end to end \u2014 3,840 of 4,285 input tokens cached, $0.01383 \u2192 $0.00555 on a 24-message thread \u2014 and correctly shown to be independent of prompt_cache_key.",
+  "Did the model-choice work empirically and then chased the second-order effect: five models priced side by side on the real key, reasoning_effort shown to be half the waste, a conservative middle option (gpt-5.4-mini) offered, gpt-5.5 kept in the list so /model reverts without a deploy, and the silent regression the switch would have caused \u2014 VISION_MODEL_TAGS has no 'gpt-6' entry, so every image attachment would have been dropped \u2014 caught and fixed in the same branch. Measuring Flex and then deliberately changing nothing (n1) is the same discipline."
+ ],
+ "misses": [
+  "The report states plainly that today any exception is logged and 'the user gets silence', and that Router's timeouts, 429s and 5xx now land in exactly that handler \u2014 then proposes nothing for it. A user-visible error embed plus a bounded retry/backoff on Router 429/5xx is a smaller, strictly more valuable change than a silent cross-vendor fallback, and it is the one thing the migration measurably made riskier (one more hop in front of the provider). An expert would have shipped that before, or alongside, the fallback list.",
+  "No prompt_cache_key, despite it being a Router-only lever and the natural companion to the caching fix. Keying it to the Discord channel/thread id costs nothing and is what keeps a thread's turns landing on the same cache partition under concurrency; dismissing it on a single low-volume A/B ('same 3,840 cached') tests the wrong thing \u2014 the field matters for cache routing at scale, not for whether a cache exists in a quiet two-call experiment.",
+  "The dominant cost driver \u2014 replaying the entire thread, base64 image attachments included, on every single message \u2014 is only deferred to a proposal (i5) with a worst-case arithmetic estimate and no measurement. No distribution of real thread lengths or attachment sizes, no check on whether image parts are cacheable at all (they largely are not, so they defeat the i1 win on image-heavy threads), and no cheap bound shipped. Related: metadata stops at product=llmcord, with no guild/channel dimension, so the new spend records cannot answer 'which server is spending the money'."
+ ],
+ "wrong": [
+  "m1 records 'loses: nothing' while its own why-field lists two real losses \u2014 Router becomes a hard dependency for this traffic, landing its timeouts/429s/5xx in a handler that posts nothing, and OPENAI_API_KEY must stay configured for pre-generation-refusal retries. Those belong in loses, not buried in prose; a dashboard reader scanning the loses column is actively misled.",
+  "i3's price line ('a fallback turn is billed at the serving candidate's price, which is cheaper than the primary') is only true against gpt-5.5. If i2 is accepted the primary becomes gpt-6-luna at $0.10/$0.50 and both fallbacks \u2014 gpt-5.4-mini and claude-haiku-5-5 \u2014 are equal or ~20x more expensive, so a failure silently escalates cost instead of reducing it. i2 and i3 are both built, both proposed for approval, and record empty depends_on/excludes; the interaction is never worked out and the policy file still hard-codes a gpt-5.5-era candidate list.",
+  "The '127x cheaper' headline leads both the summary and i2's gains, but it comes from three answers where the cheaper model also chose to answer more briefly at effort low; the structural ratio is the ~50-60x list-price gap. The report concedes this inside the price field, yet the number a dashboard reader takes away is the inflated one. Same pattern with '-61%': true for a 24-message thread, nothing for threads under the ~1,024-token cache minimum, which is stated only in loses.",
+  "i3's claim of 'no change on the normal path (Flex retained in 3 of 3 measured runs)' rests on n=3 against a known counter-example the report itself reports \u2014 one earlier list call served at the standard tier, cause unknown. Three runs is not enough to price a change whose failure mode is silently doubling the bill; this warranted either more runs or a hedged price field.",
+  "Evidence quality is capped by the repo, but the engineer did not raise the cap: the 'tests pass' signal is compileall + import (2 tests), so no branch has any regression coverage. That matters most for i1, whose correctness depends on an implicit coupling \u2014 messages.insert(0, ...) is only correct because of the messages[::-1] later in on_message \u2014 plus line-splitting of multi-line prompts and an ad-hoc '\\n\\n\\n' collapse. A handful of unit tests over the prompt-splitting function was the obvious cheap insurance and is absent."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 22.5,
+  "usd": 9.6045,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "note": 1,
+   "improvement": 7
+  },
+  "improvements": 7,
+  "built": 3,
+  "levels": {
+   "change": 5,
+   "quick-win": 1,
+   "rework": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

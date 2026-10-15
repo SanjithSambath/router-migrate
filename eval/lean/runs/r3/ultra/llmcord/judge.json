@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found and moved the app's single real LLM call correctly at the right seam \u2014 wrapping the per-message AsyncOpenAI client inside on_message() rather than hard-switching a base_url \u2014 so the openai provider's catalog models route while OpenRouter/xAI/Google/Azure/LM Studio/Ollama/vLLM keep working untouched, inert until RAMP_ROUTER_API_KEY is set; outside check confirms 1/1 call routes with tests at baseline, and it caught the Dockerfile COPY that would have shipped an image with no runtime.",
+  "Diagnosed the app's real cost structure instead of just bolting on Router fields: the whole reply chain is re-sent every turn, and the leading {date}/{time} system prompt made the prefix un-cacheable. Moving the volatile lines to the end of the chain is an app-side fix no Router field could make, it correctly accounts for llmcord's messages[::-1] ordering, and it was measured live (0/4,170 cached \u2192 3,840/4,174).",
+  "Honest, specific loss accounting throughout: which config.yaml parameters survive the Responses translation and which are dropped vs. which keep the request on OpenAI, the 504 error-shape change, the mid-stream no-fallback gap and billed truncated attempts, and 'three sampled replies are the evidence, not a guarantee' on the model swap \u2014 plus two improvements reasoned about and deliberately not built, with the per-channel-label footgun (label == policy key) correctly identified."
+ ],
+ "misses": [
+  "i3 and i4 were never reconciled. With both applied the primary becomes gpt-6-luna while the fallback list is still [claude-sonnet-5-5, gpt-6-luna] \u2014 the first fallback is 20x more expensive than the primary and the second duplicates it. An expert would have stated the combined policy (e.g. gpt-6-luna \u2192 gpt-5.5 or \u2192 claude-sonnet-5-5 only) and said what merging both branches actually produces.",
+  "prompt_cache_key was set to the single feature label for all traffic, and the per-channel idea was dismissed wholesale on the feature-label/policy-key coupling argument. But prompt_cache_key is independent of the feature label: keying it per channel or per conversation root is the change that actually improves cache affinity on a bot where every channel has its own 25-message prefix, and it carries none of the policy-unhooking risk used to reject it.",
+  "No guardrails on the output/input side of a user-facing chat call: no max output token cap (gpt-5.5 output is $30/1M and nothing bounds a runaway generation), no proposal to trim or cap the 25-message chain or to stop re-sending image attachments on every turn, and no app-side fix for the failure the report itself identifies \u2014 on_message swallows the exception and the user gets silence; editing the embed to say the generation failed is a two-line change that complements, not replaces, the Router fallback."
+ ],
+ "wrong": [
+  "i1's measured costs don't reconcile with the prices the report states. At the claimed $5/1M input, 4,170 input tokens alone is $0.02085, which exceeds the reported turn cost of $0.0147675. Both arms only balance if gpt-5.5 was billed at roughly a 50% Flex discount \u2014 yet m1 explicitly says the Flex discount 'is measured only on gpt-5.4-mini (-50%), not on gpt-5.5'. The same item then illustrates the saving at full list price ($0.00192 vs $0.0192), mixing two pricing bases in one argument. The direction of the finding is right; the cost figures presented to a reviewer are not internally consistent.",
+  "The cache-prefix split is line-based and has an unflagged edge case: a single-line system prompt containing {date} or {time}, or a prompt where the tags sit on the same line as substantive instructions, moves that whole text to the end of the chain \u2014 leaving no stable system prefix and materially changing where the model sees its instructions. The report only says a prompt without the tags is unchanged; it never states this failure mode.",
+  "'loses: nothing' on m1 is overstated and contradicted by m2 on the same call site \u2014 the dropped-parameter set and the changed error shape are losses of the move, split into a separate note.",
+  "The 'tests pass, same as baseline' evidence is thinner than it reads: the repo's test command is compileall plus an import (2 checks), so it proves nothing about prompt construction or stream translation. The live on_message runs carry the real verification, and no test was added for the message-list reshaping in i1."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 24.2,
+  "usd": 12.5331,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 9,
+  "kinds": {
+   "move": 1,
+   "note": 2,
+   "stays": 1,
+   "improvement": 4,
+   "needs-decision": 1
+  },
+  "improvements": 4,
+  "built": 4,
+  "levels": {
+   "-": 4
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

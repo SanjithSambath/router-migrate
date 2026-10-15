@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Diagnosed that wrapping alone moved nothing because every OpenAI call in llm.py carries seed=0 ('untranslatable: seed'), then unblocked the app's entire OpenAI surface with a policy-level drop_params that only rewrites the Router-bound copy while the provider-fallback copy still sends seed=0 \u2014 a real, reversible trade-off with the loss (best-effort determinism at temperature 0.75) stated honestly, and confirmed live on gpt-4o-mini/gpt-4o/o3-mini.",
+  "Covered the traffic the scanner cannot see: install_litellm() hands LiteLLM the runtime's httpx session from the one module every entry point imports, so aider's coding/writeup/improvement turns \u2014 the largest single consumer of a run \u2014 get planned, priced and tagged, with the probe honestly reporting that the Anthropic provider ignores client_session.",
+  "Measurement-driven improvement set rather than a feature checklist: Claude prompt caching proven live (6,889 prefix tokens read back, 64 new input tokens, $0.0023 vs $0.0209) with the 1.25x cache-write cost and the ~1,024-token minimum stated; and three Router features measured and then dropped for specific reasons (prompt_cache_key gained nothing over OpenAI's automatic prefix cache, Flex applies to no model this app names, provider_timeout would surface as a 504 the app's backoff decorator won't retry). It also caught a pre-existing, Router-unrelated break (temperature= to messages.create()) that stops the default --model from running at all."
+ ],
+ "misses": [
+  "aider's Anthropic turns \u2014 the default --model's single biggest spend \u2014 were written off because litellm.client_session is OpenAI-only, but LiteLLM's Anthropic provider honours a base-URL override (ANTHROPIC_API_BASE / api_base per call, or routing aider through an OpenAI-compatible config); an expert would have at least probed that and routed the Claude coding turns onto /v1/messages instead of declaring them unroutable.",
+  "No work on who waits or on model tiering: the i5 rewrite turns one n=5 request into five strictly serial calls (\u22485x the review stage's wall clock, never mentioned), and the ideation/novelty/reflection loops are serial too \u2014 a thread pool over the ensemble members and the 50-idea loop is an obvious, cheap win. Likewise no proposal to tier models by stage (novelty check and citation gathering are short, high-volume, judgement-light and are strong haiku/gpt-4o-mini candidates), despite a 'cheaper reviewer' option being referenced only as an excluded alternative.",
+  "Failure handling on Router was listed as reviewed but nothing was built: no model_fallbacks chain on /v1/responses (the single highest-leverage Router-only field for a long unattended run), and no look at how the app's backoff decorator interacts with Router error shapes/429s versus the provider-fallback path. Nothing either on reducing wasted calls at the source \u2014 extract_json_between_markers retry loops that structured outputs / JSON schema would make deterministic."
+ ],
+ "wrong": [
+  "i1's price claim is wrong: gpt-4o-2024-05-13 was $5/$15 per 1M, not 'priced the same' as the catalog gpt-4o ($2.50/$10). The mapping roughly halves input cost, so the item understates its own gain while asserting a rate parity that does not hold.",
+  "The report says wrapping the DeepSeek/OpenRouter/Gemini clients is 'a no-op at runtime because the runtime only intercepts api.openai.com and api.anthropic.com', but the outside check lists llm.py:258, :273 and :286 as route-verified and gives 'model not in catalog' (not 'host not intercepted') as the reason the llama sites stay \u2014 i.e. interception is at the SDK, not the host. The stated mechanism is inconsistent with the check, and the real blocker for those hosts (catalog coverage / byok) was never pursued.",
+  "Coverage is overstated in two places: the summary claims aider's OpenAI turns 'route too' as settled fact while the check leaves ai_scientist/llm.py:33 unverified (only the engineer's own simulator probe supports it), and 'all 12 first-party SDK clients' conflicts with the diff, where the Bedrock and Vertex clients are deliberately left unwrapped.",
+  "i5 changes seed=0 to seed=member, which alters behaviour on the provider path as well as on Router \u2014 five previously near-identical-seeded samples become five differently-seeded ones. The reasoning is given, but it is listed under 'loses' only as a billing change, not as a behaviour change that also lands when the request falls back to OpenAI.",
+  "i2's premise that 'the installed anthropic SDK no longer accepts temperature as a typed argument' is asserted from one observed TypeError; messages.create() has accepted temperature across released SDK versions, so the diagnosis (as opposed to the extra_body workaround, which is harmless) deserves a pinned version number before anyone acts on 'the default --model cannot run at all today'."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 32.4,
+  "usd": 15.0475,
+  "check_ok": true,
+  "verified": 7,
+  "unverified": 1,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 18,
+  "kinds": {
+   "move": 3,
+   "trade-off": 1,
+   "improvement": 5,
+   "stays": 4,
+   "note": 3,
+   "needs-decision": 2
+  },
+  "improvements": 5,
+  "built": 5,
+  "levels": {
+   "-": 5
+  },
+  "branch_ok": 5,
+  "report_ok": true
+ }
+}

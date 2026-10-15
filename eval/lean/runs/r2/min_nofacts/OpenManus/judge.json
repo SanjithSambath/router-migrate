@@ -1,0 +1,48 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 7,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 7,
+ "best": [
+  "Found the single chokepoint \u2014 one wrap of the AsyncOpenAI client built in LLM.__init__ puts all five production call sites (ask, ask streaming, ask_with_images, ask_tool) on Router, inert until RAMP_ROUTER_API_KEY is set, with the app's own Chat Completions shape preserved and Azure/Bedrock branches untouched; the outside check verifies all 5 routing with tests at baseline (4 passed).",
+  "Caught a real correctness bug the migration exposes rather than only moving traffic: MULTIMODAL_MODELS is a 2024 list, so on any model Router actually serves, ask_with_images() hard-errored and ask()/ask_tool() silently stripped base64_image off messages \u2014 exactly how OpenManus's browser agent passes screenshots \u2014 and replaced it with the catalog's input_modalities, failing closed to the old list for non-catalog models (so the model=\"test\" tests are unaffected).",
+  "Measured the obvious lever instead of shipping it: built a router.policy.json prompt_cache_key branch, ran two live arms per model, found the runtime's label-derived key already delivers the caching (8,833/8,852 on step 2 of Claude) and that OpenAI caches the prefix on its own, then deleted the branch and recorded the negative result as note n1 \u2014 plus honestly scoping the host-lock coverage gap (only api.openai.com routes by default while every shipped config example points elsewhere)."
+ ],
+ "misses": [
+  "No use of provider_timeout, the Router-only per-call timeout, despite identifying the exact problem it solves: these are user_waiting agent steps, the report itself cites a 61-second Flex tail, and the app's tenacity stack retries six times \u2014 a short timeout plus one retry on the ask_tool label is the cheap win here, and it is never mentioned.",
+  "Left real coverage behind an unset environment variable. The shipped default config points the client at Anthropic's compatible endpoint, so on the configuration this app actually ships, m1 routes nothing until someone sets ROUTER_UNLOCK_HOSTS. An expert would have made the host unlock part of the migration (or at minimum stated plainly that effective coverage on the default config is zero without it) rather than filing it as a separate improvement branch.",
+  "No system-level thinking about model choice or run cost: every step of the ReAct loop, including vision summarization and cheap bookkeeping steps, uses the one config.llm.model, and nothing proposes splitting labels onto cheaper catalog ids, nor estimates what a typical run costs now versus after. Related: the app still hand-counts tokens with tiktoken (TokenCounter, with hard-coded image-tile math) when Router returns real usage, and that duplication is never questioned."
+ ],
+ "wrong": [
+  "i1's headline live evidence contradicts the outside check. The report claims a live run where \"ask_with_images() and ask() ... both 200 from provider=anthropic\" and the model answered \"Red\", \"proving the image really reached it\"; validation.json's live by_feature shows app/llm.py:ask_with_images at ok: 0, error: 6 on claude-haiku-5-5 \u2014 every labelled ask_with_images request to Router failed, and only 2 unlabelled claude-haiku-5-5 calls succeeded. Six failed live requests under the key improvement's own label are neither explained nor acknowledged.",
+  "n2 and m1's temperature evidence rest on the same contradicted run: \"a live ask_with_images() call that sent temperature 0.0 returned 200 with a correct answer\" cannot be reconciled with zero successful ask_with_images requests in the check. The temperature-drop behaviour may well be real, but it is not demonstrated by the cited evidence.",
+  "The -90% input-cost gain is generalised beyond what was measured. It comes from one model (claude-haiku-5-5, cache_read $0.01 vs $0.10) on a synthetic two-step probe, then stated as \"roughly -90% on the input cost of every step after the first\" and \"that is the dominant cost in a ReAct loop\" \u2014 the caching is real, but it is the cached prefix that drops ~90%, not every later step's input bill, and no actual OpenManus run was measured. The report is explicit about this limitation for Flex (d1) but not here."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 14.8,
+  "usd": 7.3189,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 10,
+  "kinds": {
+   "move": 1,
+   "stays": 2,
+   "improvement": 4,
+   "needs-decision": 1,
+   "note": 2
+  },
+  "improvements": 4,
+  "built": 2,
+  "levels": {
+   "-": 4
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

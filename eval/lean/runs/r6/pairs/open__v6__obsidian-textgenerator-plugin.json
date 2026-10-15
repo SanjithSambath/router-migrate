@@ -1,0 +1,14 @@
+{
+ "winner": "B",
+ "margin": "clear",
+ "why": "Both engineers found the same single chokepoint (ProxyService.getFetch) and wrapped it cleanly with equal behaviour-preservation discipline, but B went a layer deeper into what actually reaches Router: it caught that @langchain/anthropic reads clientOptions rather than configuration (so Chat Anthropic was bypassing the plugin's fetch entirely and A's claim that Anthropic traffic routes is unverified for the real provider path), that presence_penalty in the shipped Custom-provider body silently kept that whole provider off Router, and that auto-suggest's n=5 call \u2014 the plugin's hot, keystroke-triggered path \u2014 cannot translate to Responses at all. B's system judgment is also better ranked and better evidenced: per-feature labels plus a policy that pins standard tier for interactive work and Flex only for unattended batch (measured -50%), versus A's blanket service_tier=default that correctly protects typing latency but leaves batch generation paying full price for no reason.",
+ "A_best": "The Flex-vs-latency reasoning is crisp and correctly grounded in this app (auto-suggest fires mid-typing, generation streams into the note), and d1 \u2014 the shipped retired model defaults that silently keep Anthropic and Custom users off Router \u2014 is framed honestly as a product decision rather than quietly papered over with a model_map.",
+ "B_best": "Finding the three concrete reasons traffic was not reaching Router despite the wrapper being correct \u2014 the clientOptions bypass (fixed), presence_penalty (fixed via drop_params with the trade-off recorded), and n>1 on the highest-frequency call (surfaced with a measured ~38x cheaper structured-output replacement) \u2014 which is the difference between a migration that looks complete and one that is.",
+ "A_worst": "It asserts Anthropic and auto-suggest traffic is on Router when neither is true for the real code paths: Chat Anthropic never got the plugin's fetch, and the n=5 auto-suggest call cannot be translated \u2014 A's live proof calls getFetch() directly, so it validates the wrapper, not the providers, and only one improvement was actually built.",
+ "B_worst": "The improvement list is long and mostly unbuilt (nine proposals, report truncated), and i2 leaks the feature header onto provider-bound requests while dropping presence_penalty only on the Router copy \u2014 both disclosed, but they mean the Custom provider's output now differs depending on whether Router is on.",
+ "result": "win",
+ "arm": "open",
+ "ref": "v6",
+ "repo": "obsidian-textgenerator-plugin",
+ "arm_was": "B"
+}

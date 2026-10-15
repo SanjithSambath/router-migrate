@@ -1,0 +1,207 @@
+{
+  "version": 6,
+  "summary": "SEC Insights has exactly two LLM clients, both LlamaIndex OpenAI wrappers: the shared Settings.llm that drives sub-question generation, refine/QA synthesis and (through a deep copy) the per-document polygon.io agent, and engine.py's streaming chat_llm behind the user-facing OpenAIAgent. Both now run through Ramp's Router under the vendored runtime, which translates their Chat Completions calls to /v1/responses and leaves the request shape the code builds untouched; nothing changes in production until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 turns it back off. Getting there needed one real fix: the translated SSE stream opened with content \"\" where OpenAI sends content null, and LlamaIndex's async streaming path only drops that leading chunk when content is null, so an OpenAIAgent read every tool call as a finished text answer -- the app's whole user-facing path streamed nothing and never called its tools. The repo's tests never touch the network, so I added scripts/_router_probe.py, which drives each client the way the app does (including astream_chat consumed exactly as handle_chat_message consumes it) with a runtime-off control arm against a local stub, and ran it against both the simulator and live Router. Embeddings stay on OpenAI because Router serves no embeddings endpoint, so the OpenAI key is still required. The policy labels this app's Router spend as product=sec-insights. Tests: 15 passed, same as the baseline.",
+  "reviewed": "I priced and timed every lever that applies to this app on live Router with the migration key, using the app's own prompts: model choice on both workloads (gpt-4o-mini against gpt-6-luna, claude-haiku-5-5 and gpt-4.1-mini), the service tier, prompt caching with and without a cache key, and cross-vendor fallback with the app's real tool schemas. Two improvements came out of it and are built on branches: a per-conversation prompt cache key (measured -25% on a call once a conversation's prefix passes ~1,024 tokens) and a fallback chain for availability. The obvious-looking one, swapping gpt-4o-mini for the cheaper current-generation gpt-6-luna, I measured and then declined: it is 54-56% cheaper but 0.3-2.5s slower per call on an app that makes four or five sequential LLM calls per user turn, for under a cent of saving per turn -- item n3 has the numbers if you disagree. Flex does not apply at today's model (gpt-4o-mini has no Flex tier; every measured call came back tier=default). I skipped provider_timeout because the LlamaIndex clients already bound each call at 60s client-side, and Router's own timeout would only replace one 504 path with another. There is no background or batch LLM work in this app to park on a cheaper or slower tier.",
+  "calls": [
+    {"site": "backend/app/llama_index_settings.py:28", "feature": "llama_index_settings.py:_setup_llama_index_settings", "model": "gpt-4o-mini", "task": "sub-question generation and refine/QA synthesis", "latency": "user_waiting", "now": "router", "item": "m2"},
+    {"site": "backend/app/chat/tools.py:152", "feature": "llama_index_settings.py:_setup_llama_index_settings", "model": "gpt-4o-mini", "task": "per-document polygon.io agent (a deep copy of Settings.llm)", "latency": "user_waiting", "now": "router", "item": "m2"},
+    {"site": "backend/app/chat/engine.py:287", "feature": "engine.py:get_chat_engine", "model": "gpt-4o-mini", "task": "user-facing streaming chat agent with two query-engine tools", "latency": "user_waiting", "now": "router", "item": "m3"},
+    {"site": "backend/app/llama_index_settings.py:34", "feature": "llama_index_settings.py:_setup_llama_index_settings", "model": "text-embedding-3-small", "task": "document and query embeddings", "latency": "user_waiting", "now": "provider", "item": "m5"},
+    {"site": "backend/scripts/_router_probe.py:151", "feature": "_router_probe.py:_control", "model": "gpt-4o-mini", "task": "the probe's control arm, deliberately pointed at a local stub server", "latency": null, "now": "provider", "item": "m6"}
+  ],
+  "items": [
+    {
+      "id": "m0",
+      "kind": "note",
+      "title": "The runtime is vendored at backend/app/router_runtime.py",
+      "summary": "Router's runtime and a probe for the paths the test suite cannot reach, committed inert.",
+      "calls": [],
+      "price": "no change",
+      "why": "The runtime is an httpx transport placed under the OpenAI SDK's client. It does nothing until RAMP_ROUTER_API_KEY is set in the app's environment, and ROUTER_MIGRATE_DISABLE=1 switches it off again, so this commit alone changes no behaviour. scripts/_router_probe.py is committed with it and is not imported by the app: it drives Settings.llm sync and async, the deep copy tools.py makes of it, and the streaming tool-calling agent consumed exactly as handle_chat_message consumes it, and it carries a control arm that runs the same agent with the runtime switched off against a local stub server, so any difference between the arms can only come from the translation layer. The repo's own tests are pure unit tests of get_chat_history and never open a socket, which is why this exists.",
+      "evidence": [
+        {"check": "tests", "result": "pass", "detail": "15 passed (8 import/smoke + 7 pytest), identical to the recorded baseline"},
+        {"check": "simulator", "result": "pass", "detail": "router-migrate check --run: the probe drives all five client paths; 12 requests reached router-sim, 12 valid, 0 invalid"}
+      ],
+      "commit": "dfadaeb",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m1",
+      "kind": "note",
+      "title": "Fixed: translated stream broke LlamaIndex's streaming tool loop",
+      "summary": "The translated SSE opened with content \"\" instead of OpenAI's null, which made every tool call read as a finished text answer.",
+      "calls": ["backend/app/chat/engine.py:287"],
+      "price": "no change",
+      "why": "This is the one hand edit to the vendored runtime (4 lines, flagged by the outside check, and the only difference between backend/app/router_runtime.py and router-migrate's own copy). The runtime's chunk writer opened each translated chat.completion.chunk stream with {\"role\":\"assistant\",\"content\":\"\"}. OpenAI's own leading chunk carries content null, and LlamaIndex's async streaming path (llama_index/llms/openai/base.py, _astream_chat) drops a leading chunk only when both content and tool_calls are None. With an empty string it kept that chunk, so the first ChatResponse an OpenAIAgent saw had no tool_calls; StreamingAgentChatResponse.awrite_response_to_history set is_function_false_event on it and _get_async_stream_ai_response returned a text stream for what was really a tool call. The tool never ran and the stream was empty -- and that is this app's entire user-facing path, an agent whose system prompt insists on using its tools, consumed by handle_chat_message through astream_chat. Only async streaming with tools was affected; buffered calls, sync streaming and the non-streaming tool loop were correct before the fix. Undoing this would re-break the user-facing chat, which is why it is recorded as a note rather than something to reverse on its own.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "same agent, same tools, live Router: before the fix 1 request, 0 characters streamed, tool never called; after the fix 2 requests, \"pear\" streamed, tool called"},
+        {"check": "simulator", "result": "pass", "detail": "the runtime-off control arm against a local stub was unchanged by the fix in both configurations (sim-like stub 0 characters, realistic stub 12), which is what identifies the translation layer as the cause"},
+        {"check": "other", "result": "info", "detail": "the raw translated chunk sequence was dumped and compared with OpenAI's documented shape: role chunk, tool_call argument deltas, final finish_reason tool_calls -- faithful apart from the leading content value"}
+      ],
+      "commit": "6a96424",
+      "depends_on": ["m0"],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Route the shared LlamaIndex LLM through Router",
+      "summary": "Settings.llm, which drives sub-question generation, response synthesis and the per-document polygon.io agent, now calls Router.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+      "gains": "Most of this app's tokens are here (a synthesis call is about 1,070 input tokens against 420 for an agent turn), so this is where one Router key, per-request spend records and model choice start to matter. The request the code builds is unchanged; the runtime translates it to /v1/responses and translates the reply back.",
+      "loses": "nothing",
+      "price": "no change (same model, same catalog price: gpt-4o-mini $0.15/$0.60 per 1M)",
+      "why": "A wrap at the construction site rather than a port: LlamaIndex keeps building the Chat Completions requests it builds today, and the app keeps running against OpenAI unchanged until RAMP_ROUTER_API_KEY is set. tools.py builds its per-document agent with Settings.llm.model_copy(update=..., deep=True), and the runtime's client survives that deep copy, so the copy routes too -- verified rather than assumed, because a copied httpx client would otherwise have failed on its locks.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "probe: sync chat, async chat and the tools.py deep copy all reach router-sim as /v1/responses with client=app/llama_index_settings.py:_setup_llama_index_settings"},
+        {"check": "router-live", "result": "pass", "detail": "same three paths against live Router: 200, provider=openai, real answers returned"},
+        {"check": "tests", "result": "pass", "detail": "15 passed, same as the baseline"}
+      ],
+      "commit": "c45db0b",
+      "depends_on": ["m0"],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "move",
+      "title": "Route the user-facing streaming chat agent through Router",
+      "summary": "engine.py's chat_llm, the streaming OpenAIAgent that answers users, now calls Router.",
+      "calls": ["backend/app/chat/engine.py:287"],
+      "gains": "The app's main interaction runs on Router: one key, spend recorded per request, and model and fallback choices available to it without touching this code again.",
+      "loses": "nothing",
+      "price": "no change (same model, same catalog price)",
+      "why": "Same wrap as m2, so the agent's request shape, its two query-engine tools, temperature 0 and max_function_calls=3 are all unchanged. This is the path the m1 fix was needed for, and the only path in the app where a translation defect is invisible to the test suite, so it is verified end to end: astream_chat consumed the way handle_chat_message consumes it, with a runtime-off control arm for comparison.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "live Router: buffered chat, sync and async streaming, a non-streaming tool loop and astream_chat with a tool all succeeded; the streaming tool loop made both calls and streamed its answer"},
+        {"check": "simulator", "result": "pass", "detail": "probe against router-sim: 12 requests, 12 valid, 0 invalid; streaming agent path reaches Router and streams"},
+        {"check": "tests", "result": "pass", "detail": "15 passed, same as the baseline"},
+        {"check": "other", "result": "info", "detail": "the app's own engine inside the probe gets as far as invoking its query-engine tool and then fails on a missing vector store, which is the probe's environment, not the routing; a conclusive end-to-end run of that engine needs a seeded database and polygon.io data"}
+      ],
+      "commit": "1599794",
+      "depends_on": ["m0", "m1"],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "note",
+      "title": "Router spend for this app is labelled product=sec-insights",
+      "summary": "router.policy.json adds metadata.product to Router-bound requests, so spend reads per app as well as per feature.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/engine.py:287"],
+      "price": "no change",
+      "why": "The runtime already tags every routed request with metadata.feature (the calling file and function, which came out as app/chat/engine.py:get_chat_engine and app/llama_index_settings.py:_setup_llama_index_settings for the two clients). product is the key Ramp's spend management groups by, so this completes the picture without the app knowing about it. The policy applies to Router-bound requests only, so the provider-fallback path never carries it. A user (email) or team key can be added the same way. The compiled copy the runtime actually reads (backend/app/router_policy.py) is committed alongside the JSON, as the outside check requires.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "the Router-bound body was captured and carries metadata={\"feature\": \"...\", \"product\": \"sec-insights\"}; model, input and temperature unchanged"},
+        {"check": "tests", "result": "pass", "detail": "15 passed"}
+      ],
+      "commit": "59757fa",
+      "depends_on": ["m0"],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "stays",
+      "title": "Embeddings stay on OpenAI: Router has no embeddings endpoint",
+      "summary": "text-embedding-3-small keeps going to OpenAI, so the OpenAI key stays required.",
+      "calls": ["backend/app/llama_index_settings.py:34"],
+      "price": "no change",
+      "why": "/v1/embeddings returns 404 on Router, and the runtime deliberately leaves embedding clients on the provider. This app embeds on both sides of the hot path: seed_db and seed_storage_context when indexing filings, and every user query at retrieval time. So Router does not consolidate this app down to one key -- OPENAI_API_KEY must stay configured, which is also what the runtime's provider-fallback path needs. Nothing to do about it today; worth knowing before anyone plans to retire the provider key.",
+      "evidence": [
+        {"check": "simulator", "result": "info", "detail": "probe: the embedding client is never wrapped and never appears in the routing trace; with a dummy key it fails against api.openai.com, which is the expected unrouted behaviour"}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m6",
+      "kind": "stays",
+      "title": "The probe's control-arm client stays off Router by design",
+      "summary": "scripts/_router_probe.py builds one client aimed at a local stub server; routing it would destroy the comparison.",
+      "calls": ["backend/scripts/_router_probe.py:151"],
+      "price": "no change",
+      "why": "The scanner sees this client and reports it as not routing, which is correct and intended: it is the control arm, a client with the runtime switched off talking to an in-process stub on 127.0.0.1, and it exists so that a routed result can be compared against an unrouted one in the same process. It is not part of the application and runs only when the probe is run by hand.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "router-migrate check --all reports it as 'stays: client targets 127.0.0.1'; the stub never leaves the machine"}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n3",
+      "kind": "note",
+      "title": "Measured and declined: swapping gpt-4o-mini for a cheaper model",
+      "summary": "gpt-6-luna is 54-56% cheaper but 0.3-2.5s slower per call, which this app's four-to-five-call turns cannot absorb.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/engine.py:287"],
+      "price": "declined; would have been about -55% on LLM spend",
+      "why": "This is the lever everyone reaches for first, so here is what it actually costs. All numbers are live Router with this app's own prompts (a 1,070-token synthesis prompt built from the app's QA template, and an agent turn with the app's real system prompt and both tool schemas), n=4 per arm on synthesis and n=2 on the agent turn.\n\nSynthesis call, cost and latency: gpt-4o-mini $0.00034/2.9-3.5s; gpt-6-luna $0.000146-0.000155 uncached and about $0.00009 with a warm cache, at 5.6-6.7s; gpt-4.1-mini $0.00085/2.4-2.8s; claude-haiku-5-5 about $0.00038/2.2s but it returned empty text in both runs, having spent the whole 400-token output budget on reasoning. Agent turn: gpt-4o-mini $0.0000831/0.83-0.99s; gpt-6-luna $0.0000376-0.0000387/1.1-2.1s; claude-haiku-5-5 $0.000136/0.82-1.2s. All three picked the right tool with a sensible argument, so capability is not the problem.\n\nThe problem is that a user turn here is a chain: the agent decides, SubQuestionQueryEngine generates sub-questions, each sub-query synthesises, a final synthesis runs, and the agent answers -- four or five sequential calls. gpt-6-luna is a reasoning model (98-146 reasoning tokens per call measured), and at 2 to 2.5 extra seconds per synthesis call the chain grows by roughly 5-10s to save well under a cent per turn. Reasoning effort would close most of that gap (effort=low measured at 2.5-4.4s) but this app cannot express it: LlamaIndex only sends reasoning_effort for models in its own O1_MODELS table, and smuggling it through additional_kwargs would also send it to OpenAI on the provider-fallback path, where gpt-4o-mini rejects it. claude-haiku-5-5 is fast but costs more here, partly because it tokenises these prompts at about 1.7x (1,782 against 1,068 input tokens on the same synthesis prompt).\n\nIf you want it anyway it is one line: \"model_map\": {\"gpt-4o-mini\": \"gpt-6-luna\"} in router.policy.json under features keyed on the construction site, which maps the model at the Router boundary only -- important here, because renaming the model in the app's own settings would also change what LlamaIndex thinks the model can do (OpenAIAgent refuses a model its table says cannot call functions) and OpenAIAgent would then be validating an id it has never heard of. Two things come free with that swap and should be decided with it: gpt-6-luna has a Flex tier and this account served every luna call at Flex without being asked (that is where the second half of the saving comes from, measured at -47% against the same call pinned to service_tier default), and the runtime drops temperature automatically for it, since sending temperature to that model is a 400 (measured) -- so the app's temperature 0 silently stops applying.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "live usage.cost per call, same prompts: synthesis gpt-4o-mini $0.00034, gpt-6-luna $0.000146 uncached / $0.00009 cached, gpt-4.1-mini $0.00085, claude-haiku-5-5 $0.00038; agent turn $0.0000831 / $0.0000376 / - / $0.000136"},
+        {"check": "router-live", "result": "info", "detail": "latency over the same calls: 4o-mini 2.9-3.5s synthesis and 0.83-0.99s agent; luna 5.6-6.7s and 1.1-2.1s; luna at reasoning effort low 2.5-4.4s; haiku-5-5 2.2s and 0.82-1.2s"},
+        {"check": "router-live", "result": "info", "detail": "tier: every gpt-4o-mini call came back tier=default (it has no Flex tier); every gpt-6-luna call came back tier=flex unasked, and the same call with service_tier=default cost $0.000167 against $0.0000874, with no latency gain"},
+        {"check": "side-by-side", "result": "info", "detail": "answer quality was not measured beyond reading the four answers, which were all plausible and on topic; claude-haiku-5-5 returned no text at all under a 400-token output cap"}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "d1",
+      "kind": "needs-decision",
+      "title": "Should a Router refusal still be allowed to reach OpenAI?",
+      "summary": "By default the runtime retries a Router refusal on OpenAI; ROUTER_MIGRATE_FALLBACK=0 makes those requests fail instead.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/engine.py:287"],
+      "price": "no change either way",
+      "why": "This is a governance decision, not a code one, and it is yours. When Router refuses before generating -- a 403, an unknown model, an unsupported parameter, a 501 -- the runtime sends that one request to OpenAI unchanged so the app keeps working. That is the right default while rolling out, and it means some LLM traffic can still reach OpenAI directly without appearing in Router's spend views. If the point of this migration is that all traffic is governed by Router, set ROUTER_MIGRATE_FALLBACK=0 in the app's environment and those requests surface as errors instead. Two related rollout notes: the OpenAI key must stay configured either way, because embeddings never route (m5); and this app fans out, with SubQuestionQueryEngine running its sub-queries concurrently, so a Router spend cap can overshoot, since caps apply after usage is recorded.",
+      "evidence": [
+        {"check": "other", "result": "not-run", "detail": "not exercised: triggering the provider-retry path needs a real OpenAI key, and this environment only has a dummy one"}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Give each conversation its own prompt cache key",
+      "summary": "A stable prompt_cache_key per conversation makes the provider's prompt cache hit reliably on the chat agent's repeated prefix.",
+      "calls": ["backend/app/chat/engine.py:287"],
+      "gains": "The agent re-sends the same prefix on every call -- system prompt with document titles, both tool schemas, and the history so far -- up to four times in one user turn and again on every later turn. Live Router, through this app's own chat client, same 1,281-token request three times per arm: with the key, 0 then 1,152 then 1,152 tokens came back cached; without it, 0, 0, then 1,152. A cached call cost $0.000244 against $0.00033, about -25% on the call and -45% on its input cost, since gpt-4o-mini cache reads bill at $0.075/1M against $0.15/1M. Measured again straight against /v1/responses on the same prompt shape: keyed calls cached 1,024 tokens from the second call on, unkeyed calls cached nothing in three tries. The effect grows with conversation length and costs nothing to run.",
+      "loses": "Nothing is given up: prompt_cache_key is a first-class Chat Completions parameter in the pinned openai 1.109.1 SDK, so the provider-fallback path accepts it too, and it changes neither the model, the prompt nor the output. It simply buys nothing on a conversation's first turn, where the prefix (system prompt plus tools, about 420 tokens) is below the provider's ~1,024-token cache minimum -- measured as cached=0 on both arms at that size.",
+      "price": "about -25% per agent call once a conversation's prefix passes ~1,024 tokens; no change before that",
+      "why": "Caching is the one lever here that is pure upside, and it needs the right key granularity to work. The cache key has to identify the prefix group, and in this app the prefix is conversation-scoped (the system prompt carries that conversation's document titles), so conversation.id is exactly the right key -- a single app-wide key would point conversations with different prefixes at the same affinity bucket. That is also why this is code at the construction site rather than a line in router.policy.json: the policy's prompt_cache_key can only be the feature label, which is the same string for every conversation. The measurement that matters is the A/B above: without the key the provider cached sporadically, with it the cache hit from the second call every time.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "A/B through the app's own engine client on live Router, 3 calls per arm: keyed cached 0/1,152/1,152 of 1,281 tokens, unkeyed cached 0/0/1,152"},
+        {"check": "price", "result": "pass", "detail": "usage.cost on the same calls: $0.000244-0.000249 cached against $0.00033 uncached, about -25%"},
+        {"check": "simulator", "result": "pass", "detail": "the Router-bound body carries prompt_cache_key=sec-insights-chat:<conversation id> alongside the policy's metadata; nothing else changed"},
+        {"check": "tests", "result": "pass", "detail": "15 passed on the branch, same as the baseline"}
+      ],
+      "commit": "50b6cee",
+      "branch": "router-migrate/improve/chat-prompt-cache",
+      "depends_on": ["m3"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "title": "Fall back to gpt-4.1-mini, then Claude, when gpt-4o-mini cannot serve",
+      "summary": "The policy sends every request as a candidate list, so a model or vendor failure is answered instead of returned as an error.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/engine.py:287"],
+      "gains": "Today a gpt-4o-mini failure ends the request and the user sees an error. With the candidate list Router tries gpt-4.1-mini for a model-level problem and claude-haiku-4-5 for an OpenAI-wide one, inside the same call, with no code change at the call sites. Measured on live Router end to end: with the primary forced to a model this key cannot use (403 data_residency_mismatch), all 12 probe calls still returned 200, served by gpt-4.1-mini-2025-04-14, and the streaming tool loop still called its tool and streamed its answer; a direct list of [gpt-5.3-codex, claude-haiku-4-5] carrying this app's two tool schemas was served by claude-haiku-4-5 with a correct tool call, so the cross-vendor hop works for the agent's requests too.",
+      "loses": "When a substitute serves, a different model answers: wording and tool choices differ, and that call costs more -- gpt-4.1-mini $0.40/$1.60 per 1M against $0.15/$0.60, and claude-haiku-4-5 $1/$5 with about 2.4x the input tokens for the same prompt (1,013 against 418 on the agent turn, measured). Router does not report which candidate failed, so an outage shows up as a cost and wording change rather than an error, which means the served model in Router's request views becomes the thing to watch. And Router does not fall back once a stream has started, so for the user-facing agent this only covers failures before the first token; the buffered synthesis and sub-question calls are covered throughout.",
+      "price": "no change while gpt-4o-mini is healthy; 2.6x to 6.6x per 1M on the calls a substitute serves",
+      "why": "This app has one interaction and it is entirely LLM-dependent, so availability is worth more to it than a few hundredths of a cent. The candidate order is deliberate: same vendor first, so a problem specific to gpt-4o-mini is absorbed by the closest model, then cross-vendor, since a same-vendor candidate is useless in an OpenAI-wide outage. Both substitutes support function calling and temperature, which matters because the runtime's capability guard drops any candidate that cannot take a parameter the request carries -- and these requests carry temperature, so a temperature:false model such as gpt-6-luna or claude-haiku-5-5 would have been silently dropped from the list. Router's fallback behaviour on real provider 5xx and 429 is documented but not measured; what is measured here is a 403 and an unavailable model.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "primary forced to gpt-5.3-codex (403 for this key): 12 of 12 probe calls returned 200, served by gpt-4.1-mini-2025-04-14, streaming tool loop intact"},
+        {"check": "router-live", "result": "pass", "detail": "[gpt-5.3-codex, claude-haiku-4-5] with the app's real tool schemas: served by claude-haiku-4-5-20251001 with a correct tool call, $0.001363 for that call"},
+        {"check": "simulator", "result": "pass", "detail": "both clients send models=[gpt-4o-mini, gpt-4.1-mini, claude-haiku-4-5]; the streaming client still streams, verified against live Router too"},
+        {"check": "tests", "result": "pass", "detail": "15 passed on the branch, same as the baseline"}
+      ],
+      "commit": "4534d2c",
+      "branch": "router-migrate/improve/cross-vendor-fallback",
+      "depends_on": ["m4"],
+      "excludes": []
+    }
+  ]
+}

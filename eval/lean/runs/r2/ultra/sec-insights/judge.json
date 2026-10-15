@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 7,
+ "improvement_quality": 9,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found and fixed a real translation defect that the test suite could never have caught: the runtime's leading SSE chunk carried content \"\" where OpenAI sends null, so LlamaIndex's _astream_chat kept it, every tool call read as a finished text answer, and the app's entire user-facing chat would have streamed nothing and never called its tools. The diagnosis is precise (named the exact LlamaIndex code path), the 4-line edit is disclosed as the only divergence from the vendored copy, and it is proven with a runtime-off control arm against a local stub so the translation layer \u2014 not LlamaIndex \u2014 is identified as the cause.",
+  "Built scripts/_router_probe.py to cover the paths the repo's pure-unit tests cannot reach: Settings.llm sync and async, the deep copy tools.py makes (verifying an httpx client survives model_copy(deep=True) rather than assuming it), and astream_chat consumed exactly the way handle_chat_message consumes it \u2014 with a control arm, run against both the simulator and live Router. This is the right answer to a repo whose tests never open a socket.",
+  "Priced and timed the levers on live Router with the app's own prompts instead of guessing, and then declined the obvious one with numbers: gpt-6-luna is ~55% cheaper but adds 2-2.5s per synthesis call on a 4-5 call sequential chain to save under a cent per turn. The accompanying detail is the kind an expert surfaces \u2014 luna is served at Flex unasked, the runtime drops temperature for it so the app's temperature 0 silently stops applying, reasoning_effort cannot be expressed because LlamaIndex gates it on its O1_MODELS table, and Claude tokenises these prompts at ~1.7x."
+ ],
+ "misses": [
+  "The prompt cache key was applied only to the chat agent, not to the synthesis/sub-question path \u2014 which by the engineer's own measurement is the larger token consumer (~1,070 input tokens per call, several per user turn, all sharing the QA/refine template prefix and often the same retrieved document text within one turn). A per-conversation or per-document cache key on Settings.llm was the obvious second half of i1 and is not even discussed.",
+  "provider_timeout was dismissed on grounds that contradict the fallback work: with a candidate list in place, a short provider_timeout is precisely what converts a hung primary into a fallback hop instead of a 60s client-side stall. On a chain of four or five sequential calls each bounded at 60s, the tail a user can wait is minutes; this is the main tail-latency lever on Router and it got one sentence.",
+  "Model choice was evaluated only as an app-wide swap. The two workloads have different shapes \u2014 a latency-critical agent turn (~420 tokens, 0.83s) and bulk synthesis calls that already take 3s and run fanned out under SubQuestionQueryEngine \u2014 so a per-feature model_map (keeping 4o-mini on the agent, a cheaper or stronger model on synthesis, which the policy supports keyed on construction site) was the natural follow-on to n3 and was never considered. More broadly, nothing at the rework level is proposed: the 4-5 sequential call chain per user turn is named as the reason to reject everything but is never itself treated as the thing to improve."
+ ],
+ "wrong": [
+  "The outside check lists backend/app/chat/tools.py:152 as unverified, while m2's evidence states all three paths including the deep copy reached router-sim and live Router. The probe evidence looks credible, but the report should have reconciled the discrepancy rather than asserting verification the check does not confirm.",
+  "i1's \"loses: nothing\" is slightly overstated \u2014 it is honest about buying nothing on the first turn, but a per-conversation key also forecloses prefix sharing across conversations over the system-prompt-plus-tool-schema portion, which the report presents as purely conversation-specific without noting the trade.",
+  "The hand edit to the vendored runtime is well disclosed but left as a local divergence: no note that it is an upstream bug affecting every LlamaIndex async-streaming tool-calling consumer of Router and should be fixed in the shared runtime, and nothing flags that a re-vendor would silently re-break this app's only user-facing path.",
+  "Several measurements are n=2 to n=4 on latency and three calls per arm on the cache A/B. The report is open about the sample sizes, but the -25% and the 0.3-2.5s latency deltas are stated with more confidence than that sample supports, and the unkeyed arm caching 1,152 tokens on its third call is evidence the unkeyed path is not reliably uncached."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 46.5,
+  "usd": 6.9541,
+  "check_ok": true,
+  "verified": 2,
+  "unverified": 1,
+  "not_routing": 0,
+  "stays": 1,
+  "items": 11,
+  "kinds": {
+   "note": 4,
+   "move": 2,
+   "stays": 2,
+   "needs-decision": 1,
+   "improvement": 2
+  },
+  "improvements": 2,
+  "built": 2,
+  "levels": {
+   "-": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,14 @@
+{
+ "winner": "B",
+ "margin": "clear",
+ "why": "Both wrapped the single AsyncOpenAI client correctly and moved the same four chat call sites with the same three hard-limit stays, but B found and fixed one more real break that A shipped past: with STREAM=true (the repo default) Router's translated stream emits a role-only chunk that A's migration reads as 'no function call', so every plugin invocation would return an empty reply and never run \u2014 a behaviour regression on the default config that no outside check would catch. On the system-level work B's items are also better matched to this app \u2014 per-feature provider_timeout and capability-checked fallbacks with the honest caveat that fallback cannot cover an already-started stream, root-causing the hardcoded model tables while explicitly leaving the chat-model choice as a product decision, and spotting that usage_tracker bills users from a flat TOKEN_PRICE when Router now returns exact usage.cost \u2014 whereas A's deepest insights are measurement findings rather than changes.",
+ "A_best": "The vision cost inversion: measuring that gpt-4o-mini bills 8,522 input tokens for a 320x200 image where gpt-4o bills 277, so the obvious downgrade is more expensive \u2014 and letting that finding reshape the ranking (vision excluded from the mini swap, pointed at claude-haiku instead). Paired with the sharp observation that the app's hardcoded model tables make OPENAI_MODEL unchangeable, so mapping the model at Router keeps the app's accounting and tiktoken paths intact.",
+ "B_best": "Catching the streamed-plugin break with a raw chunk dump, and fixing it by skipping the role-only preamble while replaying consumed chunks so no content is dropped on either path \u2014 plus the TOKEN_PRICE vs Router usage.cost finding, which is the one item that goes to this bot's actual product behaviour (per-user budgets and lockouts) and which A never raises.",
+ "A_worst": "Shipping the migration with streamed plugin calls silently broken on the default STREAM=true, while claiming '12 of 12' full-surface coverage \u2014 the probe covered streamed chat and buffered plugins but not their intersection. Secondarily, chat-on-mini is built as a branch even though it changes every user-visible reply, which is the one decision that should have stayed a proposal.",
+ "B_worst": "i4 is a rework that converts the model tables' hard failures into estimated token counts and context windows, which drifts the summarise trigger and the /stats line for any unknown model \u2014 and B pairs it with d2 admitting the accounting is already wrong, so the unlock lands on a weaker base. B also never measured per-model image token economics, so d1's model switch carries an unpriced risk on the vision path that A quantified.",
+ "result": "loss",
+ "arm": "ultra_facts2",
+ "ref": "ultra_levels",
+ "repo": "chatgpt-telegram-bot",
+ "arm_was": "A"
+}

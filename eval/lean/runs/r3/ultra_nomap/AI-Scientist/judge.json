@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Wrapped the traffic at its real choke points instead of editing call sites: create_client() plus the three inline reviewer clients in both launchers and review_iclr_bench, and handed LiteLLM the runtime's HTTP session where each aider Coder is built - so nearly every site in the check routes, no request shape changed, and the whole thing is inert until RAMP_ROUTER_API_KEY is set, with provider keys kept as the fallback path.",
+  "Diagnosed the two things that actually blocked routing and fixed them as explicit, scoped trade-offs: seed=0 on every gpt/o1/o3 call made them untranslatable for /v1/responses (dropped only on the Router-bound copy, n deliberately not dropped), and the pinned gpt-4o-2024-05-13 / o1-2024-12-17 ids that Router 404s (mapped, with the May->August snapshot shift on the reviewer stated as a loss). Both verified in the simulator and with live Router calls through the app's own code.",
+  "Reported negative and limiting results honestly rather than hiding them: aider on a claude-* model does not route because LiteLLM's Anthropic handler uses its own transport (said plainly so 'aider is on Router' isn't over-read), n>1 ensemble cannot route because /v1/responses has no n, and Flex, prompt_cache_key and provider_timeout each rejected with a specific reason. The pre-existing Claude TypeError on the current Anthropic SDK was also found and fixed, and the prompt-cache saving was measured (7,509 tokens written then read, 4 billed) rather than asserted."
+ ],
+ "misses": [
+  "aider's Claude traffic - the app's default --model and the largest block of tokens in a run - is left on Anthropic and never offered as a decision. Pointing LiteLLM at Router as an OpenAI-compatible base (api_base/custom provider for the aider Model) or setting litellm.sync_transport would have moved it; 'undocumented hook; not done' closes the biggest remaining gap without putting it in front of the human.",
+  "No model_fallbacks proposed anywhere, which is one of Router's main pieces of leverage for exactly this workload. Ideas, novelty checks, citations and the multi-hour aider loops run unattended with nothing waiting on a user, so a provider 5xx or capacity event kills an idea outright; rejecting fallbacks on the reviewer's measurement-integrity argument is right for the reviewer only, and the i4-labels dependency should have been resolved rather than used to drop the idea for every other stage.",
+  "provider_timeout dismissed app-wide on the grounds that a 504 would kill an idea - but a hung request wedges the same idea indefinitely, and backoff already retries APITimeoutError, so a generous per-stage timeout plus the existing retry is strictly better than a silent hang. In the same vein, consolidating the DeepSeek and Gemini clients (deepseek-v4.x, BYOK Vertex gemini-2.5+) via unlock_hosts was ruled out unilaterally on billing grounds instead of being surfaced as a human's call, and no rework-level item (e.g. restructuring the 5-review ensemble as parallel single calls with per-stage spend labels) was proposed beyond the cost note in s3."
+ ],
+ "wrong": [
+  "The coverage claim does not match the check: the report says '7 of the 9 calls the scanner sees route', while validation.json verifies 12 routing sites, lists 7 more as unverified-but-wrapped and only the two OpenRouter calls as stays. s1 and s5 assert the DeepSeek (llm.py:248/263), Gemini (llm.py:276) and default Claude (llm.py:181) sites stay on their providers, but the check counts all four as routing - these need reconciling rather than two different route stories in one report.",
+  "i1 over-generalises: 'Anthropic removed temperature from Messages.create and deprecated it on the wire for current models' is broader than the evidence, which shows one SDK build raising TypeError and two current snapshots returning 400. Deleting the argument outright silently moves every Claude call to the provider default, including temperature=0.1 for reviews and 0.75 for ideas on models that still accept it; a model/SDK-conditional pass-through was the correct fix and the branch does not attempt it.",
+  "m4's price line ('no increase: Router lists gpt-4o at $2.50/$10, at or below OpenAI's price for the pinned snapshot') is wrong in the engineer's own favour - gpt-4o-2024-05-13 lists at roughly double that, so the map is about a 50% input-price cut. The item's one concrete gain is left unclaimed and the number as written is not the comparison it names.",
+  "The spend-labels branch quietly widens the seed drop to '**ai_scientist/*.py:*' and '**ai_scientist/llm.py:create_client' in router.policy.json - a policy change well beyond what i4 describes (it now drops seed for any future sender in the package, including call paths nobody reviewed), and it is not mentioned in the item's loses.",
+  "i4's evidence is contradicted by the live data in the check: by_feature shows 24 of 31 successful requests as '(unlabelled)' and the only app-labelled rows as 'ai_scientist/llm.py:get_response_from_llm' - precisely the label i4 claims to replace. Per-stage attribution is asserted, not demonstrated.",
+  "'10 passed, same as the baseline' is repeated as behaviour evidence on every item, but the suite is compileall plus six module imports; it cannot detect a changed request shape, a dropped parameter or a remapped model. The report describes what the command is, which is honest, but should say outright that behaviour preservation rests on the simulator and live probes, not on the tests."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 41.0,
+  "usd": 25.6259,
+  "check_ok": true,
+  "verified": 12,
+  "unverified": 7,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 20,
+  "kinds": {
+   "move": 2,
+   "trade-off": 2,
+   "stays": 5,
+   "improvement": 6,
+   "needs-decision": 1,
+   "note": 4
+  },
+  "improvements": 6,
+  "built": 6,
+  "levels": {
+   "quick-win": 3,
+   "change": 3
+  },
+  "branch_ok": 6,
+  "report_ok": true
+ }
+}

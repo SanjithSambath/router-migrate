@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Moved all four chat.completions sites with a single wrap at the one AsyncOpenAI construction site, verified by the outside check (4/4 routes verified, 0 unverified, 0 not-routing), with images/TTS/Whisper correctly left on OpenAI for a real hard-limit reason \u2014 plus an env-var kill switch and inertness until RAMP_ROUTER_API_KEY is set, so the commit is shippable ahead of the cutover.",
+  "Found and fixed two latent bugs that only Router's stricter wire contract exposes: the orphaned function result with no preceding assistant function_call turn (which would 400 and poison that chat's history for every subsequent turn), and the streaming function-call detector bailing on Router's role-only opening chunk (plugins silently never running). The stream fix replays already-consumed chunks instead of dropping them, and __count_tokens was updated for the new function_call/None-content messages \u2014 the full consequence chain was followed, not just the happy path.",
+  "Measured rather than assumed: the gpt-4o-mini image finding (8,522 input tokens vs 277 on gpt-4o, so the 'obvious' cheap-vision swap costs more) is a genuine empirical catch that a price-list reading would get backwards, and the usage.cost budget idea was dropped for a correct reason (streaming paths never see a usage object). Measured rejections with numbers are worth as much as the accepted proposals."
+ ],
+ "misses": [
+  "prompt_cache_key is set to $feature \u2014 one key shared by every chat. For a bot whose whole cache win is 'turn N+1's prompt starts with turn N's', the key should be per conversation ($feature + chat_id), so each chat's growing prefix keeps affinity to where it is cached instead of all chats colliding on one key. The lever was identified correctly and then given the wrong granularity, which is exactly the case where the measured -47% (admittedly confounded with OpenAI's automatic caching) may not survive real multi-chat traffic.",
+  "The bot's existing tenacity retry (stop_after_attempt + the OpenAI SDK's own retries) is never reconciled with the new provider_timeout and fallback list. A 60 s provider_timeout under an SDK retry loop is a 60 s cut-off multiplied by attempts, and client-side retries on top of Router-side fallbacks can duplicate billed work; an expert would have set the SDK timeout/max_retries explicitly alongside provider_timeout so there is one owner of the deadline.",
+  "No Flex-tier decision of its own, and no look at the real cost driver (the bot resends the entire history every turn under MAX_HISTORY_SIZE, so cost grows quadratically in a conversation). Flex appears only as a risk inside i4; summarisation \u2014 the one call whose text no human reads \u2014 is the obvious Flex candidate and got provider_timeout 90 s instead. Likewise nothing is proposed about history/context strategy (trimming, earlier or cheaper summarisation, Responses-native state-free prefix handling), which is the structural lever behind every per-turn number in the report."
+ ],
+ "wrong": [
+  "i6 excludes claude-haiku-4-5 from the plugin follow-up 'to stay on the vendor whose legacy function-call translation this path was measured against', but keeps it on bot/openai_helper.py:268 \u2014 which also sends the legacy functions payload whenever PLUGINS is set. The stated reason applies equally to both sites; the report leans on Router's policy guard silently dropping incompatible candidates, which means the fallback may simply not exist on exactly the traffic it was reasoned about.",
+  "The live evidence is reported as '20 of 20 requests served' and '21 of 21 valid', but the outside check records 89 live requests with 86 ok \u2014 including 2 errors on the vision feature and 1 unlabelled. Those three are never mentioned or explained anywhere in the report. They may well be deliberate negative probes, but a reader comparing the report to the check sees a clean sheet claimed against a record that is not clean.",
+  "i1's price line ('lower: up to -47% of a chat turn') states the saving as attributable to the change, while the loses field concedes the measurement cannot separate the key's contribution from OpenAI's automatic prefix caching that was already hitting. The honest caveat is present but the headline number is carried as if it were the gain from this item; the real incremental gain from prompt_cache_key here is unmeasured and plausibly near zero.",
+  "i5's safety argument rests on three vision samples returning 0 reasoning tokens at a 300-token cap. The report says so plainly, but it then ships the swap as a branch on that basis; with a reasoning model sharing a 300-token output budget, the honest move is to raise VISION_MAX_TOKENS as part of the same change rather than to leave 'if image replies ever come back empty, undo this' as the mitigation.",
+  "i2's 'no change, except that a timed-out attempt is still billed' understates the user-visible cost: a 504 is surfaced as the bot's generic error, and with the bot's retry decorator on top the user may wait several multiples of 60 s before seeing it."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 32.8,
+  "usd": 15.9451,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 13,
+  "kinds": {
+   "move": 1,
+   "trade-off": 1,
+   "stays": 2,
+   "improvement": 6,
+   "note": 3
+  },
+  "improvements": 6,
+  "built": 6,
+  "levels": {
+   "-": 6
+  },
+  "branch_ok": 6,
+  "report_ok": true
+ }
+}

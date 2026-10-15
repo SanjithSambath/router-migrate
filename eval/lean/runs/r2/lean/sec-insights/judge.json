@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 9,
+ "best": [
+  "Found and routed the app's true LLM surface \u2014 both constructions \u2014 and proved it end to end rather than by grep: the outside check verifies all three sites (engine.py:287, tools.py:152, llama_index_settings.py:28) with nothing unverified, and a real chat turn produced 10/10 successful live Router requests covering decomposition, the polygon.io tool loop, synthesis and the streamed agent. Notably they checked the non-obvious case \u2014 that tools.py's `model_copy(deep=True)` carries the patched httpx transport \u2014 instead of assuming it.",
+  "Correctly identified that spend labelling was a prerequisite, not a nicety: the streamed chat requests arrived with no feature at all (the check's live data confirms 2 '(unlabelled)' requests), and the labels are what policy keys on. Shipping it as its own tested branch with the reasoning in code comments is exactly right.",
+  "Honest, well-bounded failover policy: cross-vendor candidate list with provider_timeout, with the limits stated plainly \u2014 stream failover covers connect phase only, answers will differ when a fallback serves, a timeout surfaces as a 504 error rather than a retry \u2014 plus the catalog work that caught claude-haiku-5-5 being silently dropped by the temperature capability guard and replaced it with a model that keeps temperature and tools."
+ ],
+ "misses": [
+  "Nothing was done about llama-index's own retry ladder. The report itself argues the current failure mode is 'retry the same model three times with backoff while the user watches a websocket do nothing', then adds Router fallbacks on top of it without lowering `max_retries` on either client \u2014 so the two layers now compound, and the 45/60s provider_timeout can be multiplied by three client-side retries. Setting max_retries=0/1 and letting Router own retries is a two-line quick win that belonged on the failover branch.",
+  "No work on the error path the new policy creates. A provider_timeout hit returns a plain-text 504 and an exhausted candidate list returns an error, both of which reach a user mid-websocket; the report notes this is 'a louder failure' and stops there. An expert would have traced it into ChatCallbackHandler/messaging and either surfaced a sensible partial/retry affordance or stated explicitly that the current handler shows a raw error.",
+  "Only 2 of 5 improvements were actually built, and the two cheapest high-confidence ones were left as prose. The gpt-5-nano swap for sec-analysis is a pure policy edit on a label that already exists \u2014 it could have shipped behind a flag with a handful of saved questions run on both models to produce the evidence the report says it needs. Also untouched: prompt_cache_key is set to the feature name for all traffic, which is close to useless for prefix-cache hits on the chat path where the stable prefix is the system prompt plus document titles per conversation; a per-conversation or per-document-set key would be the real cache lever, and the agent/sub-question fan-out being run serially was only addressed in the i5 rework rather than as a near-term concurrency fix."
+ ],
+ "wrong": [
+  "'`prompt_cache_key` gives each label provider affinity for free' overstates and mislabels the field \u2014 it is a prompt-cache routing hint, not provider pinning, and with one key per feature across every user and document set it buys little here.",
+  "'Router ignores Flex when a candidate list is present' is asserted with no evidence behind it and is load-bearing for why i2 sets no tier field; it should have been verified like the temperature guard was.",
+  "The claude-haiku-4-5 failover cost is given as 'about 6.7x' throughout; that is the input ratio only ($1 vs $0.15). Output is 8.3x ($5 vs $0.60), so the per-request worst case during a failover is understated.",
+  "gpt-oss-120b is the last candidate for both labels, including an agent whose correctness depends on OpenAI-shaped tool calls, and the report's loss statement only covers vendor style differences generally \u2014 tool-calling reliability on the open-weight tail candidate is never addressed, and it was not exercised live (all 23 live requests were served by openai).",
+  "The '-50% measured on gpt-5.4-mini' Flex figure is carried into i3's price line for gpt-5-nano. It is labelled as a sibling-model measurement, which is fair, but the claim that 'this account has [Flex] on by default' is unsupported and should not be in a price estimate.",
+  "'7 passed' in the report vs 15 in the check reconciles only if the 8 import/build steps are counted as tests; conflating build steps with the test count in evidence detail is sloppy, though not a misrepresentation."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 18.5,
+  "usd": 6.3287,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 9,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 5,
+   "note": 1
+  },
+  "improvements": 5,
+  "built": 2,
+  "levels": {
+   "quick-win": 2,
+   "change": 1,
+   "rework": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

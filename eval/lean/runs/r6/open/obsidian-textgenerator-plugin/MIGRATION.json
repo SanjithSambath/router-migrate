@@ -1,0 +1,748 @@
+{
+  "version": 6,
+  "summary": "Text Generator is an Obsidian plugin: every LLM request it makes — the LangChain providers (OpenAI, Anthropic, Azure, Ollama, Gemini, Mistral, HF, Perplexity, Together, MiniMax) and the raw-HTTP Custom providers — leaves through exactly one function, ProxyService.getFetch(). The migration wraps that one function with the vendored Router runtime (m1) and fixes the one provider that was bypassing it, Chat Anthropic, which reads `clientOptions` rather than `configuration` (m2). No provider class, call site or request shape changed; with no Router key withRouter() hands back the same function it was given, so behaviour is byte-identical. Verified against live Router: an OpenAI chat.completions call becomes POST /v1/responses and comes back chat-shaped (gpt-4o, $0.000055), an Anthropic call becomes POST /v1/messages, streaming survives the translation, and a model Router does not serve (gpt-3.5-turbo-16k) still goes to OpenAI. Then, as CTO: the migration is inert for a real install because an Obsidian user cannot set an environment variable, so i1 puts the Router key in the plugin's settings (encrypted, stripped from data.json, verified live); and the runtime's automatic feature label is the path of main.js after bundling, so i2 gives each feature its own name and a router.policy.json that uses them — standard tier for the two features a user waits on, Flex for unattended batch work (measured -50%), and a presence_penalty drop that was the single thing keeping every Custom-provider request off Router. Nine more changes are proposed with measured numbers, the largest being auto-suggest: today one trigger costs about $0.0012 on gpt-4o and never reaches Router at all (n=5), where one structured call on gpt-4.1-nano measured $0.00003.",
+  "reviewed": "I read every LLM path in the plugin — the 13 LangChain providers, the 3 Custom raw-HTTP providers, the whisper extractor and the title/auto-suggest/batch/playground commands — and priced the ones that fire often against the live Router catalog (about 45 live calls through the migration key). Improvements were judged on what this product actually is: a BYO-key desktop plugin whose hot call is a keystroke-triggered suggestion and whose model table is hand-maintained and years stale. Two were built and tested because they are what makes Router reachable and legible here (a key the user can actually set; names on the spend); the rest change what the user sees — a different model answering, a different suggestion shape, a new provider in the dropdown — so they are proposed for a human to approve rather than slipped in.",
+  "calls": [
+    {
+      "site": "src/services/proxy-service.ts:101",
+      "feature": "all",
+      "model": "user-selected",
+      "task": "the one fetch every provider in this plugin uses",
+      "latency": null,
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/langchain/base.tsx:97",
+      "feature": "all",
+      "model": "user-selected",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/langchain/base.tsx:130",
+      "feature": "all",
+      "model": "user-selected",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m2"
+    },
+    {
+      "site": "src/LLMProviders/custom/base.tsx:127",
+      "feature": "all",
+      "model": "user-selected",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/custom/base.tsx:17",
+      "feature": "custom",
+      "model": "gpt-3.5-turbo-16k",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/custom/custom.tsx:47",
+      "feature": "custom",
+      "model": "gpt-3.5-turbo-16k",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "n2"
+    },
+    {
+      "site": "src/LLMProviders/custom/anthropic.tsx:30",
+      "feature": "custom-anthropic",
+      "model": "claude-2.1",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/services/api-service.ts:294",
+      "feature": "generate",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/services/api-service.ts:505",
+      "feature": "generate",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/services/api-service.ts:404",
+      "feature": "batch",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "background",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/services/api-service.ts:176",
+      "feature": "gen",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/scope/commands.ts:541",
+      "feature": "title",
+      "model": "gpt-4o",
+      "task": "summarize",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "i5"
+    },
+    {
+      "site": "src/services/auto-suggest/index.ts:121",
+      "feature": "autosuggest",
+      "model": "gpt-4o",
+      "task": "completion",
+      "latency": "interactive",
+      "now": "provider",
+      "item": "m5"
+    },
+    {
+      "site": "src/services/auto-suggest/index.ts:140",
+      "feature": "autosuggest",
+      "model": "gpt-4o",
+      "task": "completion",
+      "latency": "interactive",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/ui/playground/playground.tsx:135",
+      "feature": "playground",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/ui/components/OverlayToolbar.tsx:135",
+      "feature": "toolbar",
+      "model": "gpt-4o",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/extractors/audio-extractor.ts:146",
+      "feature": "transcribe",
+      "model": "whisper-1",
+      "task": "transcription",
+      "latency": "background",
+      "now": "provider",
+      "item": "m6"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route every LLM request at the plugin's one fetch",
+      "summary": "ProxyService.getFetch() returns withRouter(providerFetch()), so every provider's OpenAI and Anthropic traffic goes to Router when a key is set.",
+      "calls": [
+        "src/services/proxy-service.ts:101",
+        "src/LLMProviders/langchain/base.tsx:97",
+        "src/LLMProviders/custom/base.tsx:127",
+        "src/LLMProviders/custom/base.tsx:17",
+        "src/LLMProviders/custom/anthropic.tsx:30",
+        "src/services/api-service.ts:294",
+        "src/services/api-service.ts:505",
+        "src/services/api-service.ts:404",
+        "src/services/api-service.ts:176",
+        "src/services/auto-suggest/index.ts:140",
+        "src/ui/playground/playground.tsx:135",
+        "src/ui/components/OverlayToolbar.tsx:135"
+      ],
+      "gains": "One key and one bill for OpenAI + Anthropic traffic, per-request spend and provider in Router's views, and every Responses lever (tier, fallbacks, caching, timeouts, spend labels) reachable from router.policy.json — without touching a single provider class, call site or request body. The scanner's three raw-HTTP sites are covered by the same hook, because the runtime intercepts by host and path rather than by SDK.",
+      "loses": "nothing",
+      "price": "no change by itself: the same model answers, at the catalog price Router bills. Measured gpt-4o chat call $0.000055 via Router, matching list price.",
+      "why": "Every LLM request in this plugin — the 13 LangChain providers through `configuration.fetch`, and the 3 Custom providers calling it directly — passes through ProxyService.getFetch(). That makes it the one honest choke point: wrapping it routes everything at once and leaves the plugin's CORS-bypass and requestUrl fallbacks in charge of actually putting the bytes on the wire, so Router-bound requests get the same transport treatment as provider-bound ones. While RAMP_ROUTER_API_KEY is unset withRouter returns the identical function object, which is the cheapest possible guarantee that nothing changed.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "POST api.openai.com/v1/chat/completions (gpt-4o) through the wrapper -> 200 /v1/responses on Router, provider=openai, reply re-shaped to chat.completion, usage.cost $0.000055, 934 ms"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "POST api.anthropic.com/v1/messages (claude-haiku-4-5) -> 200 /v1/messages on Router, provider=anthropic, Anthropic-shaped reply, 601 ms"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "the Anthropic-legacy Custom provider's shipped body (claude-sonnet-4-5) -> 200 /v1/messages; a streamed gpt-4o chat call -> 200 text/event-stream, 3 chat.completion.chunk events, text intact"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "gpt-3.5-turbo-16k (the Custom provider's default model, not a Router catalog id) went to api.openai.com and came back with OpenAI's own 401 — proof the non-routable path is untouched"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "8 unit tests in src/lib/router/router.test.ts (identity when off, chat->responses translation, messages passthrough, unknown model, non-OpenAI host, n>1, provider retry after a Router 400) plus 2 end-to-end tests in src/lib/router/integration.test.ts that send a real request through the hook when a Router endpoint is configured; full suite 34 passed, 0 failed (baseline 24)"
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "tsc --noEmit: 85 errors, equal to the baseline"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "node esbuild.config.mjs production builds main.js (4.5mb); the runtime adds ~70 KB of source with the live catalog embedded"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "router-migrate check --run \"vitest run\": 2 request(s) reached router-sim, 2 valid, 0 invalid — /v1/responses model=gpt-4o-mini and /v1/messages model=claude-haiku-4-5, both with client=src/lib/router/index.ts:withRouter"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "router-migrate check --all still reports 0 of 3: the static scanner sees the Custom providers' endpoint strings, not the shared fetch they are sent through. The simulator and live runs above are the route truth for those sites."
+        }
+      ],
+      "commit": "47b9eb6",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Give Chat Anthropic the plugin's fetch (clientOptions)",
+      "summary": "LangchainProvider.getLLM() now passes its fetch and default headers as `clientOptions` as well as `configuration`, so the Anthropic provider stops bypassing the plugin's fetch.",
+      "calls": [
+        "src/LLMProviders/langchain/base.tsx:130"
+      ],
+      "gains": "Chat Anthropic traffic reaches Router like every other provider, and the plugin's CORS bypass, requestUrl fallback and its own `anthropic-dangerous-direct-browser-access` default header finally apply to it — none of which were reaching the Anthropic SDK before.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "getLLM() built one options object with the fetch under `configuration`, which is what the OpenAI-SDK-backed LangChain classes read. @langchain/anthropic reads `clientOptions` and has no `configuration` field at all (checked in node_modules: the only matches are prompt-cache comments), so ChatAnthropic was constructed with the SDK's default global fetch. Passing the same object under both keys is inert for every other class — of the LangChain packages this plugin depends on, only @langchain/anthropic reads `clientOptions`, and @langchain/openai uses that name only for a local variable.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "node_modules/@langchain/anthropic/dist/chat_models.js lines 689/694/1004/1036: baseURL and the client come from fields.clientOptions; `configuration` appears nowhere in the package's chat model"
+        },
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "grep for clientOptions across @langchain/{openai,google-genai,mistralai,ollama,perplexity,community}: no constructor field outside @langchain/anthropic and unused community document loaders"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "full suite 32 passed, 0 failed"
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "85 errors, equal to the baseline"
+        }
+      ],
+      "commit": "d49d649",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "stays",
+      "title": "Every non-OpenAI/Anthropic provider stays on its vendor",
+      "summary": "Ollama, Gemini/PaLM, Mistral, HuggingFace, Perplexity, Together, MiniMax, Replicate and Azure requests keep going exactly where they went.",
+      "calls": [],
+      "gains": "no behaviour change for ten of the thirteen providers",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "The runtime routes by host: only api.openai.com and api.anthropic.com. Those providers each set their own basePath, so their requests fall through untouched — including the local Ollama/LM Studio case, which must never leave the machine. Together AI is the one worth revisiting (i11): several of its model ids are Router catalog aliases.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "src/lib/router/router.test.ts: a chat.completions POST to http://localhost:11434 goes out unchanged"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "stays",
+      "title": "Models outside the Router catalog stay on the provider",
+      "summary": "28 of the 62 OpenAI-family ids and 2 of the 12 Claude ids in the plugin's model list resolve to Router; the rest are served by the vendor as before.",
+      "calls": [],
+      "gains": "a user who picked a model Router does not serve keeps working, with no error and no silent substitution",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "resolveModel() only matches catalog ids, catalog aliases and the 22 dated snapshots Router itself reported. The plugin's hand-maintained table still lists text-davinci-*, gpt-4-32k, the audio/realtime/search previews and the whole Claude 3 family, none of which Router serves. Two consequences are worth a human's attention: the OpenAI provider's shipped default (gpt-4o) does route, but the Chat Anthropic provider's shipped default (claude-3-5-sonnet-latest) does not, so that provider routes nothing until the user picks claude-sonnet-4-5 or newer — i7 proposes the model map that would fix it, and i6 the catalog that would stop the table going stale.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "compared src/lib/models/index.ts against the live catalog + aliases + dated map: routes = gpt-5.1/5/5-mini/5-nano (+dated), gpt-4o, gpt-4, gpt-4-0613, gpt-3.5-turbo, gpt-4.1/-mini/-nano (+dated), gpt-4o-mini, o1, o3, o3-mini, o4-mini (+dated), claude-sonnet-4-6, claude-opus-4-6"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "gpt-3.5-turbo-16k returned OpenAI's own 401 rather than a Router response"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "stays",
+      "title": "Auto-suggest's n=5 request stays on OpenAI",
+      "summary": "The main auto-suggest call asks one request for five samples; Router's Responses API has no `n`, so the runtime leaves it with the provider.",
+      "calls": [
+        "src/services/auto-suggest/index.ts:121"
+      ],
+      "gains": "the feature keeps working exactly as before",
+      "loses": "nothing",
+      "price": "no change, but this is the plugin's highest-frequency call and it is the one that does not reach Router",
+      "why": "generateMultiple() sends `n` to the provider (legacyN is false on the OpenAI provider), and chatToResponses refuses to translate n != 1 rather than silently returning one answer where the caller asked for five. The in-code fallback path next to it — N separate generate() calls when the SDK throws — does route. This is the strongest argument for i4: a single structured-output call would be cheaper, faster and routable, all three.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "src/lib/router/router.test.ts: a chat.completions body with n: 5 goes to api.openai.com unchanged"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "measured one autosuggest sample on gpt-4o via Router: 40 in / 21 out, $0.00031; n=5 on the same prompt is about $0.00115 per trigger at list price"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m6",
+      "kind": "stays",
+      "title": "Audio transcription stays on OpenAI",
+      "summary": "The whisper extractor posts to /audio/transcriptions, which Router does not serve.",
+      "calls": [
+        "src/extractors/audio-extractor.ts:146"
+      ],
+      "gains": "nothing changes for audio notes",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Router serves /v1/responses and /v1/messages only; there is no audio endpoint, and Responses rejects audio input outright. The extractor also talks to whatever transcription_url the user configured, which is often not OpenAI at all. It keeps its own key.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "src/extractors/audio-extractor.ts builds `<endpoint>/audio/transcriptions` and calls global fetch directly, not ProxyService.getFetch"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "The automatic feature label is useless in a bundled plugin",
+      "summary": "The runtime names a request by its calling file:function, which after esbuild is the path of main.js for every request.",
+      "calls": [],
+      "gains": "",
+      "loses": "",
+      "why": "Measured directly: live Router logged `feature=/.../probe.cjs:feature` for every call. That label is what Router's per-feature spend views key on and what router.policy.json matches, so until the plugin supplies its own names (i2, built) neither is usable — all of this plugin's spend arrives as one bucket.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "info",
+          "detail": "before i2, five live calls all arrived with feature set to the bundled file path; after i2 they arrive as autosuggest / title / batch / generate"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "presence_penalty kept every Custom-provider request off Router",
+      "summary": "The Custom provider's shipped body template sets presence_penalty 0.5, which the runtime will not translate, so those requests all stayed on OpenAI.",
+      "calls": [
+        "src/LLMProviders/custom/custom.tsx:47"
+      ],
+      "gains": "",
+      "loses": "",
+      "why": "Measured: the shipped body (temperature 0.7, top_p 1, frequency_penalty 0, presence_penalty 0.5, max_tokens 400, n 1) went to OpenAI and returned OpenAI's 401; the identical body without presence_penalty was served by Router and returned the same answer. The value is only an example in the settings UI, but it silently excluded a whole provider. Fixed on i2's branch by `defaults.drop_params` in router.policy.json, which drops it from the Router-bound copy only (trade-off T1).",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "shipped body -> 401 from api.openai.com; same body minus presence_penalty -> 200 via Router, usage.cost $0.000055, same answer"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Put the Router key in the plugin's settings",
+      "summary": "A \"Ramp Router\" settings section holds the key, an on/off switch and an optional base URL, and hands them to the runtime.",
+      "gains": "Router can actually be switched on by a real user. The key is encrypted by the plugin's existing key handling and stripped from data.json like every other provider key, and it works on mobile as well as desktop. It is also the door to Router's per-key spend cap — a hard monthly ceiling this plugin's users cannot get from a provider key today.",
+      "loses": "One more key to manage, and one more place a user can be confused about which key is in use: with Router on, the per-provider keys still sit in settings but are no longer what pays for OpenAI/Anthropic calls (they are still used for every other provider, and for any model Router does not serve). The status line under the switch says which state the plugin is in.",
+      "why": "The runtime activates on RAMP_ROUTER_API_KEY in the process environment. That is right for a server and wrong for Obsidian: a user cannot set an environment variable for their note-taking app, so the migration as delivered would never be on in production. src/main.ts already installs a global `process` fallback on every platform, so there is somewhere to write the key on desktop and mobile alike. A key that came from a real environment variable always wins — this only clears a value it set itself.",
+      "price": "no change to any request; it only decides whether Router is used at all",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "with RAMP_ROUTER_API_KEY removed from the environment and handed over as a setting instead: settings empty -> request went to OpenAI (401); key saved -> 200 via Router (provider=openai); switch off -> back to OpenAI"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "6 new tests in src/lib/router/settings.test.ts (off by default, on with a key, the enable switch, base URL set and cleared, and twice that an environment-supplied key is never clobbered); suite 38 passed, 0 failed"
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "85 errors, equal to the baseline"
+        }
+      ],
+      "commit": "e019dbf",
+      "branch": "router-migrate/improve/router-key-setting",
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Name each feature, and a policy that treats them differently",
+      "summary": "Pass the plugin's own feature names to Router, and add a router.policy.json that gives each one the tier, timeout and caching it deserves.",
+      "gains": "Spend splits by what the plugin was doing (autosuggest / title / batch / generate / playground / toolbar / prompt / gen) instead of arriving as one bucket. Unattended batch generation moves to the Flex tier for exactly half the cost (measured). The two features a user waits on are pinned to the standard tier, so a Flex queue cannot stall typing. Every feature gets a sane provider_timeout, long-context features get a prompt_cache_key (which is what makes Claude cache at all over Responses), and every routed request carries metadata.app. The policy's presence_penalty drop also brings the whole Custom provider onto Router (n2).",
+      "loses": "autosuggest and title cost twice as much on Flex-eligible models than they would at the account's Flex default (measured $0.0000355 vs $0.0000177 on gpt-5.4-mini) — bought deliberately, because a 61-second Flex outlier on a keystroke suggestion is worse than the fraction of a cent. presence_penalty is not applied on Router-bound requests, so Custom-provider output may repeat slightly more; the provider path still gets it. And while Router is on, the feature header rides along on requests that stay with the provider too.",
+      "why": "The runtime's automatic label is the bundle path (n1), so every per-feature lever Router offers was unreachable. The features here genuinely differ: auto-suggest fires on a trigger phrase while someone is typing, batch generation runs over a folder of notes with nobody watching, and the title command is a short unattended call. Naming them is a handful of lines and turns router.policy.json from decoration into the place those differences are written down — reviewable, and switchable off with ROUTER_MIGRATE_POLICY=off.",
+      "price": "batch -50% on Flex-eligible models; autosuggest/title +100% on Flex-eligible models (fractions of a cent either way); no change on gpt-4o and Claude, which have no Flex tier",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "five live calls arrived labelled autosuggest / title / batch / generate; gpt-5.4-mini served at tier=default for autosuggest and title ($0.000035475) and tier=flex for batch ($0.0000177375) — exactly -50%"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "the Custom provider's shipped body (presence_penalty 0.5) now routes: 200 via Router on gpt-4o, same answer"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "12 new tests in src/lib/router/policy.test.ts (header + metadata.feature, caller's label wins, standard tier for autosuggest/title, Flex for batch, Flex skipped on a model without one, timeout + spend label, prompt cache key, presence_penalty dropped only on the Router copy, original body intact on the provider path, ROUTER_MIGRATE_POLICY=off); suite 44 passed, 0 failed"
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "85 errors, equal to the baseline"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "router-migrate policy compiles router.policy.json to src/lib/router/routerPolicy.ts (hash 81a060fb); trade-off T1 recorded via router-migrate adapt"
+        }
+      ],
+      "commit": "0e6085c",
+      "branch": "router-migrate/improve/feature-labels-and-policy",
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Auto-suggest: one structured call, not five samples",
+      "summary": "Replace the n=5 sampling call with a single json_schema request that returns the five suggestions as an array.",
+      "gains": "Measured $0.00003 on gpt-4.1-nano for all five suggestions, against about $0.00115 per trigger for n=5 on gpt-4o today — roughly 38x cheaper on the plugin's highest-frequency call, the one that fires mid-typing. One request instead of five, so one round trip. The request becomes routable (it is the `n` that keeps it off Router today, m5), so it lands under the autosuggest policy: standard tier, 30 s cap, its own spend line. The schema also removes the fragile bits around the current path — the `.map is not a function` fallback loop, and the client-side `stop` emulation Router needs for OpenAI models.",
+      "loses": "Different suggestions. Five independent samples and five items asked for in one breath are not the same distribution: one call tends to produce more varied, more deliberately distinct options and loses the 'what would the model say twice' signal that the current de-duplication leans on. Models without structured-output support (the catalog flags them) would need the old path kept as a fallback, and this is a visible product change that deserves a side-by-side on real notes before it ships.",
+      "why": "This is the one call that fires on a keystroke, and it is both the most expensive per use and the only one that never reaches Router. Asking once for a list is what the feature actually wants — five distinct completions — rather than five hopeful samples that then get de-duplicated in `[...new Set(re)]`.",
+      "price": "about -97% per trigger at the models measured; the exact figure depends on which model the user has selected",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "one json_schema call returning five continuations: gpt-4.1-nano 80 in / 55 out, $0.00003, 840 ms; gpt-4o-mini 80/48, $0.0000408, 885 ms. One sample of the current shape: gpt-4o 40/21, $0.00031 (x5 prompts shared -> ~$0.00115 per trigger)"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "gpt-4.1-nano $0.40/$1.60 per 1M vs gpt-4o $2.50/$10.00 (live catalog)"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i2"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "A first-class Ramp Router provider with the live catalog",
+      "summary": "Add Router to the provider list: one key, the model dropdown filled from GET /v1/models, and real spend from usage.cost.",
+      "gains": "One key buys 100 models across OpenAI, Anthropic, xAI, Google, Bedrock and the open-weight set, instead of a key per vendor — for a plugin whose users manage six API keys by hand, that is the headline. The model list stops being a hand-maintained table that has to be edited for every release (it is already missing gpt-5.4/5.5/6 and the Claude 5 family) and becomes whatever the user's key can call. usage.cost gives the plugin a real per-request price instead of the stale arithmetic in calcPrice, and a Router spend cap gives the user a hard ceiling.",
+      "loses": "A new provider in the dropdown, which means a migration story for existing users and a second place model settings live. The native path also gives up what the runtime does for free: it would have to drop temperature itself on the 36 catalog models that refuse it, and OpenAI models return 501 for `stop`, which auto-suggest's '.' terminator relies on — so this provider needs its own parameter guards, or it should keep going through the runtime and only take its key and model list from Router.",
+      "why": "The migration makes Router a destination; this makes it the product. @langchain/openai already supports `useResponsesApi: true`, which the fact sheet confirms is what Router's Responses endpoint needs, so the client work is small — the real work is the settings surface and deciding what happens to a user's existing provider configuration.",
+      "price": "catalog price per model; the point is that the user can now see and choose it",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "node_modules/@langchain/openai exposes useResponsesApi on ChatOpenAI; the live catalog returns 100 models, of which 73 are callable without a caller-owned provider key"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "the plugin's table lists 12 Claude ids, of which 2 exist on Router, and no model newer than gpt-5.1"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "change",
+      "title": "A cheap model for the calls the user never reads",
+      "summary": "Let the title command (and auto-suggest) run on a small model instead of whatever the user picked for writing.",
+      "gains": "Measured 23x cheaper for a title: gpt-4.1-nano $0.0000208 against gpt-4o $0.00049, with output a reader could not rank ('Ramp's Router: A Unified Gateway for Managing LLM Traffic' vs 'Ramp Router: Dynamic LLM Traffic Management Solution'). A title is a filename; nobody is paying gpt-4o rates for it on purpose.",
+      "loses": "A second model setting to explain, and a user who deliberately chose an expensive model for voice consistency now gets a different voice in these two places unless they change it back. Picking the small model badly is worse than not doing this: claude-haiku-5-5 returned an empty title in testing, because it is a reasoning model and a 40-token cap is spent entirely on reasoning — the setting needs the catalog's reasoning flag to steer users away from that.",
+      "why": "The title command and auto-suggest are internal plumbing, not the user's prose: one renames a file, the other offers a phrase to accept or ignore. They inherit the main model today only because there is nowhere else to say otherwise. A per-feature model setting is the honest place; router.policy.json's model_map could do it without UI, but it would have to be keyed to specific model ids and would change the user's model without telling them.",
+      "price": "title -96% at the models measured",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "same title prompt, 156 input tokens: gpt-4o $0.00049 (10 out), gpt-4.1-nano $0.0000208 (13 out), gpt-4o-mini $0.0000306 (12 out)"
+        },
+        {
+          "check": "router-live",
+          "result": "fail",
+          "detail": "claude-haiku-5-5 at max_tokens 40 returned 239 in / 40 out and an empty string — a reasoning model with no room left for the answer; gpt-5-nano did the same at 24 and 32 token caps"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i2"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Take prices, limits and capabilities from Router's catalog",
+      "summary": "Replace the hand-maintained AI_MODELS table with the live catalog, and show the real cost Router reports per request.",
+      "gains": "The token counter, the price estimate and the model dropdown stop drifting: 1,200 lines of hand-entered prices, context limits, encodings and 'isThinking' flags become a catalog fetch that is right by construction. The plugin can show what a generation actually cost (usage.cost, which matched list price exactly in Router's own testing) instead of an estimate computed from prices that are years old. The catalog's temperature and reasoning flags are also what i5 needs to stop users choosing a model that cannot answer in 40 tokens.",
+      "loses": "A network dependency for something that is currently offline and instant, so it needs a cached copy and a fallback to the built-in table. Catalog coverage is not the same as the current table: models the user reaches through Ollama, Together or a custom endpoint are not in it and would keep the old rows. And usage.cost exists on Responses only — Anthropic Messages traffic reports none, so a Claude user would see cost on some calls and not others unless those requests move to Responses too.",
+      "why": "The table already disagrees with reality in ways that cost users money and trust: 12 Claude ids of which Router serves 2, no model newer than gpt-5.1, and prices that predate several rounds of cuts. Router publishes exactly this data, per key, for free.",
+      "price": "no change to what is spent; it changes what the plugin tells the user they spent",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "src/lib/models/index.ts is 1,221 lines of hand-entered model metadata; GET /v1/models returned 100 models with pricing, surfaces, temperature/reasoning/tools flags and max_output_tokens"
+        },
+        {
+          "check": "router-live",
+          "result": "info",
+          "detail": "usage.cost present on every /v1/responses reply measured (e.g. $0.000055 for a gpt-4o call) and absent on /v1/messages"
+        }
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Map the stale Claude ids onto models Router serves",
+      "summary": "A model_map in router.policy.json so claude-3-5-sonnet-latest and friends resolve to current Claude models instead of bypassing Router.",
+      "gains": "The Chat Anthropic provider routes out of the box. Its shipped default is claude-3-5-sonnet-latest, which Router does not serve, so today that provider sends nothing to Router unless the user happens to pick claude-sonnet-4-6. Mapping the eight dead Claude ids (3-opus, 3-sonnet, 3-haiku, 3-5-*, 4-dated) onto claude-sonnet-4-5 / claude-haiku-4-5 would also put those users on cheaper, better models: claude-haiku-4-5 is $1/$5 against Claude 3 Opus pricing.",
+      "loses": "A different model answers than the one named in the settings, and the user is not told. That is the whole objection, and it is a real one for a writing tool where voice matters — which is why this is a decision for a human and not something to slip into the migration. The honest alternative is i6: show the user that their chosen model no longer exists and let them pick.",
+      "why": "Two of the twelve Claude ids in the plugin's list are real on Router, and the default is not one of them. Either the ids get mapped or the Anthropic provider simply never benefits from any of this.",
+      "price": "varies by mapping; claude-haiku-4-5 at $1/$5 is far below the Claude 3 Opus rates some of these users are still paying",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "of claude-3-5-sonnet-latest, -20241022, 3-5-haiku-*, 3-opus-*, 3-sonnet-*, 3-haiku-*, sonnet-4-20250514 and opus-4-20250514, none is a Router catalog id, alias or dated equivalent; claude-sonnet-4-6 and claude-opus-4-6 are"
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "claude-sonnet-4-5 and claude-haiku-4-5 both served 200 on /v1/messages through the plugin's hook"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i2"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Fall back to another vendor when one is down",
+      "summary": "A `fallbacks` list in router.policy.json for the generate features, so an outage produces text instead of an error notice.",
+      "gains": "Today a provider outage surfaces as a red notice in the middle of someone's note. A ranked candidate list lets Router serve the request from another vendor — cross-vendor fallback is documented and was measured working from gpt-5-nano to claude-haiku-4-5. It costs nothing when the first candidate answers, which is almost always.",
+      "loses": "When it fires, a different model writes into the user's note and the response does not say which — Router falls through silently. For a writing assistant that is a visible change of voice at exactly the moment the user is not expecting one. The least capable candidate also caps the request: tools, structured output and image input all have to be supported by every model on the list, and Flex is ignored whenever a list is sent.",
+      "why": "Cheap to try (policy only, no code) and easy to undo, but it changes who writes the user's text, so it should be a human's decision rather than a default. Worth pairing with a visible note of which model answered.",
+      "price": "the serving candidate's price, only when it serves",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "fact sheet section 6.2: up to 15 candidates on /v1/responses, falls through missing models, 403s and invalid parameters silently; cross-vendor measured gpt-5-nano -> claude-haiku-4-5; no fallback once a stream has started, which matters because this plugin streams by default"
+        },
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "fallback behaviour on a real provider outage (5xx, 429) is documented but unmeasured"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i2"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i9",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Drop the tiktoken WASM and count tokens on Router",
+      "summary": "Use Router's free /v1/messages/count_tokens for the token counter instead of shipping a WASM tokenizer in main.js.",
+      "gains": "The counter stops being wrong for every non-OpenAI model: it currently encodes Claude, Gemini, Mistral and Llama prompts with cl100k_base and calls the result a token count. Router's count_tokens is free and exact for Anthropic-served models (the x-router-token-count-source header says which). It would also take a large embedded WASM blob out of a 4.5 MB plugin bundle, which every Obsidian user downloads on every update.",
+      "loses": "A network round trip, and a wrong number, for something that is instant and offline today — the counter updates as the user types, so it would need debouncing and a cached estimate, and it would show nothing at all when the user is offline or has no Router key. Models Router does not serve get no count at all. This is a rework because the counter is wired into the status bar, the template calculator and the price estimate.",
+      "why": "The plugin ships a tokenizer to produce a number that is only correct for one vendor. Router gives the correct number for free. Worth doing only together with i6, since both replace the same stale table.",
+      "price": "count_tokens is free",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "src/scope/tokens.tsx + @dqbd/tiktoken with the WASM embedded by esbuild; LangchainProvider.calcTokens falls back to AI_MODELS['gpt-3.5-turbo'] encodings for every model it does not know, Claude included"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "fact sheet section 2: POST /v1/messages/count_tokens is served and free, exact for Anthropic-served models and estimated otherwise"
+        }
+      ],
+      "branch": null,
+      "depends_on": [
+        "i6"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i10",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Let Router's shadow models pick the default",
+      "summary": "Turn on shadow models for this key to get cost and latency for two or three candidate models on a sample of real traffic.",
+      "gains": "The default model (gpt-4o) and the model choices behind i3 and i5 are currently argued from one-shot probes on invented prompts. Shadow models record cost and latency for candidate models against 5-10% of real requests, on the Shadow Logs page, without changing a single answer the user sees. That is the cheapest way to find out whether gpt-4.1-nano really is good enough for titles on actual notes.",
+      "loses": "It needs content recording switched on for the account, which means real note content is retained by Router — for a note-taking plugin that is a privacy decision a human must make explicitly, and probably one to ask users about. It also records cost and latency only, not quality, so it narrows the candidates rather than settling them. Not available on BYOK keys.",
+      "why": "Every model recommendation in this report rests on a handful of live calls. This is the product surface that would replace them with evidence from the real workload, and it is switched on in the Router dashboard rather than in this repository.",
+      "price": "the sampled shadow calls, on 5-10% of /v1/responses traffic",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "fact sheet section 1a: shadow models record cost and latency of 1-3 candidates on a 5-10% sample of real /v1/responses traffic; requires content recording; not on BYOK keys; switched on at app.router.com"
+        },
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "not enabled on the migration key; no shadow data was collected"
+        }
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i11",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Serve the Together AI models from Router instead",
+      "summary": "unlockHosts for api.together.xyz, so the open-weight ids that are Router catalog aliases go through Router too.",
+      "gains": "The Together provider's model list is mostly ids Router already knows as aliases — openai/gpt-oss-120b, deepseek-ai/*, moonshotai/Kimi-K3, Qwen/* — so those users could drop one more API key and get the same models with Router's spend view, caps and fallbacks. gpt-oss-120b is $0.15/$0.60 on Router.",
+      "loses": "A different provider serves the model, which for open-weight ids is a real difference: Router may serve the same id from Fireworks on one surface and Baseten on another, and the response format changes with it. Token accounting is also unreliable for some Fireworks-served models (input_tokens: 1 was measured). Users who chose Together deliberately — for price or for a model Router does not carry — must keep working, so this has to be opt-in per provider.",
+      "why": "It is one option on the runtime (unlockHosts) rather than new code, and it is the only other provider in this plugin whose catalog materially overlaps Router's. Everything else (Ollama, Gemini, Mistral, Perplexity) should stay where it is.",
+      "price": "Router catalog price for the mapped ids; gpt-oss-120b $0.15/$0.60 per 1M",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "the plugin's Together list includes openai/gpt-oss-120b, deepseek-ai/DeepSeek-V3.1, Qwen/* — the live catalog carries openai/gpt-oss-120b, deepseek-ai/DeepSeek-V4-Flash-0731 and moonshotai/Kimi-K3 as aliases"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "fact sheet section 4 and 8: open-weight ids can be served by different providers per surface or per turn, and Messages token counts are wrong for Fireworks-served models"
+        }
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

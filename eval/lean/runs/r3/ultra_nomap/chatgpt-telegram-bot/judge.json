@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 10,
+ "behaviour_safety": 9,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Exercised all seven LLM paths through the real Router (buffered and streamed, plugin loop, vision, summarise) instead of trusting the wrap, and so caught three breaks a wrap-and-ship migration would have put in production: the function result with no recorded function_call turn (Router 400), the streamed plugin loop bailing on the translated stream's opening role chunk (plugins silently stopped firing on the default STREAM=true path), and every PNG being announced as image/jpeg (invisible on OpenAI, a hard 400 on Anthropic) \u2014 each fixed in a small, reversible, correctly-scoped commit that keeps the un-migrated OpenAI path byte-identical.",
+  "Complete, honest route accounting: all four chat.completions sites verified on /v1/responses by the outside check with zero unverified and zero not-routing, and the three that stay (images, TTS, Whisper) stay for the real reason that Router has no endpoint \u2014 with the consequence spelled out, that the OpenAI key and that spend remain outside Router, so a Router-only deployment is impossible for this bot.",
+  "Improvement claims are measured rather than asserted: live-catalog prices plus per-call usage.cost for every candidate, a cold-cache A/B showing 1,911 of 1,929 tokens read from cache on Claude, a measured fall-through proving the fallback list actually serves, and unusually disciplined loss statements (gpt-4.1-mini inventing content on an image, Claude losing temperature and drifting from the bot's tiktoken budgeting, Claude's 283-366 output tokens truncating against MAX_TOKENS=1200, the streamed plugin break under fallback). A cache-key policy and two cheap models were measured and then dropped with the measurement attached."
+ ],
+ "misses": [
+  "Flex tier is never considered anywhere in the review \u2014 a Router-only lever and the obvious fit for the history summariser, which is the single most expensive call here (one summarise of a 1,534-token history cost $0.004865, ~6x a reply). An expert would have paired Flex with moving summarisation off the user's turn (it currently blocks the reply when the history overflows, and could run after the turn or on a background task), which is the one piece of real latency/architecture rework this bot offers.",
+  "Everything is configured identically for all four call sites despite the policy clearly supporting per-feature settings (i3 proves it). These four calls have nothing in common: the streamed reply is latency-critical and user-facing, the summariser is a bulk background-ish job, the vision call needs image strength, the plugin follow-up is short and tool-shaped. A per-site tier \u2014 cheap model + Flex for summarise, a vision-strong model for the photo path, the stronger model only for the reply \u2014 captures most of i2's saving without changing voice on the user-visible reply, and no such mixed proposal is offered. Likewise provider_timeout is a flat 60s everywhere, which is far too long for a human waiting on a chat reply and arbitrary for the summariser.",
+  "i3 is shipped knowingly broken on this bot's dominant path: when the fallback serves a streamed request, plugins silently don't fire because the loop stops at the first text chunk. The engineer diagnosed exactly that and then left it, when the fix is the same lookahead they had already built in m3 (keep reading past text chunks until the call appears, replaying what was read) \u2014 or, failing that, gate fallbacks to the buffered/summarise sites rather than enabling them on the streamed reply. Shipping a fallback whose activation degrades the product's core feature, with no signal in the bot's logs, is the wrong trade."
+ ],
+ "wrong": [
+  "i3's loss claim that 'Router does not say which candidate served, so the bot's reply quality can change without any signal in its own logs' is inconsistent with the engineer's own evidence, which repeatedly reads the served model and provider off Router responses ('served by deepseek via Fireworks', 'every one model=gpt-4.1-mini provider=anthropic'). The served model is observable; the real gap is that this app doesn't log it \u2014 which is a one-line fix the report should have proposed instead of presenting it as a Router limitation.",
+  "i1's gains line says 'no latency cost' as a flat claim, while its own evidence says first-token latency could not be isolated (the recording proxy buffers the stream) and completion latency bands overlap on three samples. For a streamed consumer chat, first-token latency is the number that matters; 'no measured difference in completion time over three samples' is what was shown.",
+  "m2 records 'loses: nothing' while its own price field states the bot's token count grows (41 to 63 tokens on one streamed plugin reply) \u2014 and that count drives per-user budgets and the summarisation trigger. Small, but it is a behaviour change for users near a budget, so it belongs under losses, not only under price.",
+  "Minor: i1/i2 are presented as mutually exclusive via excludes, which is right for a single global model_map, but the report never says that the exclusion is an artefact of mapping one model name globally rather than a real either/or \u2014 a per-site map would allow both candidates to be used where each is strongest."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 34.5,
+  "usd": 17.7494,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 17,
+  "kinds": {
+   "move": 5,
+   "stays": 3,
+   "improvement": 3,
+   "note": 5,
+   "needs-decision": 1
+  },
+  "improvements": 3,
+  "built": 3,
+  "levels": {
+   "quick-win": 2,
+   "change": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

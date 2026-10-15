@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 9,
+ "best": [
+  "Verified the two paths most likely to break silently instead of trusting the scanner: the Settings.llm.model_copy(deep=True) client in chat/tools.py (confirming __deepcopy__ keeps the routed httpx client) and the streaming SSE turn in engine.py, plus a real tool-calling round-trip through Router \u2014 all three route sites come back verified in the outside check with tests at baseline (15/15) on the migration and all three improvement branches.",
+  "Found the two mechanism traps that would have made the cost work a no-op and solved both correctly: LlamaIndex's OpenAI class validates the model id locally and raises on 'gpt-6-luna', so the model change had to go through Router's policy model_map rather than OPENAI_CHAT_LLM_NAME; and the cheaper claude-haiku-5-5 fallback candidate would have been silently dropped because the chat client sends temperature=0, so the fallback was pinned to claude-haiku-4-5 and then actually exercised end-to-end (primary forced to fail, live 200 with provider=anthropic).",
+  "Stated the system-level truths a CTO needs rather than just the deltas: embeddings cannot move because Router serves no /v1/embeddings, so OPENAI_API_KEY stays required and 'one key per deployment' is explicitly not reached; the per-turn bill is set by the documents x sub-questions x two-engines fan-out, not per-call price; and a pre-existing bug (seed_storage_context.py never initialises settings, so index vectors come from LlamaIndex's default embedding model while queries use text-embedding-3-small) was caught and correctly scoped as out of migration scope."
+ ],
+ "misses": [
+  "Latency on the gateway was never measured or defended, on an app whose retrieval calls all sit inside a turn the user is streaming. There is no before/after on the Router hop, and the one timeout shipped \u2014 provider_timeout: 90 in defaults for both labels \u2014 is far too loose to protect an SSE turn someone is watching; an expert would have set a tight timeout for sec-insights.chat and a loose one for the background-ish retrieval fan-out, and would have treated the admitted 25s flex streaming deadline as a reason to set allow_flex_tier explicitly per label rather than leave the user-waiting path to the account default.",
+  "The lever the report itself names as the largest (n1: the fan-out) was parked as a note instead of a ranked proposal. An expert would have turned it into at least one costed item \u2014 a cheap first-pass that decides which documents are worth synthesising over, fewer sub-questions, reranking instead of refine/compact over every chunk of every document, a cap on the agent's 3 function calls, or a bound on the use_async=True concurrency \u2014 since cutting call count compounds with the per-call price cut rather than competing with it.",
+  "Prompt caching was validated by repeating one synthetic prompt, not against realistic retrieval traffic where the retrieved filing chunks differ per sub-question and per document. No attempt to restructure the prompt so the genuinely stable part (the synthesis instructions) is the cached prefix, and no per-document or per-conversation cache key (deferred to the i4 rework) \u2014 so the cache saving was never tested in the shape production will actually send."
+ ],
+ "wrong": [
+  "The headline '-95% on a representative synthesis call ($4.17e-04 against $1.95e-05)' compares gpt-6-luna-with-cache-hit against gpt-4o-mini-with-no-cache, bundling two independent levers and a cache state production is unlikely to reach. The breakdown in `price` is honest (-53% model, -90% cache on a 2,724-token repeated prefix), but the summary figure is an overclaim; the transferable number is roughly the -53% per-call model saving plus whatever the small fixed instruction prefix caches.",
+  "'its prompts already put fixed instructions and filing context first and the question last' overstates prefix stability: in the refine/compact synthesis path the filing context is precisely the part that varies per sub-question and per document, so the stable prefix is a few hundred instruction tokens, not the 2,724 measured.",
+  "i2 claims a stalled call 'now ends in a 504 the app already handles as a failed message' \u2014 no evidence is offered that the SSE/message path turns a Router 504 into a failed message rather than a hung stream or an unhandled exception, and nothing in the test or live evidence touches it.",
+  "Internal inconsistencies on flex and on labels: i2 says the explicit allow_flex_tier lever is dropped whenever fallbacks apply, while i3 reports the shipped policy (with the candidate list) serving tier=flex and caching 2,721 tokens \u2014 the two statements need reconciling. Likewise the report says the simulator and live runs carried feature=sec-insights.chat twice, while the outside check's live by_feature shows sec-insights.chat with 1 ok and no model recorded.",
+  "i2's loss that a fallback serves 'with no notice in the response that it happened' is contradicted by its own evidence, which reads provider=anthropic off the live response; what Router does not report is which candidate failed, not which one served."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 34.6,
+  "usd": 11.6576,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 10,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 4,
+   "needs-decision": 1,
+   "note": 2
+  },
+  "improvements": 4,
+  "built": 3,
+  "levels": {
+   "quick-win": 1,
+   "change": 2,
+   "rework": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

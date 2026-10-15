@@ -1,0 +1,363 @@
+{
+  "version": 6,
+  "summary": "Computer Use OOTB is a GUI agent: a planner reads a screenshot and names one next action, an actor (local ShowUI, or a self-hosted UI-TARS server) turns that into coordinates, and a loop repeats. Exactly one call site is vendor LLM traffic that Router can serve: the planner's OpenAI call, which hand-rolled a POST to api.openai.com/v1/chat/completions. I rebuilt it on the OpenAI SDK and wrapped the client with the vendored runtime, so with RAMP_ROUTER_API_KEY set it becomes a Router /v1/responses request and without it goes to OpenAI byte-for-byte as before; the function's (text, total_tokens) return and its error-body-as-dict behaviour are unchanged. That alone did not route it, because APIVLMPlanner pins the dated snapshot gpt-4o-2024-11-20, which Router 404s -- so router.policy.json maps it to catalog gpt-4o on Router-bound requests only. Verified live: 200 /v1/responses, provider=openai, a correct \"CLICK 'Docker'\" back, and the loop's json.loads parsed it. The other four call sites stay, each for a reason I measured rather than assumed: the unified Claude loop sends computer-use tool types (computer_20241022) that no current model accepts and a model that is not in the catalog; UI-TARS and the ssh Qwen planner talk to servers the operator hosts; the qwen2-vl-max planner uses DashScope's own SDK and a model with no catalog equivalent. As CTO the biggest finds were not routing but pricing and correctness: the planner's cost display understates spend 18x, gpt-4o-mini (the app's \"cheap\" option) is dearer and slower than gpt-4o for screenshots, a one-word media-type bug locked the planner out of every non-OpenAI vendor, three offered planner models crash on selection, and one real model's first reply crashed the whole task.",
+  "reviewed": "I walked every model call in the app -- planner (OpenAI, DashScope, ssh, local), actor (ShowUI, UI-TARS), the unified Anthropic computer-use loop -- and priced the planner's real workload (one 1920x1080 screenshot plus this planner's own prompt) against six catalog vision models on the live Router, reading usage.cost rather than estimating. I also exercised the levers that looked relevant to a human-watched GUI loop: tier, prompt caching, fallbacks, provider timeout, spend labels, and the Anthropic computer-use tool types. Five improvements are built and tested on branches; eight are proposed, including two where my own measurement argued against shipping (the cross-vendor fallback did not rescue a 403, and gpt-4o-mini is not the saving it looks like). Nothing was proposed for the actor path: ShowUI runs locally and UI-TARS is an operator-hosted endpoint, so Router has nothing to offer there.",
+  "calls": [
+    {"site": "computer_use_demo/gui_agent/llm_utils/oai.py:74", "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved", "model": "gpt-4o", "task": "vision planner: read a screenshot, name one next GUI action as JSON", "latency": "interactive", "now": "router", "item": "m1"},
+    {"site": "computer_use_demo/gui_agent/planner/anthropic_agent.py:118", "feature": "computer_use_demo/gui_agent/planner/anthropic_agent.py:__call__", "model": "claude-3-5-sonnet-20241022", "task": "unified computer-use loop: plan and act via Anthropic computer/bash/editor tools", "latency": "interactive", "now": "provider", "item": "m2"},
+    {"site": "computer_use_demo/gui_agent/actor/uitars_agent.py:55", "feature": "computer_use_demo/gui_agent/actor/uitars_agent.py:__call__", "model": "ui-tars", "task": "grounding actor: turn an action description into screen coordinates", "latency": "interactive", "now": "provider", "item": "m3"},
+    {"site": "computer_use_demo/gui_agent/llm_utils/oai.py:188", "feature": "computer_use_demo/gui_agent/llm_utils/oai.py:run_ssh_llm_interleaved", "model": "Qwen2.5-VL-7B-Instruct", "task": "vision planner served by the operator's own ssh host", "latency": "interactive", "now": "provider", "item": "m4"},
+    {"site": "computer_use_demo/gui_agent/llm_utils/qwen.py:52", "feature": "computer_use_demo/gui_agent/llm_utils/qwen.py:run_qwen", "model": "qwen-vl-max-latest", "task": "vision planner via Alibaba DashScope", "latency": "interactive", "now": "provider", "item": "m5"},
+    {"site": "computer_use_demo/gui_agent/planner/local_vlm_planner.py:130", "feature": "computer_use_demo/gui_agent/planner/local_vlm_planner.py:__call__", "model": "Qwen/Qwen2-VL-7B-Instruct", "task": "vision planner, local transformers weights", "latency": "interactive", "now": "provider", "item": "m6"},
+    {"site": "computer_use_demo/gui_agent/actor/showui_agent.py:145", "feature": "computer_use_demo/gui_agent/actor/showui_agent.py:__call__", "model": "showui-2b", "task": "grounding actor, local transformers weights", "latency": "interactive", "now": "provider", "item": "m6"},
+    {"site": "computer_use_demo/gui_agent/llm_utils/run_llm.py:18", "feature": "computer_use_demo/gui_agent/llm_utils/run_llm.py:run_llm", "model": "gpt-4o-mini", "task": "dead code: an unreachable text LLM helper", "latency": null, "item": "n1"}
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "trade-off",
+      "title": "Route the planner's OpenAI call through Router",
+      "summary": "The planner's hand-rolled POST to api.openai.com becomes an OpenAI SDK call on a runtime-wrapped client, and router.policy.json maps its pinned dated snapshot onto the catalog id so Router will serve it.",
+      "calls": ["computer_use_demo/gui_agent/llm_utils/oai.py:74"],
+      "gains": "The app's default planner -- one vision call per GUI turn, the only vendor LLM traffic Router can serve here -- now goes through Router when RAMP_ROUTER_API_KEY is set: one key, spend per request and per feature label, and every /v1/responses lever reachable from router.policy.json. Unset, the call goes to api.openai.com exactly as the raw POST did.",
+      "loses": "On Router the planner is served by catalog 'gpt-4o' instead of the pinned 'gpt-4o-2024-11-20' snapshot. Router reported the serving model as gpt-4o-2024-08-06, an older snapshot, which can read a screenshot differently; one sample read it correctly. The provider path still asks for the pinned snapshot, and unsetting RAMP_ROUTER_API_KEY restores it everywhere.",
+      "price": "No change by itself: gpt-4o is $2.50/$10 per 1M on Router, and usage.cost matched list price exactly on the live calls ($0.004197 for one planner turn). See i4 for the 20x cheaper alternatives this unlocks.",
+      "why": "The scanner called this a handoff: raw HTTP cannot be routed by a runtime that installs under an SDK's HTTP client. Rebuilding the same Chat Completions request on the OpenAI SDK was the smallest change that makes the call visible, and the runtime translates Chat Completions to Router's /v1/responses (there is no Router chat/completions endpoint). Routing then still failed, silently, on the model id: `check --run` reported \"model 'gpt-4o-2024-11-20' is not in the Router catalog\" and 0 requests reaching Router, because Router serves undated ids only. A policy model_map fixes that on Router-bound requests without changing what the provider path asks for, which is why this is recorded as a trade-off rather than a plain move.",
+      "evidence": [
+        {"check": "tests", "result": "pass", "detail": "7 passed in 5.28s, same as the recorded baseline (7 passed, 0 failed); existing tests unchanged"},
+        {"check": "simulator", "result": "pass", "detail": "check --run on a planner-shaped call (text history + 1920x1080 screenshot last): before the model_map, 0 requests to router-sim and the runtime kept it on the provider with reason \"model 'gpt-4o-2024-11-20' is not in the Router catalog\"; after, 1 valid /v1/responses model=gpt-4o. The gpt-4o-mini arm also routes (1 valid, model=gpt-4o-mini)."},
+        {"check": "router-live", "result": "pass", "detail": "check --run --live: 200 /v1/responses model=gpt-4o provider=openai and 200 model=gpt-4o-mini provider=openai, feature=computer_use_demo/gui_agent/llm_utils/oai.py:run_oai_interleaved. Both returned a correct \"CLICK 'Docker'\" for a synthetic desktop screenshot and the loop's json.loads parsed both. usage reported model gpt-4o-2024-08-06."},
+        {"check": "other", "result": "pass", "detail": "ROUTER_MIGRATE_TRACE confirms the feature label the policy matches on, and the runtime's resolved model, for each request. Return contract checked: (text, total_tokens) on success; an API error body comes back as a dict as before (verified on a live 400); transport failures still raise, as requests' did."}
+      ],
+      "commit": "58ccead",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "stays",
+      "title": "Unified Claude computer-use loop stays on Anthropic",
+      "summary": "AnthropicActor's computer-use request cannot be served by Router: its tool types are rejected by every current model and its model id is not in the catalog.",
+      "calls": ["computer_use_demo/gui_agent/planner/anthropic_agent.py:118"],
+      "gains": "nothing",
+      "loses": "nothing: this traffic keeps working exactly as before, on Anthropic, with the provider key.",
+      "price": "no change",
+      "why": "Three independent blockers, each measured. (1) The runtime keeps any request carrying an anthropic-beta header on Anthropic, and this one sends betas=[\"computer-use-2024-10-22\"]. (2) Dropping that beta would not help: the request's tool types are computer_20241022, bash_20241022 and text_editor_20241022, and sending them to a catalog model through Router returns 400 \"'claude-sonnet-5-5' does not support tool types: computer_20241022, bash_20241022, text_editor_20241022\" -- with and without the beta. (3) claude-3-5-sonnet-20241022 is not a Router catalog id. So `adapt --drop-betas` would route the request only to have Anthropic refuse it, and the whole unified loop (which dispatches on BetaToolUseBlock names computer/bash/str_replace_editor) depends on those tools. Making this route is a real piece of work, proposed as i7.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "The app's own ToolCollection(...).to_params() sent to Router /v1/messages: claude-sonnet-5-5 returned 400 \"does not support tool types: computer_20241022, bash_20241022, text_editor_20241022\" with betas=[computer-use-2024-10-22], and 400 \"Input tag 'computer_20241022' ... does not match any of the expected tags\" without; claude-3-5-sonnet-20241022 failed on both. The error lists what current models do accept: computer_toolset_20260801, bash_20250124, text_editor_20250728 among them."},
+        {"check": "other", "result": "info", "detail": "Fact sheet section 12 lists anthropic-beta features through Router (computer use included) as not measured; this is now measured for these tool-type versions, and they are refused."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "stays",
+      "title": "UI-TARS actor stays on the operator's own server",
+      "summary": "The UI-TARS actor points an OpenAI client at a URL the operator types into the UI, serving a model called 'ui-tars' that is not in Router's catalog.",
+      "calls": ["computer_use_demo/gui_agent/actor/uitars_agent.py:55"],
+      "gains": "nothing",
+      "loses": "nothing: unchanged.",
+      "price": "no change",
+      "why": "This is not vendor traffic. ui_tars_url is supplied per session (the README points it at a self-hosted or rented UI-TARS deployment) and the model id 'ui-tars' has no catalog equivalent, so routing it would mean sending grounding requests to a different model entirely. Router's unlock_hosts option exists for another vendor's OpenAI-compatible host serving catalog models; that is not this. Wrapping the client would also be inert, since the runtime keeps models outside the catalog on the configured host.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "router-migrate check: \"client not wrapped ... once wrapped: model 'ui-tars' not in catalog\". The base_url is self.ui_tars_url, set from the Gradio state, not a vendor endpoint."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "stays",
+      "title": "The ssh Qwen planner stays on the operator's host",
+      "summary": "run_ssh_llm_interleaved posts to http://<host>:<port>/v1/chat/completions, a server the operator runs from this repo's own remote_inference.py.",
+      "calls": ["computer_use_demo/gui_agent/llm_utils/oai.py:188"],
+      "gains": "nothing",
+      "loses": "nothing: unchanged.",
+      "price": "no change",
+      "why": "The host and port come from the API-key box in the UI, and the server is computer_use_demo/remote_inference.py serving local Qwen2/2.5-VL weights. There is no vendor and no spend to route; the point of this path is that the weights stay on the operator's machine.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "Read the call site and remote_inference.py: the same repo ships the FastAPI server this talks to. Not reported by the scanner as routable."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "stays",
+      "title": "The DashScope qwen2-vl-max planner stays on DashScope",
+      "summary": "run_qwen calls dashscope.MultiModalConversation with qwen-vl-max-latest; neither the SDK nor the model can be routed without changing which model answers.",
+      "calls": ["computer_use_demo/gui_agent/llm_utils/qwen.py:52"],
+      "gains": "nothing",
+      "loses": "nothing: unchanged.",
+      "price": "no change",
+      "why": "The runtime installs under the OpenAI and Anthropic SDKs' HTTP clients; DashScope's SDK is neither, so nothing short of a rewrite reaches Router. And there is no qwen-vl-max in the live catalog -- the nearest id is qwen3p8-max, a different model from a different serving provider. Routing this would silently change which model plans GUI actions behind a dropdown entry still labelled \"qwen2-vl-max\", which is a product decision, not a migration. Proposed as i8.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "Not seen by the scanner (dashscope is not an OpenAI/Anthropic SDK). Live catalog (100 models) searched for image-capable ids: no qwen-vl-max; qwen3p8-max is present at $2/$6 per 1M."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m6",
+      "kind": "stays",
+      "title": "Local ShowUI and Qwen weights stay local",
+      "summary": "LocalVLMPlanner and ShowUIActor call model.generate() on transformers weights on the operator's own GPU; there is no request to route.",
+      "calls": ["computer_use_demo/gui_agent/planner/local_vlm_planner.py:130", "computer_use_demo/gui_agent/actor/showui_agent.py:145"],
+      "gains": "nothing",
+      "loses": "nothing: unchanged.",
+      "price": "no change",
+      "why": "ShowUI is the app's default actor and runs in-process; the \"(local)\" planner options likewise. No HTTP, no vendor, no spend. Router has nothing to offer here, and the whole point of ShowUI in this app is that grounding is free and private.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "Both are self.model.generate(**inputs) on Qwen2VLForConditionalGeneration weights loaded from local paths (./showui-2b/) or the HF hub."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Send the screenshot's real media type, not always image/jpeg",
+      "summary": "The planner base64s a PNG screenshot and labels it image/jpeg, which OpenAI tolerates and Anthropic rejects, locking the planner out of every strict vendor in the catalog.",
+      "gains": "Unlocks every vision model in Router's catalog for the planner. Measured live with the planner's own prompt and a 1920x1080 screenshot: claude-haiku-5-5 returned 400 before the fix and 200 (provider=anthropic, correct \"CLICK 'Docker' button in the taskbar\") after. This is the gate on i4's Claude options and on any cross-vendor fallback, and it is three lines.",
+      "loses": "Nothing measured. OpenAI already sniffed the bytes, so its behaviour is unchanged; the data URL now states image/png for a PNG and image/jpeg only for a JPEG. A provider that somehow preferred the wrong label would be newly affected, which is not a real case.",
+      "price": "no change",
+      "why": "get_screenshot() writes PNG. The call site hardcoded \"data:image/jpeg;base64,\" for whatever it was handed. Nobody noticed because the app only ever talked to OpenAI, which infers the type from the bytes. The moment Router makes other vendors reachable, this one word is the difference between a working planner and a 400 -- and the error names the problem but only after you try. Fixing it is what makes the rest of the model choice real, which is why it is ranked first despite being the smallest change here.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Before: 400 /v1/responses model=claude-haiku-5-5 \"The image was specified using the image/jpeg media type, but the image appears to be a image/png image\" (also claude-haiku-4-5, claude-sonnet-5-5). After: 200 provider=anthropic for claude-haiku-5-5 and claude-haiku-4-5, both reading the screenshot correctly."},
+        {"check": "tests", "result": "pass", "detail": "7 passed in 6.16s on router-migrate/improve/image-mime, same as baseline"}
+      ],
+      "branch": "router-migrate/improve/image-mime",
+      "commit": "e0a7827",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Keep the planner off the Flex queue, and cache its prefix",
+      "summary": "Three Router fields for the planner feature in router.policy.json: service_tier \"default\", prompt_cache_key, and team/product spend labels.",
+      "gains": "A GUI agent's planner input is a screenshot of live screen state, so a queued answer describes a screen that no longer exists and the agent clicks the wrong thing -- for this call a slow answer is a wrong action, not a cheap one. Router's account default is cost-efficient routing (Flex on) and the fact sheet measured a Flex call that took 61 s; service_tier \"default\" takes that risk off the table for whichever model is selected. prompt_cache_key pays because loop.py only appends to the history and the screenshot goes last, so every turn re-sends the previous turn's whole prompt as a stable prefix: measured -40% on turn two of a 12-turn history ($0.00635 to $0.00379), and on Claude the key is the difference between caching and not caching at all (-90% in the fact sheet). The labels make planner spend attributable in Router's views.",
+      "loses": "The Flex discount (-50%, measured on gpt-5.4-mini) on whichever planner model is chosen. Nothing today, because gpt-4o and gpt-4o-mini have no Flex tier at all; it binds if a Flex-eligible model such as gpt-6-luna or gpt-5.6-luna is selected later, trading up to half that model's cost for not queueing. Since those models already cost a fiftieth of the current default, that is a trade I would make.",
+      "price": "Slightly cheaper on repeat turns (-40% measured on turn two); forgoes a possible -50% Flex discount on Flex-eligible models.",
+      "why": "This is the lever whose default is wrong for this specific application, and it is invisible from the code: nothing in the repo says which tier a request gets, because the account decides. An unattended batch job should take Flex; a loop whose input expires in seconds should not. Caching and labels come along for free in the same policy entry, and all three apply only to Router-bound requests, so the provider path never sees them.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "The compiled policy returns {model_map, prompt_cache_key, service_tier, metadata} for the planner's feature label and {} for any other feature; applied to a Router-bound body it attaches service_tier='default', prompt_cache_key expanded to the feature label, and the team/product metadata."},
+        {"check": "router-live", "result": "pass", "detail": "A mid-task planner turn (12-turn history, 1920x1080 screenshot) twice: both came back service_tier='default'; call two read 2,048 cached input tokens and cost $0.0037875 against call one's $0.0063475."},
+        {"check": "tests", "result": "pass", "detail": "7 passed in 5.51s on router-migrate/improve/planner-policy, same as baseline"}
+      ],
+      "branch": "router-migrate/improve/planner-policy",
+      "commit": "2f1ce7c",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Let the provider enforce the planner's JSON",
+      "summary": "The planner asks for a strict json_schema response and a guard turns an unusable reply into a clean end-of-task, instead of an exception that kills the run mid-GUI-manipulation.",
+      "gains": "Removes a crash that a real model hits on its first turn. loop.py did json.loads(vlm_response)[\"Next Action\"] unguarded, so one malformed reply raised out of the Gradio generator and ended the task with the GUI half-manipulated and only a traceback in the console. With the schema the provider cannot emit anything else; verified across six models and four vendors. The guard also covers the ssh and local planners, which cannot be constrained.",
+      "loses": "A model whose catalog row says structured_outputs: false (gpt-4-turbo) would now have the planner request refused outright rather than answering in prose; none of the models this app offers is one. The reply is bare JSON rather than a ```json fence -- extract_data() passes that through unchanged, so nothing downstream notices. And a model that cannot produce a plan now ends the task politely rather than loudly, which is a worse signal for a developer debugging a prompt: the reason is logged and shown in the chat.",
+      "price": "No change. Structured outputs are not billed separately; output tokens were unchanged in the samples (39-193 tokens either way).",
+      "why": "This is the app's single highest-frequency failure mode and it was free to fix once the call was on Router's Responses surface, where text.format is enforced server-side. The measurement is what makes the case: on the very first live attempt, claude-haiku-4-5 wrote 'there's a \"Docker\" button' inside the \"Thinking\" string -- an unescaped quote -- and json.loads raised. Any model will do this eventually; the loop had no answer for it.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Reproduced the crash: claude-haiku-4-5 returned ...there's a \"Docker\" button... and json.loads raised JSONDecodeError \"Expecting ',' delimiter: line 2 column 189\". With the schema, gpt-4o, gpt-4o-mini, gpt-6-luna, glm-5p3-flash (Fireworks), claude-haiku-5-5 and claude-haiku-4-5 all returned bare JSON with exactly {Thinking, Next Action} -- claude-haiku-4-5 answering \"CLICK 'Docker'\"."},
+        {"check": "other", "result": "pass", "detail": "_safe_plan() offline against the replies that used to crash the loop (unescaped quote, prose, empty string, missing \"Next Action\", None): all five produce JSON the loop parses, with Next Action \"None\" so the task ends cleanly."},
+        {"check": "tests", "result": "pass", "detail": "7 passed in 5.40s on router-migrate/improve/strict-planner-json, same as baseline"}
+      ],
+      "branch": "router-migrate/improve/strict-planner-json",
+      "commit": "b579d33",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Offer Router's cheap vision models, and fix two that never worked",
+      "summary": "Five catalog vision models become planner choices, and the dispatch bug that made gpt-4o-mini and qwen2.5-vl-7b (ssh) raise on selection is fixed.",
+      "gains": "Two advertised planner options have never run a turn: gpt-4o-mini fell through APIVLMPlanner.__call__'s chain to raise ValueError(\"Model gpt-4o-mini not supported\"), and qwen2.5-vl-7b (ssh) was missing from PLANNER_MODEL_CHOICES_MAPPING so sampling_loop_sync raised first. Both now work, and all ten dropdown labels were checked to reach the planner branch they should. The same data-driven dispatch admits any Router catalog id, so claude-haiku-5-5, claude-sonnet-5-5, gpt-6-luna, gpt-5.6-luna and glm-5p3-flash are offered. Measured cost per planner turn: gpt-6-luna $0.000212, gpt-5.6-luna $0.000428, claude-haiku-5-5 $0.000453, glm-5p3-flash $0.000561, against gpt-4o's $0.004208 -- a 20x spread, all reading the screenshot correctly.",
+      "loses": "The \"(router)\" options 404 if RAMP_ROUTER_API_KEY is unset, because api.openai.com does not serve them; the labels say so and the default is untouched. The two Claude options additionally need i1, without which Anthropic answers 400 (verified live). Quality across these models is not established -- one sample each -- so this hands the operator a choice rather than making it.",
+      "price": "Up to 20x cheaper per planner turn if a cheap model is selected: $0.084 against $0.0042 over a 20-turn task. No change unless the operator switches.",
+      "why": "This is where the money is, and routing is what makes it a dropdown entry rather than a project. The surprise is the other direction too: gpt-4o-mini, which the UI presents as the cheap option, cost $0.005609 against gpt-4o's $0.004208 and was slower, because OpenAI bills gpt-4o-mini images at roughly 33x the token count -- 37,237 input tokens against gpt-4o's 1,507 for the same screenshot. Anyone picking it to save money has been paying more. I fixed the dispatch rather than removing the option, because removing an advertised model is the operator's call.",
+      "evidence": [
+        {"check": "other", "result": "pass", "detail": "Every one of the ten dropdown labels resolves through PLANNER_MODEL_CHOICES_MAPPING and lands in the intended __call__ branch; before, gpt-4o-mini reached \"raise ValueError\" and qwen2.5-vl-7b (ssh) had no mapping entry at all. The DashScope and ssh planners still dispatch to their own paths."},
+        {"check": "price", "result": "pass", "detail": "Router usage.cost on one 1920x1080 screenshot with this planner's prompt: gpt-6-luna $0.000212 (2,850 in), gpt-5.6-luna $0.000428, claude-haiku-5-5 $0.000453 (3,283 in, 1.2 s -- fastest), glm-5p3-flash $0.000561, gpt-4o $0.004208 (1,507 in), gpt-4o-mini $0.005609 (37,237 in)."},
+        {"check": "router-live", "result": "pass", "detail": "200 /v1/responses through run_oai_interleaved for gpt-6-luna, gpt-5.6-luna and glm-5p3-flash (provider=fireworks); claude-sonnet-5-5 returned 400 on the media type, confirming the dependency on i1."},
+        {"check": "tests", "result": "pass", "detail": "7 passed in 5.60s on router-migrate/improve/planner-model-choice, same as baseline"}
+      ],
+      "branch": "router-migrate/improve/planner-model-choice",
+      "commit": "85e8b2b",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Show what Router actually charged, not an 18x-low guess",
+      "summary": "The planner reads Router's usage.cost for the request it just made instead of multiplying total tokens by gpt-4o-mini's input price.",
+      "gains": "Honest spend on screen. The running cost line was token_usage * $0.15/1M -- gpt-4o-mini's input price, applied to gpt-4o, and to input and output tokens alike. Measured on one live planner turn: the display said $0.000233, Router charged $0.004197, understated 18.1x; over a 20-turn task that is \"$0.005\" on screen against $0.084 billed. The response also names the model that actually served (gpt-4o-2024-08-06), the provider, and the cached input tokens, all of which now print -- which is how the snapshot swap in m1 and the cache hits in i2 became visible at all.",
+      "loses": "nothing. The tuple run_oai_interleaved returns is unchanged and usage_out is an opt-in out-parameter; with no Router key there is no cost field and the old estimate stays, inaccuracy included.",
+      "price": "No change to spend; the number shown becomes correct.",
+      "why": "A cost display that is wrong by 18x is worse than none, because it is the number anyone would use to decide whether this app is affordable to run -- and it is the number that makes i4's 20x saving legible. Router already computes the exact figure per request; the app only had to stop guessing. This also generalises: once the planner can be any catalog model, no hardcoded price could have stayed right.",
+      "evidence": [
+        {"check": "price", "result": "pass", "detail": "Live planner turn: usage_out = {cost 0.0041975, prompt_tokens 1507, completion_tokens 43, cached_tokens 0, model gpt-4o-2024-08-06, provider openai}. Old formula gave $0.000233 for the same turn -- 18.1x low."},
+        {"check": "tests", "result": "pass", "detail": "7 passed in 5.10s on router-migrate/improve/true-cost, same as baseline"}
+      ],
+      "branch": "router-migrate/improve/true-cost",
+      "commit": "4372963",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Move the planner default off gpt-4o after a side-by-side",
+      "summary": "Make a cheap catalog vision model the default planner when a Router key is present, once a real task-completion comparison backs it.",
+      "gains": "The whole 20x. i4 makes the cheap models selectable but leaves gpt-4o as the default, so the saving only reaches operators who go looking. Defaulting to gpt-6-luna ($0.000212/turn) or claude-haiku-5-5 ($0.000453/turn, and the fastest measured at 1.2 s) when RAMP_ROUTER_API_KEY is set would cut planner spend ~20x for everyone, with the same env-var gate the rest of this migration uses, and leave the provider path on gpt-4o untouched.",
+      "loses": "Possibly task success rate, and nothing offline measures that. My samples are one screenshot per model: all six named the right control, and claude-haiku-5-5 and gpt-6-luna described it more usefully than gpt-4o did, but GUI planning over a long task is exactly where a weaker model would show up and a single turn cannot see it. Switching the default also changes what every existing operator gets without them asking.",
+      "price": "Planner spend from $0.0042 to $0.000212 per turn ($0.084 to $0.0042 per 20-turn task) if gpt-6-luna; to $0.000453 if claude-haiku-5-5.",
+      "why": "This is the single largest value item in the report and the one I am least entitled to decide alone. The right evidence is a run of the repo's own assets/examples/ootb_examples.json tasks under each candidate, scored on completion, not one screenshot. Router makes that comparison cheap to run -- the model is a string in a dropdown now -- and Shadow Logs (i9) would gather the cost and latency half of it from real traffic for free. An apply session should build the default switch once a human has seen that comparison.",
+      "evidence": [
+        {"check": "price", "result": "pass", "detail": "Per-turn costs as measured in i4, from Router usage.cost."},
+        {"check": "side-by-side", "result": "not-run", "detail": "A task-completion comparison across the repo's example tasks is the missing evidence. One screenshot per model is not a quality verdict and I did not treat it as one."}
+      ],
+      "branch": null,
+      "depends_on": ["i4"],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Rebuild the unified computer-use loop on current tool types",
+      "summary": "Upgrade AnthropicActor's two-generations-stale computer-use tool types and model so the unified loop can be served by Router on any current Claude model.",
+      "gains": "Brings the app's most capable mode -- the single-model loop that plans and acts without a separate grounding actor -- onto Router, and off a model from October 2024. It would gain a current model (claude-sonnet-5-5 or claude-opus-5-5 at $2/$10 and $4/$20, both vision and tools), the Router levers, exact per-request cost, and a cross-vendor option for a mode that is single-vendor today.",
+      "loses": "Real work and real risk. computer_toolset_20260801 is a toolset rather than three separate tools, so the action vocabulary and anthropic_executor.py's dispatch on tool names (computer/bash/str_replace_editor) both change, as does the screenshot/tool_result plumbing. Behaviour will differ: a different model, a different tool contract, and a loop whose every step is a real mouse click on the operator's machine. Until it is done the current path keeps working untouched, which is why it is not urgent.",
+      "price": "claude-3-5-sonnet-20241022 is billed by Anthropic today at the $3/$15 the code hardcodes; claude-sonnet-5-5 is $2/$10 on Router, claude-haiku-5-5 $0.10/$0.50. Cheaper per token, but the token count depends on the new tool contract.",
+      "why": "Measured, not guessed: sending the app's own tool params to Router returns 400 \"'claude-sonnet-5-5' does not support tool types: computer_20241022, bash_20241022, text_editor_20241022\", and the error helpfully names the current set -- computer_toolset_20260801, bash_20250124, text_editor_20250728. So this is not a Router limitation, it is the app being two tool generations behind; Router just makes it visible. The blueprint is: swap the three tool types, drop the computer-use-2024-10-22 beta (the current types are not beta-gated), move the model to a catalog id, and adapt the executor. That is a focused piece of work for an apply session, not a migration edit.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "ToolCollection(ComputerTool, BashTool, EditTool).to_params() to Router /v1/messages: 400 for claude-sonnet-5-5 both with and without the beta; the rejection lists the accepted tool types, including computer_toolset_20260801, bash_20250124, text_editor_20250124/20250429/20250728."},
+        {"check": "other", "result": "info", "detail": "claude-3-5-sonnet-20241022 is not in the live 100-model catalog, so the model id must change regardless."}
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Retire the DashScope planner path for a Router-served model",
+      "summary": "Drop run_qwen, the dashscope dependency and QWEN_API_KEY, and serve that dropdown slot from the catalog instead.",
+      "gains": "Removes a whole vendor integration: the dashscope dependency, a third API key in the UI and in setup_state, and a second bespoke message-shaping function (run_qwen builds DashScope's own {text}/{image} content format). Its own code is already half-broken -- qwen.py shadows is_image_path with `return False` and encode_image with `return \"\"`, so the DashScope planner has been sending screenshot file paths as plain text, never an image. The catalog has qwen3p8-max (vision, $2/$6) if the Qwen lineage matters, and i4 already offers four cheaper vision models if it does not.",
+      "loses": "qwen-vl-max-latest stops being reachable: there is no catalog equivalent, so a dropdown entry labelled qwen2-vl-max would be answered by a different model from a different provider. Operators with a DashScope key and a reason to prefer Alibaba's serving (data residency, an existing contract, China-region latency) lose that option. Given that the path never actually sends the screenshot, what they lose may be less than it appears -- but that should be confirmed rather than assumed.",
+      "price": "qwen3p8-max is $2/$6 per 1M on Router. DashScope's own price is outside Router's accounting; the code's estimate of $0.02 CNY per 1,000 tokens is unverified.",
+      "why": "Ranked below the planner work because it affects one dropdown entry, but it is the clearest simplification available: a vendor SDK, a key and a message format maintained for a code path whose image handling is stubbed out. I did not build it because changing which model answers under an unchanged label is a product decision, and because the honest first step is to confirm the stubbed is_image_path/encode_image really do mean no screenshot reaches the model.",
+      "evidence": [
+        {"check": "other", "result": "pass", "detail": "qwen.py lines 10-14 define is_image_path returning False and encode_image returning \"\", shadowing the real helpers for this module; the screenshot path therefore takes the {text: ...} branch in run_qwen."},
+        {"check": "other", "result": "info", "detail": "Live catalog has no qwen-vl-max; qwen3p8-max is the nearest id (vision, tools, structured outputs, $2/$6)."}
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i9",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Turn on Shadow Logs for the planner",
+      "summary": "Have Router shadow 1-3 candidate planner models on a sample of real traffic, so the model comparison comes from real screens instead of my synthetic one.",
+      "gains": "The missing half of i6's evidence, for free and from production. Shadow models record cost and latency for candidate models on a 5-10% sample of real /v1/responses traffic, and the planner is now exactly one labelled feature on that surface, so the sample is clean. Real desktops are far more varied than the mock I benchmarked against, and per-turn cost depends on screen content, so this is the only way to know the spread on actual use.",
+      "loses": "It records cost and latency only, never quality, so it cannot settle i6 by itself. It needs content recording switched on, which means real screenshots of the operator's desktop are retained by Router -- for an app whose own UI warns against pointing it at sensitive accounts, that is a privacy decision a human must make deliberately. Not available on BYOK keys.",
+      "price": "The shadow calls are billed as traffic on the sampled percentage.",
+      "why": "A human turns this on at app.router.com; there is nothing to build, which is why it is a proposal with no branch. I rank it here because it de-risks the report's biggest item at almost no engineering cost -- but the content-recording requirement is a genuine objection for this particular application, and I would not enable it without an explicit decision.",
+      "evidence": [
+        {"check": "other", "result": "not-run", "detail": "Account-level strategy on app.router.com; not measured. The fact sheet notes it needs content recording and is unavailable on BYOK keys, and that it records cost and latency rather than quality."}
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i10",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Try Switchyard for the planner's uneven turns",
+      "summary": "Let Router pick a cheap or a capable model per turn within one task, instead of one model for every turn.",
+      "gains": "A GUI agent's turns are wildly uneven: \"click the obvious blue Docker button\" and \"work out what this modal is asking\" cost the same today. Switchyard switches model family within a conversation -- cheap model for easy turns, capable for hard ones -- which is the shape of this workload, and it works from app code once a strategy is saved (model: \"switchyard\", $3/$15). It could give most of i6's saving without accepting a weak model on the turns that matter.",
+      "loses": "Unmeasured here, and the docs call it experimental and aimed at coding agents; quality on non-coding work is explicitly unknown in the fact sheet. Switchyard's listed price ($3/$15) is above gpt-4o's, so the saving depends entirely on how often it picks the cheap model -- it could cost more. It also makes per-turn behaviour non-deterministic, which complicates debugging a loop that drives a real mouse.",
+      "price": "switchyard is $3/$15 per 1M; effective cost depends on the strategy's split and is not measured.",
+      "why": "Worth a try but not a recommendation, and ranked below i6 because i6's saving is measured and this one is a hypothesis. A human saves the routing profile at app.router.com (efficient_model / capable_model), then the planner names model \"switchyard\" -- a one-line change once the strategy exists, which is why there is nothing to build yet.",
+      "evidence": [
+        {"check": "other", "result": "not-run", "detail": "Needs an account strategy saved at app.router.com. The fact sheet measured it serving gpt-5.6-luna at Flex from app code, and flags it experimental with quality on non-coding work unmeasured -- note also that its Flex default conflicts with i2's standard-tier choice for this call."}
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i11",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Cross-vendor fallback for the planner, if it can be shown to work",
+      "summary": "A ranked models list for the planner so one vendor's outage does not end a task mid-manipulation -- except my attempt to exercise it did not fall through.",
+      "gains": "The intended gain is that a failed planner call stops ending the task. Today an error returns a dict where the caller expects a tuple, so the loop dies with the GUI part-manipulated. A policy fallbacks list ([claude-haiku-5-5, gpt-6-luna]) plus provider_timeout is two keys in router.policy.json, and the mechanism verifiably assembles: the runtime attached models=['gpt-4o','claude-haiku-5-5','gpt-6-luna'] and correctly dropped a text-only candidate from an image request.",
+      "loses": "I could not show it helping, and that is why it is not shipped. With models=['gpt-5.3-codex','gpt-6-luna'] and a primary this key cannot use, Router returned 403 rather than falling through to the healthy candidate -- the fact sheet's claim that fallbacks fall through a 403 did not hold here. The runtime's provider retry then fired and failed on the OpenAI key, turning a Router 403 into a confusing \"Incorrect API key\" error. Beyond that: a fallback silently serves a different model, so a task can change planner mid-run with no record in the app, and provider_timeout converts a slow success into a plain-text 504 that this code path also cannot parse -- strictly worse than waiting, unless a fallback really does catch it.",
+      "price": "The serving candidate's price, only when it serves; truncated attempts are billed.",
+      "why": "Ranked last of the changes because its value is now in question rather than merely unmeasured. What would settle it is the case the docs actually claim -- a 5xx or 429 from the primary -- which I cannot produce on demand. An apply session should either reproduce a real fallthrough first, or pair this with making run_oai_interleaved raise a typed error the loop can retry, which fixes the underlying fragility without depending on Router's fallback behaviour at all. I would do the latter.",
+      "evidence": [
+        {"check": "router-live", "result": "fail", "detail": "models=['gpt-5.3-codex','gpt-6-luna'] (confirmed attached by replaying the exact body through the policy): Router answered 403 \"The requested model snapshot is not available for your project's geography\" instead of serving gpt-6-luna. The runtime then retried on the provider, which failed with invalid_api_key on the dummy OpenAI key."},
+        {"check": "simulator", "result": "pass", "detail": "Mechanism is sound: the policy attaches models=['gpt-4o','claude-haiku-5-5','gpt-6-luna'] with service_tier='default' and provider_timeout=45 and no allow_flex_tier; the capability guard drops a text-only candidate (nemotron-lightning-3p5-30b-a3b) from an image request and keeps it for a text one."},
+        {"check": "other", "result": "info", "detail": "Fact sheet section 12 lists fallback behaviour on real provider outages as documented but not measured; this measurement narrows that to: not on a 403."}
+      ],
+      "branch": null,
+      "depends_on": ["i1", "i2"],
+      "excludes": []
+    },
+    {
+      "id": "i12",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "UI-TARS wait() ends the task instead of waiting",
+      "summary": "The actor maps the model's wait() action to STOP, so a model asking for a moment to let the screen settle ends the run instead.",
+      "gains": "Recovers tasks that are currently abandoned on purpose. The UI-TARS grounding prompt offers wait() as \"Sleep for 5s and take a screenshot to check for any changes\" -- the correct move while a window opens or a page loads. uitars_agent maps it to \"STOP\" (with its own TODO admitting it), so the executor ends the task. Every planner turn, screenshot and model call already spent on that task is wasted, and the user sees a run that stopped for no visible reason.",
+      "loses": "Needs a new action the executor understands; showui_executor raises ValueError for any action it does not know, so WAIT has to be added there alongside the sleep, plus a cap on consecutive waits so a model that always waits cannot hang the loop forever. Introducing a deliberate 5-second pause also makes runs slower where wait() is over-used.",
+      "price": "No LLM cost either way; it saves the cost of tasks that currently end early and get retried from scratch.",
+      "why": "Nothing to do with Router -- it is a deterministic bug in the action translation, found while tracing which calls exist and what happens to their output. It is ranked low because it only affects the UI-TARS actor, but it is cheap and it is pure waste: the model says the right thing and the app discards it. I did not build it because it needs an executor change plus a loop guard, which is more than a mapping fix.",
+      "evidence": [
+        {"check": "other", "result": "pass", "detail": "uitars_agent.py ACTION_MAP has \"wait\": \"STOP\" with the comment # TODO: deal with \"wait()\"; showui_executor.py raises ValueError(f\"Action {...} not supported\") for unknown actions, so STOP is the only currently valid target."}
+      ],
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Three dead or lying bits of the model surface",
+      "summary": "run_llm.py cannot be imported, the N-most-recent-screenshots slider does nothing for the API planner, and two local planner models are unreachable.",
+      "gains": "",
+      "loses": "",
+      "price": "no change",
+      "why": "Found while inventorying calls; left alone because each is harmless today and deleting code is the operator's call. (1) computer_use_demo/gui_agent/llm_utils/run_llm.py imports .gemini, which does not exist -- it raises ModuleNotFoundError on import -- and it calls run_oai_interleaved with positional arguments that no longer match the signature. It has no callers anywhere in the repo. (2) app.py's \"N most recent screenshots\" slider writes state[\"only_n_most_recent_images\"], but sampling_loop_sync never forwards it to APIVLMPlanner, so for every API planner the control does nothing; the history carries no images anyway, since _message_filter_callback keeps only text, so there would be nothing for it to trim. Its helper would in fact raise TypeError on the list of strings it would be handed. (3) PLANNER_MODEL_CHOICES_MAPPING maps \"qwen2.5-vl-3b (local)\" and \"qwen2.5-vl-7b (local)\", but they are absent from app.py's dropdown and from loop.py's local-planner branch, and LocalVLMPlanner hardcodes Qwen2VLForConditionalGeneration, which is the wrong class for Qwen2.5. No user can reach them.",
+      "evidence": [
+        {"check": "other", "result": "pass", "detail": "python -c 'import computer_use_demo.gui_agent.llm_utils.run_llm' -> ModuleNotFoundError: No module named 'computer_use_demo.gui_agent.llm_utils.gemini'; grep for run_llm finds only its own definition."}
+      ],
+      "commit": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

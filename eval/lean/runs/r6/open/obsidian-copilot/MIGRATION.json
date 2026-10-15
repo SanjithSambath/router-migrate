@@ -1,0 +1,448 @@
+{
+  "version": 6,
+  "summary": "Copilot for Obsidian builds every LLM call from one place: ChatModelManager hands each caller a LangChain chat model built from the user's own provider settings. The migration threads the vendored routerRuntime into the fetch those clients already accept, at the three provider configs that reach api.openai.com / api.anthropic.com plus ChatOpenRouter's own OpenAI client, and adds a router.policy.json with a 120 s provider_timeout and a product spend label. Every chat, agent, tool-planning, search-expansion, compaction and memory call therefore reaches Router when RAMP_ROUTER_API_KEY is set and goes to the provider byte for byte when it is not; vendors Router does not front (Google, Groq, xAI, DeepSeek, Mistral, SiliconFlow, Cohere, OpenRouter, Ollama, LM Studio, Copilot Plus) keep their own transport. Verified live against api.router.com: translated chat.completions, native Responses, streaming /v1/messages, a cross-vendor Claude-over-Responses call and a free count_tokens call, 5/5 200. The policy deliberately leaves service_tier unset: measured on gpt-5.4-mini (n=4/arm), the account's Flex default costs half of the standard tier at the same median latency. Four improvements are built on branches and six more are proposed; the biggest measured wins are prompt caching on the chat prefix (-73% on input per turn after the first) and moving background summarization to a cheap model (48x on one context compaction).",
+  "reviewed": "The review walked every LLM call the app makes -- the chat and agent answer streams, tool planning, query expansion, question condensation, chat titles, context compaction and the two memory calls -- and asked of each what it costs, who is waiting for it, and whether it needs that model, that tier, or a model at all. It found two structural facts worth acting on: the app has no per-call spend label, so Router cannot tell a $0.09 note compaction from a chat turn, and it has no prompt caching anywhere despite sending a large stable system prefix on every chat turn. The built items fix both; what is proposed is either a code change too large to land safely here (Router as a provider, collapsing the three pre-answer round trips), blocked by this repo's rule against editing prompt content, or gated on a human switching something on at app.router.com.",
+  "calls": [
+    {
+      "site": "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+      "feature": "chat",
+      "model": "user-selected",
+      "task": "chat",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:608",
+      "feature": "chat",
+      "model": "user-selected",
+      "task": "chat with vault context and tool output",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:155",
+      "feature": "tool-planning",
+      "model": "user-selected",
+      "task": "tool selection and salient-term extraction",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:784",
+      "feature": "agent",
+      "model": "user-selected",
+      "task": "agent tool loop",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/chainUtils.ts:39",
+      "feature": "standalone-question",
+      "model": "user-selected",
+      "task": "condense a follow-up question against chat history",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/search/v3/QueryExpander.ts:133",
+      "feature": "query-expansion",
+      "model": "user-selected",
+      "task": "search query expansion and salient terms",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/commands/customCommandChatEngine.ts:25",
+      "feature": "custom-command",
+      "model": "user-selected",
+      "task": "custom command chat chain",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/core/ContextCompactor.ts:184",
+      "feature": "context-compaction",
+      "model": "user-selected",
+      "task": "summarize an oversized context item",
+      "latency": "background",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/core/ChatPersistenceManager.ts:567",
+      "feature": "chat-title",
+      "model": "user-selected",
+      "task": "five-word chat title",
+      "latency": "background",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/memory/UserMemoryManager.ts:248",
+      "feature": "memory-update",
+      "model": "user-selected",
+      "task": "merge a statement into the saved memory list",
+      "latency": "background",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/memory/UserMemoryManager.ts:362",
+      "feature": "conversation-summary",
+      "model": "user-selected",
+      "task": "title and summary of a whole conversation",
+      "latency": "background",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "src/LLMProviders/ChatOpenRouter.ts:111",
+      "feature": "chat",
+      "model": "user-selected",
+      "task": "streaming chat for OpenRouter, LM Studio and Copilot Plus models",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m3"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the OpenAI and Anthropic clients through Router",
+      "summary": "routerFetch() is threaded into the fetch each provider client already takes, so every call ChatModelManager builds reaches Router once RAMP_ROUTER_API_KEY is set.",
+      "calls": [
+        "src/LLMProviders/chainRunner/LLMChainRunner.ts:92",
+        "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:608",
+        "src/LLMProviders/chainRunner/CopilotPlusChainRunner.ts:155",
+        "src/LLMProviders/chainRunner/AutonomousAgentChainRunner.ts:784",
+        "src/chainUtils.ts:39",
+        "src/search/v3/QueryExpander.ts:133",
+        "src/commands/customCommandChatEngine.ts:25",
+        "src/core/ContextCompactor.ts:184",
+        "src/core/ChatPersistenceManager.ts:567",
+        "src/memory/UserMemoryManager.ts:248",
+        "src/memory/UserMemoryManager.ts:362"
+      ],
+      "gains": "One gateway, one key and one spend record for every OpenAI- and Anthropic-served call the plugin makes, with the whole Router catalog reachable from the same code; Chat Completions traffic is translated to /v1/responses so every Responses lever (fallbacks, tiers, cache keys, metadata, timeouts) becomes available to this app for the first time.",
+      "loses": "nothing",
+      "price": "no change at the catalog prices measured: a routed gpt-4.1-mini and claude-haiku-4-5 call cost the same as the provider's list price.",
+      "why": "Every LLM call in this plugin is built in one function, ChatModelManager.getModelConfig, and each provider config already carries a fetch slot that the app uses for its CORS-bypass transport. Wrapping that slot routes the whole app without touching a single call site, keeps the CORS transport underneath for the models that need it, and leaves the request shape the code builds untouched. The runtime is inert until RAMP_ROUTER_API_KEY is set, which matters here because this is a desktop plugin shipped to users who bring their own provider keys. Only three provider configs reach a host Router fronts; the fourth wrap is ChatOpenRouter's own OpenAI client, which bypasses LangChain's HTTP path entirely.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "5/5 200 against api.router.com through the app's own client shapes: ChatOpenAI gpt-4.1-mini (chat.completions translated to /v1/responses), ChatOpenAI gpt-5.4-mini with useResponsesApi, ChatAnthropic claude-haiku-4-5 streaming over /v1/messages, claude-haiku-5-5 over /v1/responses, and /v1/messages/count_tokens."
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "jest full suite 7867 passed / 0 failed (baseline: 7866 passed, 1 failed -- src/agentMode/backends/shared/cliSignIn.test.ts, which is flaky and unrelated)."
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "tsc -noEmit -skipLibCheck: 0 errors, same as baseline."
+        },
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "npm run build (tailwind + tsc + esbuild production): bundle 5.05 MB, under the repo's 5.5 MB guard, with the compiled policy present in main.js. npm run lint and prettier --check clean; the two vendored files are listed in eslint.config.mjs ignores and .prettierignore so the tool can regenerate them byte for byte."
+        }
+      ],
+      "commit": "4cc7442",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "trade-off",
+      "title": "router.policy.json: hang guard and product spend label",
+      "summary": "Routed requests get provider_timeout 120 and metadata.product, and deliberately no service_tier so Router's cheaper account default applies.",
+      "calls": [],
+      "gains": "A wedged upstream now fails in 120 s instead of hanging to the SDK's 600 s default, and every routed request is attributable to this product in Router's spend views.",
+      "loses": "provider_timeout turns a very slow but eventually-successful provider call into a plain-text 504 with no JSON body, which the app surfaces as a generic request failure rather than a provider message. Leaving service_tier unset also means a buffered background call can occasionally sit in a Flex queue (one 61 s Flex call is on record in Router's own measurements).",
+      "price": "no change; not pinning the standard tier is what keeps the Flex discount, measured at exactly -50% on gpt-5.4-mini.",
+      "why": "The plugin has no overall timeout on the chat or agent paths, so a bound was worth adding. The tier was the real decision. Router's account default is cost-efficient routing, which serves Flex wherever a model offers it, and the obvious defensive move -- pinning service_tier \"default\" everywhere -- was measured and rejected: on gpt-5.4-mini, four calls per arm, the account default was served at Flex for $0.0000808 a call at 774-901 ms while the pinned standard tier cost $0.000164 at 725-813 ms. That is exactly double the price for no median latency gain. Flex's documented 25 s deadline on streamed attempts bounds the paths that stream (chat, agent, tool planning, condensation), and the buffered callers either run in the background or already carry a timeout plus a deterministic fallback. The one exception, query expansion, is pinned in the feature-policy improvement where it costs a few hundred tokens rather than the whole bill.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "gpt-5.4-mini n=4 per arm: service_tier \"default\" -> tier=default, $0.000157-0.000172, 725-813 ms; no tier field -> tier=flex, $0.0000759-0.0000858, 774-901 ms; allow_flex_tier:true -> tier=flex, $0.0000808-0.0000833. gpt-5-nano showed the same pattern (default 2757-4049 ms, flex 2922-4058 ms)."
+        },
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "Closes an open unknown in the fact sheet (section 12): service_tier \"default\" on Claude over /v1/responses was unmeasured. claude-haiku-5-5 with the policy applied returned 200, status completed, service_tier \"default\", $0.0000038."
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "router-sim logged 5/5 valid Router requests carrying the compiled policy; the runtime also logs that the policy is not applied on /v1/messages, which is expected and is why Anthropic traffic needs the cache_control proposal."
+        }
+      ],
+      "commit": "0f0be2b",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "stays",
+      "title": "Eleven vendors keep their own transport",
+      "summary": "Google, Groq, xAI, DeepSeek, Mistral, SiliconFlow, Cohere, OpenRouter, Ollama, LM Studio and Copilot Plus calls still go to their own endpoints.",
+      "calls": ["src/LLMProviders/ChatOpenRouter.ts:111"],
+      "gains": "Local models (Ollama, LM Studio) stay on the machine, the Copilot Plus licence path keeps talking to its own backend, and no vendor endpoint changes behaviour.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "routerFetch only recognises api.openai.com and api.anthropic.com, so every other host passes through untouched. That is the right default here: Ollama and LM Studio are localhost, Copilot Plus is the plugin's own licensed backend, ChatGoogleGenerativeAI is not an OpenAI-shaped client at all, and deepseek-chat and deepseek-reasoner are not Router catalog ids. Routing the OpenAI-compatible ones (xAI, DeepSeek, Mistral, SiliconFlow, Cohere, OpenRouter) would need the runtime's unlockHosts, which sends a vendor's traffic to a different gateway than the user chose in settings -- a customer-approved unlock, not a migration default. ChatOpenRouter's inner client is wrapped all the same, so a user who points that provider at an OpenAI-compatible host serving a catalog model does route.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "routerRuntime OPENAI_HOSTS = [api.openai.com], ANTHROPIC_HOSTS = [api.anthropic.com]; planRequest returns null for any other host unless unlockHosts names it."
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "Router's catalog has no deepseek-chat or deepseek-reasoner id, so those two built-in models could not be served even with an unlock."
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "needs-decision",
+      "title": "Who pays, and whose gateway sees the notes",
+      "summary": "Setting RAMP_ROUTER_API_KEY in a shipped build moves every user's prompts onto the operator's Router account and bill; that is a product decision, not a code one.",
+      "calls": [],
+      "gains": "Deciding this deliberately is what makes the rest safe to enable: the code is ready either way and changes nothing until the key is set.",
+      "loses": "nothing until a human decides",
+      "price": "potentially all of it: the operator, not the user, pays for routed traffic.",
+      "why": "Copilot for Obsidian is a bring-your-own-key plugin. Its settings screen asks for up to fourteen provider keys and its users choose a vendor deliberately -- often for privacy reasons, which is why the plugin also ships Ollama and LM Studio support. With RAMP_ROUTER_API_KEY set, requests carrying a user's own OpenAI or Anthropic key are re-signed with the operator's Router key: the operator pays for every user's chat, and note content reaches a gateway the user did not choose. The runtime's operator_key_only guard does not help here, because this app reads keys from plugin settings, not from the environment, so the guard would match nothing and routing would never happen. Three workable shapes: ship it off by default and let self-hosters set the key; offer Router as an opt-in provider the user configures with their own Router key (item i6); or run it on for a hosted tier only. The engineering is done; the choice is not mine to make.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "routerRuntime.routerHeaders replaces the provider's Authorization with the Router key on every routed request; operatorKeyOk compares against process.env OPENAI_API_KEY / ANTHROPIC_API_KEY, which this app never sets."
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Label every routed call with the feature that made it",
+      "summary": "ChatModelManager builds one client per feature carrying x-router-migrate-feature, so Router can tell a note compaction from a chat turn.",
+      "gains": "Spend, latency and request tags per feature in Router instead of one undifferentiated bill, and -- more importantly -- a key that per-feature policy can match on, which is what every other improvement here is built on.",
+      "loses": "One extra LangChain client per active feature in memory (nine at most, each a thin wrapper over the same settings), and chat-title generation stays on the chat label because its collaborator is injected as a bare { getChatModel } object in an existing test that must not change.",
+      "price": "no change",
+      "why": "The vendored runtime falls back to deriving a label from the call stack, which the fact sheet already warns is meaningless after bundling. It is worse than meaningless here: a live check through the esbuild bundle recorded feature=None on all five routed requests, so Router sees this app as one anonymous stream of calls and router.policy.json can only ever use its defaults layer. Setting the label explicitly is a few lines in the one place every client is built, because both the OpenAI and the Anthropic client already accept defaultHeaders -- the app uses that slot today for OpenRouter's HTTP-Referer and Anthropic's browser-access header.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "3/3 200 with Router recording feature=chat and feature=chat-title on /v1/responses and feature=context-compaction on /v1/messages, against the same client shapes the app builds."
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "Full suite 7878 passed / 0 failed, including 13 new cases: six on withRouterFeatureHeader (both config shapes, header merging, no-feature passthrough, providers with no header slot) and seven on getChatModelForFeature (label on the wire, chat as the default label, per-feature client caching and invalidation)."
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "tsc -noEmit -skipLibCheck: 0 errors."
+        }
+      ],
+      "commit": "03a241f",
+      "branch": "router-migrate/improve/feature-labels",
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Cache the chat prefix: -73% on input after the first turn",
+      "summary": "Per-feature policy gives chat, agent and custom-command a prompt_cache_key and pins query expansion to the standard tier.",
+      "gains": "Measured live on gpt-4.1-mini: 8,960 of 9,158 input tokens read from cache on every chat turn after the first, about -73% on input cost per turn, and lower time to first token on the path the user watches. Query expansion stops being able to stall behind a Flex queue and silently drop search back to its deterministic fallback.",
+      "loses": "Query expansion pays the standard tier -- double the Flex price on a call of roughly 300 prompt tokens. A prompt_cache_key also pins a feature's traffic to one provider instance for affinity, which slightly narrows Router's freedom to place a request.",
+      "price": "about -73% on the input tokens of every chat turn after the first for OpenAI-family models; no change for Anthropic models, whose traffic goes over /v1/messages where Router-only policy fields do not apply (see i5).",
+      "why": "The plugin was leaving the single largest saving on the table. Its prompt is already shaped for caching -- LayerToMessagesConverter puts the L1 system prompt and the L2 Context Library of attached notes in the system message and all per-turn text in the user message, which is exactly the stable-prefix-first layout caching needs -- but without a cache key nothing was cached at all. The same 9,158-token prompt sent under a feature with no key cached 0 tokens on both calls, so this is the key doing the work, not the provider. Keys are set only where a prefix actually repeats: compaction, memory and summary prompts are unique per call, and the planning and condensation prompts sit under the provider's ~1,024-token cache minimum, so a key there would buy nothing and on Anthropic would cost about 25% extra on the cache write.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "Three consecutive chat-feature turns with a 9,158-token system prefix: cached 0, then 8,960, then 8,960. The identical prompt under feature=context-compaction (no key in the policy) cached 0 on both of its calls."
+        },
+        {
+          "check": "price",
+          "result": "pass",
+          "detail": "At gpt-4.1-mini list price ($0.40/1M in, $0.10/1M cache-read) that is $0.00366 -> $0.00098 per turn. A separate arm on claude-sonnet-4-6 over /v1/responses showed $0.0302 -> $0.0034, and that the first call under a new Anthropic key costs about 25% more ($0.0377) for the cache write."
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "Full suite 7878 passed / 0 failed; typecheck 0 errors. The change is router.policy.json plus its compiled copy."
+        }
+      ],
+      "commit": "64ced47",
+      "branch": "router-migrate/improve/feature-policy",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Background summarization on a cheap model",
+      "summary": "Compaction, conversation summaries, memory updates and query expansion move to the cheap model of the same vendor while Router is on.",
+      "gains": "48x cheaper and 1.9x faster on one context compaction for an Anthropic user, 7x cheaper and 1.6x faster for an OpenAI user, with the same multiples on conversation summaries. Compaction is the app's most expensive call by far: it only fires on context items of 50,000 characters or more, up to 500,000, three at a time.",
+      "loses": "A different model writes the summaries that get fed back into the conversation and the memory file, so a user who picked Opus for its summarizing gets Haiku for these four steps. The swap only happens with Router on, which means the app behaves differently with and without the key -- and if Router refuses a request before generating, the runtime's provider retry carries the swapped model id, which is why the replacement is always same-vendor.",
+      "price": "context compaction $0.0927 -> $0.0019 (claude-opus-4-7 -> claude-haiku-5-5) and $0.0277 -> $0.0039 (gpt-5.5 -> gpt-4.1-mini) per 50,000-character item; conversation summary $0.0114 -> $0.00024 and $0.0052 -> $0.00062.",
+      "why": "Bulk summarization and term extraction with nobody waiting is the textbook case for a small model, and this app was running all of it on whatever the user picked for chat. Keeping the swap inside the vendor the user already chose matters for two reasons: it keeps the runtime's provider-retry path valid, and it keeps the user's note content with the vendor they consented to. Chat, agent, custom commands, tool planning and question condensation keep the selected model, because those outputs are what the user chose a model for. ROUTER_MIGRATE_AUX_MODEL overrides the choice, and an id outside Router's catalog is ignored rather than guessed at.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "One compaction of a note at the compactor's 50,000-character minimum: claude-opus-4-7 $0.0927/3,668 ms, claude-sonnet-4-6 $0.0320/3,514 ms, claude-haiku-5-5 $0.0019/1,953 ms, gpt-5.5 $0.0277/1,930 ms, gpt-4.1 $0.0196/1,356 ms, gpt-4.1-mini $0.0039/1,207 ms. A 24-turn conversation summary: $0.0114, $0.0051, $0.00024, $0.0052, $0.0032, $0.00062 in the same order."
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "Full suite 7887 passed / 0 failed, including nine new cases: seven on routerAuxModelName (background features swapped, user-waiting features untouched, no swap with Router off, no swap for vendors Router does not front, no swap when already on the cheap model, env override honoured, non-catalog override ignored) and two end-to-end through ChatModelManager asserting the model id on the wire with Router on and off."
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "tsc -noEmit -skipLibCheck: 0 errors."
+        }
+      ],
+      "commit": "3d264af",
+      "branch": "router-migrate/improve/aux-model",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Stop asking a model to echo the question back",
+      "summary": "Question condensation returns the question unchanged when there is no history to condense, and buffers the call it still makes.",
+      "gains": "Removes a whole model round trip -- 1-3 s with the user waiting, plus its tokens -- from the common web-search path, and makes that path deterministic instead of trusting a model to follow an instruction. The remaining call can now fall over to another Router candidate, which a started stream cannot.",
+      "loses": "A model that would have paraphrased an empty-history question no longer gets the chance to; the returned text is now exactly what the user typed.",
+      "price": "one fewer model call per web search with no prior turns.",
+      "why": "The condensing prompt itself ends with \"If there's nothing in the chat history, just return the follow up question\", and the web-search tool's own schema documents chatHistory as \"usually empty array\". So on the common path the app was paying a full round trip on the user's chat model to be handed back the string it sent. The streaming was equally unearned: the loop only concatenated chunks into a string, and Router cannot fall a request over to another candidate once a stream has started.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "Full suite 7881 passed / 0 failed with three new cases on getStandaloneQuestion: condensing against real history, returning the question with no model call when history is empty, and stripping a thinking model's reasoning block. The function had no test coverage before."
+        },
+        {
+          "check": "typecheck",
+          "result": "pass",
+          "detail": "tsc -noEmit -skipLibCheck: 0 errors."
+        }
+      ],
+      "commit": "0a56ad4",
+      "branch": "router-migrate/improve/skip-condense",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Cache the Anthropic chat prefix too",
+      "summary": "Put an Anthropic cache_control breakpoint at the end of the system message so Claude users get the caching i2 gives OpenAI users.",
+      "gains": "The same order-of-magnitude saving as i2 for the users most likely to be spending real money. Router's own measurement reads 10,350 cached tokens on a second /v1/messages call, and the Responses-surface arm measured here showed claude-sonnet-4-6 going from $0.0302 to $0.0034 a turn.",
+      "loses": "A cache write costs about 25% more than an uncached call, so a conversation that never reaches a second turn gets more expensive. ChatAnthropic needs the system message as content blocks rather than a plain string, which means changing the shape LayerToMessagesConverter returns and touching every chain runner that consumes it.",
+      "why": "router.policy.json cannot reach /v1/messages -- Router-only fields are not supported on that surface, and the runtime logs as much on every Anthropic request. So i2's prompt_cache_key does nothing for the Anthropic path, which is where the expensive models live: an Opus chat turn with a 9,000-token context library costs about 40x what the same turn costs on gpt-4.1-mini. Anthropic's own cache_control works on Claude through Router, and the app's prompt is already laid out for it. The work is a focused change to the converter plus its consumers, with the existing LayerToMessagesConverter tests as the guard rail; it was left proposed rather than built because it changes a shape four runners depend on.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Offer Router as a provider users configure themselves",
+      "summary": "Add a Router provider: one key the user supplies, 126 models across seven vendors, with a spend cap they control.",
+      "gains": "Settles m4 in the users' favour rather than the operator's -- they bring a Router key, they pay, and nothing moves without their consent. In exchange they get one key instead of up to fourteen, models from OpenAI, Anthropic, xAI, Google, Bedrock and six open-weight families behind one setting, a per-key spend cap the plugin cannot currently offer at all, and cross-vendor fallbacks. For the maintainers it replaces fourteen hand-maintained provider adapters with one catalog fetched from GET /v1/models.",
+      "loses": "Prompts go through a gateway rather than straight to the vendor, which is a real change for a notes app. Router's catalog is not every vendor's full catalog, so some currently reachable models would have no Router equivalent and the existing providers must stay. Settings are versioned in this repo, so this needs a migration that leaves already-written configurations loading unchanged.",
+      "why": "This plugin is already a model aggregator with a worse aggregator's ergonomics: fourteen provider enum members, fourteen key fields, fourteen constructor configs and a BUILTIN_CHAT_MODELS list that goes stale every time a vendor ships. Router is the product that exists to collapse that. The migration proves the transport works for OpenAI- and Anthropic-shaped traffic; this turns it from an operator-side plumbing change into a feature users can see and choose. It is a rework because it touches the settings schema, the settings UI, the model catalog and the migration chain.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Collapse the three model calls before the first token",
+      "summary": "Tool planning, query expansion and question condensation are three sequential round trips that run before the answer stream starts.",
+      "gains": "A vault-search turn makes two model calls before the answer begins (planning, then query expansion inside the retriever) and a web-search turn makes two more; at the 2.3-3.7 s a premium model took per call in the live checks, that is several seconds of dead time on every search turn plus the tokens. Folding the extraction work into the planning call that already runs would take it to one.",
+      "loses": "One prompt doing three jobs is harder to tune and degrades in three ways at once; the planning call already carries tool definitions, so its own cache prefix grows. And the salient terms the planner extracts today are already used as a fallback when a model cannot do tool calls, so that path would need to keep working.",
+      "why": "The planning call at CopilotPlusChainRunner.ts:155 already asks the model for salient search terms. QueryExpander then asks a second time for salient terms plus alternative phrasings, and getStandaloneQuestion asks a third time to rewrite the question. These are the same question asked three ways, serially, with the user watching a spinner. The reason this is proposed rather than built is that the repo's own rules forbid editing AI prompt content without an explicit ask, and there is no honest way to merge three calls without rewriting their prompts. i4 already removes the condensation call on the common path, which is the part that needed no prompt change.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Fall background work over to a second vendor",
+      "summary": "Add a fallbacks list to the background features in router.policy.json so compaction and memory survive one vendor being down.",
+      "gains": "A provider outage currently aborts context compaction (it gives up when more than half the items fail) and silently skips the memory write. A ranked candidate list makes those steps ride out an outage on another vendor, which Router does per request without the app knowing.",
+      "loses": "A fallback candidate is a different vendor seeing the user's note content, chosen by Router rather than by the user. In a notes app that is a consent question, not just a reliability knob -- which is why it is proposed rather than built, and why it should never be added to the chat or agent features, where the user would also get an answer from a model they did not pick.",
+      "why": "The policy change is three lines and Router handles the rest; the live checks did not exercise a real outage, which the fact sheet also lists as unmeasured. The value is real but bounded -- these are background steps whose failure is already handled -- so it should land only if the vendor-change question is answered the same way m4 is.",
+      "branch": null,
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i9",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Let Switchyard pick the model inside an agent run",
+      "summary": "Point agent mode at model \"switchyard\" so cheap turns get a cheap model and hard turns get a capable one.",
+      "gains": "Agent mode is the app's most expensive feature: a ReAct loop that can make many model calls per user turn, most of them deciding which tool to call next rather than writing the answer. Switchyard is built for exactly this shape -- Router's docs aim it at coding agents -- and it would cut the cheap turns without the app having to classify them.",
+      "loses": "The user's chosen model stops being the model that answers every turn, which is a visible change in a plugin whose whole model picker is the point. Switchyard is documented as experimental, its quality on non-coding work is unmeasured, and it needs a strategy saved at app.router.com before any code can use it, so it cannot be tested from the repo alone.",
+      "why": "Worth proposing because the economics are the clearest in the app and the code change is small -- agent mode already builds its own labelled client after i1, so it is one model id. It is a rework because it cannot be validated here: a human has to save the efficient_model / capable_model strategy first, and the result needs judging on real agent transcripts, not a cost table.",
+      "branch": null,
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i10",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Shadow the chat feature before changing its model",
+      "summary": "Turn on shadow models for one or two candidates to get cost and latency on real traffic.",
+      "gains": "Every model recommendation in this report rests on synthetic prompts. Shadow models record cost and latency for up to three candidates on a 5-10% sample of real /v1/responses traffic, which is the only way to know what this app's actual prompts cost on another model before switching anyone.",
+      "loses": "It requires content recording to be switched on, which means real note content is retained on Router's side for the sampled requests. For a vault assistant that is a significant ask, and it should not be enabled on anyone's traffic without saying so plainly. It also records cost and latency only -- not quality -- so it cannot settle whether a cheaper model answers as well.",
+      "why": "A quick-win in effort (a toggle at app.router.com, no code) and in value if the shadow data is wanted before approving i3 or i9 more broadly. Listed with its privacy cost in front because, for this product, that is the deciding factor rather than a footnote.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

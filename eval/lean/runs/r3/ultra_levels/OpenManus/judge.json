@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the single choke point and moved the whole app in one edit: the one AsyncOpenAI client in app/llm.py covers all five chat.completions sites (ask, ask_with_images, ask_tool, streaming and not), gated on RAMP_ROUTER_API_KEY with a ROUTER_MIGRATE_DISABLE kill switch, and verified live end-to-end (200s on /v1/responses for non-streaming, tool-call and SSE-translated streaming, on both an OpenAI- and an Anthropic-served model) \u2014 the outside check confirms all five routes verified, none unverified.",
+  "Caught the one real behaviour hazard of being on Router and fixed it properly: MULTIMODAL_MODELS is a 2024 list, so on claude-sonnet-5/gpt-5.x every screenshot was silently deleted from history; replacing it with the catalog's input modalities also exposed the older bug that all images were labelled data:image/jpeg, which Anthropic 400s (reproduced as 6 tenacity retries), with side-by-side proof and 11 new tests on a branch.",
+  "Grounded the cost claims in live A/Bs instead of assertions: prompt_cache_key measured at -49.6% input cost on a 22.5k-token repeat step through the app's own wrapped client, Flex measured as already on and exactly -50% so it was recorded as a note rather than sold as an improvement, and the Anthropic counter-result (key is a no-op there, contradicting ROUTER.md) reported rather than buried \u2014 alongside honest disclosure of the two things the check could not see: the TypeScript VMind LLM egress and the fact that gitignored config.toml may pin a model the catalog does not resolve (m7), i.e. a deployment where this migration moves nothing."
+ ],
+ "misses": [
+  "Fixed one hardcoded capability table and left its twin: REASONING_MODELS = [\"o1\", \"o3-mini\"] still decides max_completion_tokens vs max_tokens and whether temperature is sent, so on Router-served gpt-5.x/o-series models the app sends the wrong parameter shape \u2014 exactly the staleness class i1 was built to kill, and a one-branch extension of the same catalog lookup.",
+  "No item on token accounting: TokenCounter/tiktoken now estimates for Anthropic- and open-weight-served models, and those counts drive max_tokens, the input-token limit check and history truncation; an expert would have proposed reading per-model context/limits from the catalog and reconciling against Router's returned usage, since wrong counts here cause either refusals or truncated prompts.",
+  "Nothing addresses the app's actual cost driver at the design level \u2014 the loop resends the full history plus every tool schema each step. Caching the prefix is the right quick win, but there is no proposal for per-task model tiering (a cheap model for summarisation/classification steps vs the agent loop, trivially expressible now that every agent has its own [llm.*] config and label), tool-result/history trimming, or moving the call path onto native /v1/responses so prompt_cache_key, provider_timeout and fallbacks are per-request fields rather than policy defaults bolted onto a translated Chat Completions path."
+ ],
+ "wrong": [
+  "m1's \"loses: nothing\" overstates. Traffic now goes Chat Completions -> translated /v1/responses; nothing in the evidence establishes parity for unsupported or reshaped fields (logprobs/n/seed, usage detail, finish_reason and stream chunk shape), and the app reads usage and stream deltas. \"No loss we found\" is defensible; \"nothing\" is not.",
+  "The outside check records app/llm.py:ask with ok 6 / error 12 live, and the report never reconciles those 12 errors. Only 6 are explained, and those belong to the i1 branch experiment; m1 and m2's evidence reads as uniformly clean (\"3 requests, 3x 200\"), which is a selective slice of the live record.",
+  "m2 defaults api.jiekou.ai and api.ppinfra.com to on while admitting in the same item that their pricing is \"unmeasured\". Redirecting a deployment that chose a vendor for price or region, by default, on a migration branch, is the one genuinely non-behaviour-preserving default here; it belongs opt-in (empty list by default, hosts added by the operator) rather than relying on the operator to find ROUTER_MIGRATE_UNLOCK_HOSTS.",
+  "The two built policy/label branches interact and are never verified together: i3 changes the feature label, which changes the $feature-derived prompt_cache_key from i2 (the report notes the re-partition but tests each branch alone), and i4 is told to stack on i2's router.policy.json. No combined-branch test or merged-policy check exists, so the composed state a reviewer would actually deploy is unvalidated.",
+  "m6 recommends keeping Flex on an interactive CLI where a human waits every step, on n=1 per arm (734 ms vs 533 ms) while itself citing a 25 s Flex deadline and a 61 s observed Flex call. The honesty about sample size is good, but the conclusion is stronger than the evidence; a tail-latency measurement over a real multi-step run was the cheap thing to do before recommending."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 25.9,
+  "usd": 13.873,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 16,
+  "kinds": {
+   "move": 1,
+   "trade-off": 1,
+   "stays": 3,
+   "note": 2,
+   "improvement": 9
+  },
+  "improvements": 9,
+  "built": 3,
+  "levels": {
+   "change": 5,
+   "quick-win": 3,
+   "rework": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

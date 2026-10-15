@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "clear",
+ "why": "Both moved the same traffic with the same two-constructor diff and both were honest about embeddings staying on OpenAI, so the decision rests on system judgment \u2014 and A found that the product's only user-facing path, OpenAIAgent.astream_chat, silently drops every tool call, root-caused it to the role-only first chunk opening the is_function_false gate, reproduced it without Router, and shipped a tested fix, alongside the sharpest app-specific find in either report (the per-document agent burning two calls to 'decide' to call a zero-argument function). B's work is competent and better instrumented, but it certified 'behaviour unchanged' on an app whose main feature returns a canned apology, and its improvements are the generic Router starter set.",
+ "A_best": "Diagnosing and fixing the astream_chat tool-call drop \u2014 measured before/after at the real entry point (1 request and the 'Sorry\u2026' fallback vs 6 requests and a real answer), proven Router-independent, with the deprecation follow-up (i7) correctly sequenced after it rather than instead of it.",
+ "B_best": "Fixing the spend label itself: measuring that 2 of 8 requests reached Router unlabelled and the rest carried whatever module was on the stack, then making the label explicit per workload \u2014 which is the prerequisite for any per-workload policy, plus the latency-aware model decision (gpt-6-luna at 17.5s vs 5.5s per RAG turn) and the spend-cap single-point-of-failure call.",
+ "A_worst": "Accepting call-stack-derived spend labels as 'not stable enough to key a policy on' and working around it with defaults instead of fixing it \u2014 and recommending gpt-6-luna on two prompts of quality evidence with no latency measurement on the six-call interactive turn, exactly the gap B's data fills.",
+ "B_worst": "Missing that the product is broken \u2014 it validated streaming tool loops through probes rather than handle_chat_message \u2014 and asserting the chat prefix crosses the ~1,024-token cache minimum without measuring it (A measured 990 at turn 1), then setting prompt_cache_key to a constant feature label rather than the conversation id, which wastes most of the affinity benefit.",
+ "result": "win",
+ "arm": "open_oldfacts",
+ "ref": "ultra_levels",
+ "repo": "sec-insights",
+ "arm_was": "A"
+}

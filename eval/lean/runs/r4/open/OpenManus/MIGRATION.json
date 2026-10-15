@@ -1,0 +1,727 @@
+{
+  "version": 6,
+  "summary": "OpenManus funnels every LLM call in the codebase through one AsyncOpenAI client built in app/llm.py, so the migration is three commits at that one construction: wrap it with the vendored runtime (Chat Completions translated to POST /v1/responses, anything Router cannot serve left on the configured provider), unlock the operator's own OpenAI-compatible host so the Anthropic-compatibility, Jiekou.AI and PPIO configs this project ships actually move while loopback stays local, and label each request by the role that asked for it (manus.step, data_analysis.step, planning.create_plan, planning.summary) instead of by app/llm.py:ask_tool, which is what makes spend-per-feature and router.policy.json usable here at all. All five OpenAI-SDK call sites route; the two Bedrock converse calls stay, because Router does not serve bedrock-runtime with the shared key, and an Azure deployment stays on its endpoint. Verified live against the real Router: gpt-4o-mini and claude-haiku-5-5 served over both base URLs, tool loops intact, and a full planning-flow run labelled per role. Then, acting on the product rather than the plumbing, eight improvements are built and tested on branches and five more are proposed for approval; the two that matter most are not Router features at all but things the migration put a spotlight on -- every browser screenshot has been silently discarded before reaching the model, and the documented setup step produces a config that cannot be imported.",
+  "reviewed": "The review followed the money and the failure modes of a 20-step ReAct loop: what each call is for, what it resends, what decides the model's capabilities, what happens when a call fails, and which Router levers change any of that. Measured live on this key: prompt_cache_key turns 3,968 of a 4,193-token prefix into cache reads on gpt-4o-mini where without it nothing caches (Claude already caches through the runtime's own key, 6,279 of 6,283); a models fallback list silently falls through a candidate the key cannot use and serves the next, cross-vendor, with tools in the request; Flex on gpt-5.4-mini is exactly half price with no latency penalty over 8 calls, which is why the account default is left alone rather than pinned. Two findings came out of testing rather than reading: enabling image input exposed a hardcoded image/jpeg data URI that Anthropic rejects for PNG screenshots, and one unrecoverable 400 cost six Router requests because the retry decorators caught bare Exception. Left deliberately alone: temperature (the runtime already drops it for models that reject it, and changing it in app code would alter sampling on the provider path), local token counting (free and correct enough; Router's count_tokens would add a round trip), and the Bedrock and Azure paths.",
+  "calls": [
+    {
+      "site": "app/llm.py:795",
+      "feature": "manus.step / data_analysis.step / browser.step / planning.create_plan",
+      "model": "operator-configured; shipped default claude-3-7-sonnet-20250219, claude-sonnet-5 with i3",
+      "task": "agent loop: tool-calling step (ask_tool), the call that dominates spend",
+      "latency": "interactive",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "app/llm.py:480",
+      "feature": "planning.summary",
+      "model": "operator-configured; shipped default claude-3-7-sonnet-20250219",
+      "task": "buffered completion (ask, stream=False)",
+      "latency": "interactive",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "app/llm.py:497",
+      "feature": "planning.summary",
+      "model": "operator-configured; shipped default claude-3-7-sonnet-20250219",
+      "task": "streamed completion (ask, the default path; tokens are printed as they arrive)",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "app/llm.py:654",
+      "feature": "unused",
+      "model": "operator-configured",
+      "task": "vision completion (ask_with_images, buffered) - no caller in the codebase",
+      "latency": "interactive",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "app/llm.py:664",
+      "feature": "unused",
+      "model": "operator-configured",
+      "task": "vision completion (ask_with_images, streamed) - no caller in the codebase",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "app/bedrock.py:210",
+      "feature": "manus.step (api_type = \"aws\")",
+      "model": "a Bedrock model id, e.g. us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+      "task": "agent loop step via boto3 bedrock-runtime converse",
+      "latency": "interactive",
+      "now": "provider",
+      "item": "m4"
+    },
+    {
+      "site": "app/bedrock.py:235",
+      "feature": "manus.step (api_type = \"aws\")",
+      "model": "a Bedrock model id, e.g. us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+      "task": "agent loop step via boto3 bedrock-runtime converse_stream",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "m4"
+    },
+    {
+      "site": "app/llm.py:270",
+      "feature": "all roles (api_type = \"azure\")",
+      "model": "an Azure deployment name",
+      "task": "client construction for Azure OpenAI deployments",
+      "latency": null,
+      "now": "provider",
+      "item": "m5"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the one shared OpenAI client through Router",
+      "summary": "Wrap the single AsyncOpenAI construction in app/llm.py with the vendored runtime, which puts all five Chat Completions call sites on Router.",
+      "calls": [
+        "app/llm.py:480",
+        "app/llm.py:497",
+        "app/llm.py:654",
+        "app/llm.py:664",
+        "app/llm.py:795"
+      ],
+      "gains": "One Router key instead of a provider key per deployment, per-request spend records, and every Responses lever reachable for the whole codebase from one line, because every LLM call in OpenManus goes through LLM.ask, LLM.ask_with_images or LLM.ask_tool on this one client.",
+      "loses": "nothing",
+      "price": "no change by itself: the serving model is still the configured model, at its catalog price",
+      "why": "The agent loop, the planning flow and the chart tool all reach the model through app/llm.py, and the client there is built once per config section. Wrapping the construction routes a catalog model and leaves everything else exactly as it was: a model Router does not list, an untranslatable parameter, or a Router refusal before generation all go to the configured provider unchanged. Nothing happens until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 turns it back off without a deploy.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "LLM.ask and LLM.ask_tool with gpt-4o-mini on base_url https://api.openai.com/v1: two 200s from the real Router on /v1/responses, provider=openai, the tool loop returning tool_calls=terminate"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run over LLM.ask, LLM.ask_tool and a full ToolCallAgent.run plus PlanningFlow: 5 of 5 requests reached router-sim valid, 0 invalid"
+        },
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "router-migrate check --all: 5 of 7 scanned calls route (the two that do not are the Bedrock pair in m4)"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "4 passed, the baseline count, unchanged"
+        }
+      ],
+      "commit": "c26e1a8",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "trade-off",
+      "title": "Route catalog models on the operator's OpenAI-compatible host",
+      "summary": "unlock_hosts names the configured base URL's host, so catalog models reach Router from the Anthropic-compatibility, Jiekou.AI and PPIO endpoints this project ships, while loopback and private addresses stay local.",
+      "calls": [
+        "app/llm.py:480",
+        "app/llm.py:497",
+        "app/llm.py:654",
+        "app/llm.py:664",
+        "app/llm.py:795"
+      ],
+      "gains": "The migration applies to the deployments that actually exist. config/config.example.toml points the OpenAI SDK at Anthropic's compatibility endpoint, and config/ also ships Jiekou.AI, PPIO, Google and Ollama variants; without this only a deployment configured against api.openai.com would have moved.",
+      "loses": "For a catalog model configured against a third-party OpenAI-compatible endpoint, the request now goes to Router instead of that vendor: a different account, a different bill and possibly a different serving provider for the same model id. Requests to that host whose model Router does not list still go to the vendor, and nothing routes while RAMP_ROUTER_API_KEY is unset.",
+      "price": "the Router catalog price for the serving model, in place of whatever that reseller charged",
+      "why": "Router serves any catalog model behind the OpenAI surface, so where the request goes is a routing decision, not a capability one. The guard that matters is the opposite direction: a model name that happens to match a catalog id on a local Ollama (gpt-oss-120b, say) is a self-hosted model, and sending it to a paid gateway would be wrong, so loopback, private addresses, .local names and bare hostnames are never unlocked.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "claude-haiku-5-5 on base_url https://api.anthropic.com/v1/: 200 from the real Router, provider=anthropic, for both LLM.ask and the LLM.ask_tool loop"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "runtime trace: api.anthropic.com + claude-haiku-5-5 -> Router; claude-3-7-sonnet-20250219 -> provider, reason \"not in the Router catalog\"; gpt-oss-120b on 127.0.0.1:11434 -> provider, never considered"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "4 passed, unchanged"
+        }
+      ],
+      "commit": "2efb262",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "move",
+      "title": "Label Router traffic by the role that asked for it",
+      "summary": "LLM.ask/ask_with_images/ask_tool take an optional feature, sent as x-router-migrate-feature, so spend and policy can tell the Manus loop from the data-analysis loop from the two planning calls.",
+      "calls": [
+        "app/llm.py:795",
+        "app/llm.py:480"
+      ],
+      "gains": "Router records the label as metadata.feature, which is what spend-per-feature and router.policy.json key on. Labels are <agent>.step for every ReAct loop plus planning.create_plan and planning.summary, so cost per agent is visible and a policy can give one loop a different tier, cache key, timeout or fallback list without touching call sites again.",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Left to itself the runtime labels a request by the frame that owns the client, and in this codebase that is app/llm.py:ask or app/llm.py:ask_tool for everything, because all five call sites live in one file. Every later lever in this report is addressed by label, so the labels had to be real first. The header is only attached while the runtime is active, so a provider-bound request is byte-for-byte what it was before the migration.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "a ToolCallAgent run and a PlanningFlow run against the real Router: 200s tagged manus.step, planning.create_plan and planning.summary, provider=openai"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "check --run: 4 of 4 requests valid, labelled manus.step x2, planning.create_plan, planning.summary"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "4 passed, unchanged"
+        }
+      ],
+      "commit": "e814fee",
+      "branch": null,
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "stays",
+      "title": "Amazon Bedrock stays on bedrock-runtime",
+      "summary": "The hand-written BedrockClient keeps calling boto3 converse and converse_stream; Router does not serve a Bedrock endpoint with the shared key.",
+      "calls": [
+        "app/bedrock.py:210",
+        "app/bedrock.py:235"
+      ],
+      "gains": "nothing changes for api_type = \"aws\" deployments",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "app/bedrock.py is an OpenAI-shaped wrapper around boto3's bedrock-runtime client, not an OpenAI SDK client, so there is no HTTP client for the runtime to sit under. Router's catalog does list Bedrock ids, but they are requires_byok: they need the caller's own AWS credential, not the shared Router key, so moving these calls would not consolidate anything. Worth knowing for an operator choosing between them: the same Claude models cost about 10% more through Router's Bedrock ids than through its Anthropic ids (us.anthropic.claude-sonnet-5 $2.20/$11 against claude-sonnet-5 $2/$10), so a deployment on Bedrock purely for billing reasons could move to the Anthropic ids and route.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "router-migrate check --all reports both sites as kept: \"other SDK / endpoint; Router does not serve this vendor's endpoint with the shared key\""
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog: us.anthropic.claude-sonnet-5 (bedrock, requires BYOK) in $2.20 / out $11 against claude-sonnet-5 (anthropic) in $2 / out $10"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "stays",
+      "title": "Azure OpenAI deployments stay on their endpoint",
+      "summary": "api_type = \"azure\" builds AsyncAzureOpenAI, which the runtime deliberately refuses to wrap, so those deployments are untouched.",
+      "calls": [
+        "app/llm.py:270"
+      ],
+      "gains": "nothing changes for Azure deployments",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "wrap_openai excludes AzureOpenAI and AsyncAzureOpenAI by design: an Azure request names a deployment, not a catalog model, and its URL carries an api-version, so translating it would be guesswork. An Azure deployment that wants Router should set [llm] to a catalog model on a plain OpenAI-compatible base URL instead, which the wrapped client in m1 and m2 then routes.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "runtime wrap_openai: \"Azure deployments and test doubles stay on their configured endpoint\"; the construction at app/llm.py:270 is not wrapped"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "title": "Take image support and the output-cap parameter from the catalog",
+      "summary": "Replace two hardcoded model lists in app/llm.py with Router catalog lookups, so screenshots reach the model and reasoning models get max_completion_tokens.",
+      "calls": [
+        "app/llm.py:795",
+        "app/llm.py:480",
+        "app/llm.py:654"
+      ],
+      "level": "change",
+      "gains": "Browser screenshots, sandbox_browser screenshots and sandbox_vision file reads actually reach the model. MULTIMODAL_MODELS names six models from early 2024; any model not on it makes format_messages() delete base64_image and send the text alone, so with the shipped claude-3-7-sonnet config -- or any current model -- the agent has been answering blind about pages it never saw, silently, with no error anywhere. Separately, REASONING_MODELS = [\"o1\", \"o3-mini\"] decides max_completion_tokens vs max_tokens, so every reasoning model since o3-mini (the whole gpt-5/gpt-6 family) got max_tokens and a 400 from OpenAI. Fixing the first exposed a second bug: format_messages announced every image as image/jpeg while every producer here emits PNG, which Anthropic rejects outright and OpenAI tolerates.",
+      "loses": "Screenshots now cost tokens. An agent that was quietly dropping every image will start paying for them -- a 1280x800 screenshot is roughly 1,100 image tokens on the OpenAI accounting this repo's own TokenCounter implements -- and that is the cost of the feature working. A deployment that was happy with text-only browsing should configure a text-only model rather than rely on images being discarded.",
+      "price": "image input is billed at the model's normal input rate; one screenshot per step on claude-sonnet-5 ($2 per 1M input) is of the order of $0.002 per step, against $0 for discarding it",
+      "why": "This is the most expensive bug in the codebase and it is invisible: no exception, no log line, just a model reasoning about a web page from its URL. The browser tooling is the project's headline feature. The Router catalog the runtime already vendors carries real input modalities and a reasoning flag per model, and resolve_model() resolves dated ids (claude-sonnet-4-5-20250929) the way config files write them. The two lists stay as the fallback for models Router does not list, so local Ollama builds and vendor deployment names behave exactly as before. Temperature is deliberately not included: the catalog knows which models reject it, but the runtime already drops it on Router-bound requests, and dropping it in app code would also change sampling on the provider path, where Anthropic accepts temperature=0 on models whose Router entry says otherwise.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "a 64x64 red PNG sent exactly as a tool result sends one reached claude-haiku-5-5 and claude-sonnet-5 through Router and came back \"Red\"; the same call returned 400 \"the image appears to be a image/png image\" before the media-type fix, and before the capability fix the image was dropped and never sent at all"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "23 passed (19 new): catalog vs legacy capability for 14 model ids, media-type sniffing for PNG/JPEG/GIF/WebP and garbage, the PNG data URI, and that a text-only model still drops the image"
+        }
+      ],
+      "commit": "e6cb5fe",
+      "branch": "router-migrate/improve/model-capabilities",
+      "depends_on": [
+        "m1"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "title": "Make the config the README tells you to copy loadable",
+      "summary": "DaytonaSettings.daytona_api_key becomes optional, so the documented cp config/config.example.toml config/config.toml produces a config that imports.",
+      "calls": [],
+      "level": "quick-win",
+      "gains": "OpenManus starts. daytona_api_key was a required field and no example config declares a [daytona] section, so the setup step in the README produced a config that raised a pydantic ValidationError on `import app.config` -- which main.py, run_flow.py, run_mcp.py and sandbox_main.py all do before reaching a prompt. Running with no config.toml at all hit the same wall, because config.example.toml is the fallback.",
+      "loses": "nothing. A missing Daytona key now surfaces when the Daytona sandbox is used instead of at import; app/daytona/sandbox.py already logs a warning and carries on without one.",
+      "price": "no change",
+      "why": "Unrelated to Router, but directly in front of it: a deployment that cannot start cannot route anything, and this is the first thing a new reader hits. It is also what stood between the shipped configuration and the live evidence for i3 -- that probe had to append a [daytona] section by hand to get past it.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "14 passed (10 new): one per shipped config.example*.toml, each built through the same fields Config._load_initial_config feeds, plus DaytonaSettings() with no key"
+        },
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "before: `cp config/config.example.toml config/config.toml` then `import app.config` raised ValidationError \"daytona_api_key Field required\"; after: imports, and so does a run with no config.toml"
+        }
+      ],
+      "commit": "c36b01d",
+      "branch": "router-migrate/improve/loadable-example-config",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "title": "Point the shipped configs at a model Router serves",
+      "summary": "The three example configs that select claude-3-7-sonnet now select claude-sonnet-5, a catalog model, so a default deployment routes.",
+      "calls": [
+        "app/llm.py:795",
+        "app/llm.py:480"
+      ],
+      "level": "change",
+      "gains": "A deployment that follows the README reaches Router. Every example config selects claude-3-7-sonnet-20250219 or -latest, which is not in Router's catalog, so the runtime leaves those requests on Anthropic -- measured, with the reason in the trace. claude-sonnet-5 is also cheaper and newer than the alternative in the same family ($2/$10 per 1M against claude-sonnet-4-5's $3/$15, cache reads $0.20) and takes image input, so with i1 it is the first shipped default where a screenshot reaches the model.",
+      "loses": "A different model answers. claude-sonnet-5 is a generation on from claude-3-7-sonnet, so prompts tuned against 3.7 deserve a look, and a deployment that pinned 3.7 deliberately should keep it in its own config.toml -- nothing here touches an existing config.toml. The commented Bedrock example keeps its dated id, which is a Bedrock model id and not a catalog id.",
+      "price": "claude-sonnet-5 $2 in / $10 out per 1M against claude-3-7-sonnet's Anthropic list price of $3 / $15, plus cache reads at $0.20 once i4 applies",
+      "why": "A migration no default configuration can use is not a migration. This is the one-line change that connects the other eight: the model in config/ is what the runtime looks up in the catalog, and the shipped value has never been in it.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "the README setup, then one agent step: claude-sonnet-5 served by Router (200, provider=anthropic, feature=manus.step). The identical probe on the migration branch sent 0 requests to Router, trace reason \"model 'claude-3-7-sonnet-20250219' is not in the Router catalog\""
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "4 passed, unchanged"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog: claude-sonnet-5 in $2 / out $10 / cache-read $0.20; claude-sonnet-4-5 in $3 / out $15"
+        }
+      ],
+      "commit": "4b72c84",
+      "branch": "router-migrate/improve/catalog-default-model",
+      "depends_on": [
+        "m1",
+        "m2",
+        "i2"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "title": "Cache the agent loop's prompt prefix on every vendor",
+      "summary": "router.policy.json sets prompt_cache_key to the request's feature label, which the runtime otherwise does only for Claude, and pins a provider_timeout per role.",
+      "calls": [
+        "app/llm.py:795",
+        "app/llm.py:480"
+      ],
+      "level": "quick-win",
+      "gains": "An agent step resends the whole transcript plus every tool schema, so by step 10 the request is mostly a prefix the provider has already seen. Measured live on a 4,193-token prefix sent twice to gpt-4o-mini: without the policy the second call cached 0 tokens, with it 3,968. Cache reads are half the input price on gpt-4o-mini and far less on the models a serious deployment runs -- claude-sonnet-5 $0.20 against $2.00, gpt-5.1 $0.125 against $1.25 -- so this is roughly a 90% cut on the repeated part of every step after the first. The policy also bounds each role's provider call: 300s for the agent loops, which is the timeout LLM.ask_tool already passes to the SDK, and 120s for the two planning calls.",
+      "loses": "Concurrent runs of the same agent share one cache key, so their different prefixes compete for one cache line; a miss costs exactly what a call costs today, so the downside is bounded at zero saving. The two planning calls now have a 120s Router-side ceiling where before only the client timeout applied. ROUTER_MIGRATE_POLICY=off disables the whole file without a deploy.",
+      "price": "cache reads instead of input tokens on the repeated prefix: -50% on gpt-4o-mini, -90% on claude-sonnet-5 and gpt-5.1, for the cached portion",
+      "why": "This is the biggest recurring cost in the system and the cheapest thing to fix: a JSON file, no code. The runtime sets prompt_cache_key automatically only for Claude, because that is the family where Router caches nothing without one; OpenAI, xAI and the open-weight ids were paying full input price for every repeat. It is also the lever that pays off the per-role labelling from m3, since each role gets its own key and its own cache line.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "gpt-4o-mini, identical 4,193-token prefix twice: migration branch cached 0 of 4,193 on the second call; with the policy, 3,968. An explicit app-side key gave the same 3,968, confirming the policy is doing the work"
+        },
+        {
+          "check": "router-live",
+          "result": "info",
+          "detail": "claude-haiku-5-5, 6,283-token prefix: 6,279 cached on the repeat both with and without the policy -- Claude was already covered by the runtime's own key, so this changes nothing there"
+        },
+        {
+          "check": "simulator",
+          "result": "pass",
+          "detail": "policy 982cc349 compiles and validates; policy_for resolves manus.step and data_analysis.step to {prompt_cache_key: $feature, provider_timeout: 300} and the two planning labels to 120, confirming defaults layer under feature entries"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "4 passed, unchanged"
+        }
+      ],
+      "commit": "295fa50",
+      "branch": "router-migrate/improve/prompt-cache-policy",
+      "depends_on": [
+        "m1",
+        "m3"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "title": "Make the per-agent [llm.<name>] config sections work",
+      "summary": "BaseAgent's llm field defaults to None so the validator can resolve the config section named after the agent, which it has always intended to do and never did.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "change",
+      "gains": "Per-agent models become real. BaseAgent.initialize_agent contains `self.llm = LLM(config_name=self.name.lower())`, but the field was declared with default_factory=LLM, so pydantic built the \"default\" client before the validator ran and the isinstance check kept it: that line has never executed. Every agent, and the chart tool with the same pattern, shared one client, and [llm.manus], [llm.browser] and [llm.data_analysis] in a config.toml were read by nobody. With Router this is the lever that matters most for cost, because one key covers every vendor: the Manus loop can run Claude while the data-analysis loop runs a nano and the planning flow runs a haiku, set in config and nowhere else.",
+      "loses": "Agents with different names now get separate LLM instances, so the cumulative token counters -- and the max_input_tokens budget, which is checked against a running total -- are per-agent rather than shared across every agent in the process. A deployment using max_input_tokens as one process-wide budget gets one budget per agent name instead. The branch also moves two \"\\n\".join calls out of their f-strings in data_visualization.py -- identical strings, but a backslash inside an f-string expression only parses on Python 3.12+, and the file has to parse for the tooling that reads it.",
+      "price": "no change on its own; it is the mechanism for per-role model choice, where the spread is 10x to 40x (claude-opus-5 $5/$25 against claude-haiku-5-5 $0.10/$0.50)",
+      "why": "The intent is in the code and the config examples describe the feature; only the wiring was wrong. Fixing it turns model choice into a config decision instead of a code change, which is exactly what Router makes cheap -- and it keeps falling back to [llm] for any name without a section, so an existing config.toml behaves as before.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "with [llm.manus], [llm.data_analysis] and [llm] set to three models, one think() per agent produced claude-haiku-5-5 (provider=anthropic), gpt-5-nano and gpt-4o-mini (provider=openai) on one Router key, labelled manus.step, data_analysis.step and toolcall.step"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "9 passed (5 new): the named section wins, an unnamed agent falls back to [llm], an explicitly passed LLM still wins, two agents do not share a client, and the planning flow reads [llm.planning]"
+        }
+      ],
+      "commit": "2e8b547",
+      "branch": "router-migrate/improve/per-agent-llm-config",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "title": "Detect a tool-call loop, which stuck detection never could",
+      "summary": "is_stuck compares what an assistant turn did -- tool name and arguments -- instead of comparing the last message's text, which for a tool-calling agent could never match.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "change",
+      "gains": "The loop's own safety net starts working. is_stuck compared memory.messages[-1].content against earlier assistant messages; after a step the last message is the tool result, whose role is \"tool\", so it could never equal an assistant message, and a tool-calling turn usually has empty content, which returned False a line earlier anyway. Loop detection has therefore never fired for ToolCallAgent or anything built on it -- Manus, SandboxManus, the browser agent, the MCP agent -- and handle_stuck_state's nudge was dead code for them. An agent repeating one failing call runs out its max_steps (20 for Manus), each step resending a transcript that grows by a failed call and its error: the most expensive failure mode an agent loop has, with the net built for it disconnected.",
+      "loses": "A legitimately repeated call -- polling a URL, re-reading a file after an edit -- three times in a row now gets the \"consider new strategies\" nudge appended to its next prompt. It is a prompt addition, not a stop, so the agent can carry on; escalating a detected loop to termination is left as a separate decision.",
+      "price": "saves the tail of a stuck run: on claude-sonnet-5 a Manus loop spinning from step 5 to step 20 on a 15k-token context is of the order of $0.5 of input per run, which this cuts off at the third repeat",
+      "why": "Everything else in this report makes steps cheaper; this stops paying for steps that cannot help. handle_stuck_state also stops re-prepending its nudge, since now that it can fire repeatedly, prepending each time would grow every later request.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "10 passed (6 new): a repeated python_execute call is caught on the third repeat, different arguments and different tools are not, repeated plain-text answers still are, identical tool observations are not, and the nudge is added once"
+        },
+        {
+          "check": "other",
+          "result": "pass",
+          "detail": "six identical python_execute turns: is_stuck() stayed False on all six on the migration branch, and turns True from the third repeat on this branch"
+        }
+      ],
+      "commit": "922e2ec",
+      "branch": "router-migrate/improve/stuck-detection-for-tool-loops",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "title": "Retry only the failures another attempt could fix",
+      "summary": "The three ask methods retried on bare Exception; is_retryable now refuses TokenLimitExceeded and the 4xx statuses that cannot change on a resend.",
+      "calls": [
+        "app/llm.py:795",
+        "app/llm.py:480",
+        "app/llm.py:497"
+      ],
+      "level": "quick-win",
+      "gains": "A request that can never succeed fails once instead of six times. The decorators carried retry_if_exception_type((OpenAIError, Exception, ValueError)), and the bare Exception meant a malformed body, a model the key may not use, a bad key and TokenLimitExceeded (whose comment claims it is not retried) were each decided on the first attempt and then sent five more times with exponential backoff, on top of the SDK's own retries. Measured live on one unrecoverable 400: 6 Router requests before, 1 after, and the agent loop sees the error in about a second instead of after a minute and a half of sleeping.",
+      "loses": "A hard 4xx now surfaces immediately rather than after six attempts, so a transient upstream misconfiguration that used to be papered over by a minute of retrying will fail the step instead.",
+      "price": "removes up to five redundant upstream calls per failure; where a successful-but-empty completion was retried, each of those was billed",
+      "why": "This matters more with Router in the path, not less: when Router refuses a request before generating, the runtime has already replayed it once to the provider, so each outer retry is two upstream calls. Rate limits, timeouts, connection errors, 5xx and the empty-completion ValueErrors are retried exactly as before -- those are the cases another attempt fixes.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "the same unrecoverable 400 (a PNG announced as image/jpeg, which Anthropic refuses): 6 Router requests on the migration branch, 1 on this branch"
+        },
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "17 passed (8 new): 400/401/403/404/422 are not retried, 409/429/500/502/503/529 are, TokenLimitExceeded is not, timeouts and empty-response ValueErrors are"
+        }
+      ],
+      "commit": "9cf7fe3",
+      "branch": "router-migrate/improve/retry-only-what-can-succeed",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "title": "Stop a failed plan summary from launching a whole agent run",
+      "summary": "PlanningFlow._finalize_plan returns the plan text when the summary call fails, instead of handing the prompt to primary_agent.run().",
+      "calls": [
+        "app/llm.py:480"
+      ],
+      "level": "quick-win",
+      "gains": "A transient failure on the cheapest call in the flow stops costing an unbounded agent run. _finalize_plan asks for a paragraph about a plan that has already finished; if that one call raised, the except branch handed the same prompt to primary_agent.run() -- a fresh ReAct loop with every tool attached, up to max_steps more model calls with python execution, file edits and browsing available, to write a paragraph.",
+      "loses": "When the summary call fails you get the plan table instead of prose about it. That table is the same text the agent prompt would have been built from, so no information about the run is lost.",
+      "price": "bounds the cost of a failed summary at zero extra calls instead of up to max_steps agent steps",
+      "why": "Small but strictly wrong as it stood, and it becomes more reachable alongside i7, which makes a hard 4xx surface on the first attempt instead of after six.",
+      "evidence": [
+        {
+          "check": "tests",
+          "result": "pass",
+          "detail": "6 passed (2 new): the model's summary is used when the call works, and when it raises the result contains the plan title and steps while the agent's run() is never called"
+        }
+      ],
+      "commit": "4cd587b",
+      "branch": "router-migrate/improve/bounded-plan-summary",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "p1",
+      "kind": "improvement",
+      "title": "Fallback candidates for the agent loop",
+      "summary": "Add a fallbacks list per role to router.policy.json so a step whose model is unavailable is served by another model instead of failing the run.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "change",
+      "gains": "A 20-step agent run that dies at step 14 throws away everything spent getting there, and today the only answer is tenacity sleeping up to 60s between attempts. A ranked candidate list makes Router serve the step from another model -- another vendor, if you like -- instead of retrying a provider that is down. I measured the mechanism on this key rather than taking the docs' word for it: with models [gpt-5.3-codex, claude-haiku-5-5], Router fell through the candidate this key may not use (gpt-5.3-codex alone returns 403 data_residency_mismatch) and served claude-haiku-5-5, cross-vendor, with tools in the request, in 1.5s; an unknown model id as first candidate did the same in 0.7s.",
+      "loses": "A different model answers those requests, and the response does not say a fallback happened beyond naming the serving model, so a run can silently finish on a weaker model. The runtime's capability guard drops candidates that lack the request's tools, structured output, modalities or temperature support, but it cannot tell you a candidate is simply worse at the task. Fallbacks also override Flex: Router ignores allow_flex_tier when a models list is present, so a gpt-5.x deployment on the default Flex tier would move to standard price on every request, not just the failures.",
+      "price": "the serving candidate's price when it serves; nothing when the primary answers",
+      "why": "Built after approval because the candidate list is a judgment about someone else's deployment. Which models are acceptable understudies depends on the primary, and the policy keys on the feature label rather than the model, so one list applies to whatever an operator has configured -- an Anthropic fallback would be imposed on an OpenAI deployment. What to add once a human picks the models, keyed on the labels m3 introduced: {\"features\": {\"manus.step\": {\"fallbacks\": [\"<same-family sibling>\", \"<cross-vendor equivalent>\"]}}} in router.policy.json, then router-migrate policy to recompile. A sensible starting pair for the claude-sonnet-5 default from i3 is [\"claude-sonnet-5-5\", \"gpt-5.4-mini\"]: same family first, then a cheaper cross-vendor model that still supports tools. Worth pairing with fallback_timeout, which needs stream: true and at least two candidates, so it would only apply to LLM.ask, not the tool-calling step.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "measured on this key, upgrading a documented-but-unmeasured behaviour: models [gpt-5.3-codex, claude-haiku-5-5] -> 200 model=claude-haiku-5-5 provider=anthropic cost $0.0000377 in 1.5s; [not-a-real-model-xyz, claude-haiku-5-5] -> the same in 0.7s; [gpt-5.3-codex] alone -> 403 \"not available in the 'default' service tier for your project's geography\""
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "the runtime's _candidate_ok drops a candidate that is not active, is not served on /v1/responses, lacks tools when the request has them, lacks structured output or the request's input modalities, or rejects temperature when the request sets it"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "i4"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "p2",
+      "kind": "needs-decision",
+      "title": "Put the agent loop on Switchyard",
+      "summary": "Let Router choose a cheap or a capable model per turn within one agent run, instead of paying the capable model's price for every step.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "change",
+      "gains": "The steps in an OpenManus run are wildly uneven: \"read this file\", \"call terminate\" and \"the command printed nothing, try again\" do not need the model that plans the task. Switchyard is Router's answer to exactly this -- it switches model family within a conversation from an efficient_model / capable_model strategy -- and the docs aim it at coding agents, which is what this is. The spread it can capture is large: claude-haiku-5-5 is $0.10/$0.50 per 1M against claude-sonnet-5's $2/$10, so moving even half the steps down is a third off the loop.",
+      "loses": "Router decides, not the operator, and nothing offline measures what that costs in quality; the docs call it experimental and its quality on non-coding work is unmeasured. It also replaces the configured model id with \"switchyard\", so per-agent model choice from i5 no longer applies to that agent, and whatever Router picks is what serves.",
+      "price": "between the two strategy models' prices, weighted by how often each is chosen; unknown until measured on real traffic",
+      "why": "A human has to save a Switchyard strategy on app.router.com first -- it cannot be turned on from app code -- after which it is a one-line config change, model = \"switchyard\" under [llm.manus], and i5 is what makes it possible to try it on one agent while leaving the others alone. Worth doing in that order: enable it for the Manus loop only, compare a few runs, then widen. What is known: it works from app code once the strategy is saved, and served gpt-5.6-luna at Flex in the one measurement on record.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "needs a strategy saved on app.router.com, which this session cannot do; the fact sheet records model: \"switchyard\" working from app code once a strategy exists, strategy keys efficient_model / capable_model, and the docs calling it experimental"
+        },
+        {
+          "check": "price",
+          "result": "info",
+          "detail": "live catalog: claude-haiku-5-5 $0.10/$0.50 against claude-sonnet-5 $2/$10 per 1M -- the gap Switchyard would be arbitraging"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "i5"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "p3",
+      "kind": "needs-decision",
+      "title": "Pick the agent-loop model from shadow traffic, not from a guess",
+      "summary": "Turn on shadow models for 1-3 candidates so Router records what the Manus loop would have cost on each, on a sample of real steps.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "quick-win",
+      "gains": "Nobody in this project -- including this report -- knows which model is the right default for an OpenManus agent loop; i3 picks claude-sonnet-5 on price and recency, not on measured task success. Shadow models records cost and latency for candidate models on 5-10% of real /v1/responses traffic, on the Shadow Logs page, without changing a single answer the user sees. That turns the most consequential open question here into data, and the per-role labels from m3 mean the sample can be read per agent loop.",
+      "loses": "It records cost and latency only, not quality, so it tells you what a model would have charged and not whether it would have got the task right -- the shadow calls are still billed. It needs content recording enabled, and it does not work on BYOK keys, which rules it out for a Bedrock or Vertex deployment.",
+      "price": "the shadow candidates' price on 5-10% of steps",
+      "why": "A human enables it on app.router.com with content recording; there is nothing to build. The candidates worth shadowing against claude-sonnet-5 are the two directions the price list suggests: claude-haiku-5-5 (20x cheaper input) to see whether the loop needs a big model at all, and gpt-5.4-mini as the cross-vendor comparison, which only Router makes a one-switch experiment.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "not-run",
+          "detail": "an account-level strategy a human switches on; the fact sheet records the 5-10% sample, the Shadow Logs page, the content-recording requirement and the BYOK exclusion, and notes that quality comparison is not part of it"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "m3"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "p4",
+      "kind": "improvement",
+      "title": "Give images to a vision model instead of dropping them",
+      "summary": "When the configured model cannot take image input, send that turn to the [llm.vision] model rather than deleting the image.",
+      "calls": [
+        "app/llm.py:654",
+        "app/llm.py:664"
+      ],
+      "level": "rework",
+      "gains": "Every example config defines an [llm.vision] section, and nothing in the codebase reads it: no code constructs LLM(config_name=\"vision\"), and LLM.ask_with_images -- the only method that takes images deliberately -- has no caller anywhere. Images reach the model only incidentally, through format_messages, which drops them when the primary model is text-only (i1 makes that decision correct, but dropping is still what happens). Routing image-bearing turns to the vision model would make the configured section mean something, and with Router the vision model can be a different vendor on the same key -- useful when the primary is a text-only open-weight model, where the catalog shows gpt-oss-120b, deepseek-v4-flash, minimax-m3 and nemotron all text-only while claude-haiku-5-5 at $0.10/$0.50 takes images.",
+      "loses": "A real design change, not a fix: a turn answered by a second model has no view of the first model's reasoning, and splitting a conversation across two models mid-loop needs a decision about what each one sees. It also makes an image turn cost two calls if both models are consulted. Done naively it would silently double the loop's cost on screenshot-heavy runs.",
+      "price": "the vision model's price for image turns, instead of $0 for discarding the image and whatever the wrong answer costs downstream",
+      "why": "Proposed rather than built because the right shape is a judgment call -- hand the whole turn to the vision model, or ask it to describe the image and feed the description back as text -- and the second shape is the cheaper one but changes what the agent reasons over. i1 is the prerequisite: once capability detection is right, this is the remaining gap for text-only primaries.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "grep: LLM(config_name=\"vision\") appears nowhere; ask_with_images has no callers; [llm.vision] is present in config.example.toml, config.example-daytona.toml, config.example-model-anthropic.toml, -azure, -google, -ollama, -ppio and -jiekouai"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "vendored catalog: gpt-oss-120b, deepseek-v4-flash, minimax-m3 and nemotron-lightning list input modalities [text] only; claude-haiku-5-5, claude-sonnet-5, gpt-5-nano, kimi-k3 and glm-5p3-flash list image"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "i1",
+        "i5"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "p5",
+      "kind": "improvement",
+      "title": "Compact the transcript instead of resending all of it",
+      "summary": "Summarise or drop old tool observations once a run's input crosses a threshold, so context grows linearly rather than quadratically.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "rework",
+      "gains": "Nothing in the loop ever removes anything from memory. Each step resends every earlier observation, and Manus caps a single observation at 10,000 characters (15,000 for the data-analysis agent), so twenty steps of file reads and browser output can carry hundreds of thousands of input tokens in total, with the cost of step n proportional to n. There is no budget either: max_input_tokens defaults to None, so the only ceiling is the model's context limit, which arrives as a hard failure part-way through a run. Compaction turns that curve linear and removes the failure. With Router the summariser is free to be a different, much cheaper model than the loop -- claude-haiku-5-5 at $0.10/$0.50 compacting for a claude-sonnet-5 loop -- on the same key.",
+      "loses": "Compacted detail is gone: an agent that needs an exact error string or a line number from step 3 at step 18 will not have it, and a summariser can drop the one detail that mattered. It also invalidates the cached prefix from i4 at each compaction, so it must happen rarely (on a token threshold, not per step) or it will cost more than it saves.",
+      "price": "turns the input bill of an n-step run from O(n^2) to roughly O(n), at the cost of one cheap summarisation per compaction",
+      "why": "The largest remaining structural cost, and a redesign rather than a fix, so it is a proposal: it needs decisions on what is kept verbatim (the last k observations, every assistant turn, the original request), what triggers compaction, and whether the summary is per-observation or per-span. Worth doing after i4 and i5, which between them make the cheap summariser available and the cached prefix worth protecting. A related, smaller decision in the same area: PlanningFlow calls executor.run() once per plan step on the same agent object without resetting current_step, so max_steps is a budget for the whole plan rather than per step -- later plan steps can start with almost no budget and return \"Terminated: Reached max steps\" having done nothing.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "app/agent/base.py run() loop and app/agent/toolcall.py act(): messages are only ever appended; Manus.max_observe = 10000, DataAnalysis.max_observe = 15000; LLMSettings.max_input_tokens defaults to None, and check_token_limit returns True when it is unset"
+        },
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "app/flow/planning.py _execute_step calls executor.run(step_prompt) per plan step; BaseAgent.run only resets current_step when it reaches max_steps, so the step budget carries across plan steps"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [
+        "i4",
+        "i5"
+      ],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Flex measured on this key: leave the account default alone",
+      "summary": "Flex is exactly half price on gpt-5.4-mini with no latency penalty in this sample, so the Flex-by-default account setting is the right one for this agent loop.",
+      "calls": [
+        "app/llm.py:795"
+      ],
+      "level": "quick-win",
+      "gains": "nothing to change: the measurement says the current default is already correct",
+      "loses": "nothing",
+      "price": "staying on Flex is -50% against the standard tier on gpt-5.4-mini, measured",
+      "why": "The worry worth checking was the opposite of the usual one: this is an interactive loop with up to 20 sequential steps, and the fact sheet records one gpt-5-nano Flex call taking 61 seconds, so a queue stall would be multiplied by every step. I measured gpt-5.4-mini on an agent-step-sized request, 4 calls per arm: the account default served Flex every time at $0.00011055, service_tier=\"default\" cost $0.0002211 -- exactly double -- and latency was indistinguishable (Flex median 0.73s against 0.56s, max 0.80s against 0.92s). No stall appeared. So no policy pin: forcing the standard tier would double the price of every step on an OpenAI-model deployment to insure against something that did not happen. Flex is a non-issue for the shipped Claude default either way, since Anthropic has no tiers on Router. If a stall ever does show up in production, the fix is one line in router.policy.json: {\"features\": {\"manus.step\": {\"service_tier\": \"default\"}}}.",
+      "evidence": [
+        {
+          "check": "router-live",
+          "result": "pass",
+          "detail": "gpt-5.4-mini, 4 calls per arm: account default -> tier=flex, cost $0.00011055, latency 0.66/0.73/0.80s; allow_flex_tier: true -> tier=flex, same cost, 0.59/0.74/0.78s; service_tier=\"default\" -> tier=default, cost $0.0002211, 0.49/0.56/0.92s"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "What the migration deliberately did not change",
+      "summary": "Temperature handling, local token counting and the streaming path were looked at and left as they are, for reasons worth recording.",
+      "calls": [
+        "app/llm.py:480",
+        "app/llm.py:497"
+      ],
+      "level": "quick-win",
+      "gains": "nothing changes",
+      "loses": "nothing",
+      "price": "no change",
+      "why": "Temperature: 36 catalog ids reject it, and app/llm.py sends it to everything outside its two-model REASONING_MODELS list. It looks like a bug and it is not worth fixing in app code -- the runtime already drops temperature and top_p for those models on Router-bound requests, and omitting it in the app would also change the provider path, where Anthropic accepts temperature=0 on models whose Router entry says temperature is unsupported. That would quietly move the shipped temperature=0.0 deployments to the model default. Token counting: TokenCounter runs tiktoken locally on every request, which is free and close enough for a budget check; Router's /v1/messages/count_tokens is free too but adds a network round trip per call, and it is exact only for Anthropic-served models. Streaming: LLM.ask defaults to stream=True and prints tokens as they arrive, which is why it is marked user_waiting -- worth remembering if fallback_timeout is ever configured, since the docs say there is no fallback once a stream has started.",
+      "evidence": [
+        {
+          "check": "other",
+          "result": "info",
+          "detail": "runtime chat_to_responses drops temperature and top_p when the catalog row says temperature is unsupported; 36 catalog ids carry that flag, including every Claude from Opus 4.7 and Sonnet 5 on"
+        }
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

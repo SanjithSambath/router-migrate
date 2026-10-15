@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 9,
+ "best": [
+  "Found and measured the two things that silently blocked the whole migration \u2014 seed=0 on every OpenAI call (0 of 24 requests reached Router, 'untranslatable: seed') and dated snapshots absent from both the catalog and Router's own dated-equivalents table, including the gpt-4o-2024-05-13 reviewer hardcoded at four call sites \u2014 then fixed both in policy on the Router-bound copy only, so the provider-fallback body is unchanged.",
+  "Refused to accept the tooling's own 7-of-9 static score and reported the runtime truth instead (m8), with a per-path trace showing which sites route for which models, plus the honest disclosure that the app's default Claude path raises TypeError on the installed anthropic 1.13.0 before any HTTP request and is a pre-existing repo breakage, reproduced in a process with no migration code in it.",
+  "Grounded the headline improvements in real measurements rather than assertions: prompt_cache_key measured against the live Router on a 26k-token review-shaped prompt from usage.cost (cached_tokens 0,0,0,25856,25856; -49.6%), live-checked gpt-4o/o1/o3-mini/claude-sonnet-5 through the app's own get_response_from_llm, priced every model change from the live catalog, and shipped each improvement as a separately tested branch at baseline test parity."
+ ],
+ "misses": [
+  "MAX_NUM_TOKENS = 4096 is a single global cap shared by the reasoning models. The report notes in passing that o1/o3-mini 'needed a realistic output cap; at 64 tokens they return incomplete with no text' but never turns that into an item: on Router, reasoning tokens count against max output, so o1/o3 calls under a 4096 cap can return status=incomplete with empty content, and the app then feeds '' into extract_json_between_markers. A per-model output cap (and a check for incomplete) is a cheap correctness fix that was observed and dropped.",
+  "No visible use of Router's resilience levers for an unattended multi-hour pipeline: model_fallbacks and provider_timeout on /v1/responses are exactly suited to a loop whose only current defence is backoff.on_exception on provider-specific exception types \u2014 and wrapping the clients is itself a change in which exception types that backoff decorator will see, which the report never examines.",
+  "The two llama-3.1-405b sites are parked as 'stays' and deferred to i12 even though the outside check hands over the exact adapt/model-map command, and the n=5 review ensemble is deferred to i7. Together these are most of the paper-review traffic. An expert would have at least offered a mapped-model branch behind approval (as was done for Claude in i1) rather than leaving the second-largest OpenAI-compatible path untouched; likewise the aider/LiteLLM traffic \u2014 the experiment-coding and writeup stages, plausibly the largest token consumer in the app \u2014 is only on a branch, not in the migration itself."
+ ],
+ "wrong": [
+  "m1 states 'loses: nothing' while the same change vendors four md5-identical copies of a 1,422-line runtime plus four compiled policy modules into the repo, with the stale-copy hazard the engineer himself documents in m9. That is a real maintenance loss; m9 does not excuse 'nothing' in the item's own loses field.",
+  "m3's price line ('gpt-4o-2024-05-13 and gpt-4o are the same catalog row ... No price change') is true of the Router catalog but not of what the app was paying: the May-2024 gpt-4o snapshot was the expensive tier at OpenAI, so the mapping is a cost decrease, not a no-op. Framing a cost change as 'no change' because the catalog row collapses them understates it.",
+  "i2's gains generalise one measurement too far: '-50% on every repeated-prefix request, which is most of this app's requests.' The -49.6% was measured on a byte-identical 26k-token prompt where input dominates; the discount applies only to cached input tokens, and the reflection loops the item cites append to msg_history each round, so the shared prefix is a shrinking fraction of the request and output tokens get no discount. The direction is right, the magnitude is not transferable.",
+  "The prompt-cache-key branch sets prompt_cache_key to \"$feature\" but depends_on lists only m2, not the per-stage-labels item that actually supplies feature names. On its own the key degrades to the file:function fallback, which merges distinct stages into one bucket \u2014 the dependency is real and unstated."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 29.4,
+  "usd": 12.8498,
+  "check_ok": true,
+  "verified": 8,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 23,
+  "kinds": {
+   "move": 1,
+   "trade-off": 2,
+   "stays": 3,
+   "note": 3,
+   "improvement": 14
+  },
+  "improvements": 14,
+  "built": 4,
+  "levels": {
+   "-": 14
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

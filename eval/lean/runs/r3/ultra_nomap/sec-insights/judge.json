@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found and fixed a real behaviour-breaking defect in the vendored runtime's Chat Completions stream translation (role-only first chunk made LlamaIndex streaming agents drop tool calls and return the app's 'Sorry...' fallback), and proved it by construction with a fake provider toggled both ways rather than by inference \u2014 without this the migration would have silently broken every document/financial question in production.",
+  "Routed both client-construction sites (Settings.llm and get_chat_engine's separate streaming client) at the httpx layer, which captures the whole fan-out including per-document deep-copied LLMs, verified end to end on the real Router through handle_chat_message (153 streamed updates, tool loop, correct figures) with tests at baseline and a one-env-var kill switch declared in render.yaml.",
+  "Replaced list-price reasoning with measurement on the app's own path: per-turn/per-conversation cost and call counts (14 calls/turn, 67 calls/$0.0084 per conversation), three model candidates driven through the real chat path and rejected with numbers (claude-haiku-5-5 3.1x and a broken turn against max_function_calls=3), and the prompt-cache-key gain measured (1,152 \u2192 9,216 cached tokens, ~10%) instead of asserted."
+ ],
+ "misses": [
+  "Identified the dominant cost/latency lever \u2014 the fan-out (max_function_calls, number of selected documents, similarity_top_k, refine vs compact synthesis, replayed prefixes) \u2014 and then left it as a note with no proposal at all; an expert would have put at least one ranked rework item on a branch (e.g. compact synthesis or bounded document selection) with a measured cost/quality delta, since it dwarfs every Router-field quick win they did ship.",
+  "Applied one global policy to all traffic instead of exploiting per-call-site leverage, which is the main thing routing just bought them: no model_map splitting the user-facing streamed agent from the ~65 buffered internal calls, no shorter provider_timeout for buffered internals vs the streamed turn, and fallbacks applied uniformly even though they note mid-stream fallback doesn't help the streamed call.",
+  "No structural follow-through on the gaps they found: the hand edit to the vendored runtime is left for 'whoever updates that file next' with no upstream report or regression test pinning the stream shape; the scripts/cron path that bypasses _setup_llama_index_settings has no guard or test to stop a future LLM call there from silently skipping Router; and nothing is said about a Router spend cap or alerting on the new key, which is the other half of the preview-key decision in m10."
+ ],
+ "wrong": [
+  "The live check shows 3 failed Router requests (<string>:<module>: 1 ok / 3 error) and a runtime-edit flag; the report's live evidence reads as uniformly clean ('19 requests, 19 x 200') and never accounts for the errors \u2014 small but real honesty gap in an otherwise well-evidenced report.",
+  "m1's price line ('no change (measured $0.001318 vs $0.001348 ... with and without Router levers)') is presented as validating the move, but no OpenAI-direct cost baseline was measured; 'no change' there is a same-model/same-provider inference, and the same $0.001348 figure is reused as the with-lever arm in both i2 and i3, so the per-item numbers are less independent than they look.",
+  "i3's fallback ordering is under-analysed: gpt-4.1-mini is also OpenAI, so in the OpenAI incident the item is justified by, every one of ~67 calls burns a billed, latency-adding failed attempt before reaching the Baseten model \u2014 the report mentions the truncated billing in passing but not the per-call latency stacked inside a single user turn, and never considers putting the non-OpenAI candidate first.",
+  "i2's claim that on a streamed call provider_timeout bounds 'the idle gap between events' is asserted from one timeout=1 \u2192 504 probe on a (presumably non-streamed) request; the streamed semantics are the part that actually matters for the user-facing SSE connection and were not demonstrated."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 40.5,
+  "usd": 16.621,
+  "check_ok": true,
+  "verified": 2,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 13,
+  "kinds": {
+   "move": 4,
+   "trade-off": 1,
+   "stays": 2,
+   "note": 2,
+   "needs-decision": 1,
+   "improvement": 3
+  },
+  "improvements": 3,
+  "built": 3,
+  "levels": {
+   "quick-win": 2,
+   "change": 1
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

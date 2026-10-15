@@ -1,0 +1,53 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the single choke point (the one AsyncOpenAI construction in app/llm.py) and routed all five call sites with one wrapped-transport change that is a true no-op without RAMP_ROUTER_API_KEY \u2014 outside check confirms 5/5 routes verified, 0 unverified, tests 4/4 at baseline.",
+  "Found LLM traffic the scanner missed: the chart_visualization node subprocess where VMind POSTs <base_url>/chat/completions over axios (so neither runtime can intercept it), and the out-of-process browser-use CLI billed on its own key \u2014 both written up as uncovered spend rather than quietly omitted.",
+  "Reasoned from the actual traffic shape (a \u226420-step ToolCallAgent loop resending the same system prompt and ~40 tool schemas) to two measured, shipped quick wins: prompt_cache_key via router.policy.json (3,328/3,483 tokens cached, step cost $0.000289 vs $0.000545) and a retry predicate that cut 6 requests/~13s on a provider-rejected payload to 1 request/1.4s."
+ ],
+ "misses": [
+  "Did not split the Anthropic-compat work into (a) unlock api.anthropic.com so the shipped default config routes with the same model behaviour and (b) the separate decision to let Sonnet 5 answer instead of 3.7 Sonnet. As shipped, the default OpenManus deployment \u2014 the one config.example.toml actually uses \u2014 routes nothing until a human approves a model swap, which is the largest real coverage hole and was avoidable.",
+  "No work on the dominant cost driver in a 20-step loop: the growing message history and the ~40 tool schemas resent every step. An expert would have proposed history truncation/summarisation, enforcing max_input_tokens (optional and unset in every shipped example), and trimming the tool set per step \u2014 prompt caching only discounts the stable prefix, it does not stop the suffix from growing.",
+  "No per-agent model tiering despite building the labels that make it a one-line policy entry (cheap model for the vision config, planning summaries and chart prompts; strong model only for ask_tool), and Flex was dismissed by assertion rather than measured on this app's own non-streamed ask_tool traffic \u2014 the single biggest Router-native cost lever on the bulk of the calls was left untested."
+ ],
+ "wrong": [
+  "m1's \"loses: nothing\" is not accurate: its own side-by-side evidence notes the runtime drops the app's unconditional temperature=0.0/top_p for several catalog models, which is a real behaviour change on the Router path and belongs in losses, not in a footnote.",
+  "i1 claims the saving \"grows with the history an OpenManus run accumulates over its 20 steps\" \u2014 the growing history is precisely the part that is not a stable cached prefix, so the cached fraction (and the 47% ratio) should fall as the conversation grows, not rise. The 47% is also one two-step gpt-4o-mini probe at sub-cent scale extrapolated to the fleet.",
+  "d1's \"a capped key returns 401, which after i2 fails fast\" is a guess about Router's error surface; a spend-cap rejection is not an authentication failure, and if it surfaces as 429 the new predicate retries it six times \u2014 the opposite of the claimed composition.",
+  "The branch name and framing \"retry only transient\" overstates the fix: is_retryable returns True for every exception that is not an APIStatusError or TokenLimitExceeded, so TypeError/KeyError and the streaming paths' ValueError still get six attempts with up to 60s backoff.",
+  "Two price/benefit figures carry no evidence entry from this repo \u2014 Flex at \"-50% on gpt-5.4-mini\" (an odd model id, labelled \"measured upstream\") and Bedrock ids \"about 10% above\" at $2.2/$11 vs $2/$10 \u2014 so they read as catalog recall rather than measurement.",
+  "\"Behaviour preserved\" rests on 4 pre-existing tests that do not exercise the LLM client path plus ad-hoc probes; no regression test was added for the new is_retryable predicate or the feature-header plumbing, and the report never states that the suite's coverage of the changed code is essentially nil."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 23.8,
+  "usd": 14.8117,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 14,
+  "kinds": {
+   "move": 1,
+   "stays": 3,
+   "note": 1,
+   "improvement": 8,
+   "needs-decision": 1
+  },
+  "improvements": 8,
+  "built": 4,
+  "levels": {
+   "quick-win": 3,
+   "change": 3,
+   "rework": 2
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

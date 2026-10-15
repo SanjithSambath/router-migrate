@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 9,
+ "best": [
+  "Routed every routable LLM client \u2014 the global Settings.llm, the streaming OpenAIAgent, and (correctly reasoned through) the Settings.llm.model_copy(deep=True) at tools.py:152 \u2014 via http_client/async_http_client so the app's request shape, model id and llama-index capability assumptions are untouched, with a no-op path when RAMP_ROUTER_API_KEY is unset; the outside check verifies all three routes with tests at the 15/15 baseline.",
+  "Measured one production-shaped turn end to end (13 calls, token and cost breakdown) and then tested each Router lever against that real shape rather than guessing: labels, provider_timeout, prompt_cache_key, model_map and fallbacks, including explicitly exercising sync/async/streaming/async-streaming/tool-calling through the translation layer, which is the part that could silently break the websocket path.",
+  "Reported negative results with numbers instead of dropping them: cheaper catalog models cost +7% and +219% per turn because output tokens and agent rounds grew, a fallbacks list redistributed 4/10 healthy requests to another vendor at +39%, and the i2 cache key was shown to do nothing without i1's labels by running it from a branch without them."
+ ],
+ "misses": [
+  "No latency data at all for a user-waiting websocket product. Everything is priced in dollars and tokens; nobody measured per-call or per-turn wall time, time-to-first-token on the streamed path, or the latency cost of the extra Router hop. That also leaves the single blanket provider_timeout=60 on both labels unjustified \u2014 an expert would have set it from a measured distribution and differentiated the 2 user-facing streamed calls from the 11 buffered internal ones (where a tighter timeout plus a retry is cheap and a 60s stall is 11 chances to hang a turn).",
+  "No operational rollout or failure story for Router itself. The migration adds a new single point of failure in front of 100% of LLM traffic, and there is no canary/percentage rollout, no monitoring or alerting on Router error rates, no runbook beyond 'unset the key', and no analysis of what the websocket turn does if Router 5xxs or stalls mid-stream after the first token. The runtime's provider-retry path is mentioned only in passing in m3 and is never tested.",
+  "No reliability proposal for the buffered internal path, which is where failover is actually safe and valuable. d1 correctly discovered the cross-provider routing surprise, but an expert would have split the decision: propose an ordered-failover fallbacks list (or a retry) on the 11 retrieval-synth calls that cannot be rescued by a stream, and leave chat-stream alone \u2014 instead the whole question was handed back undecided. Relatedly, nothing was done to carry a conversation/user id into Router spend metadata short of the full Responses port, so per-user and per-conversation attribution stays unavailable in the near term."
+ ],
+ "wrong": [
+  "m1 and m2 both state loses: \"nothing\". Routing 100% of LLM traffic through a new network hop and a translation layer is not a zero-loss change: it adds a dependency, added latency (unmeasured), and a new failure domain, and it makes the app depend on two keys instead of one. Stating 'nothing' overstates the safety of the riskiest item on the list.",
+  "The headline \"-25%\" and \"roughly -10% of total cost per chat turn\" for i2 come from a synthetic 10-prompt probe run back-to-back, not from the measured 13-call turn. Back-to-back identical prompts are the best case for provider cache affinity; under real traffic with interleaved conversations and cache TTLs the hit rate will be lower. The number is reported as measured where it is really extrapolated, and the summary presents it as a flat '-25% on the traffic that is 90% of the app's input tokens'.",
+  "The d1 finding (4 of 10 healthy requests served by baseten) is reported as possibly Router's fallback semantics or possibly an account routing setting, and the engineer stopped there. That is a correct observation and an honest uncertainty, but it is also the single most consequential thing found \u2014 which model answers normal financial-analysis traffic \u2014 and it was left unresolved rather than confirmed with whoever owns the account before the migration was called done.",
+  "i1 bundles two unrelated changes (spend labels and provider_timeout=60) into one approvable item on the stated grounds that they are 'the same file and the same no-loss category'. The timeout is not no-loss \u2014 the item's own text admits a 60s-silent generation now fails the turn \u2014 and bundling it means a reviewer cannot take the labels without also taking a behaviour change."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 36.9,
+  "usd": 15.2411,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 10,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "improvement": 4,
+   "needs-decision": 1,
+   "note": 2
+  },
+  "improvements": 4,
+  "built": 2,
+  "levels": {
+   "quick-win": 2,
+   "rework": 2
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,52 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 7,
+ "report_clarity": 8,
+ "overall": 7,
+ "best": [
+  "Found and wrapped the three client-construction sites the static scanner never saw \u2014 the four inline openai.OpenAI() reviewer clients in launch_scientist.py / experimental/launch_oe_scientist.py and the lazily-imported OpenAI/Anthropic clients inside review_iclr_bench/iclr_analysis.py (including fixing the sys.path ordering so the vendored runtime resolves when that script is run from its own directory) \u2014 instead of trusting the scan's site list.",
+  "Diagnosed that wrapping alone routed nothing on the OpenAI path because every gpt/o1/o3 call carries seed=0 (0 of 6 probe requests reached Router, trace 'untranslatable: seed'), and fixed it in router.policy.json on the Router-bound copy only, so the provider-fallback request stays byte-identical to what the app built; the loss (seed hint, system_fingerprint) is stated plainly and correctly argued as a non-guarantee at temperature 0.75.",
+  "Hooked LiteLLM at ai_scientist/llm.py import time so aider \u2014 which writes the experiments, the plots and the paper, and is the run's dominant token consumer \u2014 routes at all, and verified the hook is genuinely inert with no key (litellm absent from sys.modules after import). Paired with the refusal to let the n=5 review ensemble route by dropping n (which would silently average five scores over one sample) and the discovery that the Claude branch is already broken against the installed anthropic SDK, this is honest, well-targeted engineering."
+ ],
+ "misses": [
+  "Flex is barely used. The report itself labels every single call site 'latency: background' \u2014 50 ideas x 3 reflections, novelty checks, aider coding, the write-up, 11 review calls per paper \u2014 yet Flex appears only inside one reviewer-model branch. A policy-level Flex default across the whole pipeline (with the slower/queued-call trade-off stated, and the interactive-path exception being: none) was the largest single cost lever on Router here and was never proposed.",
+  "No item for aider on the default model. On the documented default --model claude-3-5-sonnet-20240620, the biggest token consumer keeps going to Anthropic because aider sends the prompt-caching beta header, and the report disposes of this in an 'info' line under m5. An expert would have made it a ranked proposal: map aider onto a catalog Claude on /v1/messages and weigh losing aider's own prompt caching against one key/one spend view \u2014 possibly concluding 'stay', but as a reasoned, costed decision rather than a footnote.",
+  "Failure handling for a long autonomous run was dismissed rather than designed, and the seed fix was under-scoped. Fallbacks and provider_timeout were both refused wholesale; but this pipeline already wraps calls in backoff retries, and a single hung or 500'd aider call can waste an entire multi-hour idea \u2014 a same-family fallback for the code/write-up path plus a generous provider_timeout was the right proposal, with provenance-sensitive stages (the reviewer, the paper text) explicitly excluded. Likewise the seed drop was globbed to get_response_from_llm only, leaving the batch ensemble site still blocked on seed when the outside check says dropping it there would route it."
+ ],
+ "wrong": [
+  "s1 claims that after the seed drop the batch path's trace reason becomes 'untranslatable: n'. The shipped policy glob is '**ai_scientist/llm.py:get_response_from_llm', which does not match get_batch_responses_from_llm, and the outside check at the migration commit (4d573e1) still reports ai_scientist/llm.py:98 as 'untranslatable: seed' and says --drop seed there would route it. The stated reason for that site staying is not the reason it is staying.",
+  "The calls table and s2/s3 mark ai_scientist/llm.py:183 (Claude), :250 and :265 (DeepSeek) and :278 (Gemini) as now='provider' / 'stays by design', but the outside check's route truth lists all four under 'verified'. The report's central 'what stays' claim contradicts the check on four sites.",
+  "claude-default-on-router is mis-scoped and mis-declared: its policy also remaps gpt-4o-2024-05-13 -> gpt-5.4-mini, i.e. it silently contains the reviewer-model decision, yet it declares excludes: [] against route-reviewer-gpt4o and reviewer-on-gpt-5-4-mini, which make the same mapping differently. Approving the Claude branch would decide the reviewer question without the reviewer branch being approved.",
+  "Every improvement branch rewrites router.policy.json wholesale rather than additively (stage-labels even replaces the scoped seed drop with a global defaults drop), so approving any two of them overwrites one another, and no depends_on/excludes records this. The dashboard presents them as independently approvable when they are not.",
+  "The ensemble-without-n code comment asserts 'the repeated prompt prefix is served from the prompt cache (router.policy.json sets prompt_cache_key)'. That branch's policy does not set prompt_cache_key; only the separate prompt-cache-keys branch does, and the dependency is not declared.",
+  "m2's router-live evidence is recorded as 'pass' for a client 'of this shape', not for the actual hard-coded gpt-4o-2024-05-13 reviewer, which the report elsewhere states Router 404s. The disclosure is in a separate 'info' line, but the pass verdict on the item overstates what was proven about that stage."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 34.0,
+  "usd": 19.2426,
+  "check_ok": true,
+  "verified": 6,
+  "unverified": 4,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 19,
+  "kinds": {
+   "move": 4,
+   "trade-off": 1,
+   "stays": 3,
+   "note": 3,
+   "needs-decision": 2,
+   "improvement": 6
+  },
+  "improvements": 6,
+  "built": 6,
+  "levels": {
+   "-": 6
+  },
+  "branch_ok": 6,
+  "report_ok": true
+ }
+}

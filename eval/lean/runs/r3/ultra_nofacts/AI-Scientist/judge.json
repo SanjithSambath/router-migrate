@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 8,
+ "behaviour_safety": 9,
+ "improvement_depth": 9,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found and routed the traffic the scanner could not see: wrapping the two clients inside create_client covered all nine downstream call sites at once, the duplicated create_client in review_iclr_bench/iclr_analysis.py was caught, and aider's LiteLLM traffic \u2014 almost certainly the largest share of this app's spend \u2014 was routed by handing litellm.client_session the runtime's transport, with a no-op-when-unset check that preserves aider's deliberate lazy LiteLLM import.",
+  "Diagnosed why wrapping alone achieved nothing and fixed it: every OpenAI call in llm.py passes seed=0, which /v1/responses rejects, so the runtime was sending all of them to OpenAI. The policy drop of seed is scoped by glob to that file (so it covers get_batch_responses_from_llm too), measured 0/4 \u2192 3/4 probes reaching Router, and the reproducibility loss is stated honestly with the right context (seed is best-effort, the app never checks system_fingerprint, and most of its branches never sent it).",
+  "Verified rather than assumed: caught that the codemod's generated relative-then-bare import resolved to neither from the top-level scripts and would have silently bound the no-op fallback, confirmed the real wrap_openai is bound from each entry point's actual working directory, de-duplicated the three stray router_runtime.py copies, exercised /v1/responses and /v1/messages and aider's send path on live Router, and separately reproduced a pre-existing break (anthropic 1.13 dropping temperature from messages.create) on the base commit so it was not blamed on the migration \u2014 then fixed it with extra_body, which works on every SDK version."
+ ],
+ "misses": [
+  "No model pin move landed on the migration branch, so under the app's documented default (claude-3-5-sonnet-20240620) nothing in llm.py actually reaches Router and the review stage's hardcoded gpt-4o-2024-05-13 stays on OpenAI; the engineer diagnosed this precisely but left even the low-risk mapping (gpt-4o-2024-05-13 \u2192 gpt-4o) on a side branch. An expert would have shipped at least the dated\u2192undated catalog mappings that are clearly safe for a background reviewer, since the whole value of the wrap \u2014 plus Flex, which the report correctly notes no current model offers \u2014 is gated behind it.",
+  "aider's non-OpenAI-provider traffic was left unrouted and unattempted. Since the app's default --model is Claude, the heaviest spend component (aider writing, debugging and revising experiments and LaTeX across many passes per idea) still goes straight to Anthropic through LiteLLM's own handler. Pointing LiteLLM at Router as an OpenAI-compatible base_url, or hooking its Anthropic transport the same way client_session was hooked, was the obvious next step and would have roughly doubled real coverage.",
+  "Resilience was analysed and then declined wholesale. For a wholly unattended job where one unhandled exception discards hours of GPU work, a blanket 'no fallbacks because a different model might write part of a paper' is too conservative \u2014 fallbacks on the calls where identity does not matter (novelty check, aider's debug iterations, meta-review) carry none of that risk. Likewise provider_timeout was only proposed, leaving indefinite hangs in a batch pipeline, and the backoff decorator still retries only openai.RateLimitError/APITimeoutError, so Anthropic rate limits and Router 401s from a capped key remain unretried \u2014 a gap the report notices for provider_timeout but never closes."
+ ],
+ "wrong": [
+  "The Claude prefix-caching branch's headline gain (-67% on the review ensemble's input) is attributed to the wrong call. The cache breakpoint is added only to get_response_from_llm's Claude branch, while the five-reviewer ensemble runs through get_batch_responses_from_llm and both launchers hardcode it to gpt-4o-2024-05-13 with a plain openai.OpenAI() client \u2014 so the ensemble never takes the Claude path at num_reviews_ensemble=5. The arithmetic (1.25x write + 4 x 0.1x reads vs 5x) is right for five identical calls and the -67% was measured on probe_claude_cache, but the real beneficiary is the ideation/writeup reflection loop, not the review ensemble.",
+  "The improvement branches silently conflict in router.policy.json: prompt-cache adds defaults.prompt_cache_key, route-reviewer-model adds defaults.model_map, and spend-labels rewrites the file so that the seed drop moves from the file-scoped glob to a global defaults.drop_params. Any two of them applied together clash on that file, and spend-labels additionally widens seed-dropping from ai_scientist/llm.py to every call site in the repo \u2014 a behaviour change not mentioned in its loses or in any excludes/depends_on.",
+  "The spend-labels branch attaches extra_headers=_router_feature_headers() to every chat.completions.create in llm.py, including the DeepSeek, OpenRouter and Gemini branches whose clients are deliberately unwrapped and talk to third-party hosts. Harmless in practice, but it sends a Ramp-internal header to other vendors and the branch's 'harmless when Router is off' note does not acknowledge it; it also calls sys._getframe plus os.getcwd/relpath on every request.",
+  "Minor tension with the outside check that the report handles correctly but asymmetrically: the check lists llm.py:255/:270/:283 as verified routing, and the report rightly overrides that with live traces showing those branches use unwrapped third-party clients. The same reasoning applies to llm.py:103, which the check also reports as verified because it evaluates n=1 while both pipeline entry points pass 5 \u2014 the report says so under s3, so the final coverage picture is thinner than the check's 7 verified routes suggests."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 39.9,
+  "usd": 20.3441,
+  "check_ok": true,
+  "verified": 7,
+  "unverified": 4,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 21,
+  "kinds": {
+   "move": 4,
+   "trade-off": 1,
+   "stays": 4,
+   "note": 2,
+   "improvement": 10
+  },
+  "improvements": 10,
+  "built": 5,
+  "levels": {
+   "quick-win": 3,
+   "change": 5,
+   "rework": 2
+  },
+  "branch_ok": 5,
+  "report_ok": true
+ }
+}

@@ -1,0 +1,329 @@
+{
+  "version": 6,
+  "summary": "Every LLM call OpenManus makes from Python goes through one AsyncOpenAI client built in app/llm.py (the Azure and Bedrock branches aside), and all five chat.completions call sites - ask, ask_with_images and ask_tool, streaming and not - share it. Two commits put that client on Router: the first wraps it with the vendored runtime, so calls to api.openai.com are translated to Router's /v1/responses when RAMP_ROUTER_API_KEY is set and go to OpenAI untouched when it is not; the second unlocks the three hosted OpenAI-compatible endpoints OpenManus ships configs for (api.anthropic.com, api.jiekou.ai, api.ppinfra.com), where a request goes to Router only if its model is a Router catalog id. Verified live: ask, ask_tool and streaming ask all returned 200 from Router on gpt-4o-mini (provider=openai) and on claude-haiku-4-5 through the Anthropic-compatible client (provider=anthropic), while a localhost Ollama serving a catalog-named model and a config pinned to claude-3-7-sonnet-20250219 both stayed on the provider. What is not on Router and could not be: the Bedrock client (boto3, its own SDK), Azure deployments (the runtime leaves them on Azure), and the VMind chart tool's own LLM call, which lives in TypeScript and the Python scanner never sees.",
+  "reviewed": "The review looked at where Router's levers meet an agent loop that resends a long, stable prefix and a growing tool-result history every step: prompt caching, spend labels, Flex, fallbacks, model choice and the model-capability tables app/llm.py hardcodes. Three improvements are built and tested on branches; six more are proposed with branch null because each needs a decision only the operator can make (which fallback model, which model substitution, whether Azure traffic may leave Azure) or work the sandbox cannot verify (the TypeScript chart tool needs npm install). Flex turned out to need no change at all - it is already on for this key and already halves the price - so it is recorded as a note rather than an improvement.",
+  "calls": [
+    {"site": "app/llm.py:447", "feature": "app/llm.py:ask", "model": "configured [llm] model", "task": "agent chat, non-streaming", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "app/llm.py:464", "feature": "app/llm.py:ask", "model": "configured [llm] model", "task": "agent chat, streaming", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "app/llm.py:619", "feature": "app/llm.py:ask_with_images", "model": "configured [llm] model", "task": "vision, non-streaming", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "app/llm.py:629", "feature": "app/llm.py:ask_with_images", "model": "configured [llm] model", "task": "vision, streaming", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "app/llm.py:758", "feature": "app/llm.py:ask_tool", "model": "configured [llm] model", "task": "agent tool loop", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "app/bedrock.py:210", "feature": "app/bedrock.py:_invoke_bedrock", "model": "configured Bedrock modelId", "task": "agent chat via Bedrock Converse", "latency": "user_waiting", "now": "provider", "item": "m3"},
+    {"site": "app/bedrock.py:235", "feature": "app/bedrock.py:_invoke_bedrock_stream", "model": "configured Bedrock modelId", "task": "agent chat via Bedrock Converse, streaming", "latency": "user_waiting", "now": "provider", "item": "m3"},
+    {"site": "app/tool/chart_visualization/src/chartVisualize.ts:341", "feature": "vmind", "model": "configured [llm] model", "task": "chart generation (VMind, Node subprocess)", "latency": "user_waiting", "now": "provider", "item": "m5"}
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the shared OpenAI client through Router",
+      "summary": "app/llm.py's one AsyncOpenAI client is wrapped with the vendored runtime, so all five chat.completions sites go to Router when RAMP_ROUTER_API_KEY is set.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:619", "app/llm.py:629", "app/llm.py:758"],
+      "gains": "One key and one spend view for every Python LLM call in the app; per-request labels; Router's model catalog behind the same SDK call.",
+      "loses": "nothing",
+      "price": "Router's catalog price. gpt-4o-mini is $0.15/$0.60 per 1M, the same as OpenAI list. Flex is on by default for this key and is exactly -50% where it applies (measured on gpt-5.4-mini: $3.55e-5 standard vs $1.77e-5 Flex) - see m6.",
+      "why": "Every LLM call OpenManus makes from Python funnels through this one client: LLM.ask, LLM.ask_with_images and LLM.ask_tool all use self.client, and every agent gets its LLM through LLM(config_name=...), which reuses the same construction. Wrapping the client therefore moves the whole application in one edit, with no change to any request the code builds. The runtime is inert until RAMP_ROUTER_API_KEY is set, so nothing in production changes on deploy, and ROUTER_MIGRATE_DISABLE=1 turns it off again without a rollback.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "check --run exercise.py openai --live: 3 requests to Router, 3x 200 on /v1/responses, model=gpt-4o-mini, provider=openai, covering ask (non-streaming), ask_tool (tool call returned) and ask (streaming, SSE translated back to chat chunks)."},
+        {"check": "simulator", "result": "pass", "detail": "check --run: the same three calls reached router-sim as valid /v1/responses requests labelled app/llm.py:ask and app/llm.py:ask_tool, client=app/llm.py:__init__."},
+        {"check": "tests", "result": "pass", "detail": "The repo suite (tests/, sandbox excluded) passes unchanged: 4 passed, same as the baseline."}
+      ],
+      "commit": "87ac197",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "trade-off",
+      "title": "Route the OpenAI-compatible vendor endpoints OpenManus ships configs for",
+      "summary": "unlock_hosts lets requests to api.anthropic.com, api.jiekou.ai and api.ppinfra.com go to Router when, and only when, their model is a Router catalog id.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:619", "app/llm.py:629", "app/llm.py:758"],
+      "gains": "The deployments OpenManus's own example configs describe actually reach Router. config/config.example.toml's default block points the OpenAI SDK at Anthropic's OpenAI-compatible endpoint, so without this the most common configuration stays entirely off Router.",
+      "loses": "For those three hosts, a catalog model is served by Router's provider choice at Router's price instead of by the vendor the operator configured - a deployment that chose jiekou.ai or PPIO for their pricing or their region stops using them for those models. Everything else is untouched: Ollama and other self-hosted endpoints, Google's Gemini endpoint, and any model name the catalog does not carry (including OpenManus's shipped default, claude-3-7-sonnet-20250219) still go to the configured endpoint. ROUTER_MIGRATE_UNLOCK_HOSTS overrides the list and an empty value keeps Router to api.openai.com.",
+      "price": "Router's catalog price for the model that serves. claude-haiku-4-5 is $1/$5 per 1M; Anthropic's own list price for the same model is the same, so for the Anthropic-compatible endpoint this is price-neutral. For jiekou.ai and PPIO, whose discounts are not published here, the change is unmeasured.",
+      "why": "The host an OpenAI SDK client points at is configuration, not code: OpenManus reads base_url from config/config.toml, which is gitignored and differs per deployment. Wrapping the client only covers api.openai.com, so the honest way to migrate an app whose documented default is a third-party OpenAI-compatible endpoint is to unlock exactly the hosts the repo itself documents and let the catalog decide per request. Self-hosted endpoints are deliberately excluded: a local vLLM or Ollama serving a model whose name matches a catalog id (gpt-oss-120b, say) would otherwise start billing Router and leave the operator's own GPU idle.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "check --run plan.py: api.anthropic.com + claude-haiku-4-5 and api.ppinfra.com + deepseek-v4.1-flash reached Router; api.anthropic.com + claude-3-7-sonnet-20250219 stayed on the provider ('not in the Router catalog'), and 127.0.0.1:11434 + gpt-oss-120b stayed local."},
+        {"check": "router-live", "result": "pass", "detail": "check --run exercise.py anthropic --live: 3 requests, 3x 200, model=claude-haiku-4-5, provider=anthropic, covering ask, ask_tool and streaming ask through the Anthropic-compatible client."},
+        {"check": "tests", "result": "pass", "detail": "4 passed, unchanged."}
+      ],
+      "commit": "bf0fc41",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "m3",
+      "kind": "stays",
+      "title": "The Bedrock client stays on Bedrock",
+      "summary": "app/bedrock.py talks to bedrock-runtime through boto3, which the runtime does not intercept and Router does not serve with the shared key.",
+      "calls": ["app/bedrock.py:210", "app/bedrock.py:235"],
+      "gains": "",
+      "loses": "",
+      "price": "no change",
+      "why": "BedrockClient is a hand-written OpenAI-shaped shim over boto3's Converse API - a different SDK, a different wire format and SigV4 auth. The runtime only sits under httpx-based OpenAI and Anthropic clients, so these two calls are untouched by the migration. Router does list Bedrock model ids, but they are requires_byok: the shared Router key cannot call them without the caller's own AWS credential configured on the Router account. Deployments with api_type = \"aws\" therefore see no change at all. i6 proposes what porting them would take.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "router-migrate check --all: both sites report 'kept: other SDK / endpoint; Router does not serve this vendor's endpoint with the shared key'."},
+        {"check": "other", "result": "info", "detail": "The vendored catalog contains no requires_byok ids at all (resolve_model('gemini-2.5-flash') and the Bedrock ids return None), so no Bedrock-style id can be routed by accident."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m4",
+      "kind": "stays",
+      "title": "Azure deployments stay on Azure",
+      "summary": "When api_type = \"azure\" the client is AsyncAzureOpenAI, which the runtime deliberately leaves on its configured endpoint.",
+      "calls": [],
+      "gains": "",
+      "loses": "",
+      "price": "no change",
+      "why": "wrap_openai returns an Azure client unchanged by design: an Azure deployment name is not a Router catalog id, and the endpoint carries its own enterprise and residency agreement. The same five call sites serve this path, so nothing in the code distinguishes it; the behaviour is decided at construction. An Azure deployment is therefore unaffected by this migration in either direction. i7 proposes what moving it would involve and why it is a decision rather than a patch.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "router_runtime._is_openai() excludes AzureOpenAI/AsyncAzureOpenAI, so wrap_openai is a no-op there; the vendored runtime's header lists Azure, Bedrock and Vertex clients as always kept on the provider."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m5",
+      "kind": "stays",
+      "title": "The VMind chart tool makes its own LLM call, in TypeScript",
+      "summary": "app/tool/chart_visualization runs a Node subprocess that posts to ${base_url}/chat/completions with the app's model and key; it is a second LLM egress the Python scanner never sees.",
+      "calls": ["app/tool/chart_visualization/src/chartVisualize.ts:341"],
+      "gains": "",
+      "loses": "",
+      "price": "no change",
+      "why": "data_visualization.py hands base_url, model and api_key to `npx ts-node src/chartVisualize.ts`, which builds a VMind client with url = `${baseUrl}/chat/completions` and its own Authorization header. Nothing in Python can route it, and pointing base_url at Router would break it outright: Router has no /v1/chat/completions endpoint - it returns a plain-text 404. This path only runs when runflow.use_data_analysis_agent is true (it defaults to false), but when it runs it is production LLM traffic that is not on Router, and this report should say so rather than let it look covered. i8 proposes the port.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "app/tool/chart_visualization/data_visualization.py:228-245 passes self.llm.base_url/model/api_key into the subprocess; src/chartVisualize.ts:341-348 builds `new VMind({url: `${baseUrl}/chat/completions`, ...})`. ROUTER.md section 2: /v1/chat/completions is 404 on Router."},
+        {"check": "other", "result": "not-run", "detail": "Could not be exercised: the tool needs `npm install` in app/tool/chart_visualization and a Node toolchain, neither available in this sandbox."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m6",
+      "kind": "note",
+      "title": "Flex is already on for this key and already halves the price",
+      "summary": "A plain gpt-5.4-mini request came back service_tier=flex at half the standard cost, so there is nothing to opt into - only something to watch.",
+      "calls": [],
+      "price": "gpt-5.4-mini: $1.77e-5 at Flex vs $3.55e-5 with service_tier=\"default\" for the same prompt - exactly -50%.",
+      "why": "Cost-efficient routing is an account setting, not a request field, and it is on for this key: a request with no tier field was served at Flex. OpenManus is an interactive CLI where a person waits for every step, which is the one shape Flex can hurt - the docs describe an implicit 25 s deadline on a streamed Flex attempt before a same-model standard fallback, and ROUTER.md records a 61 s gpt-5-nano Flex call. Nothing here measured a latency penalty (734 ms Flex vs 533 ms standard, n=1 each, inside normal noise), so the recommendation is to keep Flex and not to add a service_tier to the policy. If tail latency ever becomes the complaint, the lever is one line in router.policy.json (\"service_tier\": \"default\") and it costs twice as much; i9 is the cheaper first response to a slow provider.",
+      "evidence": [
+        {"check": "price", "result": "pass", "detail": "Live, this key, 2026-10-14: {model gpt-5.4-mini, no tier field} -> service_tier=flex, cost $1.77375e-05, 734 ms; the same prompt with service_tier=\"default\" -> cost $3.5475e-05, 533 ms."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m7",
+      "kind": "note",
+      "title": "A model Router does not serve keeps its deployment off Router entirely",
+      "summary": "The runtime routes a request only when the configured model resolves to a catalog id, and the model OpenManus ships in config.example.toml does not.",
+      "calls": [],
+      "price": "no change",
+      "why": "This is the safety property that makes m1 and m2 safe, and it is also the biggest open question about how much traffic actually moves. config/config.toml is gitignored, so this migration cannot see which model production runs. Of the ids OpenManus's own example configs ship: gpt-4o, gpt-4o-mini and claude-sonnet-4-5-20250929 resolve (the last one through Router's dated-id mapping, to claude-sonnet-4-5) and will route; claude-3-7-sonnet-20250219, claude-3-7-sonnet-latest, llama3.2, gemini-2.0-flash and deepseek/deepseek-v3-0324 do not resolve and will stay on the provider, silently and correctly. If production runs one of the latter, this migration moves nothing until the model changes - i5 is the decision that would change it.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "resolve_model() against the vendored catalog: gpt-4o-mini, gpt-4o, o3-mini, claude-haiku-4-5, gpt-oss-120b resolve; claude-3-7-sonnet-20250219, claude-3-7-sonnet-latest, llama3.2, gemini-2.0-flash, 'deepseek/deepseek-v3-0324' return None; claude-sonnet-4-5-20250929 maps to claude-sonnet-4-5 and claude-haiku-4-5-20251001 to claude-haiku-4-5."},
+        {"check": "simulator", "result": "pass", "detail": "check --run plan.py recorded the kept reason verbatim: \"model 'claude-3-7-sonnet-20250219' is not in the Router catalog\"."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Take image support from Router's catalog, and label images correctly",
+      "summary": "model_supports_images reads Router's catalog instead of a 2024 list, and image data URLs carry the real media type, so screenshots reach the model again.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:758"],
+      "gains": "The browser, computer-use and MCP tools' screenshots actually reach the model on every Router model that accepts images. Today MULTIMODAL_MODELS lists six models from 2024, of which only gpt-4o and gpt-4o-mini are in Router's catalog, so on claude-sonnet-5, gpt-5.x or any open-weight model format_messages deletes every image from the history and the agent reasons blind about pages it cannot see - with no error and no log line. Fixing the media type also removes a 400 that would otherwise hit every Anthropic-served vision step.",
+      "loses": "Image-carrying history now reaches models that never saw it, so those requests cost image tokens they did not cost before and the agent's answers change - that is the intent, but it is a behaviour change on a live agent, not a pure fix. Router's catalog claims image support; it does not promise quality, and ROUTER.md records one open-weight model misreading a solid-colour image. When Router is off, or serves no row for the model, the old MULTIMODAL_MODELS list still decides, so non-Router deployments are untouched.",
+      "price": "More input tokens per vision step (images are billed), against answers that are currently produced from a silently truncated history.",
+      "why": "This is the one place where moving onto Router changes what the app is allowed to do and the app does not know it. The capability table is hardcoded; Router publishes the same information per model in the catalog the runtime already vendors, including input modalities. Reading it there makes the app correct for every model Router serves, now and as the catalog changes. Proving it live immediately surfaced a second, older bug: format_messages labelled every image data:image/jpeg whatever the bytes were. OpenAI tolerates that; Anthropic returns 400 \"the image was specified using the image/jpeg media type, but the image appears to be a image/png image\", and OpenManus screenshots are PNG - so enabling images without this fix would have turned a silent degradation into six retried failures per step.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "A PNG screenshot through LLM.ask on claude-haiku-5-5: 200 from Router (provider=anthropic), content parts sent ['text', 'image_url'], the model answered \"Red\" for a red image."},
+        {"check": "side-by-side", "result": "pass", "detail": "The same script on router-migrate/migration: content parts sent ['text'] - the image was dropped - and the model replied \"I don't see a screenshot attached. Could you upload it again?\". On this branch without the media-type fix it was 6x 400 (tenacity retries) with the jpeg/png mismatch."},
+        {"check": "tests", "result": "pass", "detail": "15 passed: the 4 repo tests unchanged plus 11 new ones in tests/test_router_model_capabilities.py covering catalog lookups, the MULTIMODAL_MODELS fallback when Router is off, and media-type sniffing for PNG/JPEG/GIF/WebP and junk."}
+      ],
+      "commit": "cd2e5f0",
+      "branch": "router-migrate/improve/catalog-capabilities",
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Give every Router request a prompt cache key",
+      "summary": "router.policy.json sets prompt_cache_key to the request's feature label, which halved the cost of a repeated agent step on gpt-4o-mini.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:758"],
+      "gains": "Measured -49.6% on the input cost of a repeat agent step on gpt-4o-mini ($0.00339 -> $0.00171 on a 22,470-token prompt, 22,400 tokens cached). An OpenManus run resends the whole conversation plus every tool schema on each step, so the stable prefix grows with the run and is re-read on every single call; this is the lever that fits the app's shape best.",
+      "loses": "Nothing measurable. One shared cache key per feature label means concurrent conversations share provider affinity, which can dilute hit rate at high concurrency - i3's per-config labels narrow it, and a per-conversation key is not expressible through the policy. On Anthropic-served models the key changed nothing (see the evidence), so the gain is on OpenAI-served traffic.",
+      "price": "Cached input is billed at the catalog's cache_read_input rate - gpt-4o-mini $0.075 instead of $0.15 per 1M, claude-sonnet-5 $0.20 instead of $2.",
+      "why": "The runtime adds a cache key by itself only on the native Responses path for Anthropic models; OpenManus speaks Chat Completions, which the runtime translates, and that path gets no key. One line of policy covers every routed request without touching application code, and the policy only ever applies to Router-bound requests, so the provider path never sees the field. The A/B is unambiguous: with no key the identical second call cached 0 tokens.",
+      "evidence": [
+        {"check": "price", "result": "pass", "detail": "Live A/B, gpt-4o-mini, identical 22.5k-token prefix, two calls per arm: no key -> cached 0/0, cost $0.0033957 and $0.0033885; with prompt_cache_key -> cached 0 then 22,400, cost $0.0033891 then $0.0017157 (-49.4%)."},
+        {"check": "router-live", "result": "pass", "detail": "End-to-end through the app's own wrapped client with the policy compiled: call 1 prompt=22470 cached=0 cost=$0.0033897; call 2 prompt=22470 cached=22400 cost=$0.0017097 (-49.6%)."},
+        {"check": "price", "result": "info", "detail": "Same A/B on claude-haiku-5-5 (34k prefix): caching already happened with the policy off ($0.004267 -> $0.000356 on the repeat call), so for Anthropic-served models the key is a no-op here. ROUTER.md [v2 #16] measured the opposite on its test account; recording both."},
+        {"check": "tests", "result": "pass", "detail": "4 passed, unchanged."}
+      ],
+      "commit": "10f0da0",
+      "branch": "router-migrate/improve/prompt-cache-key",
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Label Router spend by LLM config, not by file and function",
+      "summary": "Each call sends x-router-migrate-feature: openmanus/<config>/<entry point>, so Router's spend views separate agents and configs instead of lumping everything into two labels.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:619", "app/llm.py:629", "app/llm.py:758"],
+      "gains": "Per-agent and per-config spend attribution in Router. Every agent builds its LLM with LLM(config_name=self.name.lower()), so the label becomes openmanus/manus/ask_tool, openmanus/browser/ask_tool, openmanus/data_analysis/ask and so on - the dimension an operator actually wants to slice cost by, and the one the runtime's default label destroys by reporting the same app/llm.py:ask_tool for all of them.",
+      "loses": "Nothing functional. The header is sent on the provider path too, where it is an ignored custom header that names the config (openmanus/browser/ask_tool); an operator who does not want that detail leaving the process should take this branch's default off. Changing the label also changes the prompt_cache_key written from $feature, which re-partitions caches once on deploy.",
+      "price": "no change",
+      "why": "Router's spend management is one of the two reasons to be on a gateway at all, and it is only as good as the label. The runtime labels a request with the calling <file>:<function>, which for this app is always app/llm.py:ask or app/llm.py:ask_tool - every agent, every [llm.*] config and every model in the same two buckets. The app knows the one fact the stack does not: which configured LLM this is. Passing it in the header the runtime already prefers is three lines and no new concept.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "check --run --live: Router recorded feature=openmanus/openai/ask and feature=openmanus/openai/ask_tool on 200s (provider=openai), where the migration branch records app/llm.py:ask."},
+        {"check": "other", "result": "pass", "detail": "extra_headers is inert on the Bedrock path: BedrockClient.create takes **kwargs and neither it nor _invoke_bedrock forwards them to boto3's converse call."},
+        {"check": "tests", "result": "pass", "detail": "4 passed, unchanged."}
+      ],
+      "commit": "3eae22d",
+      "branch": "router-migrate/improve/spend-labels",
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Map the stale model ids OpenManus ships onto catalog ids",
+      "summary": "A policy model_map would route the deployments whose configured model Router does not serve, at the cost of silently substituting the model.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:758"],
+      "gains": "It is the difference between this migration moving all of a deployment's traffic and moving none of it. OpenManus's own default config pins claude-3-7-sonnet-20250219, which Router does not serve, so that deployment keeps every call on Anthropic after the migration (see m7). One model_map entry puts it on Router, at a newer and cheaper model: claude-sonnet-5 is $2/$10 per 1M against Anthropic's $3/$15 for 3.7 Sonnet.",
+      "loses": "A deployment pinned to a 2025 model silently gets a 2026 one. Agent prompts are tuned against a specific model's behaviour, and OpenManus's system prompts and tool-choice logic are no exception, so this can change answers, tool-call rates and run length. It is a product decision about which substitution is acceptable, which is why it is proposed and not built: the mapping table is the operator's to write.",
+      "price": "claude-sonnet-5 $2/$10 per 1M versus claude-3-7-sonnet's $3/$15 at Anthropic list - about -33% - plus whatever the model's different verbosity does to token counts.",
+      "why": "Everything else in this migration is behaviour-preserving, which is why it is safe; this is the one lever that trades behaviour for coverage, and it should be an explicit, separately reversible decision rather than a side effect. Build it as a model_map block in router.policy.json (it applies on both /v1/responses and /v1/messages), or per-deployment as ROUTER_MIGRATE_MODEL_MAP, after the operator confirms the pairs. It shares router.policy.json with i2, so apply it on top of that branch rather than beside it.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "resolve_model('claude-3-7-sonnet-20250219') is None today; the catalog's nearest equivalents are claude-sonnet-5 ($2/$10) and claude-sonnet-4-5 ($3/$15)."},
+        {"check": "side-by-side", "result": "not-run", "detail": "No quality comparison was run between claude-3-7-sonnet and claude-sonnet-5 on OpenManus's own prompts; that is the evidence this decision needs and it needs the operator's tasks to be meaningful."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["i2"],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Add cross-provider fallbacks for the agent loop",
+      "summary": "A policy fallbacks list would let a step survive a provider outage on a different vendor instead of ending the run.",
+      "calls": ["app/llm.py:758"],
+      "gains": "A long agent run is expensive to lose: every completed step is paid for and discarded when the last one fails. Router falls through a failing candidate inside one request, across vendors - verified here, a list whose first candidate did not exist was served by claude-haiku-5-5 in 623 ms. tenacity already retries the same model six times; this covers the case where retrying that model is hopeless.",
+      "loses": "A different model answers that step, mid-run, with no sign in the response of which candidate served - the agent's history then mixes two models' styles and tool habits. The weakest candidate also caps what the request may ask for: the runtime's policy guard drops candidates lacking the request's tools, structured output or modalities, so a badly chosen list quietly stops applying. Fallbacks and Flex do not combine cleanly either (ROUTER.md [M0]), and with fallbacks in force the policy drops allow_flex_tier.",
+      "price": "The serving candidate's catalog price, only when it serves. A cheap fallback (claude-haiku-5-5 at $0.10/$0.50) is cheaper than the primary; it is also less capable, which is the trade.",
+      "why": "This is the resilience half of what a gateway buys, and it is the right shape for an agent: per request, no code change, no new dependency. It is proposed rather than built because the candidate list is a judgement about acceptable degradation on a specific workload, and because it interacts with Flex (m6) - choosing it means choosing which of the two matters more for this app.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Live on this key: {\"models\": [\"no-such-model-xyz\", \"claude-haiku-5-5\"]} returned 200 served by claude-haiku-5-5 in 623 ms, cost $3.8e-06; {\"models\": [\"gpt-5.4-mini\", \"claude-haiku-5-5\"]} was served by gpt-5.4-mini at service_tier=flex."},
+        {"check": "other", "result": "info", "detail": "ROUTER.md section 6.2: up to 15 candidates, Responses only, no fallback once a stream has started - so LLM.ask(stream=True) would not benefit, only ask_tool and non-streaming ask."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["i2"],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Cap a stuck provider call with provider_timeout",
+      "summary": "A provider_timeout in the policy would bound how long a Router-side provider call may take, which LLM.ask currently does not bound at all.",
+      "calls": ["app/llm.py:447", "app/llm.py:464", "app/llm.py:758"],
+      "gains": "ask_tool passes timeout=300 to the SDK, but LLM.ask passes none and falls back to the client default, so a slow provider can hold an interactive agent step for minutes before tenacity even starts retrying. provider_timeout makes Router give up and answer instead of hanging.",
+      "loses": "A timeout returns a plain-text 504 with no JSON body and no request id, which OpenManus will surface as a bare APIError and retry six times with exponential backoff; too tight a value turns slow-but-fine calls into six failures and a dead run. Truncated attempts are still billed.",
+      "price": "no change, except that work abandoned at the timeout is still billed",
+      "why": "Cheap and purely protective, but it needs a number, and the right number depends on the deployment's own latency distribution rather than anything measurable here. ROUTER.md's figures for this account are sub-second at p50, so something in the tens of seconds is the right order; the maximum Router accepts is 660 s. It belongs in the same router.policy.json as i2.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "ROUTER.md section 6.5: provider_timeout is Responses-only, maximum 660 s, and a timeout returns a plain-text 504 that the runtime hands back to the app without retrying on the provider."},
+        {"check": "router-live", "result": "not-run", "detail": "No timeout was provoked against Router; picking the value needs the deployment's own latency distribution."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["i2"],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Let Azure deployments reach Router when the deployment name is a catalog id",
+      "summary": "Build a plain AsyncOpenAI client pointed at Router instead of AsyncAzureOpenAI when Router is active and the configured model resolves.",
+      "calls": [],
+      "gains": "Azure deployments are the one remaining OpenAI-shaped path that cannot reach Router at all (m4), and OpenManus's Azure example config names gpt-4o-mini and gpt-4o - both catalog ids - so the models themselves are servable. Moving them brings those deployments into the same key, catalog and spend view as everyone else.",
+      "loses": "Azure is usually chosen for reasons that have nothing to do with the model: an enterprise agreement, a committed spend, data residency, a private endpoint. Routing that traffic to Router sends it somewhere else entirely, which is a compliance decision, not an engineering one. It also gives up the Azure deployment's own quota and the api_version pinning OpenManus passes today.",
+      "price": "Router catalog price instead of the Azure contract price, which is frequently discounted and not visible from here.",
+      "why": "The mechanism is the second migration pattern in ROUTER.md section 11 - point the client at Router when the key is set, keep the original otherwise - and it is about fifteen lines in LLM.__init__. It is proposed rather than built because no amount of testing settles whether this deployment's traffic is allowed to leave Azure, and because getting it wrong is a contract problem rather than a bug.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "config/config.example-model-azure.toml names gpt-4o-mini and gpt-4o, which both resolve in the catalog; wrap_openai leaves AsyncAzureOpenAI untouched by design, so nothing routes today."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["m4"],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Put the VMind chart tool's LLM call on Router",
+      "summary": "Vendor routerRuntime.ts into the chart tool and give VMind a routed fetch, so the Node subprocess stops being a second, unmanaged LLM egress.",
+      "calls": ["app/tool/chart_visualization/src/chartVisualize.ts:341"],
+      "gains": "Closes the last LLM path that leaves this application outside Router (m5): one key, one spend view and one catalog for the chart tool too, instead of a Node subprocess holding the provider key and billing separately.",
+      "loses": "It is the only item here that needs a JavaScript toolchain and a dependency change, and the outcome depends on something unverified: @visactor/vmind takes a url and headers, and routerRuntime.ts works by wrapping fetch, so if VMind's transport is axios or node:http rather than fetch the wrapper never sees the request and the port needs a different seam. Until that is checked in a real install, the effort is unbounded - hence rework.",
+      "price": "unknown until it routes; then Router catalog price for whichever model the chart tool is configured with",
+      "why": "A gateway that covers 95% of an app's LLM calls still leaves the other 5% unmetered and unprotected, and this path is handed the same api_key as everything else. The sequence is: npm install in app/tool/chart_visualization, find out which HTTP client VMind uses, and if it is fetch, vendor routerRuntime.ts and pass routerOptions() through; if it is not, the alternative is to move chart generation's LLM step into Python, where it joins the client this migration already routed.",
+      "evidence": [
+        {"check": "other", "result": "not-run", "detail": "No Node toolchain and no node_modules in this sandbox; @visactor/vmind 2.0.5's HTTP client was not inspected."},
+        {"check": "other", "result": "info", "detail": "Router returns a plain-text 404 for /v1/chat/completions, so simply swapping base_url for Router's is not an option for this path."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["m5"],
+      "excludes": []
+    },
+    {
+      "id": "i9",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Count tokens with Router instead of tiktoken on non-OpenAI models",
+      "summary": "max_input_tokens is enforced with a cl100k_base estimate for every model; Router offers a free count_tokens endpoint that is exact for Anthropic-served ones.",
+      "calls": ["app/llm.py:447", "app/llm.py:758"],
+      "gains": "LLM.check_token_limit is a real safety mechanism - it raises TokenLimitExceeded before a request - and on Claude or any open-weight model it is guarding with a tokenizer built for OpenAI. An exact count removes both failure modes: aborting a run that would have fit, and letting one through that the provider then rejects. Router's /v1/messages/count_tokens is free.",
+      "loses": "An extra network round trip per step on an interactive path, to save an error that may be rare in practice. The endpoint is exact only for Anthropic-served models and estimated otherwise (the response says which via x-router-token-count-source), so it does not fix every model, and it adds a Router dependency to a code path that currently works offline.",
+      "price": "no change (count_tokens is free)",
+      "why": "Ranked last because it is the smallest problem of the set and the one most likely to be worth leaving alone; it is here because the token guard is silently wrong on exactly the models this migration newly makes reachable, and the honest fix is cheap to describe. A lighter variant: keep tiktoken, and only call count_tokens when the estimate lands within some margin of max_input_tokens.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "ROUTER.md section 2: POST /v1/messages/count_tokens is free, exact for Anthropic-served models and estimated otherwise. app/llm.py:234 falls back to cl100k_base for any model tiktoken does not know, which is every Claude and open-weight id."},
+        {"check": "router-live", "result": "not-run", "detail": "The endpoint was not exercised from this app; the runtime does not translate count_tokens for a Chat Completions client, so this needs a direct call."}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

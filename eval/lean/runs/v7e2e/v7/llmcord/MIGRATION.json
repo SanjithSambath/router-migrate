@@ -1,0 +1,252 @@
+{
+  "version": 7,
+  "summary": "llmcord has exactly one LLM call: a streamed chat.completions in on_message that answers a Discord reply chain. It now goes through Router (the vendored runtime translates it to /v1/responses, streaming included) and I verified the real on_message end to end against live Router, not a copy of its request. Six more commits came out of reading the call rather than moving it: the app built a new AsyncOpenAI per message, rendered the clock to the second at the top of every prompt (so no prompt cache could ever hit), was silently served at Flex because that is the account default, swallowed every failure into the logs, and had no fallback. The review's headline is not a Router setting at all: a snarky Discord bot whose own prompt says \"optimize for brevity\" was defaulting to gpt-5.5 at reasoning_effort high, $0.0032 and 3.5-4.5 s per banter reply, where gpt-6-luna at no reasoning costs $0.000023 and claude-haiku-5-5 costs $0.000086 and answers in 1.5 s. That is a product call, so it is built on a branch for one-click approval rather than merged. First thing I would do: approve the default-model change, then set a spend cap on the key, because anyone who can @ the bot can spend money.",
+  "reviewed": "The whole of llmcord.py (one file, one model call), config.yaml's provider and model table, the Dockerfile's deploy path, and the request shape the call actually sends (streaming, images as base64 data URLs, reasoning_effort/verbosity from extra_body, a 25-message reply chain of up to 100k characters each). Measurements came from 47 live Router calls, all 200: model and tier comparisons with usage.cost, prompt-cache hit rates on a 6,284-token chain, first-token latency, and on_message itself driven through Router with stubbed Discord objects.",
+  "calls": [
+    {"site": "llmcord.py:311", "feature": "discord-chat", "model": "gpt-5.5", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "c1"}
+  ],
+  "items": [
+    {"id": "c1", "kind": "change", "title": "Route the Discord chat completion through Router",
+     "summary": "The per-message AsyncOpenAI client is wrapped with the vendored runtime, so the streamed chat.completions call becomes POST /v1/responses on Router.",
+     "calls": ["llmcord.py:311"],
+     "gains": "One key and 100 catalog models behind the call the app already makes, with per-request spend recorded against a feature label; nothing changes until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 puts it back.",
+     "loses": "nothing",
+     "price": "no change by itself: the serving model's catalog price, and gpt-5.5 kept serving",
+     "why": "The call is a plain Chat Completions request to an OpenAI base_url, and Router has no Chat Completions endpoint, so either the runtime translates it or the streaming loop gets rewritten against the Responses API. The runtime keeps the app's own request shape (and its support for OpenRouter, Ollama, LM Studio and vLLM base_urls) untouched, which is what a one-file bot with a hot-reloaded provider table wants. The Dockerfile copied only llmcord.py and config.yaml, so a plain docker build would have shipped an image without the runtime; it now copies router_runtime.py and router_policy.py too.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "check --run --live: the app's real request shape (gpt-5.5, stream, reasoning_effort=high, verbosity=medium) returned 200 /v1/responses, provider=openai, served by gpt-5.5-2026-04-23"},
+       {"check": "router-live", "result": "pass", "detail": "on_message itself driven with stubbed Discord objects against live Router: two turns, both 200, both replies in the system prompt's voice, 2.9 s and 3.0 s end to end"},
+       {"check": "simulator", "result": "pass", "detail": "check --run: 1 valid /v1/responses request, feature=discord-chat, client=llmcord.py:get_openai_client"},
+       {"check": "tests", "result": "pass", "detail": "2 passed (compileall + import llmcord), same as the baseline"}
+     ],
+     "commit": "21939c8"},
+
+    {"id": "c2", "kind": "change", "title": "One OpenAI client per provider instead of one per message",
+     "summary": "AsyncOpenAI clients are cached by (base_url, api_key) instead of being constructed inside on_message for every Discord message.",
+     "calls": ["llmcord.py:311"],
+     "gains": "One connection pool and one TLS handshake per provider for the life of the bot instead of per reply, and one Router transport instead of a new one per message.",
+     "loses": "nothing: a changed base_url or api_key in the hot-reloaded config still produces a new client, and the cache is bounded by the number of configured providers",
+     "price": "no change",
+     "why": "Building a client per request is the default mistake with the OpenAI SDK: every reply paid DNS, TCP and TLS setup before the first token, on a path where a human is watching a typing indicator. It also multiplied the runtime's per-client setup. The measured difference in this environment is small and inside the sample's noise because check --live talks to a local recording proxy, not to api.router.com across the internet, where a handshake costs more.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "first token over 4 live streamed calls per arm: reused client 0.78/1.06/1.14/1.33 s, fresh client per call 0.86/1.14/1.31/1.58 s"},
+       {"check": "tests", "result": "pass", "detail": "2 passed; the scanner still reports the call as ROUTES through llmcord.py:get_openai_client"}
+     ],
+     "measured": [
+       {"metric": "median time to first token (gpt-6-luna, streamed)", "before": "1.23 s", "after": "1.10 s", "n": 4,
+        "how": "check --run --live, 4 samples per arm, same prompt; the two ranges overlap, so treat this as no regression plus a structural fix rather than a 0.13 s win"}
+     ],
+     "commit": "8151309"},
+
+    {"id": "c3", "kind": "change", "title": "Label the traffic and pass the Discord user id",
+     "summary": "Every request carries x-router-migrate-feature: discord-chat (so Router records metadata.feature and the policy can key on it) and the standard OpenAI user field carries the Discord author id.",
+     "calls": ["llmcord.py:311"],
+     "gains": "Spend in Router's views is grouped under discord-chat instead of the runtime's default llmcord.py:on_message label, which any refactor would silently rename; router.policy.json has a stable key to attach settings to; an abusive account is traceable in provider and Router logs.",
+     "loses": "nothing: the header is ignored by the non-Router providers in config.yaml, and `user` is a standard Chat Completions field",
+     "price": "no change",
+     "why": "The label is the join key for everything else: spend reporting, the policy entry that pins the tier, and the prompt cache key. The Discord author id is already inside the prompt text (the system prompt asks for <@ID> prefixes), so passing it as `user` sends nothing new about the user while making abuse attributable.",
+     "evidence": [
+       {"check": "simulator", "result": "pass", "detail": "check --run: the request arrives as feature=discord-chat (was feature=llmcord.py:on_message)"},
+       {"check": "router-live", "result": "pass", "detail": "live calls carry feature=discord-chat and user=42 with no error"}
+     ],
+     "commit": "bdf3c87"},
+
+    {"id": "c4", "kind": "change", "title": "Send the clock last so the reply chain keeps a cacheable prefix",
+     "summary": "The system prompt's {date}/{time} lines are sent as a trailing system message instead of inside the leading system prompt, which makes everything before them identical from turn to turn.",
+     "calls": ["llmcord.py:311"],
+     "gains": "The second and later turns of a conversation read the whole chain from the provider's prompt cache: 6,258 of 6,290 input tokens cached, -90% on the turn's cost. The longer the conversation or the attached text, the bigger the saving.",
+     "loses": "The date and time now arrive at the end of the conversation rather than at the top of the system prompt. The text is unchanged and models read the whole context, but a prompt that leaned on that sentence being in the system block could answer differently.",
+     "price": "cached input reads cost the catalog's cache_read_input: $0.01 per 1M instead of $0.1 on gpt-6-luna, $0.5 instead of $5 on gpt-5.5",
+     "why": "The prompt was rendered with the time to the second and placed first, so the first bytes of every request differed and no prefix cache could ever hit, even though a reply chain repeats verbatim turn after turn. This is the one change that pays more as the product is used harder, since llmcord admits up to 100k characters per message and a 25-message chain.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "two turns of a 6,284-token conversation, prompt re-rendered between them (as the bot does): leading clock => cached 0 both turns; clock last => cached 6,258 on turn 2"},
+       {"check": "router-live", "result": "pass", "detail": "on_message driven live builds roles [system, user, system] with the persona first and the clock last, and answers normally"},
+       {"check": "tests", "result": "pass", "detail": "2 passed"}
+     ],
+     "measured": [
+       {"metric": "input tokens read from cache on turn 2 of a 6,290-token conversation", "before": 0, "after": 6258, "n": 2,
+        "how": "check --run --live on gpt-6-luna, 2 turns per arm, the system prompt re-rendered between turns"},
+       {"metric": "cost of turn 2 of that conversation", "before": "$0.000878", "after": "$0.0000856", "n": 2,
+        "how": "usage.cost from the same two live arms"}
+     ],
+     "commit": "7e5487a"},
+
+    {"id": "c5", "kind": "change", "title": "Keep replies on the standard tier, with a cache key and a timeout",
+     "summary": "router.policy.json pins the discord-chat label to service_tier default, prompt_cache_key and provider_timeout 45 s.",
+     "calls": ["llmcord.py:311"],
+     "gains": "An interactive reply is no longer served at a tier that may queue: the measured first token was 1.73 s at standard against 2.17 s at Flex, and Router's docs allow a queued Flex stream 25 s before falling back (the fact sheet records a 61 s Flex call). The cache key gives the provider affinity that c4's cached prefix depends on, and 45 s of stream idle time replaces the OpenAI SDK's 600 s default.",
+     "loses": "The Flex discount, which I measured at -45% on gpt-6-luna ($0.0000231 at Flex against $0.0000449 at standard). Undo this commit to take it back.",
+     "price": "about +80% per reply on Flex-eligible OpenAI models, which is $0.00002 a reply on the model I would default to",
+     "why": "The account default is cost-efficient routing, and it showed: every one of the 8 gpt-5.5 and gpt-6-luna calls I made before this came back service_tier=flex. Flex is the right dial for unattended work; this call is a person waiting in a chat window. The trade is half of four hundredths of a cent against a tail that is minutes long, and the model choice in r1 dwarfs it either way. Anthropic models have no tiers on Router, so the setting is a no-op for them.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "first token, 4 streamed samples per arm on gpt-6-luna: default 1.51/1.68/1.78/1.89 s; flex 1.90/2.14/2.19/2.28 s"},
+       {"check": "router-live", "result": "info", "detail": "cost per reply on gpt-6-luna: $0.0000231 at Flex (n=2) against $0.0000449 at standard (n=2), i.e. the Flex discount on this model is about -45%; the fact sheet had only measured gpt-5.4-mini"},
+       {"check": "simulator", "result": "pass", "detail": "check --run: the response reports service_tier=default with the policy in place (it reported flex before)"}
+     ],
+     "measured": [
+       {"metric": "time to first token (gpt-6-luna, streamed)", "before": "2.17 s", "after": "1.73 s", "n": 4,
+        "how": "check --run --live, median of 4 samples per arm, service_tier flex against default"},
+       {"metric": "cost per reply (gpt-6-luna, same prompt)", "before": "$0.0000231", "after": "$0.0000449", "n": 2,
+        "how": "usage.cost, 2 samples per arm; this one is a loss, and it is the price of the latency"}
+     ],
+     "commit": "20c5e9a"},
+
+    {"id": "c6", "kind": "change", "title": "Tell the user when the model call fails",
+     "summary": "A failed generation now gets a reply naming the model and the exception type, instead of only a log line and a typing indicator that stops.",
+     "calls": ["llmcord.py:311"],
+     "gains": "The person who asked learns the bot broke rather than that it ignored them, which is the difference between a bug report and silent churn. It matters more on Router, where a timeout arrives as a plain 504 and a rate limit as a 429, both handed back to the app.",
+     "loses": "One extra Discord message on failures. A partially streamed reply is left alone, so it still relies on the embed staying orange to signal an unfinished answer.",
+     "price": "no change",
+     "why": "`except Exception: logging.exception(...)` swallowed every failure, and nobody reads a Discord bot's logs. The error text is deliberately kept out of msg_nodes so it never becomes conversation history for the next turn.",
+     "evidence": [
+       {"check": "side-by-side", "result": "pass", "detail": "on_message driven with a client that raises: one reply, \"⚠️ `openai/gpt-5.5` didn't answer (RuntimeError). Try again or ask an admin to check the logs.\"; the same run before the change sent nothing"},
+       {"check": "tests", "result": "pass", "detail": "2 passed"}
+     ],
+     "commit": "469ab32"},
+
+    {"id": "c7", "kind": "change", "title": "Fall back across vendors instead of leaving the question unanswered",
+     "summary": "The policy adds claude-haiku-5-5 then gpt-6-luna as ranked candidates after the selected model, so a pre-stream failure is answered by another vendor.",
+     "calls": ["llmcord.py:311"],
+     "gains": "A Discord reply has no retry and no queue, so an OpenAI incident, a 403 or a bad parameter currently ends the conversation. With a candidate list, Anthropic answers instead. Candidates that cannot serve the request's images, tools or temperature are dropped by the runtime's guard before the request leaves.",
+     "loses": "When the primary fails the answer comes from a cheaper model in a different voice, and the response does not say which candidate served it. Router does not fall back once a stream has started, so this covers failures before the first token only.",
+     "price": "the serving candidate's price, only when it serves",
+     "why": "Anthropic is listed first on purpose: a second OpenAI model does not survive an OpenAI incident. Flex and fallbacks do not combine, which costs nothing here because c5 already pins the standard tier.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "live 200 with the models list, service_tier, prompt_cache_key and metadata on the same request (the sim logs model=None, i.e. no single model field); the primary served, so the fallthrough itself rests on Router's docs, not on a measurement"},
+       {"check": "simulator", "result": "pass", "detail": "check --run: 1 valid request, the policy applied (fallbacks + tier + cache key)"}
+     ],
+     "commit": "9f507b7"},
+
+    {"id": "c8", "kind": "change", "title": "Track router.policy.json, the source of the compiled policy",
+     "summary": "A .gitignore exception so the policy JSON a human edits is in the repo alongside the compiled router_policy.py the runtime reads.",
+     "calls": [],
+     "gains": "The Router settings behind c5 and c7 are reviewable in a diff instead of living only in a generated file.",
+     "loses": "nothing",
+     "price": "no change",
+     "why": "The repo's .gitignore is a whitelist that passed *.py, so the compiled copy was committed and its source was not, which is exactly backwards for anything a human is meant to change later.",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "2 passed; check --final OK with both policy files tracked"}
+     ],
+     "commit": "06abc91"},
+
+    {"id": "r1", "kind": "recommendation", "rank": 1, "level": "quick-win", "actor": "product-call",
+     "title": "Default to a model that fits the job: 138x cheaper per reply",
+     "summary": "Make openai/gpt-6-luna at reasoning_effort none the default model, keep claude-haiku-5-5 as the Router-only alternative and gpt-5.5 in the list for /model.",
+     "gains": "$0.0032 to $0.000023 per reply, and on_message end to end from 2.9-3.0 s to 2.2 s. At 10,000 replies a month that is $32 against $0.23. Nothing else in this report moves the numbers nearly as far.",
+     "loses": "Answer quality on hard questions. Nobody has measured quality; in my samples all four models stayed in the system prompt's voice and claude-haiku-5-5 was the sharpest, but a bot that is sometimes asked real questions will sometimes get a thinner answer. gpt-5.5 stays one /model away.",
+     "price": "gpt-6-luna $0.1/$0.5 per 1M against gpt-5.5 $5/$30, and no reasoning tokens billed",
+     "why": "The bot's own system prompt says \"optimize for brevity\", and it was spending 45-109 reasoning tokens on a $5/$30 model to produce two sentences of banter. This is a product call because it changes what users get, not just what it costs: the branch is built and tested so approving it is one click. gpt-6-luna is the default on the branch rather than claude-haiku-5-5 because it is an OpenAI id, so the config still works if Router is switched off, while an Anthropic id behind the openai provider resolves only with the runtime active. The :vision suffix is on the branch deliberately, because VISION_MODEL_TAGS has no tag matching gpt-6-luna and the bot would otherwise stop accepting image attachments (r3 fixes that properly).",
+     "branch": "router-migrate/improve/cheaper-default-model",
+     "measured": [
+       {"metric": "cost per reply, same prompt (usage.cost)", "before": "$0.00320", "after": "$0.0000231", "n": 2,
+        "how": "check --run --live, 2 samples per arm: gpt-5.5 at reasoning_effort high against gpt-6-luna at none"},
+       {"metric": "cost per reply, claude-haiku-5-5", "before": "$0.00320", "after": "$0.0000855", "n": 1,
+        "how": "the same live run, one sample; this was the sharpest answer of the four"},
+       {"metric": "on_message end to end, live", "before": "2.95 s", "after": "2.21 s", "n": 1,
+        "how": "on_message driven against live Router with stubbed Discord objects: 2.89 s and 3.03 s on gpt-5.5 high, 2.21 s on gpt-6-luna none"}
+     ]},
+
+    {"id": "r2", "kind": "recommendation", "rank": 2, "level": "quick-win", "actor": "router-setting",
+     "where": "app.router.com > API keys > the llmcord key > spend cap",
+     "title": "Put a spend cap on this bot's key",
+     "summary": "Set a monthly cap on the key llmcord runs with, because anyone who can @ the bot can spend money through it.",
+     "gains": "A hard ceiling on the one piece of this product that strangers can drive. Requests return 401 at the cap, which c6 now surfaces to the user instead of swallowing.",
+     "loses": "The bot stops answering when the cap is hit, which is the point. Caps apply after usage is recorded, so concurrent requests can overshoot a little.",
+     "why": "llmcord answers every allowed user in every allowed channel, with permissions.allowed_ids empty by default (allow all), max_text 100,000 characters per message and max_messages 25. On the shipped default model a single maximal request is dollars, not cents, and there is no per-user rate limit anywhere in the code. A cap is the only backstop that does not need a code change, and it is the first thing I would switch on after r1."},
+
+    {"id": "r3", "kind": "recommendation", "rank": 3, "level": "quick-win", "actor": "code",
+     "title": "Take image support from Router's catalog, not a substring guess",
+     "summary": "Decide whether a model accepts images by looking it up in the Router catalog the runtime already vendors, falling back to VISION_MODEL_TAGS for models the catalog does not know.",
+     "gains": "Image attachments stop being dropped on models that accept them. Of the 12 ids I checked, gpt-6-luna and kimi-k3 flip from \"⚠️ Can't see images\" to working; the answer becomes a lookup with no network call and no key, instead of a substring match on \"<provider>/<model>\" that is wrong in both directions (every ollama model matches because \"ollama\" contains \"llama\").",
+     "loses": "Nothing measured. Models the catalog does not list keep exactly today's behaviour, and an explicit :vision suffix still wins.",
+     "price": "no change",
+     "why": "This is the deterministic-instead-of-heuristic change Router makes available: the catalog states input modalities per model, so a hand-maintained tag list is no longer the best available answer. It also removes the trap under r1, where switching the default model silently turns off a feature the README advertises.",
+     "branch": "router-migrate/improve/vision-from-catalog",
+     "measured": [
+       {"metric": "ids out of 12 where image support was decided wrongly", "before": 2, "after": 0, "n": 12,
+        "how": "a table of 12 provider/model strings through the old tag match and the new catalog lookup: gpt-6-luna and kimi-k3 changed, non-catalog ids unchanged"}
+     ]},
+
+    {"id": "r4", "kind": "recommendation", "rank": 4, "level": "quick-win", "actor": "product-call",
+     "title": "Cap the output length per reply",
+     "summary": "Send max_completion_tokens (about 1,200, roughly one Discord embed) on the chat call, so one reply cannot run to the model's 128k output ceiling.",
+     "gains": "A bounded worst case per reply. Unbounded output on gpt-5.5 is $3.84 of billed tokens for a single message; the replies I measured used 18-208 output tokens, so a 1,200-token cap is 6x the observed maximum and still bounds the tail.",
+     "loses": "Genuinely long answers get cut off mid-sentence. The bot already splits long replies across Discord messages, so today users can ask for an essay and get one.",
+     "price": "output is the expensive half: $30 per 1M on gpt-5.5, $0.5 on gpt-6-luna",
+     "why": "This is a product call because it caps a capability users may rely on. One interaction matters: on a reasoning model the cap covers reasoning tokens too, and the fact sheet records reasoning calls with small output caps returning `incomplete` with no text at all, so the cap must be paired with r1's reasoning_effort: none (or set well above the thinking budget).",
+     "branch": null,
+     "measured": [
+       {"metric": "output tokens per reply observed live", "before": "18-208", "after": null, "n": 9,
+        "how": "completion_tokens across 9 live replies on gpt-5.5 (effort high and none) and gpt-6-luna"}
+     ]},
+
+    {"id": "r5", "kind": "recommendation", "rank": 5, "level": "change", "actor": "product-call",
+     "title": "Budget the input in tokens, not characters per message",
+     "summary": "Replace max_text (100,000 characters per message) and max_messages (25) with one token budget for the whole chain, counted from the oldest message forward.",
+     "gains": "A bounded input cost per reply, and a prefix that stops moving. Today the 25-message window slides, so once a conversation is longer than the window every turn drops its oldest message, changes the cached prefix and throws away the -90% c4 just bought. A budget that keeps the head of the conversation and trims the tail keeps the cache hot.",
+     "loses": "Long text attachments stop fitting whole. The current limits let a single message carry about 25,000 tokens of pasted text, which is a feature for the \"paste your logs at the bot\" use case.",
+     "price": "input at $0.1 per 1M on gpt-6-luna and $5 on gpt-5.5: today's worst-case chain of about 625,000 tokens is $0.06 or $3.13 of input for one reply, if it fits in context at all",
+     "why": "100,000 characters per message times 25 messages is larger than most context windows, so the real limit today is whatever the provider rejects. Router's free /v1/messages/count_tokens could do the counting exactly, and a warning (\"⚠️ trimmed 40k characters\") is more honest than silent truncation at max_text. This is a product call because it decides how much pasted text the bot accepts.",
+     "branch": null,
+     "measured": [
+       {"metric": "cost of one uncached 6,284-token chain (gpt-6-luna)", "before": "$0.000878", "after": null, "n": 2,
+        "how": "usage.cost live; the shipped limits allow roughly 100x that many tokens in one request"}
+     ]},
+
+    {"id": "r6", "kind": "recommendation", "rank": 6, "level": "change", "actor": "code",
+     "title": "Retry once on 429 and 504 before giving up",
+     "summary": "Retry the generation once, after the retry-after delay, when Router returns 429 or a plain-text 504, and only then show c6's failure reply.",
+     "gains": "The failure modes Router hands back that a single retry actually fixes. Fallbacks (c7) cover a model that refuses, but not a rate limit or a timeout on the one model that is up.",
+     "loses": "A failed reply can take twice as long before the user is told, and a retry after partial streaming would duplicate text, so the retry has to be limited to failures before the first token.",
+     "price": "a retried request is billed again; truncated attempts are billed too",
+     "why": "No numeric rate limits are published for Router, the app has no retry anywhere, and a Discord reply has no queue behind it. I did not build it because the right shape (retry only before the first token, honour retry-after, cap at one) deserves a test that provokes a 429, which I could not do against the live key inside a spend cap.",
+     "branch": null},
+
+    {"id": "r7", "kind": "recommendation", "rank": 7, "level": "quick-win", "actor": "router-setting",
+     "where": "app.router.com > Routing > Shadow models",
+     "title": "Shadow the candidate models on real traffic before trusting r1",
+     "summary": "Record cost and latency for claude-haiku-5-5 and gpt-6-luna against the live default on a 5-10% sample of real replies.",
+     "gains": "r1's numbers come from one prompt and a handful of samples. Shadow logs would give the same comparison across real Discord questions, on the traffic that actually matters, before or after flipping the default.",
+     "loses": "Shadow models need content recording switched on, which means real Discord messages are stored on Router. For a bot in a social server that is a privacy decision for whoever runs it, not a technical one. It records cost and latency only, never quality, and it does not work on BYOK keys.",
+     "why": "It is the only mechanism in the product that compares candidates on real traffic, and it answers the one thing my measurements cannot: whether a cheaper model holds up across the spread of things people actually ask a Discord bot. Worth switching on only if recording user content is acceptable in that server."},
+
+    {"id": "r8", "kind": "recommendation", "rank": 8, "level": "rework", "actor": "code",
+     "title": "Port the call to the Responses API and give every model web search",
+     "summary": "Add a Router-native provider path that calls /v1/responses directly, so per-request Router fields and built-in server tools are available instead of only what router.policy.json can express.",
+     "gains": "Web search on every catalog model, not just the one OpenRouter entry the config wires up today with openrouter:web_search and openrouter:web_fetch (measured by the fact sheet at $0.0004 a search answer on gpt-oss-120b, $0.011 on gpt-4o-mini, $0.021 on claude-haiku-4-5). Plus the levers the policy cannot reach: a per-request models list, fallback_timeout (which needs streaming and two candidates, and this call streams), per-request tiers, and reasoning summaries to show \"thinking\" while a hard answer is composed.",
+     "loses": "The translation layer goes away but so does its safety net: the Chat Completions path keeps working against OpenRouter, Ollama, LM Studio, vLLM and any OpenAI-compatible server, which is llmcord's stated reason to exist, so the old path has to stay for those providers and the streaming loop grows a second shape. The response event stream is different enough that the message-splitting and embed-editing logic needs re-testing.",
+     "price": "no change by itself; web search adds a per-search cost on top of tokens",
+     "why": "The config already shows the author reaching for web search and only being able to get it from one provider. Through Router it is a request field on any model. This is a rework, not a quick win: it is the version of llmcord that treats Router as the provider rather than as a transparent proxy, and it is worth doing only once the cheap wins above are in and someone wants search or per-request routing.",
+     "branch": null},
+
+    {"id": "r9", "kind": "recommendation", "rank": 9, "level": "change", "actor": "router-setting",
+     "where": "app.router.com > Routing > Switchyard (save a strategy with efficient_model and capable_model), then model: switchyard in config.yaml",
+     "title": "Try Switchyard so banter and hard questions get different models",
+     "summary": "Save a Switchyard strategy with a cheap efficient_model and a capable_model and point the default model at `switchyard`, so the model changes per turn inside one conversation.",
+     "gains": "The shape of this product is a long tail of one-line banter with occasional real questions, which is exactly what Switchyard claims to route. It would get r1's cost on easy turns without giving up a capable model on hard ones, and it needs no code change beyond the model id.",
+     "loses": "Unmeasured here, and the docs call it experimental and aimed at coding agents, so quality on social chat is a guess. Its catalog row prices at $3/$15 per 1M, so if it bills at the row rather than at the served model it would be worse than any option in r1. Verify on a small channel first.",
+     "why": "Worth an experiment after r1 is in, because it is the one strategy whose premise matches this app's traffic mix. Rank it below the measured changes precisely because nothing about it is measured for non-coding work."},
+
+    {"id": "s1", "kind": "stays", "title": "Local models stay on localhost",
+     "summary": "The ollama, lmstudio and vllm providers keep talking to localhost exactly as before.",
+     "why": "The runtime only intercepts api.openai.com and api.anthropic.com, and ids like llama4 are not Router catalog ids, so these requests never leave the machine. That is the point of having them, and Router cannot serve a model it does not host."},
+
+    {"id": "s2", "kind": "stays", "title": "The OpenRouter model stays on OpenRouter",
+     "summary": "openrouter/~anthropic/claude-opus-latest and its openrouter:web_search / openrouter:web_fetch tools keep going to openrouter.ai.",
+     "why": "The id is not in Router's catalog and those tool types are OpenRouter-specific, so even with the host unlocked the runtime would keep the request on the provider. Router's own web_search is the replacement, and that is r8."},
+
+    {"id": "s3", "kind": "stays", "title": "The Google and Azure provider entries stay as they are",
+     "summary": "The google (Gemini OpenAI-compatible) and azure-openai entries keep going to their own endpoints.",
+     "why": "Router lists Gemini ids as requires_byok and returns 403 provider_key_required without the caller's own Google key, and the runtime leaves Azure clients alone by design. Unlocking either would add a round trip that ends on the provider anyway."},
+
+    {"id": "n1", "kind": "note", "title": "Considered and rejected: Jev auto routing",
+     "summary": "Jev picks among models you describe in a routing profile, which fits a chat bot, but the catalog lists it on the systemone and decisions surfaces only. The app's client speaks Chat Completions, which the runtime translates to /v1/responses, so it cannot reach Jev at all without r8 plus a second port. Switchyard (r9) is the reachable version of the same idea."},
+
+    {"id": "n2", "kind": "note", "title": "Prompt caching: two things left on the table",
+     "summary": "prompt_cache_retention: \"24h\" (documented, never measured) would extend c4's cached prefix across the gaps between Discord conversations, but it is not a router.policy.json key, so it needs a request field from the app. And a per-channel prompt_cache_key would give better provider affinity than the one key per feature the policy can set; I kept the policy version because sending Router-only fields from the app would also send them to Ollama and OpenRouter, which may reject unknown fields. Same reason there is no per-channel metadata for spend-by-channel, which is otherwise an obvious thing to want."},
+
+    {"id": "n3", "kind": "note", "title": "What still depends on the provider keys",
+     "summary": "When Router refuses before generating (403, 404 model_not_found, an unknown or unsupported parameter, 501), the runtime sends the original request to the provider once, so OPENAI_API_KEY must stay configured for that path to work. Timeouts, 429 and 5xx come back to the app instead, which is why c6 and r6 matter. ROUTER_MIGRATE_DISABLE=1 reverts everything to pre-migration behaviour without a deploy, and ROUTER_MIGRATE_TRACE=<file> logs where each request went and why."}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "slight",
+ "why": "Both moved identical traffic with identical diffs and both correctly left embeddings on OpenAI, so the decision rests on system judgment \u2014 and A found that the product's only user-facing path (OpenAIAgent.astream_chat) silently drops every tool call, root-caused it to the role-only first chunk opening is_function_false_event, reproduced it with no Router in the path, fixed it, and ranked it above every cost lever; that single verified finding determines what to ship before any of B's tuning matters. B is the broader Router review \u2014 per-workload spend labels as the enabler, tier pinned standard with a measured flex-vs-default arm, cached-token counts, shadow models to settle model choice, and a latency-first critique of the two-level agent \u2014 but it spent its whole analysis optimizing cost on a path that currently returns \"Sorry, I either wasn't able to understand your question.\"",
+ "A_best": "The astream_chat tool-loop bug: correctly root-caused in upstream internals, proven non-Router with a fake-endpoint before/after and again live through the real handle_chat_message entry point (1 request and a fallback apology before, 6 requests and a real answer after), fixed on a passing branch, ranked first, and honest that it raises spend because it finally answers the question.",
+ "B_best": "Making each workload its own client with its own Router feature label and model setting at unchanged defaults \u2014 the structural move that turns tier, timeout, fallback, model_map and spend views into per-workload levers (sec_rag vs sec_chat_answer vs sec_doc_financials), verified live, and the precondition for every model decision it then prices.",
+ "A_worst": "It never measures latency anywhere, yet proposes gpt-6-luna as its second-ranked item on a path of ~6 serial user-waiting calls \u2014 B measured the same swap at 5.39s vs 2.30s on synthesis and declined to ship it for that reason \u2014 and it declines per-feature spend labels as \"not stable enough to key a policy on\" instead of setting them explicitly, which forecloses targeted policy, plus no shadow models, caps, or Switchyard at all.",
+ "B_worst": "It walked the entire request path, counted \"five to twenty calls per turn,\" and still missed that the product returns nothing to users today; it also reports per-turn call counts and cost savings for a turn shape that, on A's verified evidence, never actually executes, and four of its branches trip a provider-key-removal flag the report only glances at.",
+ "result": "loss",
+ "arm": "open",
+ "ref": "open_oldfacts",
+ "repo": "sec-insights",
+ "arm_was": "B"
+}

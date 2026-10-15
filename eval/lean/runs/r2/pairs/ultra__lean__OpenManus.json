@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "clear",
+ "why": "Both wrapped the single AsyncOpenAI chokepoint and verified all five call sites live, but A's system-level judgment is better grounded: it measured that the runtime already sets prompt_cache_key on Anthropic models (so B's headline 'biggest lever' cache policy is largely a no-op, and B's gpt-4o-mini probe had no no-key control \u2014 A measured -49% with or without), it refused blind cross-vendor fallbacks because the model here is operator config, and its built items fix real app-specific bugs (screenshots silently dropped for any post-2024 model, plus the data:image/jpeg mislabel that 400s on Anthropic). B ships more default coverage and a genuine retry-predicate bug fix with tests, but derives unlock_hosts from the configured base_url including localhost, which sends a self-hosted/Ollama deployment's prompts to a third party whenever its model name matches a catalog id (gpt-oss-120b, deepseek-v4-flash) \u2014 exactly the case A scoped out by name, and B asserts it is safe on a false premise.",
+ "A_best": "Depth of measured negative results \u2014 prompt_cache_key, Flex, provider_timeout and fallbacks each rejected with a reason specific to this app (runtime already sets the cache key; the model is a deployment setting, not a constant), and the vision item found and fixed a second latent bug (PNG labelled as JPEG) with before/after live evidence, including a kept failing intermediate run.",
+ "B_best": "The retry-predicate finding: retry_if_exception_type((OpenAIError, Exception, ValueError)) matches everything, so a token-limit error that cannot clear itself was retried six times with ~3 minutes of backoff \u2014 correctly diagnosed, fixed at all three entry points plus the agent's handler, and covered by two new tests; i7 (Router count_tokens instead of cl100k guesses for the max_input_tokens guard) is also a sharp, app-specific lever A never considered.",
+ "A_worst": "The shipped migration only treats api.openai.com as routable, so deployments following this repo's own README (Anthropic-compatible endpoint, Jiekou, PPIO, Google) move nothing until an unapplied branch lands \u2014 real coverage is narrower than the headline, and A added no tests for any of it.",
+ "B_worst": "unlock_hosts from base_url unlocks localhost (its own test asserts it), and the claim that catalog-only routing keeps self-hosted deployments untouched is wrong for locally served catalog-named models \u2014 a prompt-egress change shipped in the migration itself; compounding this, the fixed fallback list [claude-sonnet-4-6, gpt-4.1-mini] is applied to every deployment's unknown primary model and even to ask_with_images, with no check that the candidates accept the request's images.",
+ "result": "win",
+ "arm": "ultra",
+ "ref": "lean",
+ "repo": "OpenManus",
+ "arm_was": "A"
+}

@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Got the one real call site onto Router cleanly and proved it end-to-end: the outside check verifies llmcord.py:287 routes, tests match baseline exactly (2/2), and 3 live /v1/responses calls across gpt-5.5, claude-haiku-5-5 and deepseek-v4.1-flash went through the actual streaming-into-embed path \u2014 not just a static 'routes' claim. The env-gated wrap plus ROUTER_MIGRATE_DISABLE=1 means zero behaviour change until an operator opts in.",
+  "Found the Router leverage that actually fits this app instead of generic levers: i1 turns Router into a `router` provider in config.yaml so the bot's entire reason for existing (the /model picker) reaches the whole catalog on one key with no second account \u2014 and it is live-verified on two vendors, not just proposed.",
+  "Spotted two things an outside reviewer would have missed and fixed one of them: the Dockerfile shipped an image without router_runtime.py (import falls back to a no-op, so a `docker build` deploy would have Router silently off while compose worked by accident), and the default system prompt ends with '{time}', which made the replayed 25-message prefix uncacheable every single turn."
+ ],
+ "misses": [
+  "No cost/usage instrumentation. The report admits 'the app streams without usage, so I did not measure the hit rate' and then leaves it there \u2014 enabling stream_options.include_usage (or reading Router's usage on the stream) and logging input/cached/output tokens per reply is a small change that would make i2's cache claim, d1's Flex decision and p1's fallback choice measurable instead of fact-sheet-derived. For a bot where the whole 25-message chain is re-sent every turn, not knowing per-turn token cost is the biggest blind spot left.",
+  "Nothing on the prompt payload itself or on default model choice. MAX_MESSAGES=25 full messages per turn is the dominant cost driver and no trimming/summarisation option is even raised; and gpt-5.5 at $5/$30 as the shipped default for a 'snarky Discord chatbot, optimize for brevity' is a poor price/task fit when the same catalog has claude-haiku-5-5 at $0.10/$0.50 \u2014 recommending a cheaper default (with the expensive model still one /model away) is an obvious ranked improvement that was skipped, probably because model choice felt like the operator's call.",
+  "No regression test for anything built. The repo's 'test command' is only compileall + import, so all three branches pass 2/2 without exercising a single line of new logic; an expert would have added a small test for the prompt split (static prefix byte-identical across two turns, dated line last) and the client cache (same provider twice \u2192 one client), rather than leaving the evidence entirely in a simulator the reviewer cannot re-run. Rate limiting / 429 handling for a shared multi-user bot is also absent from both built work and proposals."
+ ],
+ "wrong": [
+  "Real bug in the prompt-cache branch: the gate is `os.environ.get(\"RAMP_ROUTER_API_KEY\") and any(host in base_url ...)`, which ignores ROUTER_MIGRATE_DISABLE=1. With the key set and the runtime disabled \u2014 exactly the documented rollback path \u2014 prompt_cache_key is still injected into extra_body and sent to api.openai.com directly, where it is an unknown field. The disable escape hatch the migration advertises is therefore not safe on this branch.",
+  "Same branch hardcodes ROUTER_HOSTS = (\"api.openai.com\", \"api.router.com\") in app code, duplicating knowledge that lives in the runtime. Combined with i1/p4 (which unlock hosts via unlock_hosts=...), the two drift: traffic the runtime does route via api.x.ai would silently stop getting the cache key. The gate should ask the runtime whether this client is routed, not pattern-match base URLs.",
+  "client-reuse uses `== None` rather than `is None` for the walrus check \u2014 harmless here but wrong idiom, and it would misbehave for any client object defining __eq__. Minor.",
+  "The claimed cache numbers (8,832/9,020 tokens cached, cost halved, -90% on Claude) and the -50% Flex figure are honestly attributed to the fact sheet rather than to this app, which is the right call \u2014 but they are measured on gpt-4o-mini and gpt-5.4-mini, i.e. not on this app's models, so the i2 'gains' text reads more confidently than the evidence supports.",
+  "The README line 'if Router refuses a request before generating ... that one request is retried against OpenAI directly' describes runtime behaviour that applies only to the api.openai.com path; under the `router` provider from i1 there is no second path (the report itself states this in i1's 'loses'), so an operator reading only the README could believe the `router/*` models have a fallback they do not have."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 13.8,
+  "usd": 7.2454,
+  "check_ok": true,
+  "verified": 1,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 11,
+  "kinds": {
+   "move": 1,
+   "stays": 1,
+   "improvement": 7,
+   "needs-decision": 1,
+   "note": 1
+  },
+  "improvements": 7,
+  "built": 3,
+  "levels": {
+   "-": 7
+  },
+  "branch_ok": 3,
+  "report_ok": true
+ }
+}

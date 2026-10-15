@@ -1,0 +1,558 @@
+{
+  "version": 6,
+  "summary": "OpenUI's production LLM traffic is one call: the streaming chat.completions in backend/openui/server.py that serves every `gpt*` generation (create a component, refine it, convert it to a framework) for the browser. That client is now wrapped with the vendored runtime, so the call translates to Router's /v1/responses when RAMP_ROUTER_API_KEY is set and goes to OpenAI untouched when it is not; verified end to end against the real Router, streaming SSE back in the Chat Completions shape the frontend already parses. router.policy.json pins that traffic to the standard tier and tags it product/team -- someone watches every one of these generations stream, so Flex queueing is not a trade worth the discount. Everything else stays where it was and says why: Groq, the local LiteLLM sidecar and Ollama are not routable hosts and do not name catalog models; the four model-list probes have no runtime translation; the frontend's OpenAI client is the browser calling OpenUI's own proxy (baseURL is the app's own origin, auth headers stripped), so routing it would mean putting a Router key in a browser; and openui/eval/* is offline research tooling on retired model ids. As CTO the bigger finding is that OpenUI's model layer was frozen in 2024 and quietly broken in three places: the picker offered three ids Router cannot serve and defaulted to gpt-3.5-turbo, every request's output cap was computed as `4096 - input_tokens` (negative, and rejected outright, once the component being refined passed ~4k tokens), and the daily quota counted SSE chunks and multiplied by 20 whenever the model id contained \"gpt-4\" -- which charged gpt-4o-mini, the cheapest model on the list, 20x. Six improvements are built and tested on branches; eight more are proposed for an apply session.",
+  "reviewed": "I read every LLM call the scanner found plus six it missed in openui/eval/ (clients built inside functions), then the frontend paths that drive them: the model picker, the prompt assembly, the SSE parse and the markdown-to-HTML extraction. Model choice was settled with live side-by-side runs through Router on OpenUI's own system prompt rather than from the catalog alone -- that is how gpt-5-nano and glm-5p3-flash turned out to return zero characters of HTML at default reasoning effort, how claude-sonnet-5-5 turned out to reject the temperature the UI's slider always sends, and how prompt_cache_key turned out to pay 46% on gpt-4o-mini and cost 24% more on claude-haiku-5-5. Levers I did not take: Flex on the interactive path (measured on this key: gpt-5.4-mini already serves standard with no tier field, and a queued Flex stream would be visible to the user), Jev auto routing and Decisions/System One (not measured, limited availability, and the app has one task not a routing problem), and web_search / code_interpreter (OpenUI generates markup, it does not need to look anything up).",
+  "calls": [
+    {
+      "site": "backend/openui/server.py:149",
+      "feature": "openui/server.py:chat_completions",
+      "model": "picker: gpt-4o-mini and friends",
+      "task": "generate and refine Tailwind HTML, and convert it to a framework",
+      "latency": "user_waiting",
+      "now": "router",
+      "item": "m1"
+    },
+    {
+      "site": "backend/openui/server.py:165",
+      "feature": "openui/server.py:chat_completions",
+      "model": "groq/*",
+      "task": "same generation, on Groq's own models",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "backend/openui/server.py:179",
+      "feature": "openui/server.py:chat_completions",
+      "model": "litellm/*",
+      "task": "same generation, through the local LiteLLM sidecar",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "backend/openui/server.py:199",
+      "feature": "openui/server.py:chat_completions",
+      "model": "ollama/llava, ollama/moondream",
+      "task": "same generation from a screenshot, on a local vision model",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "backend/openui/server.py:206",
+      "feature": "openui/server.py:chat_completions",
+      "model": "ollama/*",
+      "task": "same generation, on a local model",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s1"
+    },
+    {
+      "site": "backend/openui/server.py:406",
+      "feature": "openui/server.py:get_openai_models",
+      "model": "n/a",
+      "task": "probe OpenAI to decide whether to offer the OpenAI group",
+      "latency": "interactive",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "backend/openui/server.py:425",
+      "feature": "openui/server.py:get_groq_models",
+      "model": "n/a",
+      "task": "list Groq's models for the picker",
+      "latency": "interactive",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "backend/openui/server.py:434",
+      "feature": "openui/server.py:get_litellm_models",
+      "model": "n/a",
+      "task": "list the sidecar's models for the picker",
+      "latency": "interactive",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "backend/openui/litellm.py:106",
+      "feature": "openui/litellm.py:generate_config",
+      "model": "n/a",
+      "task": "list an OpenAI-compatible endpoint's models to build the sidecar config",
+      "latency": "background",
+      "now": "provider",
+      "item": "s2"
+    },
+    {
+      "site": "frontend/src/api/openai.ts:184",
+      "feature": "browser createOrRefine",
+      "model": "picker",
+      "task": "POST the generation to OpenUI's own backend",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s3"
+    },
+    {
+      "site": "frontend/src/api/openai.ts:245",
+      "feature": "browser convert",
+      "model": "picker",
+      "task": "POST the framework conversion to OpenUI's own backend",
+      "latency": "user_waiting",
+      "now": "provider",
+      "item": "s3"
+    },
+    {
+      "site": "backend/openui/eval/prompt_to_img.py:63",
+      "feature": "eval/prompt_to_img",
+      "model": "gpt-3.5-turbo",
+      "task": "generate components for the eval dataset, then screenshot them",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/synthesize.py:40",
+      "feature": "eval/synthesize",
+      "model": "gpt-3.5-turbo-1106",
+      "task": "synthesize prompt/name/emoji variants for the dataset",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/model.py:37",
+      "feature": "eval/model",
+      "model": "gpt-4-vision-preview",
+      "task": "LLM judge: score a component from its screenshots",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/evaluate.py:58",
+      "feature": "eval/evaluate",
+      "model": "gpt-4-vision-preview",
+      "task": "LLM judge: score a component from its screenshots",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/evaluate_weave.py:148",
+      "feature": "eval/evaluate_weave",
+      "model": "whatever the run names",
+      "task": "generate a component under evaluation",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/evaluate_weave.py:294",
+      "feature": "eval/evaluate_weave",
+      "model": "whatever the run names",
+      "task": "LLM judge for the weave evaluation",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    },
+    {
+      "site": "backend/openui/eval/promptsearch.py:69",
+      "feature": "eval/promptsearch",
+      "model": "gpt-4o",
+      "task": "propose an improved system prompt from eval results",
+      "latency": "background",
+      "now": "provider",
+      "item": "s4"
+    }
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the generation path through Router",
+      "summary": "Wrap the module-level OpenAI client with the vendored runtime so every gpt* generation translates to Router's /v1/responses when RAMP_ROUTER_API_KEY is set.",
+      "calls": ["backend/openui/server.py:149"],
+      "gains": "One gateway key, per-request Router metadata and spend, and every Responses lever (tier, fallbacks, cache key, timeouts) reachable from router.policy.json without touching the request shape the frontend speaks. Unchanged until the key is set; ROUTER_MIGRATE_DISABLE=1 turns it back off.",
+      "loses": "nothing",
+      "price": "no change by itself: the same model at the same list price. Router reported usage.cost exactly on every call measured.",
+      "why": "This is the whole of OpenUI's production LLM traffic: one streaming chat.completions call behind the app's own /v1/chat/completions proxy, serving create, refine and convert for every model id starting with `gpt`. The runtime translates Chat Completions to Responses in the request path and the SSE stream back, so the browser keeps parsing exactly the chunk shape it parses today. The client was also renamed `openai` -> `openai_client`, because the old name shadowed the openai module and the route checker could not tell a wrapped client from module-level package use.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Drove the real /v1/chat/completions endpoint with TestClient against the live Router: 200, one request to /v1/responses, provider=openai, model gpt-4o-mini-2024-07-18, 36 SSE chunks translated back, output was valid Tailwind HTML."},
+        {"check": "router-live", "result": "pass", "detail": "Same endpoint on gpt-6-luna with the real OpenUI system prompt: 200, 1,209 chunks, 4,508 characters of body-only HTML with frontmatter, 53 class attributes."},
+        {"check": "simulator", "result": "pass", "detail": "check --run: 1 request reached router-sim, 1 valid, 0 invalid, on /v1/responses with feature=openui/server.py:chat_completions."},
+        {"check": "router-live", "result": "info", "detail": "chat_to_responses on gpt-6-luna drops `temperature` (catalog says temperature:false) and keeps it on gpt-4o-mini, so the UI's temperature slider cannot 400 a model that rejects it. Sent raw, claude-sonnet-5-5 returned 400 '`temperature` is deprecated for this model.'"},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed, identical to the recorded baseline (both pytest failures pre-exist: tests/test_openui.py asserts a Hello World JSON root and a POST /items/ route that OpenUI does not have)."}
+      ],
+      "commit": "7b56050",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "trade-off",
+      "title": "Pin the interactive path to the standard tier",
+      "summary": "router.policy.json sets service_tier \"default\" on routed requests and tags them product/team, giving up the Flex discount on traffic a human is watching.",
+      "calls": ["backend/openui/server.py:149"],
+      "gains": "No chance of a queued generation on the one path where a person is watching HTML appear. It is also what makes moving the default model to a Flex-eligible id (i2) safe, and the metadata labels put OpenUI's spend under a product/team tag in Router.",
+      "loses": "The Flex discount on the interactive path, measured at -50% on gpt-5.4-mini in the fact sheet. On the models OpenUI offers today this costs nothing (gpt-4o-mini has no Flex tier at all), but it does forgo a real saving on the gpt-5.x and gpt-6.x ids if Flex ever became acceptable here.",
+      "price": "no change on this account today; forgoes up to -50% on Flex-eligible models",
+      "why": "Router's docs say cost-efficient routing is on by default and the fact sheet's test account had allow_flex_tier_default: true, with one measured Flex call taking 61 s and streamed Flex attempts given a 25 s deadline before falling back. A 25 s stall in front of someone watching a component render is a broken product, so the interactive path should state its tier rather than inherit an account setting. Measured on this key first: gpt-5.4-mini with no tier field already came back service_tier=default, so this account is not on Flex by default and the pin changes nothing today -- it is the guard, not a fix.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Two live /v1/responses calls on gpt-5.4-mini: no tier field -> service_tier=default, cost $3.5475e-05; service_tier=\"default\" -> service_tier=default, same cost. The account default is standard, not Flex, for this model."},
+        {"check": "simulator", "result": "pass", "detail": "policy_for('openui/server.py:chat_completions') resolves to service_tier default plus product/team/surface metadata, and _apply_policy puts service_tier=default on the Router-bound body."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed, identical to baseline."}
+      ],
+      "commit": "8c6e653",
+      "branch": null,
+      "depends_on": ["m1"],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "Groq, LiteLLM and Ollama keep their own endpoints",
+      "summary": "Four generation calls stay on the provider: none of their hosts or model ids are something Router serves.",
+      "calls": [
+        "backend/openui/server.py:165",
+        "backend/openui/server.py:179",
+        "backend/openui/server.py:199",
+        "backend/openui/server.py:206"
+      ],
+      "gains": "nothing changes for them",
+      "loses": "nothing: they carry no traffic Router could serve as-is",
+      "price": "no change",
+      "why": "The runtime routes OpenAI and Anthropic hosts; api.groq.com, the LiteLLM sidecar on 0.0.0.0:4000 and Ollama on 127.0.0.1:11434 are none of those, and their model ids (llama3-70b, gemini-1.5-flash, llava) are not Router catalog ids, so wrapping those clients would be a no-op even with unlock_hosts. Each group also exists for a reason Router does not replace: Groq for its own latency, Ollama for running with no cloud call at all. The LiteLLM sidecar is the exception -- Router serves the vendors it was added for, which is improvement i7.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "check --all reports each of these as 'client not wrapped'; their base URLs come from config.GROQ_BASE_URL, config.LITELLM_BASE_URL and config.OLLAMA_HOST. server.py:199 is the native ollama.chat call, which the scanner does not see at all."}
+      ],
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s2",
+      "kind": "stays",
+      "title": "The four model-list probes stay on their providers",
+      "summary": "models.list() has no runtime translation, so the picker's provider probes keep talking to OpenAI, Groq, the sidecar and any OpenAI-compatible endpoint.",
+      "calls": [
+        "backend/openui/server.py:406",
+        "backend/openui/server.py:425",
+        "backend/openui/server.py:434",
+        "backend/openui/litellm.py:106"
+      ],
+      "gains": "nothing changes for them",
+      "loses": "Nothing is lost today, but one consequence must be named: after m1 the OpenAI probe at server.py:406 still needs OPENAI_API_KEY, so a deployment that sets only RAMP_ROUTER_API_KEY gets an empty OpenAI group in the picker even though generation would work. Improvement i2 removes that probe.",
+      "price": "no change",
+      "why": "Router does serve GET /v1/models, but the vendored runtime deliberately keeps model lists on the provider (they are not generation traffic), so these calls cannot be routed by wrapping the client -- check --all reports them as a hard limit. The right fix is not to route them but to stop asking: the OpenAI group is a product decision OpenUI can make from data, which is what i2 does.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "check --all: 'hard limit: models -- Router has no endpoint for it' on all four sites."},
+        {"check": "price", "result": "info", "detail": "The ids server.py:406 unlocks -- gpt-3.5-turbo, gpt-4o, gpt-4-turbo -- are not in Router's live catalog (checked against .router-migrate/catalog_live.json), so they fall through to api.openai.com whatever the Router key says."}
+      ],
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s3",
+      "kind": "stays",
+      "title": "The frontend's OpenAI client is OpenUI's own proxy",
+      "summary": "frontend/src/api/openai.ts points at the app's own origin with auth headers stripped; it must not be pointed at Router.",
+      "calls": ["frontend/src/api/openai.ts:184", "frontend/src/api/openai.ts:245"],
+      "gains": "nothing changes for them",
+      "loses": "nothing: this traffic reaches Router one hop later, through the backend",
+      "price": "no change",
+      "why": "The scanner flagged both calls as an unresolved handoff and suggested wrapping them. They should not be wrapped. The client is `new MyOpenAI({ apiKey: 'sk-fake', baseURL: `${host()}/v1` })` with authHeaders() overridden to return nothing -- the OpenAI SDK used as an HTTP client for OpenUI's own /v1/chat/completions. Routing it would send browser traffic straight to api.router.com and require a Router key in a browser bundle, skipping the session check, the daily quota and the server-side model dispatch. The generation these calls start is already on Router, via m1.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "frontend/src/api/openai.ts:3-19: host() returns window.location's own origin; baseURL is `${host()}/v1`; MyOpenAI.authHeaders() returns {}. The backend route it hits is server.py's chat_completions."}
+      ],
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s4",
+      "kind": "stays",
+      "title": "The offline eval scripts stay as they are",
+      "summary": "Six LLM calls in openui/eval/ are research tooling run by hand on retired model ids, not production traffic.",
+      "calls": [
+        "backend/openui/eval/prompt_to_img.py:63",
+        "backend/openui/eval/synthesize.py:40",
+        "backend/openui/eval/model.py:37",
+        "backend/openui/eval/evaluate.py:58",
+        "backend/openui/eval/evaluate_weave.py:148",
+        "backend/openui/eval/evaluate_weave.py:294",
+        "backend/openui/eval/promptsearch.py:69"
+      ],
+      "gains": "nothing changes for them",
+      "loses": "The chance to run them cheaper: they are unattended batch work, which is exactly what Flex is for. That is improvement i9.",
+      "price": "no change",
+      "why": "These are scripts with `if __name__ == '__main__'` entry points (one, synthesize.py, calls asyncio.run at import) that build an AsyncOpenAI inside a function or a property -- which is why the scanner saw none of them. They name gpt-3.5-turbo, gpt-3.5-turbo-1106, gpt-4-vision-preview and gpt-4o, none of which are Router catalog ids, so wrapping their clients would leave every call on the provider anyway. Porting them is worth doing deliberately (i9), not as a side effect of the migration.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "Found by grepping openui/eval for chat.completions.create; clients come from AsyncOpenAI()/OpenAI() constructed per call, per property (evaluate_weave.py:115-129) or in a __main__ block (prompt_to_img.py:119-123)."}
+      ],
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Stop deriving the output cap from a 4096-token window",
+      "summary": "Replace `max_tokens = 4096 - input_tokens - 20` with a clamped cap on the answer, so refining a large component stops being truncated or rejected.",
+      "gains": "Refining a component larger than about 2k tokens stops getting an output cap too small to re-emit it, and refining one larger than about 4k tokens stops being rejected by the provider outright. The floor also matters on Router: a reasoning model with too small a cap returns `incomplete` with no text.",
+      "loses": "A generation can now cost up to 8,192 output tokens instead of silently being capped lower -- the ceiling is OPENUI_MAX_OUTPUT_TOKENS, so the bill for a long refine goes up where it used to be truncated. The old arithmetic also acted as an accidental brake on very long prompts; nothing replaces it, because no model OpenUI can reach has a 4k window.",
+      "price": "up to 8,192 output tokens per generation instead of an unpredictable 0-4,076; at gpt-6-luna's $0.50/1M that is at most $0.004 per generation",
+      "why": "4096 was gpt-3.5-turbo's total context, and the code spent it on the prompt first. gpt-4o-mini allows 16k output tokens and every id Router serves allows 128k, so subtracting the prompt from 4096 has been pure loss for two years. Measured with OpenUI's own count_tokens: a 90-block component is 2,886 input tokens and got a 1,190-token cap; a 140-block component is 4,635 input tokens and got -559, which the provider rejects. This is the single change most likely to be felt by a user, and it is nine lines.",
+      "evidence": [
+        {"check": "side-by-side", "result": "pass", "detail": "count_tokens on a realistic refine payload: 90 blocks -> 2,886 input tokens -> old cap 1,190; 140 blocks -> 4,635 -> old cap -559. New: output_token_budget(4096)=4096, (None)=4096, (99999)=8192, (-5)=4096, ('2048')=2048."},
+        {"check": "router-live", "result": "pass", "detail": "Measured earlier in the same session that gpt-5-nano and glm-5p3-flash return 0 characters of HTML at a 6,000-token cap with default reasoning effort, which is why the budget has a 1,024-token floor."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."}
+      ],
+      "commit": "d8c432d",
+      "branch": "router-migrate/improve/output-budget",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Offer the models Router serves and cap reasoning effort",
+      "summary": "Replace the probe-gated 2024 model list with openui/catalog.py, default to gpt-6-luna, and send an explicit reasoning effort per model.",
+      "gains": "The picker offers models Router can actually serve, with a default that is both cheaper per token than gpt-4o-mini ($0.10/$0.50 vs $0.15/$0.60) and measurably better at the task. It also removes the hidden OPENAI_API_KEY dependency named in s2: with a Router key the list is data, not a probe. And an explicit reasoning effort stops the cheap reasoning models returning nothing at all, while cutting the default model's cost and wall time by about 15%.",
+      "loses": "Two of the five offered ids (gpt-6-luna, gpt-5.6-luna) exist only in Router's catalog, so they are offered only when RAMP_ROUTER_API_KEY is set -- running OpenUI without Router gets a shorter list. gpt-3.5-turbo, gpt-4o and gpt-4-turbo are no longer offered at all, and anyone who had one selected is moved to the first model the backend lists. Generations will not match older ones: different model, different HTML. The frontend changes could not be typechecked here (no node_modules in this environment).",
+      "price": "the default moves from gpt-3.5-turbo (unroutable) to gpt-6-luna at $0.10/$0.50 per 1M. One measured generation: $0.00081 at effort low vs $0.00097 unset, and $0.00033 for the thinner gpt-4o-mini answer.",
+      "why": "OpenUI's model layer was frozen in 2024. Three of the four ids it offered are absent from Router's live catalog, so with Router on they could never route; the default, gpt-3.5-turbo, is also the weakest model on the list at writing Tailwind. Live side-by-side on OpenUI's own system prompt settled the replacement: gpt-6-luna returned a complete 56-class-attribute component, gpt-4o-mini returned 19 class attributes in 463 tokens, and gpt-5-nano and glm-5p3-flash burned a 6,000-token cap on reasoning and returned nothing. Hence a table with an effort per model rather than a bare list of ids.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Side-by-side, OpenUI's system prompt + 'a pricing section with three tiers', 6,000-token cap, one sample each: gpt-6-luna 1689 out/$0.00097/12.1s/56 class attrs; gpt-6-luna effort=low 1405/$0.00081/10.3s/55; effort=none 1174/$0.00068/8.3s/53; gpt-5.6-luna 3120/$0.00419/24.2s/70; gpt-4o-mini 463/$0.00033/5.0s/19; gpt-5-nano unset 5952/$0.00240/49.8s/INCOMPLETE, 0 chars; gpt-5-nano effort=minimal 1930/$0.00079/12.4s/69."},
+        {"check": "router-live", "result": "pass", "detail": "GET /v1/models through the app returns ['gpt-6-luna','gpt-5.6-luna','gpt-4o-mini','gpt-5-nano','gpt-4.1-mini'] with a Router key and ['gpt-4o-mini','gpt-5-nano','gpt-4.1-mini'] without; a live generation on the new default returned 200 with 4,508 characters of body-only HTML."},
+        {"check": "router-live", "result": "pass", "detail": "Image input through the app's own endpoint (a data URL, as the frontend sends): gpt-6-luna, gpt-5.6-luna and gpt-4o-mini all identified the image correctly, so an image no longer downgrades a capable model to gpt-4o-mini."},
+        {"check": "simulator", "result": "pass", "detail": "chat_to_responses puts reasoning:{effort:low} on gpt-6-luna and nothing on gpt-4o-mini, and drops temperature only for the model whose catalog entry forbids it."},
+        {"check": "typecheck", "result": "not-run", "detail": "frontend/node_modules is absent in this environment, so the three TypeScript edits (default atom, stored-model fallback, vision downgrade) are unverified by tsc. The repo has no typecheck baseline either."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."}
+      ],
+      "commit": "b2a14c9",
+      "branch": "router-migrate/improve/model-catalog",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Bill the quota on reported tokens, not chunks and a 20x guess",
+      "summary": "Ask Router for stream usage and bill what it reports, with a weight from the model's real price instead of `20 if \"gpt-4\" in model`.",
+      "gains": "The hosted daily quota starts measuring the thing it is named after. gpt-4o-mini stops being charged 20x -- it was cutting hosted users off after roughly 35k tokens of the cheapest model on the list -- and output is counted in tokens rather than SSE chunks. Router's USD cost for each request arrives in the same chunk and is logged, which is the input a real dollar quota needs (i10).",
+      "loses": "Quota numbers already in the database are in the old units, so one day's history is not comparable across the change. Groq, LiteLLM and Ollama keep the chunk-count estimate: this environment cannot test what those two proxies do with stream_options, so they were left alone rather than guessed at. And the weights are a snapshot of Router's prices on 2026-10-15 in openui/catalog.py; they need a human when prices move.",
+      "price": "no change to what is spent; it changes what the quota counts. gpt-4o-mini's weight drops from 20 to 1.2, so a hosted user gets roughly 16x more of it per day.",
+      "why": "Two independent bugs made the quota meaningless. `output_tokens += 1` per SSE chunk is a chunk count, and `input_tokens` was a cl100k_base estimate applied to every model. Worse, `20 if \"gpt-4\" in data[\"model\"]` matched gpt-4o-mini and gpt-4.1-mini by substring, charging the two cheapest OpenAI models the 2023 gpt-4 premium. Router already reports exact usage and a USD cost, so the fix is to ask for it.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "A live generation through the endpoint returned the usage chunk {prompt_tokens: 38, completion_tokens: 72, cost: 4.89e-05} -- 72 real output tokens where the old code would have billed 73 chunks, and a USD figure the old code never saw."},
+        {"check": "simulator", "result": "pass", "detail": "The final usage chunk the browser receives carries choices: [] alongside usage, which the frontend's `chunk.choices[0]?.delta?.content ?? ''` already tolerates; checked against the bytes the endpoint actually streams, not just the model."},
+        {"check": "price", "result": "pass", "detail": "quota_weight: gpt-6-luna 1.0, gpt-5-nano 0.8, gpt-4o-mini 1.2 (was 20), gpt-5.6-luna 2.4, gpt-4.1-mini 3.2 (was 20), gpt-4 120 (was 20), unknown ids 1.0 (unchanged)."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."}
+      ],
+      "commit": "ffb48ea",
+      "branch": "router-migrate/improve/real-usage",
+      "depends_on": ["i2"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Label Router spend by OpenUI surface",
+      "summary": "The frontend names the surface (create / refine / convert, with or without a screenshot) and the backend forwards it as Router's spend label.",
+      "gains": "Router's spend views split OpenUI into the surfaces it actually has instead of one `server.py:chat_completions` line, so it becomes possible to see that, say, screenshot replication is most of the bill. It is also the prerequisite for per-surface policy: a different tier, fallback list or cache key for convert than for create.",
+      "loses": "A browser-supplied value now reaches Router, so it has to be an allowlist -- which means adding a surface needs a change in two places (the TypeScript union and ROUTER_FEATURES). The five labels replace the automatic <file>:<function> label, so any Router-side saved view or report keyed on the old label stops matching.",
+      "price": "no change",
+      "why": "The runtime's default label is the calling <file>:<function>, which for OpenUI is one function for the whole product -- so Router's per-request tags, the thing that makes a gateway worth having, carried no information. The surface is known in the browser and nowhere else (the backend cannot reliably tell a refine from a create by inspecting the payload), so the browser has to say.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "Five live requests: X-OpenUI-Feature create -> feature=openui/create, refine-image -> openui/refine-image, convert -> openui/convert; an invented surface and a missing header both fell back to openui/server.py:chat_completions. All 200."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."},
+        {"check": "typecheck", "result": "not-run", "detail": "No node_modules here, so the TypeScript Feature union and the two create() call-site changes are unverified by tsc."},
+        {"check": "other", "result": "info", "detail": "This branch also edits router.policy.json (and its compiled copy) to name the five surfaces. i5 and i6 edit the same two files, so applying more than one of them needs the policy merged and `router-migrate policy` re-run."}
+      ],
+      "commit": "e312571",
+      "branch": "router-migrate/improve/feature-labels",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Fall through to another model, and another vendor",
+      "summary": "router.policy.json gives every routed request a ranked candidate list behind the picker's choice, ending at a different vendor.",
+      "gains": "A refusal before the first token -- 403, 404, a rate or spend limit, a 5xx -- produces a component from the next candidate instead of a 500 in the user's face, and the last candidate is a different vendor entirely, so an OpenAI-wide incident is survivable. Verified live that the fall-through is real and crosses vendors.",
+      "loses": "A fallback generation can look different: claude-haiku-5-5 answered the same prompt with a full <!DOCTYPE html> document and a Tailwind CDN script instead of the body-only HTML the system prompt asks for, so the component arrives with a document wrapper (the frontend's parser copes, but the result is not what the primary would have produced). The response does not say which candidate served, so this failover is invisible in the app's own logs. And the docs give no fall-through once a stream has started, so a provider that dies mid-stream still breaks the generation.",
+      "price": "the serving candidate's price, only when it serves. gpt-5.6-luna is $0.20/$1.20 and claude-haiku-5-5 $0.10/$0.50 against gpt-6-luna's $0.10/$0.50, so a fallback generation can cost up to ~2.4x the primary.",
+      "why": "The app named exactly one model, so every provider-side refusal was a user-visible failure. A ranked list is the one Router lever that turns a class of outage into a style difference, and the runtime's capability guard keeps it honest -- it drops candidates that cannot do what the request needs, which matters because OpenUI sends images on two of its five surfaces.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "models=[gpt-4o-mini, claude-haiku-5-5] -> served gpt-4o-mini (openai); models=[gpt-5.3-codex, claude-haiku-5-5] -> served claude-haiku-5-5 (anthropic), i.e. this key cannot use gpt-5.3-codex and the fall-through covered it; models=[openai:not-a-real-model, gpt-4o-mini] -> served gpt-4o-mini."},
+        {"check": "simulator", "result": "pass", "detail": "The compiled policy turns model gpt-6-luna into models [gpt-6-luna, gpt-5.6-luna, gpt-4o-mini, claude-haiku-5-5], keeps service_tier default alongside the list (Router ignores Flex once there is a list), drops the primary from its own candidates, and logged '1 of 3 candidates dropped by the capability guard' for a plain text request."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."},
+        {"check": "other", "result": "info", "detail": "Edits router.policy.json and its compiled copy, same files as i4 and i6: applying more than one needs the policy merged and `router-migrate policy` re-run."}
+      ],
+      "commit": "b6e03b8",
+      "branch": "router-migrate/improve/fallbacks",
+      "depends_on": ["m2"],
+      "excludes": []
+    },
+    {
+      "id": "i6",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Cache the refine prefix with a prompt_cache_key",
+      "summary": "One policy line gives routed requests a prompt_cache_key, which made a second refine of the same component 46% cheaper on gpt-4o-mini.",
+      "gains": "Refining is iterative by design: the same component goes back with a different instruction, so system prompt + HTML is an identical prefix, and for any component worth refining it clears the ~1,024-token minimum a provider needs before it caches. Measured: 5,632 of 5,849 input tokens cached and $0.000916 -> $0.000493 on the second call.",
+      "loses": "It is not free everywhere. The same four calls on claude-haiku-5-5 cached nothing either way and the keyed pair cost about 24% MORE ($0.001245 vs $0.001002), consistent with paying a cache-write premium that was never read back. Claude appears here only as i5's last fallback candidate, so the trade is worth taking -- but if Claude becomes a model the picker offers, it needs a feature entry without the key. The key is the feature label, so every user's refines share one cache namespace; that is provider affinity, not data sharing, but it is worth knowing.",
+      "price": "-46% on the input tokens of a repeat refine on gpt-4o-mini; +24% on claude-haiku-5-5 if a fallback lands there",
+      "why": "Router cannot cache anything itself, but it can tell a provider which requests belong together, and on OpenAI models that affinity is what makes the hit land -- the unkeyed control sent the same prefix twice and cached zero both times. Measuring rather than assuming is what turned up the Claude regression, which the fact sheet's own measurement (-90% on claude-haiku-4-5) would have led me to expect the other way.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "60-block component, same prefix, different instruction. gpt-4o-mini: no key in=5851 cached=0 $0.000916, again in=5849 cached=0 $0.000916; with key in=5851 cached=0 $0.000916, again in=5849 cached=5632 $0.000493. The keyed arm ran second, so the prefix had already been sent twice unkeyed and still cached nothing."},
+        {"check": "router-live", "result": "fail", "detail": "Same four calls on claude-haiku-5-5: cached=0 on all four, and the keyed pair cost $0.001245/$0.001244 against $0.001002 unkeyed -- about 24% more for no cache read. Recorded as a measured limit of this item, not a blocker, because Claude is only a fallback here."},
+        {"check": "simulator", "result": "pass", "detail": "_apply_policy puts prompt_cache_key=openui/server.py:chat_completions ($feature) on the Router-bound body alongside service_tier default."},
+        {"check": "tests", "result": "pass", "detail": "2 failed / 4 passed on the branch, identical to baseline."},
+        {"check": "other", "result": "info", "detail": "Edits router.policy.json and its compiled copy, same files as i4 and i5."}
+      ],
+      "commit": "680ee95",
+      "branch": "router-migrate/improve/prompt-cache",
+      "depends_on": ["m2"],
+      "excludes": []
+    },
+    {
+      "id": "i7",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Retire the LiteLLM sidecar; Router is the multi-vendor group",
+      "summary": "Drop the LiteLLM subprocess, its generated YAML and its five provider keys, and offer Router's Claude, Gemini, DeepSeek, GLM, MiniMax, Nemotron, grok and gpt-oss ids directly.",
+      "gains": "Deletes a whole subsystem: a `litellm --config` subprocess started from __main__, openui/litellm.py's config generator, the litellm extra dependency, a second OpenAI-compatible client and an extra network hop per request -- and the five provider keys (GEMINI, ANTHROPIC, COHERE, MISTRAL, OPENAI_COMPATIBLE) it exists to hold, replaced by the one Router key. In exchange the picker gains ~60 catalog ids across six vendors, each with Router's spend labels, fallbacks and tier controls, which the sidecar path cannot use at all.",
+      "loses": "Cohere and Mistral are not in Router's catalog, so those two vendors disappear unless the sidecar is kept for them alone. Gemini ids are BYOK -- they need the caller's own Google key and return 403 provider_key_required without it -- so 'Gemini works' is not automatic. Anyone running with OPENAI_COMPATIBLE_ENDPOINT against a local gateway loses that path. And model ids change, so saved components' metadata and anyone's stored model selection move again.",
+      "price": "varies by id: claude-haiku-5-5 $0.10/$0.50 and deepseek-v4-flash $0.13/$0.26 are at or below what the sidecar reached for, while a Gemini id bills against the operator's own Google key",
+      "why": "The sidecar exists only because one app needed many vendors and OpenAI's SDK speaks to one. That is the problem Router solves, and Router solves it without a subprocess to supervise, a YAML to generate at startup, or five keys to distribute. It is a rework rather than a change because __main__.py, the picker's provider groups and the backend's prefix dispatch all have to move together, and because dropping Cohere and Mistral is a product decision someone should make deliberately.",
+      "branch": null,
+      "depends_on": ["i2"],
+      "excludes": []
+    },
+    {
+      "id": "i8",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Ask for structured output instead of scraping markdown",
+      "summary": "Have the model return {name, emoji, html} against a schema, and delete the frontmatter-and-code-fence heuristics in lib/markdown.ts.",
+      "gains": "Removes the most fragile code in the product. parseMarkdown currently strips a '```yaml' prefix Mixtral once emitted, collapses double newlines, regexes a name: and emoji: line out of the first 1,000 characters, re-splits on '---', hunts html-typed mdast nodes, and falls back to rendering 'Couldn't find any HTML, LLM Response:' when it loses -- four TODOs admit it is brittle. Router supports structured output across vendors, so a schema makes the shape the model's problem, and the parse becomes JSON.parse.",
+      "loses": "The live preview is the cost. OpenUI streams HTML into the iframe as it arrives; with a JSON envelope the HTML arrives as an escaped string inside a JSON object, so progressive rendering needs an incremental JSON-string decoder in the render loop, or the preview waits for the whole response. The system prompt also has to stop asking for frontmatter, which changes every generation's output, and models vary in how well they fill a schema -- one of the samples taken here (claude-haiku-5-5) ignored a plain instruction to emit body-only HTML.",
+      "price": "roughly neutral; a schema adds a little input and JSON escaping adds a little output",
+      "why": "Every generation's value depends on OpenUI correctly finding the HTML in a prose response, and the only tool it has is heuristics over markdown. The measurements here show why that is a standing risk: the same prompt came back body-only from gpt-6-luna, inside a ```html fence from gpt-4o-mini, and as a full HTML document with a CDN script from claude-haiku-5-5. Router makes the model easy to change, which makes this parse the limiting factor.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i9",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Put the offline eval pipeline on Router at Flex",
+      "summary": "Route openui/eval/*, move its retired model ids onto catalog ids, and run the batch arms on the Flex tier.",
+      "gains": "The eval pipeline is exactly the workload Flex is for: nobody is waiting, it runs over a whole dataset, and the fact sheet measures Flex at -50% on gpt-5.4-mini. It also gets the eval runs off ids that no longer exist (gpt-4-vision-preview was retired; gpt-3.5-turbo-1106 and gpt-4o are not in Router's catalog), and spend labels per script so eval cost stops being indistinguishable from product cost.",
+      "loses": "Flex can queue -- one measured Flex call took 61 s -- so a full dataset run takes longer in wall time, and the eval scores themselves change because the judge and generator models change, which breaks comparability with any stored results. Six call sites in five files need the client construction moved out of functions and __main__ blocks before they can be wrapped at all.",
+      "price": "about -50% on the Flex-eligible arms, plus whatever the model change costs or saves; claude-haiku-5-5 and gpt-6-luna at $0.10/$0.50 are an order of magnitude below gpt-4-vision-preview",
+      "why": "This is the one part of OpenUI where the latency/price dial should be turned the other way from the product, and Router is the only place it can be turned. It is listed below the product items because it changes nobody's experience -- but it is the cheapest unattended win available, and it stops the eval harness being the only code in the repo pointed at models that no longer exist.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i10",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Make the daily quota a dollar quota",
+      "summary": "Add a cost column to Usage, fill it from Router's usage.cost, and cap on dollars instead of weighted tokens.",
+      "gains": "Does what config.py has claimed since 2024: '700k puts us at a max of $1.00 spent per user over a 48 hour period'. A dollar cap needs no price table to maintain (i3's weights are a snapshot someone has to update), survives every model change, and stays correct when a fallback serves a request on a different vendor at a different price. Router already returns the figure on every routed request.",
+      "loses": "A schema migration: the Usage table is keyed (user, day) with two integer columns and the migration chain currently ends at 2024-05-14, so perform_migration needs a new step. Requests that Router does not serve (Ollama, Groq, the sidecar) report no cost, so they need an estimated price or a separate allowance -- a user could otherwise generate without limit on a local model, which today's token counter does bound. And the cap only works where usage is reported, so i3 is a prerequisite.",
+      "price": "no change to spend; it makes the limit mean what it says",
+      "why": "The quota is an abuse control for a public demo, and the only honest unit for that is money. i3 gets the real numbers flowing and logs the cost; this spends them. It is ranked below i3 because the schema migration and the no-cost-reported paths are where the work is, not in the arithmetic.",
+      "branch": null,
+      "depends_on": ["i3"],
+      "excludes": []
+    },
+    {
+      "id": "i11",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Give convert its own model and output budget",
+      "summary": "Stop making HTML-to-React conversion use whatever the picker is set to, and give it a larger cap and a stronger model.",
+      "gains": "Conversion is a different job from generation: a one-shot code translation, run rarely, where a wrong hook or a missing import is obvious and a truncated component is useless. It is also the one surface that sends no max_tokens at all, so it inherits whatever the server computes. A dedicated model (gpt-5.6-luna returned the richest output of everything measured, 70 class attributes) and a dedicated cap fit it better than the generation default.",
+      "loses": "A second model to keep current, a settings surface that no longer explains what conversion will use, and a higher per-conversion price -- gpt-5.6-luna is $0.20/$1.20 against gpt-6-luna's $0.10/$0.50, and the cap goes up too.",
+      "price": "roughly 2.4x the output price of the generation default, on a surface used far less often",
+      "why": "i4's labels make this visible and i2's table makes it cheap to express: convert is already a separate Router feature, so it can have its own model without a new abstraction. Ranked here because it improves one less-used surface, where i1-i3 fix things that are wrong on all of them.",
+      "branch": null,
+      "depends_on": ["i2", "i4"],
+      "excludes": []
+    },
+    {
+      "id": "i12",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Fail fast instead of hanging the browser",
+      "summary": "Set provider_timeout in router.policy.json so a stalled provider becomes a visible error rather than an open connection.",
+      "gains": "OpenUI holds an SSE connection open for the whole generation and the frontend has no timeout of its own, so a provider that accepts a request and then goes quiet leaves the user watching an empty preview indefinitely. A provider_timeout (1-660 s, and on a stream it bounds the idle gap between events) turns that into a 504 the app can show and the user can retry.",
+      "loses": "Router returns a timeout as a plain-text 504 with no JSON body and no x-request-id, which the app's exception handlers are not shaped for -- it would surface as a generic 500 until they are. Too tight a value would cut off a long legitimate generation: the slowest complete run measured here was 49.8 s, and a reasoning model on a large refine can exceed that. The value is a guess until someone measures the real distribution.",
+      "price": "no change, except that a truncated attempt is still billed",
+      "why": "Everything else here makes generation cheaper or better; this is the one that bounds the worst case. It is a change rather than a quick-win only because the error path has to be built to match -- the policy line itself is trivial.",
+      "branch": null,
+      "depends_on": ["m2"],
+      "excludes": []
+    },
+    {
+      "id": "i13",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Turn on shadow models to pick the next default",
+      "summary": "An account setting: sample 5-10% of real /v1/responses traffic against 1-3 candidate models and read the cost and latency off the Shadow Logs page.",
+      "gains": "Every model choice in this report rests on single samples of one prompt, which is the weakest evidence here. Shadow models put the same decision on real OpenUI prompts at real traffic mix, for cost and latency, without changing what any user sees. It is the cheapest way to know whether gpt-6-luna at effort low is the right default or just the best of six guesses.",
+      "loses": "Needs content recording switched on for the account, which means OpenUI's prompts and generated HTML are retained by Router -- a decision someone has to make for a public demo. It does not compare quality, only cost and latency, so the thing that actually matters for HTML generation still needs a human looking at components. Not available on BYOK keys.",
+      "price": "the sampled shadow calls, 5-10% of traffic on the candidates chosen",
+      "why": "A human switches this on at app.router.com; no code changes. Ranked as a quick-win because the effort is a toggle, and high because it is what would replace guesswork with evidence for the single highest-leverage decision in the product.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i14",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Put a spend cap on the hosted demo's Router key",
+      "summary": "An account setting: a per-key spend cap, so a bug in the app's own quota cannot run up an unbounded bill.",
+      "gains": "OpenUI's only cost control is a token counter in its own SQLite database, enforced only when ENV is PROD, computed from numbers this report shows were wrong in two ways. A Router-side cap is the backstop that does not depend on the app being correct: at the cap, requests return 401 and the spend stops.",
+      "loses": "At the cap every generation fails with a 401 that OpenUI will surface as a login error, since that is what it does with 401 today -- so hitting the cap looks like a broken auth flow rather than a budget. The docs also note caps apply after usage is recorded, so concurrent requests can overshoot.",
+      "price": "no change until the cap is hit",
+      "why": "A human sets this per key at app.router.com; no code changes. It is listed last because it changes nothing while things work -- and first among the things worth doing before pointing a public demo at a gateway key.",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Switchyard and Jev were considered and not proposed",
+      "summary": "Two Router strategies that look like a fit for the refine loop, and why the measurements here argue against proposing them yet.",
+      "gains": "",
+      "loses": "",
+      "why": "Switchyard switches model family within a conversation -- cheap model for easy turns, capable for hard ones -- which maps neatly onto OpenUI's refine loop ('make the heading bigger' versus 'make this look professional'). Two things stop it being a proposal. Router keeps no server-side state, so OpenUI has no conversation for Switchyard to reason about: each refine is a fresh request carrying the whole component inline. And the docs call it experimental and aimed at coding agents, with no measurement of quality on non-coding work. Jev auto routing has the same shape of appeal and is unmeasured, served on the systemone and decisions surfaces, which are documented as limited availability and were not reachable to test. Both are worth revisiting once i13's shadow logs show what the traffic actually looks like.",
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n2",
+      "kind": "note",
+      "title": "What this environment could not check",
+      "summary": "Three gaps a reviewer should know about before trusting the evidence above.",
+      "gains": "",
+      "loses": "",
+      "why": "First, frontend/node_modules is absent, so none of the TypeScript edits in i2 and i4 were typechecked or exercised by the frontend's own tests; they are small and mechanical (a default string, an array membership test, a header argument, a union type) but they are unverified. The repo has no typecheck baseline either, so the outside check will not catch it. Second, the two pytest tests in backend/tests/test_openui.py fail at the base commit and still fail -- they assert a Hello World JSON root and a POST /items/ route that OpenUI has never had -- so 'tests pass' here means 'identical to baseline: 2 failed, 4 passed', where the 4 are the compile-and-import smoke check. Third, every model-quality comparison is a single sample of a single prompt scored by proxies (count of class attributes, presence of frontmatter, whether a full HTML document came back). Those proxies were enough to catch a model returning nothing at all and a model ignoring the body-only instruction; they are not enough to rank two models that both work, which is what i13 is for.",
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

@@ -1,0 +1,389 @@
+{
+ "version": 6,
+ "summary": "Page Assist is a browser extension whose models are all chosen by the person using it: local Ollama, Chrome's built-in Gemini Nano, or a remote provider with that person's own key. Two of its code paths can reach Ramp's Router: the one OpenAI client every OpenAI-compatible provider shares, and the raw Anthropic Messages stream. Both now go through the vendored runtime, so requests to api.openai.com are translated to Router's /v1/responses and requests to api.anthropic.com go to Router's /v1/messages, while every other host that same code serves (Ollama, LM Studio, llama.cpp, Groq, OpenRouter, Vertex, Gemini, any custom base URL) is untouched. Because an extension has no runtime environment, the build now inlines whatever Router variables were set when it was built: a public build sets none, the runtime stays inactive and nothing changes, and only an operator who builds with RAMP_ROUTER_API_KEY set routes traffic. Each request carries the label the app already knows for it (chat, query-rewrite, title), and router.policy.json pins the standard tier for the two labels a person waits on so the move cannot make anyone wait longer. Embeddings, text to speech and the Anthropic model list have no Router endpoint and stay where they were.",
+ "reviewed": "Looked at model choice per task (the user picks the model, so the app has nothing to choose), cross-provider fallbacks (they would silently answer with a model the user did not pick), prompt caching for multi-turn chats, Flex for the one call nobody waits on, spend labels, and the complete absence of request timeouts. Caching, the Flex split and the labels went into the migration itself; the timeout gap became the one branch worth building, and making Router a provider the user can pick is proposed rather than built because it changes the settings UI and the model list.",
+ "calls": [
+  {
+   "site": "src/models/CustomChatOpenAI.ts:940",
+   "feature": "chat",
+   "model": "user-configured (any OpenAI-compatible model)",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "src/models/CustomChatAnthropic.ts:374",
+   "feature": "chat",
+   "model": "user-configured Claude model",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m2"
+  },
+  {
+   "site": "src/models/ChatOllama.ts:343",
+   "feature": "chat",
+   "model": "user-configured Ollama model",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "src/models/ChatChromeAi.ts:124",
+   "feature": "chat",
+   "model": "chrome built-in gemini-nano",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "src/models/OllamaEmbedding.ts:219",
+   "feature": "rag",
+   "model": "user-configured Ollama embedding model",
+   "task": "embedding",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "src/models/index.ts:150",
+   "feature": "chat",
+   "model": "user-configured Gemini model",
+   "task": "chat",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s4"
+  },
+  {
+   "site": "src/models/OAIEmbedding.ts:158",
+   "feature": "rag",
+   "model": "user-configured embedding model",
+   "task": "embedding",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s3"
+  },
+  {
+   "site": "src/services/openai-tts.ts:25",
+   "feature": "tts",
+   "model": "user-configured OpenAI speech model",
+   "task": "audio",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s3"
+  },
+  {
+   "site": "src/libs/openai.ts:43",
+   "feature": "model-list",
+   "model": "n/a",
+   "task": "model list",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s2"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route the shared OpenAI chat client",
+   "summary": "The one OpenAI client behind every OpenAI-compatible provider now sends its api.openai.com chat requests to Router.",
+   "calls": [
+    "src/models/CustomChatOpenAI.ts:940"
+   ],
+   "gains": "Every chat, follow-up rewrite and title generated against api.openai.com runs on one Router key, with spend recorded per feature; Chat Completions is translated to Router's /v1/responses, so no calling code changed",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Page Assist builds exactly one OpenAI client, in CustomChatOpenAI._getClientOptions, and reuses it for OpenAI, Vertex, OpenRouter, LM Studio, llama.cpp, Ollama's OpenAI endpoint and any custom base URL. Wrapping it there covers all of them at once, and the runtime only rewrites api.openai.com, so the local and third-party hosts keep talking to their own servers unchanged. An extension has no runtime environment, so wxt.config.ts now inlines the Router variables present at build time and src/lib/router-env.ts hands them to the runtime; with RAMP_ROUTER_API_KEY unset (every public build) routerActive() is false and the code behaves exactly as before.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live: the client's streamed and buffered chat requests both returned 200 from Router on /v1/responses, served by openai, labelled feature=chat and feature=query-rewrite"
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live with process.env cleared and only the build-time bridge set: routerActive() true and the request still reached Router with 200, which is how a built extension activates"
+    }
+   ],
+   "commit": "8f03ea6",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m2",
+   "kind": "move",
+   "title": "Route Claude chats through Router",
+   "summary": "The raw Anthropic Messages stream now goes to Router's /v1/messages for models Router serves.",
+   "calls": [
+    "src/models/CustomChatAnthropic.ts:374"
+   ],
+   "gains": "Claude chats run on the same Router key as the OpenAI ones, on the same API surface: identical request body and identical streamed SSE events, so the parser above it is untouched",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "CustomChatAnthropic speaks the Messages API over raw fetch rather than through an SDK, so the runtime is installed as that fetch. Router serves /v1/messages natively, which makes this a change of destination and not of shape. Requests the runtime cannot serve still reach api.anthropic.com unchanged: a model Router does not list, and any request carrying an anthropic-beta header (see n2).",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live: the exact body the class builds returned 200 from Router on /v1/messages, served by anthropic, streaming message_start onward"
+    },
+    {
+     "check": "router-live",
+     "result": "info",
+     "detail": "a first live run 400'd on `temperature` and `top_p` cannot both be specified: the harness was sending both, which Anthropic rejects on either path. The class itself sends one or the other (CustomChatAnthropic.ts:325), and with the real body all four requests were 200."
+    }
+   ],
+   "commit": "c02ac8c",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "m3",
+   "kind": "move",
+   "title": "Label each request with the feature it serves",
+   "summary": "Every model call now tells Router whether it is a chat, a follow-up rewrite or a title.",
+   "calls": [
+    "src/models/CustomChatOpenAI.ts:940",
+    "src/models/CustomChatAnthropic.ts:374"
+   ],
+   "gains": "Spend is attributed per feature instead of per bundled file name, and router.policy.json can treat the three differently (which m4 uses)",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The app already knows what each call is for: the chat modes stream an answer, a separate blocking call rewrites a follow-up into a standalone search query, and title generation runs after the answer is finished. pageAssistModel now takes that name and sends it as x-router-migrate-feature, which the runtime uses as the request's label. Without it the label would be the calling file and function, which the fact sheet notes is meaningless after bundling. The header is attached only when routerActive() is true, so Ollama and other local servers see byte for byte the request they saw before, with no new header in the CORS preflight.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live: Router recorded feature=chat and feature=query-rewrite on the Responses requests and feature=chat on the Messages requests"
+    }
+   ],
+   "commit": "f4bf85c",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "m4",
+   "kind": "trade-off",
+   "title": "Keep waiting users off the cheap slow tier",
+   "summary": "Chat and follow-up rewrite requests pin Router's standard tier; title generation keeps the cheaper default.",
+   "calls": [
+    "src/models/CustomChatOpenAI.ts:940"
+   ],
+   "gains": "Nobody waits longer than before the move: the standard tier avoids Flex's slow tail, measured at 61 s on one gpt-5-nano call. Chat also gets prompt_cache_key, which improves provider affinity for a conversation that resends the same prefix every turn.",
+   "loses": "The Flex discount on chat and query-rewrite requests, exactly -50% on the one model where it was measured (gpt-5.4-mini). Title generation keeps Flex.",
+   "price": "up to +100% on chat and query-rewrite requests served by a Flex-eligible OpenAI model, against Router's Flex default; no change on models without a Flex tier",
+   "why": "Flex is the account default for the OpenAI models that offer it. Both of this app's foreground calls are watched by a person: chat streams into the side panel, and query-rewrite blocks the entire answer while the follow-up question is rewritten. router.policy.json pins service_tier \"default\" for those two labels; title generation fires after the answer is already on screen, so it is left on the account default. The policy only touches Router-bound /v1/responses requests, so the provider path never sees a field it would reject.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run: the compiled policy resolves chat to {service_tier: default, prompt_cache_key: $feature}, query-rewrite to {service_tier: default} and title to {}"
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "Flex discount of exactly -50% on gpt-5.4-mini and the 61 s gpt-5-nano Flex call are measurements quoted from the Router fact sheet, sections 6.1 and 12; the discount on other models is not measured"
+    }
+   ],
+   "commit": "c9d6d6d",
+   "branch": null,
+   "depends_on": [
+    "m3"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Local and in-browser models stay local",
+   "summary": "Ollama chat and embeddings and Chrome's built-in Gemini Nano keep running on the user's own machine.",
+   "calls": [
+    "src/models/ChatOllama.ts:343",
+    "src/models/ChatChromeAi.ts:124",
+    "src/models/OllamaEmbedding.ts:219"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "This extension exists to use locally running models: its own name says so, and these paths speak Ollama's /api/chat and /api/embed or the browser's on-device prompt API. Routing them would send the user's page content off their machine, which is the product rather than a cost. The runtime leaves both alone in any case: neither host nor API is one it rewrites.",
+   "evidence": [],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s2",
+   "kind": "stays",
+   "title": "The Anthropic model list stays on Anthropic",
+   "summary": "The call that fills the model picker keeps asking Anthropic which models the user's key can use.",
+   "calls": [
+    "src/libs/openai.ts:43"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Router does serve GET /v1/models, but it answers with Router's own catalog, not with the models this user's Anthropic key may call. Pointing the picker at it would quietly replace one list with a different one and offer models the configured key cannot reach. Listing Router's catalog is the right thing to do for a Router provider, which is what i2 proposes.",
+   "evidence": [],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s3",
+   "kind": "stays",
+   "title": "Embeddings and speech have no Router endpoint",
+   "summary": "Document embeddings and text to speech keep going to the provider the user configured.",
+   "calls": [
+    "src/models/OAIEmbedding.ts:158",
+    "src/services/openai-tts.ts:25"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Router serves /v1/responses, /v1/messages and GET /v1/models only. /v1/embeddings and the audio endpoints return 404, so there is nothing to route these to; the runtime recognises both and leaves them on the provider.",
+   "evidence": [],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s4",
+   "kind": "stays",
+   "title": "Gemini keeps using Google's own endpoint",
+   "summary": "The Gemini provider keeps talking to Google's OpenAI-compatible endpoint with the user's key.",
+   "calls": [
+    "src/models/index.ts:150"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Router lists Vertex and Gemini ids only as requires_byok: they need the caller's own Google credential and return 403 provider_key_required without one, so routing buys no single key and adds a hop. The host is also not one the runtime rewrites, so this path is unchanged either way.",
+   "evidence": [],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Router only turns on in an operator's build",
+   "summary": "Nothing routes unless whoever builds the extension sets RAMP_ROUTER_API_KEY, and then that key pays for the traffic.",
+   "calls": [
+    "src/models/CustomChatOpenAI.ts:940",
+    "src/models/CustomChatAnthropic.ts:374"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "A browser extension has no server environment, so the key can only come from the build. wxt.config.ts reads RAMP_ROUTER_API_KEY (and the runtime's other variables) from the shell at build time and inlines them; a public build sets nothing and routerActive() stays false. A reviewer should know what switching it on means: for an internally distributed build, requests that used to be paid for by each user's own provider key are paid for by the operator's Router key, and their prompts reach Router instead of OpenAI or Anthropic directly. Users on Ollama, Chrome's built-in model, Gemini or any non-OpenAI host are unaffected either way. The key never appears in the repository, and ROUTER_MIGRATE_DISABLE=1 at build time turns routing off again without reverting anything. The flag the outside check raises is this: the vendored runtime was edited by hand, in one place only - env() now reads globalThis.__ROUTER_MIGRATE_ENV__ before falling back to process.env, which is the three lines that let a browser build see the key at all. Everything else in src/lib/routerRuntime.ts is as vendored.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live: with process.env cleared and only the inlined bridge set, routerActive() returned true and the Messages request reached Router with 200"
+    }
+   ],
+   "commit": "8f03ea6",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "n2",
+   "kind": "note",
+   "title": "Thinking-enabled Claude chats stay on Anthropic",
+   "summary": "When the user turns on Claude's thinking, that request keeps going to Anthropic rather than Router.",
+   "calls": [
+    "src/models/CustomChatAnthropic.ts:374"
+   ],
+   "gains": "nothing",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "CustomChatAnthropic sends anthropic-beta: interleaved-thinking-2025-05-14 whenever a thinking budget is set, and the runtime deliberately keeps any request with an anthropic-beta header on the provider, because betas through Router are not measured. So thinking chats behave exactly as before and are simply not on Router. The runtime can be told to drop that one beta (its dropBetas option), which would route them at the cost of Claude no longer thinking between tool calls; that was not worth doing unasked, since interleaved thinking is a feature the user switched on.",
+   "evidence": [],
+   "commit": "c02ac8c",
+   "depends_on": [
+    "m2"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "level": "quick-win",
+   "title": "Give a stalled chat a deadline",
+   "summary": "Router-bound chat and rewrite requests get a provider timeout, so a dead provider ends in an error instead of an endless spinner.",
+   "calls": [
+    "src/models/CustomChatOpenAI.ts:940"
+   ],
+   "gains": "A stalled provider surfaces as an error the user can retry; today the side panel spins forever, because the app sets no timeout anywhere on the chat path",
+   "loses": "A streamed chat that goes 120 s with no token at all, or a rewrite that takes more than 60 s, now fails with Router's plain-text 504 where it used to keep waiting",
+   "price": "no change",
+   "why": "provider_timeout is a Router-only field on /v1/responses, so it lands on Router-bound requests only and the provider path never sees a field it would reject. On a streamed request it bounds the idle time between SSE events rather than the length of the answer, so 120 s limits silence and leaves long or reasoning-heavy replies alone; query-rewrite is one buffered call that blocks the whole answer, far below 60 s in practice. One policy file, no code change.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run on the branch: the compiled policy resolves chat to {service_tier: default, prompt_cache_key: $feature, provider_timeout: 120} and all four harness requests stayed valid"
+    },
+    {
+     "check": "typecheck",
+     "result": "pass",
+     "detail": "tsc --noEmit: 16 errors, the same 16 as the base commit"
+    }
+   ],
+   "commit": "1ddff73",
+   "branch": "router-migrate/improve/chat-timeouts",
+   "depends_on": [
+    "m4"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i2",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Let users pick Router as a provider",
+   "summary": "Add Router to the provider list so one key reaches every model in its catalog, using the Messages client the app already has.",
+   "calls": [
+    "src/models/CustomChatAnthropic.ts:374",
+    "src/libs/openai.ts:43"
+   ],
+   "gains": "One key instead of one per vendor for the person using the extension, with OpenAI, Anthropic, xAI and the open-weight models all in one picker, and no build-time key needed. It also makes the model list correct for Router: GET /v1/models returns the catalog, and the existing Anthropic list code already parses that shape.",
+   "loses": "A new provider to maintain in the settings UI, and Router's limits become visible in the product: no embeddings or speech for a Router-only setup, so RAG and read-aloud still need a second provider configured",
+   "price": "catalog list price per model, from router-migrate levers; no change for anyone who does not configure it",
+   "why": "Every provider in this app is chosen by the user, so the natural place for Router is the provider list rather than the build. Router has no Chat Completions endpoint, which is why a plain custom OpenAI preset pointed at it would 404 on every request. The way through is the surface the app already speaks: Router serves /v1/messages for every catalog model, and CustomChatAnthropic is a working Messages client, so the work is making its base URL configurable, adding the preset, and pointing the model list at the configured base URL instead of the hardcoded Anthropic one. Proposed rather than built because it touches the settings UI and the model picker, which deserve a review of their own.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live already shows this app's Messages payload returning 200 from Router for claude-haiku-4-5, which is the surface the preset would use"
+    },
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "nothing built: no branch, no UI change, and the non-Claude catalog models were not exercised through this client"
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m2"
+   ],
+   "excludes": []
+  }
+ ]
+}

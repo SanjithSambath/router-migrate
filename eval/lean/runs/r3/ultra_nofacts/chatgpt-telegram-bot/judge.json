@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 9,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found, reproduced and fixed a real migration-induced break that no test would have caught: the runtime's stream translator emitted a role-only first chunk, while __handle_function_call inspects only the first chunk to detect a plugin call \u2014 so every streamed plugin reply would have come back empty. Fixed in the vendored runtime, committed separately so it is revertible, and verified both on the simulator and live.",
+  "Verified everything end to end against the real Router rather than asserting it: 21 live requests across plain, streamed, streamed-with-tool-loop, vision and summarise paths, plus a forced failover that actually came back 200 from provider=anthropic, and a measured usage.cost figure checked against list price. Evidence is attached per item and distinguishes what was proven from what was not (timeout firing, fallback on real 5xx).",
+  "Thought like an owner, not a wrapper-installer: i4 identifies that the hardcoded 2024-era model tables make any non-OpenAI model crash the bot at startup \u2014 i.e. the whole Router catalog was unreachable from this app \u2014 and fixes it, catching the encode_image media-type bug (every image labelled image/jpeg, which Anthropic 400s) along the way. That is the unlock that makes i5, i3 and the rest meaningful rather than decorative."
+ ],
+ "misses": [
+  "i4 does not touch are_functions_available(), which is gated on the same hardcoded OpenAI tables. Running OPENAI_MODEL=claude-haiku-4-5 therefore silently disables every plugin \u2014 the live proof covers reply, stream and vision but not a tool call. Same blind spot applies to i3: failover to Claude/Grok was proved live only for a plain reply, with the tool-bearing case checked just by the capability guard in the simulator.",
+  "Prompt caching is dismissed on a weak argument. This bot resends the entire conversation history (plus system prompt and all plugin tool definitions) on every turn \u2014 the textbook cached-prefix workload. OpenAI's automatic caching discounts repeated prefixes and prompt_cache_key raises the hit rate by keeping a conversation on the same cache; 'single provider so the affinity hint buys nothing' conflates vendor count with cache affinity. An expert would have measured the cached-token share on a few real conversations before ruling it out, and would have revisited it as part of i5/i3 since a move to Claude makes explicit cache control a first-order lever.",
+  "No rework-level item at all, and nothing about the request lifecycle. Summarisation is correctly labelled user_waiting but is never proposed to move off the critical path (background it, or summarise on the next turn), the tenacity retry decorator wrapping these calls is never reconciled with i2's 120s provider_timeout (3 attempts x 120s is a 6-minute wait, which undoes the stated gain), n1's silent off-Router configs are noted but no remediation is proposed (startup warning, or drop presence_penalty so the call routes), and no regression test was added for the hand-edited vendored runtime \u2014 a file the outside check flags and a re-vendor would silently revert, taking streamed plugin calls with it."
+ ],
+ "wrong": [
+  "i4's code comment calls DEFAULT_MAX_MODEL_TOKENS = 128_000 'deliberately conservative: a smaller assumed context window only means the bot summarises sooner' \u2014 but 128k is an assumed-large default, not a small one. For any model with a smaller window the bot will summarise too late and overflow the context; the stated reasoning describes the opposite of what the constant does.",
+  "i6 is internally inconsistent on the same arithmetic: 'undercharges by roughly half' in the loses field versus 'records roughly 60% of real spend' in the evidence. The $3.25/1M blended figure is also an unstated assumption about input/output mix, presented alongside genuinely measured numbers.",
+  "i2 asserts 'on a streamed reply the limit is idle time between events, not total length' as fact, while the same item admits the timeout was never made to fire. That is an unverified claim about Router's provider_timeout semantics doing load-bearing work in the loses argument.",
+  "i5's 84% and i1's 94% are arithmetically correct against the quoted catalog prices, but both are presented as savings on the bot's bill without any token-volume evidence; the summariser's share of total spend is never estimated, so 'the single cheapest saving available' is an assertion, not a finding.",
+  "Minor: the report says the four chat sites 'go to OpenAI exactly as before' when RAMP_ROUTER_API_KEY is unset, which is true, but the deploy still requires OPENAI_API_KEY permanently because of s1 \u2014 correctly stated in s1, yet the summary's 'one key' framing in m1's gains overstates it."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 26.6,
+  "usd": 12.4176,
+  "check_ok": true,
+  "verified": 4,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 3,
+  "items": 12,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "note": 2,
+   "improvement": 6,
+   "needs-decision": 1
+  },
+  "improvements": 6,
+  "built": 4,
+  "levels": {
+   "quick-win": 2,
+   "change": 4
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

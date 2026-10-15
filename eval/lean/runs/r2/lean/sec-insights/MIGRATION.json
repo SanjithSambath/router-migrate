@@ -1,0 +1,180 @@
+{
+  "version": 6,
+  "summary": "SEC Insights' entire LLM surface is two LlamaIndex `OpenAI` constructions: the shared `Settings.llm` (sub-question generation, response synthesis, the per-document vector query engines, and — via `model_copy(deep=True)` in app/chat/tools.py — the per-document quantitative agents) and the streaming `OpenAIAgent` LLM the user waits on in app/chat/engine.py. Both now carry the vendored runtime, so every chat/completions request is translated to Router's /v1/responses when RAMP_ROUTER_API_KEY is set and goes to OpenAI unchanged otherwise; the request shape, streaming, the tool loop and the models stay exactly as they were. I verified this end to end rather than by line count: driving the real chat engine through one financial question sent 10 requests to the live Router (top-level streaming agent, sub-question decomposition, the quantitative agent's tool loop, response synthesis), all 200 and all served by openai, with the existing suite and the import/build check still green. The embedding model is deliberately left on OpenAI — Router serves no /v1/embeddings — which is the one piece of this app's AI traffic Router will not see.",
+  "reviewed": "I read the whole request path for one user message (websocket -> messaging.ChatCallbackHandler -> engine.get_chat_engine -> two SubQuestionQueryEngines -> per-document vector and polygon.io agents -> response synthesizer), the seeding scripts, the config module and the frontend, so the call inventory is complete: scripts/seed_storage_context.py only drives embeddings, scripts/chat_llama.py is an HTTP client, and the frontend makes no model calls. The improvements I proposed are the ones this architecture actually invites — the app's cost and latency are dominated by the ~10 chained calls per question, every one of them on a single vendor, every one of them on the same model picked by one env var — and I did not propose Flex (gpt-4o-mini has no Flex tier, so it only becomes available together with a model change), server-side state or caching strategies (Router keeps none), or Anthropic server tools (nothing here uses them).",
+  "calls": [
+    {"site": "backend/app/llama_index_settings.py:28", "feature": "sec-analysis", "model": "gpt-4o-mini", "task": "sub-question generation, retrieval and response synthesis", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/chat/tools.py:152", "feature": "sec-analysis", "model": "gpt-4o-mini", "task": "per-document quantitative agent (polygon.io tool loop)", "latency": "user_waiting", "now": "router", "item": "m1"},
+    {"site": "backend/app/chat/engine.py:287", "feature": "sec-chat", "model": "gpt-4o-mini", "task": "streaming chat agent", "latency": "user_waiting", "now": "router", "item": "m2"},
+    {"site": "backend/app/llama_index_settings.py:34", "feature": null, "model": "text-embedding-3-small", "task": "query and document embeddings", "latency": "user_waiting", "now": "provider", "item": "s1"}
+  ],
+  "items": [
+    {
+      "id": "m1",
+      "kind": "move",
+      "title": "Route the shared LlamaIndex OpenAI LLM",
+      "summary": "The runtime goes under `Settings.llm`, which serves decomposition, synthesis, the vector query engines and the per-document quantitative agents.",
+      "calls": ["backend/app/llama_index_settings.py:28", "backend/app/chat/tools.py:152"],
+      "gains": "One key and one gateway for the majority of the app's LLM requests (8 of the 10 a single question made), Router's per-request spend and provider reporting, and the Router levers reachable per label through router.policy.json.",
+      "loses": "nothing",
+      "price": "no change — same model (gpt-4o-mini, $0.15/$0.60 per 1M), and `usage.cost` now comes back on each response",
+      "why": "This one client is the app's real LLM surface. `Settings.llm` is consumed by the sub-question generator, the response synthesizer and every `index.as_query_engine()`, and app/chat/tools.py:152 hands each per-document quantitative agent a `model_copy(deep=True)` of it. The deep copy was the thing worth checking rather than assuming: it copies the httpx client too, so I drove that agent's LLM through the simulator and the live Router and the copied transport routes correctly. Nothing about the request changes — the runtime translates chat/completions to /v1/responses and back, and if Router refuses before generating, the original request still goes to OpenAI once.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "`check --run ... --live`: Settings.llm, the deep-copied tools.py agent LLM and a streamed agent turn all returned 200 from Router, provider=openai"},
+        {"check": "simulator", "result": "pass", "detail": "`check --all` reports both scanner-visible sites ROUTES; `check --run` shows client=app/llama_index_settings.py:_setup_llama_index_settings on the decomposition/synthesis requests"},
+        {"check": "tests", "result": "pass", "detail": "7 passed (tests/) plus the 8-step import/build check, unchanged from the baseline"}
+      ],
+      "commit": "46ed085",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "m2",
+      "kind": "move",
+      "title": "Route the streaming chat agent LLM",
+      "summary": "The runtime goes under the `OpenAIAgent` LLM in get_chat_engine, the one call the user watches token by token.",
+      "calls": ["backend/app/chat/engine.py:287"],
+      "gains": "The user-facing call is on Router too, so the whole conversation is visible in one place and the chat label can carry its own timeouts and fallbacks; SSE is translated back so the websocket stream is unchanged.",
+      "loses": "nothing",
+      "price": "no change — same model and `temperature=0`",
+      "why": "A separate construction from `Settings.llm` because it needs `streaming=True` and `temperature=0`, so it needs its own routing decision and deserves its own undo. This is the call with a person on the other end of a websocket: it opens and closes every turn, it carries the system prompt, the document titles and the full chat history, and it is the one whose failure the user sees. I confirmed a real streamed turn with tool calls works through Router, which is the part most likely to break under translation.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "one real question through `ce.stream_chat` -> 10 Router requests, 10x200, streamed tokens returned; the top-level agent's two requests are the first and last"},
+        {"check": "tests", "result": "pass", "detail": "7 passed, and `get_chat_engine` still builds in the import/build check"}
+      ],
+      "commit": "0a9ad47",
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "s1",
+      "kind": "stays",
+      "title": "Embeddings stay on OpenAI",
+      "summary": "`OpenAIEmbedding` keeps calling api.openai.com because Router serves no embeddings endpoint.",
+      "calls": ["backend/app/llama_index_settings.py:34"],
+      "gains": "nothing — this is a limit, recorded so it is not mistaken for an oversight",
+      "loses": "Two things the app does stay outside Router: the query embedding on every user question and the document embeddings the seeding scripts write. So `OPENAI_API_KEY` is still required in production, and embedding spend will not appear in Router's usage views.",
+      "price": "unchanged (text-embedding-3-small, billed by OpenAI directly)",
+      "why": "`/v1/embeddings` returns 404 on Router and there is no catalog embedding model, so there is nothing to route to. The runtime recognises this and leaves embedding requests on the provider untouched; in the simulator run the blocked api.openai.com connections are exactly these calls. This also sets the ceiling on `check --all`: the two LLM constructions are 100% of the routable traffic, not 100% of the AI traffic.",
+      "evidence": [
+        {"check": "simulator", "result": "info", "detail": "`check --run`: embedding attempts appear as blocked api.openai.com connections while all LLM requests reach router-sim"}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i1",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Label both clients for spend and policy",
+      "summary": "Each client sends `x-router-migrate-feature`, so chat and analysis traffic are separable in Router and addressable in policy.",
+      "gains": "Router records `metadata.feature=sec-chat` for the agent the user waits on and `sec-analysis` for decomposition, retrieval and synthesis, so the ~8:2 split between background reasoning and user-facing generation becomes visible per request instead of being one undifferentiated gpt-4o-mini bill. It also fixes a real gap: without the header the streamed chat requests arrive with no label at all, because the runtime derives one from the calling frame and that frame is a generator inside llama-index — I saw `feature=None` on exactly those requests. The labels are what router.policy.json matches on, so this is the prerequisite for every per-role lever below.",
+      "loses": "nothing — the header is two extra bytes on the wire and OpenAI ignores it on the provider path",
+      "price": "no change",
+      "why": "Spend attribution is the first thing anyone asks of a gateway, and here it also decides whether the per-role levers are reachable at all. Two labels, not four: `Settings.llm` is shared by three roles and splitting them further needs separate clients, which is the rework in i4.",
+      "evidence": [
+        {"check": "simulator", "result": "pass", "detail": "`check --run` after the change: feature=sec-chat on the agent requests, feature=sec-analysis on decomposition/synthesis (previously None and probe-frame names)"},
+        {"check": "router-live", "result": "pass", "detail": "live run: 10/10 requests 200 with the two labels recorded"},
+        {"check": "tests", "result": "pass", "detail": "7 passed + the import/build check on the branch"}
+      ],
+      "commit": "fb75180",
+      "branch": "router-migrate/improve/feature-labels",
+      "depends_on": ["m1", "m2"],
+      "excludes": []
+    },
+    {
+      "id": "i2",
+      "kind": "improvement",
+      "level": "change",
+      "title": "Fail over across vendors instead of retrying OpenAI",
+      "summary": "router.policy.json gives both labels the candidate list gpt-4o-mini → claude-haiku-4-5 → gpt-oss-120b, a cache key and a provider timeout.",
+      "gains": "Today one OpenAI incident takes the whole product down: all ~10 calls per question are OpenAI, and llama-index's answer to a 429 or 5xx is to retry the same model three times with backoff while the user watches a websocket do nothing. With a candidate list Router moves the request to Anthropic, and then to an open-weight model, without the app knowing. Full protection on the eight buffered analysis calls; on the streamed chat call it covers the connect phase only, since Router cannot fail over once a stream has started. `provider_timeout` (45 s streaming idle, 60 s buffered) bounds a hung provider at roughly a third of the 180 s the current retry ladder allows, and `prompt_cache_key` gives each label provider affinity for free.",
+      "loses": "When a fallback serves, answers will differ — a different vendor writes the financial analysis, and tool-call formatting differs in ways the agent loop is sensitive to. A failover also costs more: claude-haiku-4-5 is $1/$5 per 1M against gpt-4o-mini's $0.15/$0.60, about 6.7x, though only for requests OpenAI could not serve. And a `provider_timeout` hit returns a plain-text 504 the app surfaces as an error rather than retrying, which is a louder failure than today's silent 60 s stall.",
+      "price": "$0 while OpenAI is healthy (the first candidate serves and is billed); up to 6.7x per request during a failover to claude-haiku-4-5, 1x for gpt-oss-120b",
+      "why": "This is the change that makes the gateway worth having: availability the app cannot get from one vendor, bought with config rather than code. Choosing the candidates needed the catalog, not taste — claude-haiku-5-5 is cheaper than gpt-4o-mini ($0.10/$0.50) and was my first pick, but the catalog marks it as rejecting `temperature` and both clients send one, so the runtime's capability guard drops it silently; I verified that and switched to claude-haiku-4-5, which keeps temperature and tools. I also verified the whole thing live: with the policy active, a real streamed question sent 10 requests that Router accepted as candidate lists rather than single models, all 200.",
+      "evidence": [
+        {"check": "router-live", "result": "pass", "detail": "live run with the policy active: 10/10 requests 200, each sent as `models` (model=None in the record) with the correct label; streaming and the tool loop unaffected"},
+        {"check": "simulator", "result": "pass", "detail": "`_apply_policy` on a representative body yields models=[gpt-4o-mini, claude-haiku-4-5, gpt-oss-120b], prompt_cache_key=<label>, provider_timeout=45/60"},
+        {"check": "price", "result": "info", "detail": "catalog: gpt-4o-mini $0.15/$0.60, claude-haiku-4-5 $1/$5, gpt-oss-120b $0.15/$0.60 per 1M; claude-haiku-5-5 ($0.10/$0.50) rejected by the temperature guard"},
+        {"check": "tests", "result": "pass", "detail": "7 passed + the import/build check on the branch"}
+      ],
+      "commit": "b7a2a79",
+      "branch": "router-migrate/improve/failover-policy",
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i3",
+      "kind": "improvement",
+      "level": "quick-win",
+      "title": "Move the analysis calls to a cheaper model",
+      "summary": "A `model_map` on the `sec-analysis` label alone sends decomposition, retrieval and synthesis to gpt-5-nano while the user-facing agent stays on gpt-4o-mini.",
+      "gains": "Eight of the ten calls per question are machine-to-machine: break a question into sub-questions, answer each over three retrieved chunks, compact the answers. gpt-5-nano lists at $0.05/$0.40 against gpt-4o-mini's $0.15/$0.60 — 67% less on input, which is where this workload's tokens are (prompt templates plus retrieved chunks, short outputs) — and unlike gpt-4o-mini it has a Flex tier, which this account has on by default and which measured exactly -50% on a sibling model. It needs no code change: the policy keys off the label i1 adds.",
+      "loses": "Answers will differ. These calls are not as mechanical as they look — the sub-question generator's decomposition decides what evidence the final answer is built from, and a worse split degrades the answer without any error showing up. gpt-5-nano is also a reasoning model: reasoning tokens bill as output, and the measured failure mode for reasoning models with tight output caps is an `incomplete` response with no text, so the per-call saving is not guaranteed to be the list-price saving.",
+      "price": "list input -67%, output -33%; a Flex discount on top is plausible (measured -50% on gpt-5.4-mini, not measured for nano)",
+      "why": "The cheapest real lever here, and the one I would not merge without evidence. It is a two-line policy edit and reversible in one commit, but the thing it changes is answer quality on a product whose only job is financial analysis, so it wants a handful of saved questions scored side by side before it ships — which is exactly the kind of judgement a human should make on the dashboard rather than me asserting from a price table.",
+      "evidence": [
+        {"check": "price", "result": "info", "detail": "catalog: gpt-5-nano $0.05/$0.40 vs gpt-4o-mini $0.15/$0.60 per 1M; gpt-5-nano flex=yes, gpt-4o-mini flex=no"},
+        {"check": "side-by-side", "result": "not-run", "detail": "needs the same questions answered on both models and read by someone who knows the filings"}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": ["i1"],
+      "excludes": []
+    },
+    {
+      "id": "i4",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Pick a model per role, not per deployment",
+      "summary": "Replace the single `OPENAI_CHAT_LLM_NAME` with an explicit role-to-model map so each of the five LLM roles can be priced and chosen on its own.",
+      "gains": "One env var currently sets the model for five jobs with nothing in common: streaming conversation with tools, question decomposition, retrieval synthesis, refinement, and a polygon.io tool agent. That forces a single compromise — today gpt-4o-mini everywhere, which is generous for decomposition and thin for the sentence a financial analyst actually reads. With roles separated you can spend where the user sees it (claude-sonnet-5 or gpt-5.1 on the final synthesis) and save where they do not (gpt-5-nano on decomposition and the tool agent), and on Router that costs one key and no new SDK: both vendors are served on the same surface, with cross-vendor history replay measured to work. It also turns model choice into something you can change per role without redeploying every role.",
+      "loses": "Answers will differ, by design. It adds real configuration surface — five knobs instead of one, and five ways to be mis-set — and mixing vendors inside one conversation means the sub-answers and the final answer come from models with different styles and different tool-calling behaviour, which the agent loop can notice. It also needs an evaluation harness to be worth anything; without one it is just more knobs.",
+      "price": "depends on the map; the plausible first version (nano for decomposition and the tool agent, gpt-4o-mini for synthesis, unchanged chat) is cheaper than today, and spending up on synthesis alone is affordable because synthesis is one call of the ten",
+      "why": "This is the shape I would build if I started this app on Router today, and it is the prerequisite for i3 being safe rather than a gamble: once roles are addressable you can downgrade decomposition without touching the sentence the user reads. It is a conversation rather than a patch because the right map is an empirical question about SEC filings, and because it changes how the team reasons about cost — from one model price to a per-question budget across roles.",
+      "evidence": [
+        {"check": "other", "result": "info", "detail": "measured: one question = 10 chained Router calls across 4 roles, all currently the same model; cross-vendor replay and structured output are measured to work on Router"}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "i5",
+      "kind": "improvement",
+      "level": "rework",
+      "title": "Shorten the ten-call chain per question",
+      "summary": "Collapse agent → sub-question engine → per-document engine → synthesizer into fewer hops, and start streaming earlier.",
+      "gains": "I measured one question against the live Router: 10 requests, almost all of them serially dependent, and that was with a single document and no vector index — the fan-out grows with the number of filings the user selected. At Router's measured gpt-4o-mini latency (p50 721 ms buffered, 760 ms to first token) the user waits several seconds of pure model time before the first token appears, and the current design makes that worse by hiding retrieval behind two nested query engines. Giving the top-level agent the per-document tools directly removes a hop; running the qualitative and quantitative engines concurrently removes another; streaming the synthesis rather than the agent's summary of it moves first-token far earlier. A shorter chain is also a cheaper chain — fewer prompt prefixes re-sent — and a more reliable one: ten dependent calls fail ten times as often as one.",
+      "loses": "The sub-question decomposition is what makes 'compare Acme and Globex on margins' work; flattening it risks the multi-document questions this product exists for. The websocket currently reports each sub-process to the UI as it happens, and that visible structure would change. This is a redesign with a real chance of regressing answer quality, so it needs an evaluation set before anyone writes code.",
+      "price": "no direct price change; fewer calls per question means proportionally less spend and fewer failure points",
+      "why": "Latency is this product's weakest point and it is architectural, not a Router setting — no lever fixes ten chained calls. Being on Router makes the redesign easier to attempt, though: fallbacks and timeouts per role mean a flatter design does not have to hand-roll provider failure handling, and per-request cost reporting makes the before/after measurable instead of arguable.",
+      "evidence": [
+        {"check": "router-live", "result": "info", "detail": "one question, one document, no index: 10 Router requests; latency figures from the fact sheet's Router-only samples, no direct-provider comparison exists"}
+      ],
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    },
+    {
+      "id": "n1",
+      "kind": "note",
+      "title": "Flex needs a model change here",
+      "summary": "gpt-4o-mini has no Flex tier, so the cost-efficient tier is unavailable until the model changes.",
+      "gains": "nothing on its own",
+      "loses": "nothing",
+      "price": "n/a",
+      "why": "Worth recording so nobody looks for the discount and concludes it is broken: `allow_flex_tier: true` on gpt-4o-mini returns 400 'unknown service tier', and the 17 Flex-eligible catalog ids are gpt-5.x/6.x, o3 and o4-mini. Flex is therefore a consequence of i3 or i4, not an independent lever — which is also why the policy in i2 sets no tier field: Router ignores Flex when a candidate list is present anyway.",
+      "commit": null,
+      "branch": null,
+      "depends_on": [],
+      "excludes": []
+    }
+  ]
+}

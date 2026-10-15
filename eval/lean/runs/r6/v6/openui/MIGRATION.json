@@ -1,0 +1,324 @@
+{
+ "version": 6,
+ "summary": "OpenUI is a proxy in front of four model providers that a user picks from a dropdown: the operator's OpenAI key, the operator's Groq key, a LiteLLM proxy the app starts itself, and a local Ollama. Only the OpenAI path spends the operator's money on models Router serves, and it now goes through Router: the vendored runtime sits under the one shared OpenAI client, so every UI generation and refine request on that path reaches Router with its stream translated back into the Chat Completions chunks the app already parses. The other three paths stay where they are — Groq for its latency, the LiteLLM proxy because it is the app's own gateway with its own model names, Ollama because local models are why that path exists — as do the model-list probes, which Router has no equivalent for. Two improvements follow: the OpenAI model menu can now come from Router, so a deployment can run on a Router key alone, and the default model moves off the deprecated gpt-3.5-turbo.",
+ "reviewed": "Looked at model choice per path, the Flex default, prompt caching, the daily quota multiplier, client timeouts and whether the menu should expose more of Router's catalog; two changes paid for themselves (a Router-sourced model list and a cheaper, newer default model), while Flex does not apply to any of the four models the app offers, the 243-token system prompt is far below the ~1,024-token caching minimum, and the newer gpt-5 models would break the handler's 4,096-token output arithmetic.",
+ "calls": [
+  {
+   "site": "backend/openui/server.py:150",
+   "feature": "openui/server.py:chat_completions",
+   "model": "gpt-4o-mini, gpt-4o, gpt-4-turbo or gpt-3.5-turbo (the user picks)",
+   "task": "html generation from a prompt or a screenshot",
+   "latency": "interactive",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "backend/openui/server.py:166",
+   "feature": "openui/server.py:chat_completions",
+   "model": "any model the operator's Groq account serves (the user picks)",
+   "task": "html generation from a prompt or a screenshot",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "backend/openui/server.py:180",
+   "feature": "openui/server.py:chat_completions",
+   "model": "claude-3-opus, claude-3-5-sonnet, claude-3-haiku, gemini-1.5-flash/pro, command-r(+), mistral-small/medium/large (the user picks)",
+   "task": "html generation from a prompt or a screenshot",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s2"
+  },
+  {
+   "site": "backend/openui/server.py:207",
+   "feature": "openui/server.py:chat_completions",
+   "model": "whatever the local Ollama has pulled (the user picks)",
+   "task": "html generation from a prompt",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s3"
+  },
+  {
+   "site": "backend/openui/server.py:407",
+   "feature": "openui/server.py:get_openai_models",
+   "model": "none (model list)",
+   "task": "provider reachability probe",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s4"
+  },
+  {
+   "site": "backend/openui/server.py:426",
+   "feature": "openui/server.py:get_groq_models",
+   "model": "none (model list)",
+   "task": "provider model listing",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s4"
+  },
+  {
+   "site": "backend/openui/server.py:435",
+   "feature": "openui/server.py:get_litellm_models",
+   "model": "none (model list)",
+   "task": "provider model listing",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s4"
+  },
+  {
+   "site": "backend/openui/litellm.py:106",
+   "feature": "openui/litellm.py:generate_config",
+   "model": "none (model list)",
+   "task": "listing an OpenAI-compatible endpoint's models at startup",
+   "latency": "background",
+   "now": "provider",
+   "item": "s4"
+  },
+  {
+   "site": "frontend/src/api/openai.ts:184",
+   "feature": "openui/server.py:chat_completions",
+   "model": "whatever the user picked in the dropdown",
+   "task": "html generation from a prompt or a screenshot",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s5"
+  },
+  {
+   "site": "frontend/src/api/openai.ts:245",
+   "feature": "openui/server.py:chat_completions",
+   "model": "whatever the user picked in the dropdown",
+   "task": "converting html to a framework component",
+   "latency": "interactive",
+   "now": "provider",
+   "item": "s5"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route the operator's OpenAI traffic",
+   "summary": "Every OpenAI-model generation the app serves now goes to Router instead of OpenAI.",
+   "calls": [
+    "backend/openui/server.py:150"
+   ],
+   "gains": "The app's only operator-paid model traffic runs on one Router key, with spend recorded per request under the feature label openui/server.py:chat_completions",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "All four models this branch offers (gpt-3.5-turbo, gpt-4o-mini, gpt-4o, gpt-4-turbo) are Router catalog ids, so the whole branch moves rather than part of it. The runtime goes under the single shared AsyncOpenAI client, translates the streamed Chat Completions request to /v1/responses and translates the SSE stream back, so openai_stream_generator and the frontend's chunk parsing are untouched. None of the four models has a Flex tier, so Router's cost-efficient default cannot slow down a user who is watching the HTML stream in, and no service_tier pin is needed. With no RAMP_ROUTER_API_KEY the runtime is inert and every request goes to OpenAI as before; OPENAI_BASE_URL pointed at a non-OpenAI host is also left alone. OpenAI still has to answer GET /v1/models for the menu to offer these models at all (see i1), and its key is still what the runtime falls back to if Router refuses a request. A follow-up commit renames the module-level client from `openai` to `openai_client`: the old name shadowed the SDK module and hid from static tooling that this call goes through the routed client.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live driving server.chat_completions with the usage DB and token counter stubbed: 2 requests, 200 /v1/responses provider=openai for gpt-4o-mini and gpt-3.5-turbo, 28 SSE chunks each, feature=openui/server.py:chat_completions"
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "check --run: 1 valid /v1/responses request per run, the model carried through and the stream translated back into 5 SSE chunks for the app's generator"
+    },
+    {
+     "check": "router-live",
+     "result": "info",
+     "detail": "GET /v1/models on the migration key lists all four models the app offers"
+    }
+   ],
+   "commit": "36cb0e4",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Groq models stay with Groq",
+   "summary": "The Groq branch keeps calling Groq directly.",
+   "calls": [
+    "backend/openui/server.py:166"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The model menu for this branch is whatever the operator's Groq account lists, and the ids come back vendor-prefixed (openai/gpt-oss-120b, moonshotai/...), so they are not the catalog ids Router serves under. Routing the few that the runtime's alias table could resolve would send a request the user chose Groq for — the provider whose selling point is how fast it streams — to another provider mid-generation, with Router's latency against Groq unmeasured. Nothing about the Groq path changes.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s2",
+   "kind": "stays",
+   "title": "The app's own LiteLLM gateway stays",
+   "summary": "Requests for Anthropic, Gemini, Cohere and Mistral models keep going to the LiteLLM proxy the app starts.",
+   "calls": [
+    "backend/openui/server.py:180"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "This branch talks to a LiteLLM proxy that openui starts itself on port 4000 and configures from whichever provider keys are in the environment. It is the app's own gateway, and the model names it exposes (claude-3-opus, claude-3-5-sonnet, gemini-1.5-flash, command-r, mistral-small, ...) are not in Router's catalog, so Router cannot serve these requests as they stand. Replacing this gateway with Router would mean choosing new models for every entry in that menu, which is a product decision rather than a migration.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s3",
+   "kind": "stays",
+   "title": "Local Ollama models stay local",
+   "summary": "The Ollama branch keeps calling the local Ollama server.",
+   "calls": [
+    "backend/openui/server.py:207"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Running models on the user's own machine with no API key is the reason this path exists, and the vision branch beside it talks to Ollama's native API because its OpenAI compatibility layer cannot take images. Router serves none of those local weights.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s4",
+   "kind": "stays",
+   "title": "Model-list probes stay with each provider",
+   "summary": "The four model-listing calls that build the menu keep asking each provider.",
+   "calls": [
+    "backend/openui/server.py:407",
+    "backend/openui/server.py:426",
+    "backend/openui/server.py:435",
+    "backend/openui/litellm.py:106"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "Each of these asks one provider what it serves, or whether it answers at all, so the menu can show that provider's section; Router's own GET /v1/models would answer a different question and the runtime leaves model lists on the provider by design. i1 adds a Router list alongside the OpenAI probe rather than replacing it.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s5",
+   "kind": "stays",
+   "title": "Browser requests stay on the app's own API",
+   "summary": "The frontend keeps posting generations to OpenUI's own endpoint.",
+   "calls": [
+    "frontend/src/api/openai.ts:184",
+    "frontend/src/api/openai.ts:245"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The browser's OpenAI client is pointed at window.location + /v1 with a fake key and auth headers stripped, i.e. at OpenUI's own /v1/chat/completions, which is where m1 does the routing; these two call sites never touch a vendor. Giving the browser a Router base URL instead would hand every end user a shared operator key and skip the login and daily-quota checks the backend applies.",
+   "evidence": [],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "title": "Offer the OpenAI models on a Router key alone",
+   "summary": "With Router configured, the OpenAI section of the model menu is built from Router's catalog instead of an OpenAI probe.",
+   "calls": [
+    "backend/openui/server.py:407"
+   ],
+   "gains": "A deployment can run with a Router key and no OpenAI key: before, the menu hid every OpenAI model unless OpenAI itself answered, so the key Router replaces was still required to generate anything",
+   "loses": "With Router on, the menu no longer proves OpenAI is reachable, so a request Router refuses falls back to a provider the menu never checked",
+   "price": "no change (GET /v1/models is free)",
+   "why": "get_openai_models() gated the whole hardcoded OpenAI menu on await openai.models.list(). Router has no endpoint the runtime would route that to, so with only a Router key configured the probe fails, the menu comes back empty and no OpenAI generation can be started — even though m1 makes those generations work. The probe now asks Router for its catalog when RAMP_ROUTER_API_KEY is set and offers the intersection with the models the app supports, so the menu also stops advertising a model this key cannot call. Without the key, or with ROUTER_MIGRATE_DISABLE=1, or if the Router call fails, the original OpenAI probe runs unchanged.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "check --run --live with OPENAI_BASE_URL pointed at an unreachable host and no OpenAI key: 200 GET /v1/models and the menu came back as all four models"
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "6 new tests: no Router client without a key or with ROUTER_MIGRATE_DISABLE=1, exactly one /v1 on the base URL, the menu is the intersection with Router's catalog, and both fallbacks to the OpenAI probe"
+    }
+   ],
+   "commit": null,
+   "branch": "router-migrate/improve/router-key-only-models",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": [],
+   "level": "quick-win"
+  },
+  {
+   "id": "i2",
+   "kind": "improvement",
+   "title": "Default new users to gpt-4o-mini",
+   "summary": "The stored default model changes from gpt-3.5-turbo to gpt-4o-mini, and the daily quota stops counting gpt-4o-mini as a gpt-4-class model.",
+   "calls": [
+    "backend/openui/server.py:150"
+   ],
+   "gains": "-70% input and -60% output list price on every default-model generation, a model Router's catalog does not mark deprecated, and vision support so the screenshot flow no longer has to swap the model behind the user's back",
+   "loses": "A different model answers every new user's prompts, so outputs will differ; on a production deployment gpt-4o-mini users now get 20x more tokens per day than the old multiplier allowed (about $0.42 against $1.05 of list-price spend per user per day)",
+   "price": "$0.50/$1.50 to $0.15/$0.60 per 1M input/output tokens",
+   "why": "modelAtom defaulted to gpt-3.5-turbo, the weakest and most expensive-per-quality model on the menu, which Router's catalog marks deprecated and which cannot take the screenshot input the app's create flow offers (the frontend already rewrote the model to gpt-4o-mini whenever an image was attached). The quota multiplier in the handler counted any model whose name contains gpt-4 as 20x gpt-3.5-turbo tokens, so moving the default to gpt-4o-mini without touching it would have cut each user's daily allowance 20-fold for a model that costs a third as much; gpt-4o-mini now counts 1x, which is what config.MAX_TOKENS' ~$1-per-user-per-day comment assumes, and gpt-4o and gpt-4-turbo keep their 20x. The model stays a dropdown and gpt-3.5-turbo is still offered.",
+   "evidence": [
+    {
+     "check": "side-by-side",
+     "result": "pass",
+     "detail": "check --run --live, same system prompt and query through Router: gpt-3.5-turbo and gpt-4o-mini both opened with the frontmatter block the frontend parses (name:/emoji:), 365 and 441 characters of HTML"
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "live catalog via router-migrate levers: gpt-3.5-turbo $0.50/$1.50, gpt-4o-mini $0.15/$0.60 per 1M"
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "4 new tests drive the handler with a stubbed client and assert the quota multiplier per model (gpt-4o-mini 1x, gpt-4o and gpt-4-turbo 20x, gpt-3.5-turbo 1x)"
+    }
+   ],
+   "commit": null,
+   "branch": "router-migrate/improve/default-model-4o-mini",
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": [],
+   "level": "change"
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Newer OpenAI models need the token budget fixed first",
+   "summary": "Router serves far newer gpt models than this menu offers, but the handler's output-cap arithmetic would break on them.",
+   "calls": [
+    "backend/openui/server.py:150"
+   ],
+   "gains": "none",
+   "loses": "nothing",
+   "price": "no change",
+   "why": "The obvious next step after m1 is to offer the gpt-5 and gpt-6 families Router serves. The handler sets max_tokens = 4096 - input_tokens - 20, a budget written for gpt-3.5-turbo's context, and on a reasoning model that cap is spent on reasoning tokens first: a Responses request that hits it comes back incomplete with no text, so a long refine prompt would return an empty component. Those models also reject temperature, which the frontend always sends (the runtime drops it for them, so the slider would silently stop working). Both are fixable — a per-model context and output budget, and hiding the temperature control where it does not apply — but neither is a migration change, so the menu is unchanged.",
+   "evidence": [
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "catalog flags (live): gpt-5.x/gpt-6.x list temperature: false and are reasoning models; ROUTER.md records reasoning models with small output caps returning incomplete with no text"
+    }
+   ],
+   "commit": null,
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+{
+ "winner": "B",
+ "margin": "clear",
+ "why": "Both wrapped the same single AsyncOpenAI client and verified all five call sites live, so the migration itself is a tie \u2014 but B carried it to the point where the shipped configuration actually routes (catalog default model, plus a fix for the pydantic default_factory bug that made `[llm.<name>]` sections dead code and per-role model choice impossible), while A's equivalent step stays an unbuilt proposal, leaving an unmodified deployment sending nothing to Router. B's improvement set is also deeper and better evidenced: eight tested branches with real new test coverage (23/17/14/9 vs A's unchanged 4), the same catalog-capability and cache-key wins A found, plus the retry-anything bug built rather than proposed and the import-time ValidationError that stops the app from starting at all.",
+ "A_best": "Trade-off accounting: every item's \"loses\" is concrete and correct \u2014 cache-key sharing across concurrent runs, fallbacks disabling Flex and capping capabilities to the weakest candidate, images now costing tokens and the on/off-Router paths disagreeing \u2014 and it states plainly that the shipped `claude-3-7-sonnet` default routes nothing.",
+ "B_best": "Finding that `BaseAgent.llm = Field(default_factory=LLM)` makes `self.llm = LLM(config_name=self.name.lower())` unreachable, so every agent shared one client and the documented per-agent `[llm.*]` sections were read by nobody \u2014 then fixing it and proving three agents on three models through one Router key, which is the actual Router leverage for this app.",
+ "A_worst": "The migration is inert for the configuration OpenManus ships: A correctly diagnoses that the default model is not a catalog id but leaves the model_map as proposal i4, so after m1+m2 a default deployment still sends every request to Anthropic \u2014 and cheap, well-understood fixes (retry narrowing, reasoning-model list) are also left unbuilt.",
+ "B_worst": "m2 unlocks whatever host the operator configured rather than a named list, so catalog-model traffic to third-party resellers (Jiekou.AI, PPIO) silently changes vendor, account and bill with only a loopback/private-address guard; A's narrower \"Anthropic only, resellers were chosen on price\" reasoning is the more careful call, and B's \"loses: nothing\" on the labelling item is thin by comparison.",
+ "result": "win",
+ "arm": "open",
+ "ref": "ultra_levels",
+ "repo": "OpenManus",
+ "arm_was": "B"
+}

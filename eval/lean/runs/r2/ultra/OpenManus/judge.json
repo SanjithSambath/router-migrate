@@ -1,0 +1,49 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 7,
+ "report_clarity": 9,
+ "overall": 8,
+ "best": [
+  "Found the single choke point (one AsyncOpenAI client in app/llm.py) and covered the entire app's LLM traffic with a two-line change: the outside check confirms 5/5 routable sites verified, 0 unverified, 0 not-routing, tests 4/4 equal to baseline, with a key-gated no-op default, per-request provider fallback, and a kill switch \u2014 and it also covers call sites the scanner can't see (chart tool, planning flow) because they build the same class.",
+  "Did real Router measurement instead of asserting levers: prompt_cache_key benchmarked on both vendors (gpt-4o-mini caches without it, -49%; claude-haiku-5-5 only caches with it, -90%), Bedrock vs direct-Anthropic catalog prices compared for the d1 decision, and usage.cost shown to be Responses-only \u2014 which is why three Router levers are declined with specific reasons rather than cargo-culted.",
+  "Caught two genuine latent bugs the move exposed and verified them live: the hand-written MULTIMODAL_MODELS list silently deletes browser screenshots for any modern model (agent drives blind, nothing logged), and every base64 image is labelled image/jpeg while screenshots are PNG, which Anthropic-served models 400 \u2014 including keeping the failing intermediate run as evidence rather than hiding it."
+ ],
+ "misses": [
+  "No system-level cost/model work on the actual cost centres: the tool-calling loop re-sends a growing prefix every step and the browser agent adds a screenshot per step, yet there is no proposal on context/image trimming, per-task model tiering (cheap vision or summarisation model vs the main agent model), or Flex on the genuinely non-interactive paths (planning-flow planning, summarisation) \u2014 every call is labelled 'interactive' without testing that claim.",
+  "The provider_timeout dismissal is backwards for this app: ask_tool passes a 300 s client timeout with six tenacity retries, so a stuck provider can hold an agent run for ~30 minutes. A short server-side deadline (optionally with a fallback) is exactly the Router lever for that, and it was waved off as 'only adds a failure mode' with no measurement.",
+  "Everything beyond the wrap was left unapplied on branches \u2014 including the vision-catalog fix, which is a correctness bug on the shipped migration (silently dropped images, plus repeated 400s visible in the check's 12 errored live requests). An expert would have shipped the media-type fix with the migration, and would have closed the two holes the migration itself opens: no cost/usage on the default streaming path, and all agents sharing one feature label and therefore one Claude prompt-cache namespace."
+ ],
+ "wrong": [
+  "m1's \"loses: nothing\" is overclaimed: the chosen route adds a translation layer in every request path, confines Router-only fields to router.policy.json, makes the app depend on a vendored runtime (whose ImportError fallback silently degrades to a no-op lambda), and \u2014 as shipped on the migration commit \u2014 labels every agent identically, which i2 itself argues makes agents share one Claude prompt-cache namespace. These costs appear in n2 and i2 but not in the field a dashboard reader scans.",
+  "i2's headline claim (\"see which agent burns the budget\") is not supported by the evidence. The label is f\"{config_name}:{call}\", i.e. the [llm.*] config block, not the agent; OpenManus agents take the default LLM instance, so a stock deployment gets \"default:ask_tool\" for Manus, the browser agent, the SWE agent and the chart tool alike. The live proof shows \"drive:ask\" \u2014 the test driver's own config name \u2014 so per-agent attribution was never actually demonstrated.",
+  "i3 unlocks four vendor hosts by default, so an operator who deliberately pointed the SDK at Anthropic/Jiekou/PPIO/Google silently has those prompts, routing and billing moved to the Router key on upgrade. The loss is stated honestly and catalog-id scoping is a good guard, but default-on is the wrong default for a billing and data-path change; this should be opt-in (OPENMANUS_ROUTER_UNLOCK_HOSTS empty by default).",
+  "The migration item's live evidence (\"4/4 200\", twice) reads cleaner than the run was: the outside check records 70 live requests with 12 errors, all on app/llm.py:ask. They are explained on the i1 branch, but the migration-level evidence should say so rather than only showing the clean runs."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 23.9,
+  "usd": 11.7248,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 11,
+  "kinds": {
+   "move": 1,
+   "stays": 2,
+   "note": 2,
+   "improvement": 4,
+   "needs-decision": 2
+  },
+  "improvements": 4,
+  "built": 4,
+  "levels": {
+   "-": 4
+  },
+  "branch_ok": 4,
+  "report_ok": true
+ }
+}

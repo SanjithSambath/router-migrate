@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "slight",
+ "why": "Both put the same five call sites through the one shared AsyncOpenAI client, but A's claims about Router mechanics are measured and controlled \u2014 caching is already delivered by the migration (so A deleted its own policy branch rather than ship a no-op), temperature is silently dropped on 36 catalog ids, fallbacks don't cover the 429/5xx/stream failures an agent loop actually hits \u2014 while B's two built improvements rest on exactly those unverified premises and its top-ranked 'quick-win' is probably a placebo. B is the better migration (it unlocks the operator's configured host, so the repo's own Anthropic-compatible default actually routes, with tests) and finds sharper app-internal problems, but 'loses: nothing' on a change that moves billing to the Router key and drops temperature is the kind of claim that costs a CTO trust in everything else in the report.",
+ "A_best": "Replacing the 2024 MULTIMODAL_MODELS list with Router's catalog: a real correctness loss the migration exposes \u2014 on any current model ask_with_images() hard-errored and ask()/ask_tool() silently stripped the browser agent's screenshots \u2014 fixed, live-verified end to end, and failing closed for non-catalog models.",
+ "B_best": "The retry-predicate fix: retry_if_exception_type((OpenAIError, Exception, ValueError)) matches everything, so the comment saying 'Don't retry TokenLimitExceeded' was false and an unclearable local error burned ~3 minutes of backoff; small diff, agent path updated, two new tests. Its i7 (the max_input_tokens guard enforced on cl100k guesses for a Claude deployment) and n1 (the shipped example model isn't a catalog id, so operators see no traffic and no error) are findings A missed.",
+ "A_worst": "Internal inconsistency on what actually moves: the calls table lists all five sites as 'now: router' with the example default claude-3-7-sonnet-20250219, while i1 states Router serves none of the claude-3 ids \u2014 so with the shipped config and only api.openai.com unlocked by default, the real routed traffic is less than the summary implies, and A never raises that consequence. The live log also shows ask_with_images 0 ok / 6 error against the 'both 200' claim.",
+ "B_worst": "Ranking prompt_cache_key as 'the biggest lever in the app and the cheapest to pull' with no without-policy arm \u2014 A's controlled arms show the runtime already sets a label-derived key and the policy adds nothing \u2014 and building a hard-coded cross-vendor fallback list for an unknown operator model on a mechanism it describes wrongly (Router fallbacks don't rescue the 429/5xx/mid-stream failures it claims cost six tenacity attempts today).",
+ "result": "win",
+ "arm": "min_nofacts",
+ "ref": "lean",
+ "repo": "OpenManus",
+ "arm_was": "A"
+}

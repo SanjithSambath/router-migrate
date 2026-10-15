@@ -1,0 +1,50 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 7,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found and routed all three LLM constructions \u2014 including the two non-obvious ones (the deep-copied Settings.llm inside the per-document quantitative agent, and the separate streaming client in get_chat_engine) \u2014 via httpx client injection, so no prompt, model, parameter or control-flow change was needed; the outside check verifies all three sites route, tests match baseline 15/15, and the two moves are separate commits so the user-facing path can be reverted alone.",
+  "Measured the actual request mix instead of guessing: one pass showed 11 of 15 labelled requests come from sec-api-agent, 3 sec-analysis, 1 sec-chat. That reframed the whole review around where the money really is, and it was only obtainable because i1 replaced the runtime's stack-frame label guess (which returned None for the chat agent running in a LlamaIndex worker task) with explicit per-role feature headers.",
+  "Measured each lever live on this app's own prompts rather than reading a price sheet, and published the negatives: the prompt-cache A/B showing zero cached tokens without a key, the gpt-6-luna reasoning-latency cost (sub-question 1.57s\u21922.55s, full message 5.56s\u21927.25s), and two rejected candidates (gpt-6-luna on the tool loop 5.13s\u219216.49s; nemotron-lightning produced no text at all). Splitting the Flex tier out as its own approvable item (i6) rather than letting a model swap silently move user-path traffic onto a tier with a known latency tail is exactly the right instinct."
+ ],
+ "misses": [
+  "Prompt caching was applied only to sec-chat, the feature making 1 of 15 requests, and not to sec-api-agent, which the engineer's own data says makes 11 of 15. The quantitative agent runs a sequential tool loop per document that repeats an identical prefix (system prompt, polygon.io tool schema, document metadata, accumulated tool output) on every hop \u2014 the textbook prompt_cache_key case, keyed per document \u2014 and the refine/sub-question path repeats a prefix across a conversation too. The single highest-value application of the very lever that was validated was left on the table.",
+  "No app-level or architectural branch was built, only deferred. d1 correctly identifies that the tool loop is unbounded and loops *more* when polygon.io fails, and notes the top-level agent already uses max_function_calls=3 \u2014 that is a one-line, measurable, behaviour-preserving-in-the-normal-case change that should have been a branch with before/after numbers, not a question for a human. Same for capping reasoning effort. Related: nothing addresses the failing-tool retry storm itself, which is a correctness and cost bug independent of Router.",
+  "No blended cost picture. Every saving is quoted per call (-49% input, -56% per synthesis call), but the request mix is known, so the report could and should have said what the portfolio actually saves: the -56% model swap touches ~20% of requests and the -49% cache key ~7%, so the headline numbers apply to a minority of the bill while the 73% that is sec-api-agent gets no cost change at all. A CTO reading the dashboard would approve i5/i6 believing they had cut the bill materially. Also absent: any fallback or resilience on the background paths (a failed quantitative agent silently drops the numeric answer), and no per-feature rate/error budget or alerting thought now that per-feature labels exist."
+ ],
+ "wrong": [
+  "The -49% cache figure comes from a synthetic 13.9k-token prefix, not from the app's real chat prefix, which is never measured. The item hedges with 'up to' and honestly notes short first turns gain nothing, but the real-traffic gain is unknown and the 'up to -49%' reads as an app-level number in the price field.",
+  "The -56% for gpt-6-luna rests on a single 803-token prompt with one sample per model. Reasoning-token volume (51 of 100 output tokens in that sample) is the dominant and most variable term in that model's cost, so the ratio is not stable enough to quote as a per-call figure for the feature. More importantly, that same n=1 comparison is the entire quality evidence for swapping the model that writes the product's user-visible answer; 'both answers named the same growth driver and the same three risks' on one prompt is not a basis for that decision, and no sub-question-generation quality comparison was done beyond 'returned valid tool arguments'.",
+  "i1's loss statement understates the change slightly: replacing Settings.llm.model_copy(deep=True) with a freshly constructed OpenAI() in tools.py is equivalent only because Settings.llm currently sets nothing but model and api_key. The report says it 'no longer inherits later changes to the global LLM' but does not flag that this includes any future temperature, max_tokens, timeout or callback setting \u2014 a silent-divergence trap, and the same class of hazard the report does flag for i5's literal gpt-4o-mini map key.",
+  "Minor presentational inconsistency: the summary states '15 requests, every one a 200', while i1 describes the same pass as 20 Router requests of which the proxy listed 15. Both are true and i1 explains it, but the summary's figure reads as the total and understates the traffic actually exercised (the outside check logs 174 requests across 10 runs).",
+  "Several load-bearing claims are asserted from the fact sheet with no live check \u2014 'Router ignores Flex when a models list is present' (which is the stated reason i4 is scoped away from sec-analysis), 'Router bills truncated attempts' (the entire premise of i3), and gpt-6-luna's reasoning effort of 'none'. Fallback behaviour on real 5xx/429 is explicitly marked unmeasured, which is honest, but it means i4 is unproven on the only path that matters for it."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 30.3,
+  "usd": 14.6973,
+  "check_ok": true,
+  "verified": 3,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 0,
+  "items": 12,
+  "kinds": {
+   "move": 2,
+   "stays": 1,
+   "note": 2,
+   "improvement": 6,
+   "needs-decision": 1
+  },
+  "improvements": 6,
+  "built": 6,
+  "levels": {
+   "-": 6
+  },
+  "branch_ok": 6,
+  "report_ok": true
+ }
+}

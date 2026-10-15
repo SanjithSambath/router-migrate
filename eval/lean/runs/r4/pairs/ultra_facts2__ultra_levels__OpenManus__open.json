@@ -1,0 +1,14 @@
+{
+ "winner": "B",
+ "margin": "slight",
+ "why": "B actually moved the deployment OpenManus ships (the OpenAI SDK pointed at api.anthropic.com), verified it live on that host, and priced the trade-off honestly, whereas A's wrap routes nothing for the shipped config and defers the unlock to a proposal; B also caught the one defect that would have broken the migration in production \u2014 every base64 image hardcoded as image/jpeg, which Anthropic 400s \u2014 with before/after live evidence, while A widened image support to Claude without it and claims a clean PNG pass its own validation counts (6 ask_with_images errors) does not support. A is more rigorous and built more (4 branches, stronger cache A/B, measured fail-fast), and names more Router surfaces explicitly, but B's proposals are the ones more specific to this app: fallback candidates must be same-class or an outage becomes a quietly worse run, reasoning_effort needs a ~1,100-token guard on Claude, and the runaway-agent token budget is enforced with cl100k_base against non-OpenAI models when Router returns exact usage and cost.",
+ "A_best": "Measurement discipline on the levers it built: a real A/B showing gpt-4o-mini caches nothing without an explicit prompt_cache_key (0/0/0 vs 6,912 cached), and the retry fix measured as 6 attempts/14.5s \u2192 1 while deliberately keeping TokenLimitExceeded wrapped so ToolCallAgent.think still recognises it.",
+ "B_best": "Finding and fixing the image/jpeg mislabel \u2014 a live 6x400 from Anthropic turned into a pass \u2014 and correctly arguing the catalog-widening and the media-type fix are one change, since widening alone converts silent image loss into a hard failure for every browser screenshot.",
+ "A_worst": "Its migration leaves the shipped configuration entirely on the provider (api.anthropic.com is never unlocked), so for the default deployment nothing moves; and its headline catalog-capabilities branch sends PNGs to Claude labelled image/jpeg, which B shows fails.",
+ "B_worst": "Thinner built surface (three branches, one of them labels-only) and weaker Router-lever breadth in the system judgment \u2014 no Switchyard, tier posture, spend caps or shadow-model proposal appears, and the per-agent label leaves two naming schemes coexisting in the spend view with the dashboard grouping unverified.",
+ "result": "loss",
+ "arm": "ultra_facts2",
+ "ref": "ultra_levels",
+ "repo": "OpenManus",
+ "arm_was": "A"
+}

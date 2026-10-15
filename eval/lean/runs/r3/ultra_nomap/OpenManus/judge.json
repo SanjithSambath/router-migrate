@@ -1,0 +1,51 @@
+{
+ "migration_coverage": 9,
+ "behaviour_safety": 8,
+ "improvement_depth": 8,
+ "improvement_quality": 8,
+ "report_clarity": 8,
+ "overall": 8,
+ "best": [
+  "Found the single chokepoint \u2014 the one AsyncOpenAI client built in LLM.__init__ \u2014 and wrapped it, putting all five chat.completions sites on Router in one tiny, reversible commit with a no-op-without-key default and a kill switch; the outside check confirms 5/5 routable sites verified, 0 unverified, tests identical to baseline.",
+  "Noticed that the config this repo falls back to points the OpenAI SDK at api.anthropic.com, so a naive wrap would have been a no-op for the default Claude deployment, and unlocked exactly that one host in a separately revertible commit \u2014 with negative tests proving a localhost/Ollama endpoint and a non-catalog model id still stay off Router.",
+  "Measured instead of asserting: prompt caching proven live (0 cached tokens without a key vs 7,936 of 8,157 with one), Flex deliberately left at account default with latency/price evidence, and the sharp catalog finding that the capability guard silently drops any temperature-rejecting fallback candidate \u2014 which is what actually constrains the i3 candidate list."
+ ],
+ "misses": [
+  "Never reconciled the app's own retry stack with Router's. ask_tool already retries ~6\u00d7 via tenacity behind a 300s timeout; adding cross-vendor fallbacks on top multiplies both cost and worst-case wait. An expert would have proposed shrinking the tenacity loop as part of i3 and pairing a provider_timeout with fallbacks (fail fast on a stalled provider, retry elsewhere) rather than dismissing provider_timeout as purely a way to bill truncated attempts.",
+  "Didn't consider Router's /v1/messages surface for the Claude deployments m2 creates. m2's own stated loss is that Router's Responses translation answers instead of Anthropic's compatibility layer, so wording can differ \u2014 the native Messages surface is the obvious mitigation and isn't weighed anywhere.",
+  "Identified the dominant cost driver (every step resends the system prompt, all tool schemas and the full history for up to 20 steps) but attacked it only with caching. No proposal to trim tool schemas per step, cap history growth, or route the cheap non-tool calls (ask / summaries) to a smaller model \u2014 the latter made newly expressible by its own per-agent labels in i2."
+ ],
+ "wrong": [
+  "The live-call accounting is understated. The report says 13 calls, all 200; the outside check recorded 30 live requests with 12 errors, all on app/llm.py:ask_with_images (1 ok / 12 error). The report acknowledges only 'an earlier 400 on the image path' from a bad test PNG, which does not account for 12 failures \u2014 the vision path is the least-verified path and is presented as the best-verified.",
+  "m1's 'loses: nothing' is overstated. Routing every LLM call through a gateway inserts a new dependency and failure domain in front of the app's entire model traffic, and the report's own m2 entry concedes the Responses translation can change response wording. 'Nothing' should have been a short, honest list.",
+  "The summary's framing that 'nothing changes until RAMP_ROUTER_API_KEY is set' glosses m2: once the key exists, Claude traffic an operator deliberately pointed at their own Anthropic account is served and billed by Router instead. The m2 item itself states this plainly, but the headline summary does not, and that is the single change most likely to surprise an operator.",
+  "i3's reliability gain is asserted from ROUTER.md, not demonstrated \u2014 fallback behaviour on 5xx/429 is explicitly unmeasured, and the report also claims 'Router ignores Flex once a models list is present' without evidence of its own. Correctly caveated in the evidence block, but the gains prose reads more confident than the evidence supports."
+ ],
+ "objective": {
+  "exit": 0,
+  "minutes": 21.4,
+  "usd": 11.8905,
+  "check_ok": true,
+  "verified": 5,
+  "unverified": 0,
+  "not_routing": 0,
+  "stays": 2,
+  "items": 11,
+  "kinds": {
+   "move": 1,
+   "trade-off": 1,
+   "stays": 2,
+   "note": 2,
+   "improvement": 5
+  },
+  "improvements": 5,
+  "built": 2,
+  "levels": {
+   "quick-win": 2,
+   "change": 2,
+   "rework": 1
+  },
+  "branch_ok": 2,
+  "report_ok": true
+ }
+}

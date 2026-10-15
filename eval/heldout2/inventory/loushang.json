@@ -1,0 +1,110 @@
+{
+  "repo": "zhnt/loushang",
+  "commit": "ed01d756b0b043cbca2a4352f847118205038adc",
+  "sites": [
+    {
+      "file": "src/loushang/ai/protocols/openai_chat_completions.py",
+      "line": 170,
+      "prod": true,
+      "sdk": "openai",
+      "surface": "chat",
+      "endpoint": "runtime-user-defined",
+      "key_source": "env",
+      "model": {"value": null, "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: this is loushang's generic OpenAI chat-completions protocol adapter, shared by every catalog provider on that protocol (openai_chat_completions.py:148 base_url=resolved.base_url, line 71 model=model.upstream_id or model.id, both resolved from a Model/Endpoint registry entry chosen at runtime, not a literal in this call). The shipped catalog (src/loushang/ai/model/models.json) routes this exact call to baidu-qianfan, deepseek, moonshot, kimi-code, volcano-ark and zai (non-OpenAI hosts) as well as the official OpenAI host, and users can add further arbitrary endpoints via .loushang/models/ (docs/en/getting-started/README.md:47; examples/ai/advanced/custom_catalog.py). Moving this call to Router would break the non-OpenAI/Anthropic configurations it is designed to support.",
+      "production": {
+        "host": null,
+        "model": null,
+        "source": "No single documented default: docs/en/getting-started/README.md:47 requires --model or a provider env var to pick a route, and examples/ai/README.md's 'regular call' walkthrough (lines 52-63) uses moonshot:openai-completions:kimi-k2.6 (api.moonshot.cn, not OpenAI) as the example of normal usage of this exact protocol."
+      }
+    },
+    {
+      "file": "src/loushang/ai/protocols/openai_responses.py",
+      "line": 258,
+      "prod": true,
+      "sdk": "openai",
+      "surface": "responses",
+      "endpoint": "runtime-user-defined",
+      "key_source": "env",
+      "model": {"value": null, "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: generic OpenAI Responses protocol adapter; base_url (line 232, resolved.base_url) and model (line 142/258, model.upstream_id or model.id) come from a runtime-resolved Model/Endpoint registry entry, not a literal. The catalog routes this protocol to the official OpenAI host, to OpenAI's undocumented chatgpt.com/backend-api/codex ChatGPT-OAuth host ('coding-responses' endpoint, auth/sources/openai_codex.py, marked experimental), and to Alibaba Dashscope / Tencent Hunyuan (non-OpenAI hosts) -- plus any user-added .loushang/models/ endpoint. store is explicitly forced to False (line 147), so Responses state is never used. Rewriting this call to Router would be wrong for the non-OpenAI-host and ChatGPT-OAuth configurations.",
+      "production": {
+        "host": null,
+        "model": null,
+        "source": "No single documented default: src/loushang/ai/model/models.json providers.openai.endpoints has 'openai-responses' (api.openai.com/v1) and 'coding-responses' (chatgpt.com/backend-api/codex, ChatGPT OAuth per src/loushang/ai/auth/sources/openai_codex.py, 'experimental'); providers.dashscope and providers.tencent-hunyuan also use the openai-responses protocol on their own hosts. docs/en/getting-started/README.md:47 requires an explicit --model choice; none is shown as 'the' default."
+      }
+    },
+    {
+      "file": "src/loushang/ai/protocols/anthropic_messages.py",
+      "line": 503,
+      "prod": true,
+      "sdk": "anthropic",
+      "surface": "messages",
+      "endpoint": "runtime-user-defined",
+      "key_source": "env",
+      "model": {"value": null, "static": false},
+      "beta": true,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Rule 2: generic Anthropic Messages protocol adapter (non-streaming branch); base_url (line 434, request.base_url) and model (line 299/323, model.upstream_id or model.id) are resolved at runtime from the Model/Endpoint registry, not literals here. The catalog routes this protocol to the official Anthropic host, to MiniMax (api.minimax.io/anthropic) and to Moonshot's Kimi Code anthropic-compatible endpoint (api.kimi.com/coding), all non-Anthropic hosts, plus any user-added .loushang/models/ endpoint. For MiniMax/Kimi-Code models (budgeted thinking mode) this path sends the 'anthropic-beta' header (interleaved-thinking-2025-05-14 / fine-grained-tool-streaming-2025-05-14 per _anthropic.py apply_beta_headers and models.json kimi-code adapter block), which would also independently trigger rule 5 if rule 2 did not already apply.",
+      "production": {
+        "host": null,
+        "model": null,
+        "source": "No single documented default: src/loushang/ai/model/models.json has providers.anthropic (api.anthropic.com), providers.minimax (api.minimax.io/anthropic) and providers.kimi-code.endpoints.kimi-code-anthropic (api.kimi.com/coding) all on anthropic-messages; docs/en/getting-started/README.md:47 requires an explicit --model choice."
+      }
+    },
+    {
+      "file": "src/loushang/ai/protocols/anthropic_messages.py",
+      "line": 505,
+      "prod": true,
+      "sdk": "anthropic",
+      "surface": "messages",
+      "endpoint": "runtime-user-defined",
+      "key_source": "env",
+      "model": {"value": null, "static": false},
+      "beta": true,
+      "stateful_responses": false,
+      "expected": "kept",
+      "why": "Same adapter as the line-503 call (this is the streaming-mode branch of the same if/else: client.messages.stream(**params) instead of client.messages.create(**params), selected via resolved.mode). Rule 2 applies identically: base_url/model are runtime-resolved from the registry and the catalog routes this protocol to Anthropic, MiniMax and Kimi Code (all possible hosts), plus user-added endpoints.",
+      "production": {
+        "host": null,
+        "model": null,
+        "source": "Same as the line-503 entry: models.json providers.anthropic / providers.minimax / providers.kimi-code.endpoints.kimi-code-anthropic; no single documented default endpoint or model."
+      }
+    },
+    {
+      "file": "spikes/ai-provider-adapters/spike_ai_provider_adapters/adapters/anthropic_sdk.py",
+      "line": 25,
+      "prod": false,
+      "sdk": "anthropic",
+      "surface": "messages",
+      "endpoint": "runtime-user-defined",
+      "key_source": "config",
+      "model": {"value": null, "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "spikes/ are exploratory prototypes (see docs/internals/architecture/ai/validation/loushang-ai-provider-adapter-validation.md), not part of the shipped loushang CLI/SDK; this standalone adapter.py constructs its own AsyncAnthropic client (base_url=model.base_url) and calls client.messages.stream(...) at line 33, independent of the real src/loushang/ai/protocols adapters."
+    },
+    {
+      "file": "spikes/ai-provider-adapters/spike_ai_provider_adapters/adapters/anthropic_httpx.py",
+      "line": 46,
+      "prod": false,
+      "sdk": "raw-http",
+      "surface": "messages",
+      "endpoint": "runtime-user-defined",
+      "key_source": "config",
+      "model": {"value": null, "static": false},
+      "beta": false,
+      "stateful_responses": false,
+      "expected": "nonprod",
+      "why": "spikes/ exploratory prototype of a raw-httpx alternative to the SDK-based adapter; issues a raw POST to f'{model.base_url}/v1/messages' (Anthropic Messages wire format) at line 46-51, never wired into the shipped CLI/SDK."
+    }
+  ]
+}

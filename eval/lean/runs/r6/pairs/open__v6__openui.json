@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "clear",
+ "why": "Both moved the same single piece of real traffic (the one shared OpenAI client behind /v1/chat/completions) with the same care about what must stay \u2014 Groq, the LiteLLM sidecar, Ollama, the model probes, and the browser client that points at the app's own origin \u2014 so the migration is a tie and the decision rests on the system-level work, where A is far deeper: it found and fixed the three real defects in this app (the `4096 - input_tokens` output cap that goes negative on a large refine, the chunk-counting quota with its `20 if \"gpt-4\" in model` substring bug that charged the cheapest model 20x, and the 2024-frozen picker), and settled model choice with live side-by-side runs through Router on OpenUI's own system prompt rather than from the catalog. B's two improvements are correct but small, and it demoted the most user-visible bug in the app to a note (n1) that explicitly blocks its own best idea \u2014 offering the gpt-5/6 models Router serves \u2014 instead of spending nine lines to unblock it.",
+ "A_best": "Measured, ranked system judgment with real Router leverage: six validated branches, the negative-max_tokens fix, a price-weighted quota replaced by Router's reported usage and USD cost, and levers declined for measured reasons (Flex pinned off because a 25s queued stream in front of a watching user is a broken product; prompt_cache_key measured at +46% on 4o-mini and -24% on haiku).",
+ "B_best": "Real test discipline \u2014 14 passing against a 4-passing baseline, including a stubbed drive of the handler asserting the quota multiplier per model \u2014 plus the sharpest single catch in either report: that get_openai_models() gates the whole OpenAI menu on an OpenAI probe, so a Router-key-only deployment can route generations it can never start, fixed with a correct Router-catalog intersection and three fallback paths.",
+ "A_worst": "Its catalog claim looks wrong: it asserts gpt-3.5-turbo, gpt-4o and gpt-4-turbo are absent from Router's live catalog, but B's validation shows a live 200 on gpt-3.5-turbo through Router and all four listed by GET /v1/models \u2014 and that claim is part of the argument for i2. It also added no tests (4 passed, identical to baseline) and left the frontend edits untypechecked.",
+ "B_worst": "Thin system-level reach: it diagnosed the 4096-token arithmetic and the reasoning-model incomplete-with-no-text failure exactly right and then shipped nothing for it, left the quota's chunk-counting bug untouched, patched the 20x multiplier with another substring test (`\"mini\" not in model`) rather than price, and accepted a two-year-stale model menu as the product surface.",
+ "result": "win",
+ "arm": "open",
+ "ref": "v6",
+ "repo": "openui",
+ "arm_was": "A"
+}

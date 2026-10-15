@@ -1,0 +1,127 @@
+{
+  "version": 6,
+  "summary": "llmcord is a Discord bot with exactly one LLM call: a streaming chat.completions.create inside on_message, against an AsyncOpenAI client the handler builds per message from the config's providers table. I put the vendored Router runtime under that client (llmcord.py:170), which translates Chat Completions to Router's /v1/responses and streams the result back, so the call site, its kwargs, the embed-edit loop and the config format are unchanged. The runtime is inactive until RAMP_ROUTER_API_KEY is set and only routes api.openai.com requests naming a Router catalog model, so the shipped default model openai/gpt-5.5 goes through Router while OpenRouter, xAI, Google, Azure and the local servers (Ollama, LM Studio, vLLM) still go straight to their provider. I also had to copy router_runtime.py into the Docker image: the Dockerfile copied only llmcord.py and config.yaml, so without that line the container's import would fall back to a no-op and Router would be silently bypassed in the one deployment path the project documents. Verified end-to-end against the real Router by driving on_message with a fake Discord message: one 200 on /v1/responses, model gpt-5.5, served by openai, streamed back into a Discord reply.",
+  "reviewed": "I read the Router fact sheet against what this bot actually does: one streaming interactive call, a replayed chain of up to 25 messages, a system prompt rendered per request, no timeout, and a bare `except Exception: logging.exception` around the whole generation. Three things were worth changing and are built and measured: the system prompt renders {time} at second resolution at the front of every request, which makes Router's prompt cache unreachable (measured: 0 cached tokens vs 3,328 of 3,918, -74% on a follow-up turn); the reply path has no fallback and no timeout, so an unavailable model produces no Discord reply at all; and that silent failure gets worse on Router, where a spend cap, exhausted credits, a rate limit or a 504 all land on the same swallowed exception. Three more are decisions for a human rather than code I should pick: whether the reply path should pin the standard service tier or keep the account's Flex default, whether gpt-5.5 at $5/$30 per 1M is the right default for a bot told to be brief, and whether the OpenRouter-served Claude entry should become Router-served. I considered and rejected unlocking the openrouter.ai host: unlocking alone changes nothing because ~anthropic/claude-opus-latest is not a catalog id, and making it route would need a model_map plus dropping the openrouter:web_search / openrouter:web_fetch tools, which is a worse app for no gain Router's own web_search could not give more cleanly.",
+  "calls": [
+    {"site": "llmcord.py:287", "feature": "llmcord.py:on_message", "model": "gpt-5.5", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "m1"}
+  ],
+  "items": [
+    {"id": "m1", "kind": "move", "title": "Route the per-message OpenAI client through Router",
+     "summary": "The vendored Router runtime goes under the AsyncOpenAI client on_message builds, so the bot's one streaming Chat Completions call reaches Router's /v1/responses.",
+     "calls": ["llmcord.py:287"],
+     "gains": "One Router key instead of a per-provider key for the default model, Router's catalog and per-request spend reporting, and a per-request label (llmcord.py:on_message) that router.policy.json and Router's spend views can key on. Chat Completions is translated to /v1/responses, which Router serves; the call site and its streaming loop are untouched.",
+     "loses": "nothing",
+     "price": "no change: Router billed gpt-5.5 at the catalog's $5/$30 per 1M, matching list price",
+     "why": "The bot has exactly one LLM call and builds its client per message from a config table of arbitrary OpenAI-compatible hosts, including local ones. Pointing that client straight at Router was not an option: Router has no /v1/chat/completions, and the same construction serves Ollama, LM Studio, vLLM, OpenRouter, xAI, Google and Azure, which must keep working. The runtime is the one way that routes the OpenAI path while leaving every other host alone, keeps the app's own request shape, and stays entirely inert until RAMP_ROUTER_API_KEY is set. The Dockerfile change is part of the same decision: the image copies an explicit file list, so without router_runtime.py in it the container imports the no-op fallback and routes nothing.",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "repo test command (compileall + import llmcord): 2 passed, unchanged from the 2-passed baseline"},
+       {"check": "router-live", "result": "pass", "detail": "check --run --live driving the real on_message with a fake Discord message: 1 request to Router, 200 /v1/responses model=gpt-5.5 feature=llmcord.py:on_message provider=openai, streamed back into one Discord reply"},
+       {"check": "simulator", "result": "pass", "detail": "check --run of the same driver: 1 valid /v1/responses, and the embed-edit streaming path produced reply + edit as before"},
+       {"check": "simulator", "result": "info", "detail": "the same driver looped over all three configured models with ROUTER_MIGRATE_TRACE on: openai/gpt-5.5 -> Router, openrouter/~anthropic/claude-opus-latest -> openrouter.ai, ollama/llama4 -> localhost"},
+       {"check": "other", "result": "info", "detail": "read the runtime's chat translation for the shipped model parameters: reasoning_effort becomes reasoning.effort and verbosity becomes text.verbosity, so openai/gpt-5.5's configured parameters survive the translation (confirmed by the 200 above, which carried both)"}
+     ],
+     "commit": "fc88544", "branch": null, "depends_on": [], "excludes": []},
+
+    {"id": "m2", "kind": "stays", "title": "Non-OpenAI providers keep going straight to their provider",
+     "summary": "The same call site keeps calling OpenRouter, xAI, Google, Azure, Ollama, LM Studio and vLLM directly; only api.openai.com requests naming a catalog model are routed.",
+     "calls": ["llmcord.py:287"],
+     "gains": "Every provider in the shipped config keeps working exactly as before, and a self-hoster's local model never leaves the machine.",
+     "loses": "nothing",
+     "price": "no change",
+     "why": "config.yaml ships eight providers and three models. ollama/llama4 points at localhost:11434, and sending a locally hosted model's traffic to a cloud gateway would change what the deployment is and what it costs, so it stays local by design. openrouter/~anthropic/claude-opus-latest stays for two independent reasons: openrouter.ai is not an unlocked host, and ~anthropic/claude-opus-latest is not a Router catalog id. I rejected unlocking it: unlocking the host alone routes nothing, and making it route would need a model_map onto a pinned catalog id plus dropping the entry's openrouter:web_search and openrouter:web_fetch tools, which Router cannot serve in that shape. Item i4 is the clean version of that change if the operator wants it. Nothing about these providers is silently different: traffic that stays on a provider is also traffic Router's spend views will not show.",
+     "evidence": [
+       {"check": "simulator", "result": "pass", "detail": "ROUTER_MIGRATE_TRACE over all three configured models: openrouter/~anthropic/claude-opus-latest -> host=openrouter.ai to=provider; ollama/llama4 -> host=localhost to=provider; only openai/gpt-5.5 -> Router"},
+       {"check": "other", "result": "info", "detail": "the runtime routes only api.openai.com (plus explicitly unlocked hosts) for chat/completions and responses, and api.anthropic.com for messages; nothing in this config matches the others"}
+     ],
+     "commit": "fc88544", "branch": null, "depends_on": [], "excludes": []},
+
+    {"id": "m3", "kind": "note", "title": "extra_headers and extra_query are dropped on the Router path",
+     "summary": "A provider's extra_headers / extra_query entries do not reach Router, because the runtime builds its own headers and URL for Router-bound requests.",
+     "gains": "",
+     "loses": "",
+     "price": "no change",
+     "why": "config.yaml lets each provider carry extra_headers and extra_query (the azure-openai entry uses extra_query for api-version). On the Router path the runtime builds the request from scratch: Authorization, Content-Type, User-Agent, Accept, the retry/idempotency headers and its own feature labels, against RAMP_ROUTER_BASE_URL. Anything an operator put in extra_headers or extra_query for a routed provider is therefore not forwarded. Nothing is lost today: the shipped openai provider sets neither, and the providers that do use them (azure-openai) are not routed. It matters only if someone later adds extra_headers or extra_query to the openai provider and expects Router to see them. extra_body is unaffected -- it merges into the JSON body, which is translated and forwarded.",
+     "evidence": [
+       {"check": "other", "result": "info", "detail": "read the runtime's Router request construction: headers are rebuilt from a fixed list and the URL from RAMP_ROUTER_BASE_URL, so neither the caller's extra headers nor its query string survive"}
+     ],
+     "commit": "fc88544", "depends_on": [], "excludes": []},
+
+    {"id": "i1", "kind": "improvement", "level": "change",
+     "title": "Keep the clock out of the prompt cache prefix",
+     "summary": "Insert the rendered system prompt just before the newest user message instead of at the front, so the replayed conversation history becomes cacheable.",
+     "gains": "The replayed history stops being charged at full input price on every turn. Measured on Router with gpt-5.5 and a 45-turn thread: the follow-up turn cached 3,328 of its 3,918 input tokens and cost $0.0028017 instead of $0.010857, -74%. The saving grows with the thread, up to the configured 25-message chain, and cached input is billed at gpt-5.5's $0.50 per 1M instead of $5.",
+     "loses": "The system prompt is no longer the first thing the model reads; it sits behind the conversation history, immediately before the newest user message. Leading and trailing instructions are weighted differently by models, so the bot's tone and instruction-following can shift slightly. Nothing offline measures that, and the prompt text, the {date} and {time} tags and the newest-message-last ordering are all unchanged.",
+     "why": "The shipped system prompt contains \"The current time is {time}\", rendered as HH:MM:SS. A prompt cache only pays for a byte-identical prefix, and that string sat at offset zero of every request, so no two turns of a conversation ever shared a prefix and the cache could never be read -- on a 25-message chain the entire history was paid for at full price every single turn. Moving the volatile text behind the history fixes it without giving up the clock, which is why I did not simply delete the {time} tag. I measured both arms rather than reasoning about it: with the prompt in front, the second of two identical-prefix calls cached 0 tokens; behind, it cached 3,328. No Router policy entry is needed -- gpt-5.5 caches a stable prefix without prompt_cache_key (measured: 4,352 of 4,691 tokens cached with no key set).",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "two consecutive turns of a 45-turn thread built the way llmcord builds them, gpt-5.5: system prompt in front -> turn 45 cached 0 of 3,918, $0.010857; system prompt behind the history -> turn 45 cached 3,328 of 3,918, $0.0028017"},
+       {"check": "router-live", "result": "pass", "detail": "control, same model, a 4,700-token prompt sent twice: identical prefix caches 4,352 tokens and costs $0.00239 instead of $0.01316; the same pair with only HH:MM:SS differing caches 0 and costs $0.01321 both times"},
+       {"check": "router-live", "result": "pass", "detail": "check --run --live driving on_message on this branch: 200 /v1/responses model=gpt-5.5, reply streamed -- Router accepts a system item that is not the first input item"},
+       {"check": "tests", "result": "pass", "detail": "repo test command on the branch: 2 passed"}
+     ],
+     "branch": "router-migrate/improve/cacheable-prefix", "commit": "dd124ab", "depends_on": [], "excludes": []},
+
+    {"id": "i2", "kind": "improvement", "level": "change",
+     "title": "Fall back cross-vendor instead of replying with silence",
+     "summary": "A router.policy.json entry gives the reply path a fallback list (gpt-5.5 to gpt-5.4 to claude-sonnet-5) and provider_timeout 60.",
+     "gains": "A model that is unavailable, refused for this key, or out of capacity gets answered by the next candidate instead of producing no Discord reply at all, and the second candidate is Anthropic, so an OpenAI-wide outage is still answered. provider_timeout 60 bounds a hung provider, where today the openai client's 600 s default is the only limit on how long a user watches a typing indicator. Both are Router fields the runtime adds only to Router-bound requests, so the direct-to-provider path for Ollama, OpenRouter and the rest is untouched.",
+     "loses": "A different model can answer without telling the user, and the response differs in style and quality; Router does not report which candidate failed. The list is per feature label, not per model, so if an operator switches the default to something cheap (gpt-4o-mini at $0.15/$0.60) the fallback path costs far more than the primary. Router does not fail over once a stream has started and this bot always streams, so the list covers failures before the first event, not a provider that dies mid-answer. Flex interacts: Router ignores Flex when a models list is sent with an explicit tier, so this may move the reply path to the standard tier and give up a Flex discount; I did not measure which tier served the list.",
+     "why": "on_message wraps the whole generation in `except Exception: logging.exception`, so any failure before the first token produces no reply whatsoever -- the typing indicator stops and nothing else happens. That is the failure a fallback list actually fixes, and Router's models list is the only lever that fixes it without the app learning to retry. I chose candidates that are all cheaper than the primary and all accept image input, so the vision path keeps working; the runtime's capability guard would drop a candidate that could not serve the request's modalities anyway. provider_timeout rides along because the same code path has no timeout at all, and an interactive Discord reply has no business waiting ten minutes.",
+     "price": "A fallback candidate is billed at its own catalog price and only when it serves: gpt-5.4 $2.50/$15 and claude-sonnet-5 $2/$10 per 1M, both below gpt-5.5's $5/$30. Possible loss of a Flex discount on the primary (unmeasured).",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "models [gpt-5.5, gpt-5.4, claude-sonnet-5] with provider_timeout 60 -> 200, served gpt-5.5-2026-04-23 by openai"},
+       {"check": "router-live", "result": "pass", "detail": "fall-through: models [gpt-5.5-does-not-exist, gpt-5.4] -> 200, served gpt-5.4-2026-03-05 by openai"},
+       {"check": "router-live", "result": "pass", "detail": "check --run --live driving on_message on this branch: the bot's own request leaves with a models list rather than a model (Router logged model=None), 200, reply streamed"},
+       {"check": "simulator", "result": "pass", "detail": "check --run on this branch: 1 valid /v1/responses with the policy applied (models list in place of model); policy compiled with router-migrate policy (b3f9258d)"},
+       {"check": "tests", "result": "pass", "detail": "repo test command on the branch: 2 passed"},
+       {"check": "other", "result": "info", "detail": "all three candidates list file, image and text input modalities and support reasoning effort high, so neither the vision path nor the configured reasoning_effort is lost on a fallback"}
+     ],
+     "branch": "router-migrate/improve/reply-fallbacks", "commit": "8c807c7", "depends_on": [], "excludes": []},
+
+    {"id": "i3", "kind": "improvement", "level": "quick-win",
+     "title": "Tell the user when a response fails",
+     "summary": "On a failed generation the bot edits the last embed, or replies, with a short notice instead of logging and going quiet.",
+     "gains": "A failure becomes visible where it happens. Today a user sees the typing indicator stop and nothing else, which is indistinguishable from a dead bot, and the only record is a server-side log line. On Router the class of failures reaching that handler widens -- a spend cap (401), exhausted credits (402), a rate limit (429) and a provider timeout (504) all arrive as exceptions here -- so an operator who caps a Router key would otherwise get 'the bot is broken' with no signal a user can report.",
+     "loses": "A noisier channel: a transient failure now posts a message where it used to post nothing, and that message stays in the channel. The notice is deliberately generic, so it tells the user nothing about why it failed; the detail stays in the log. It is also one extra Discord API call on the failure path.",
+     "why": "This is the smallest change that stops the bot failing invisibly, and putting the app on a gateway is exactly when invisible failure stops being acceptable: spend caps and rate limits are operator-controlled events whose only symptom today is silence. The text is generic on purpose -- a provider error message can carry model ids, key hints or prompt content, none of which belongs in a Discord channel. The notice is sent inside its own try/except and is not appended to response_msgs, so it cannot break the message-node bookkeeping that runs afterwards.",
+     "price": "no change",
+     "evidence": [
+       {"check": "simulator", "result": "pass", "detail": "driving the real on_message: a failure before anything is sent produces a fresh reply carrying the notice; a failure after the first embed went out edits that embed and sets the incomplete colour (#e67e22)"},
+       {"check": "simulator", "result": "pass", "detail": "the same probe on the migration branch exits 1 with 'case A: the user was never told', confirming the baseline swallows the failure"},
+       {"check": "tests", "result": "pass", "detail": "repo test command on the branch: 2 passed"}
+     ],
+     "branch": "router-migrate/improve/visible-failures", "commit": "3bb90c2", "depends_on": [], "excludes": []},
+
+    {"id": "i4", "kind": "improvement", "level": "change",
+     "title": "Serve the Claude entry through Router, not OpenRouter",
+     "summary": "Replace the openrouter/~anthropic/claude-opus-latest model entry with a Router-served Claude catalog id and Router's own web_search tool.",
+     "gains": "The second configured model comes under the same key, catalog and spend reporting as the first, at Router's list price rather than a reseller's markup (claude-opus-5-5 is $4/$20 per 1M, under claude-opus-5's $5/$25), and its web search becomes Router's Responses web_search built-in, which is measured working on Claude. One fewer provider key for the deployment to hold.",
+     "loses": "The entry stops working whenever Router is off: with RAMP_ROUTER_API_KEY unset the request would go to api.openai.com naming a Claude model and 404. ~anthropic/claude-opus-latest tracks whatever OpenRouter calls the newest Opus, while a catalog id is pinned and has to be bumped by hand. The openrouter:web_search and openrouter:web_fetch tool types have no Router equivalent and would be replaced by Responses web_search, which is a different tool with different results and its own per-search cost (measured at $0.021 for one claude-haiku-4-5 search); there is no web_fetch equivalent on that surface. And it moves a model an admin can pick with /model from one vendor relationship to another.",
+     "why": "This is the honest version of 'put the rest of the traffic on Router' for this app, and it is a decision rather than a codemod: it changes which vendor answers, pins a model id that is currently floating, and swaps one web-search tool for another. Proposed rather than built for that reason -- an operator should choose the catalog id and accept the tool swap. The alternative I rejected outright is unlocking the openrouter.ai host and model_mapping the id: that keeps the OpenRouter dependency, still needs the tools dropped, and buys nothing this does not.",
+     "branch": null, "depends_on": [], "excludes": []},
+
+    {"id": "d1", "kind": "needs-decision",
+     "title": "Flex or standard tier for a user-waiting Discord reply",
+     "summary": "gpt-5.5 is Flex-eligible and the account default serves Flex; pinning service_tier default would trade that discount for a predictable tail latency.",
+     "gains": "Pinning the standard tier removes Flex's latency tail from a path where a human is watching a typing indicator: the docs give a streamed Flex attempt an implicit 25 s deadline before falling back to the same model at standard, and one measured Flex call on gpt-5-nano took 61 s. Keeping the Flex default keeps the discount, measured at exactly -50% on gpt-5.4-mini.",
+     "loses": "Either the discount or the predictability -- that is the decision.",
+     "why": "This is an account-and-policy setting, not code, and it depends on something I cannot measure for you: whether this bot's users would rather wait occasionally or halve the bill. The facts are: cost-efficient routing is on by default on the Router account, gpt-5.5 is one of the 17 Flex-eligible ids, plain requests to Flex-eligible models were served at Flex without opting in, and the tier can change between turns of one conversation. The Flex discount has only been measured on gpt-5.4-mini, not on gpt-5.5, and Flex latency has only a handful of samples. Switching on is one key in router.policy.json for the llmcord.py:on_message feature (service_tier default). Note the interaction with i2: Router ignores Flex when a models list carries an explicit tier, so approving the fallback list may settle this by accident -- worth deciding deliberately either way.",
+     "depends_on": [], "excludes": []},
+
+    {"id": "d2", "kind": "needs-decision",
+     "title": "gpt-5.5 is the most expensive OpenAI id in the catalog",
+     "summary": "The default model is gpt-5.5 at $5/$30 per 1M with reasoning_effort high, for a bot whose system prompt says to optimize for brevity.",
+     "gains": "gpt-5.4 is half the price ($2.50/$15) and gpt-5.4-mini is 85% less ($0.75/$4.50); both are Flex-eligible, both take image input, and both support reasoning effort high, so the config entry would carry over unchanged. On a bot that replays up to 25 messages per turn, input price is most of the bill.",
+     "loses": "A less capable model answers, and the bot's answers get worse by some amount nothing here measures.",
+     "why": "Worth putting in front of a human precisely because the cost case is strong and the quality case is unmeasurable. The first model in the config is the startup default and the one that serves real traffic; it is currently the priciest OpenAI id Router lists, with reasoning_effort high on top, in a bot told to be brief and snarky. Nothing offline measures answer quality, so I will not pick for you. Note the two interact: i1 cuts the input bill on this model by about three quarters on multi-turn threads, which may well be enough and make a model change unnecessary.",
+     "depends_on": [], "excludes": []},
+
+    {"id": "n1", "kind": "note",
+     "title": "/model can move traffic off Router without warning",
+     "summary": "An admin switching the model with /model to an OpenRouter or local entry takes that traffic off Router, and off Router's spend reporting, with no indication anywhere.",
+     "gains": "",
+     "loses": "",
+     "why": "curr_model is global process state that any admin can change at runtime with /model, and only entries on the openai provider naming a catalog model route. So the bot can be on Router at 10:00 and entirely off it at 10:01, with Router's spend views going quiet and no sign of why. That is the correct behaviour -- a local Ollama model must not be shipped to a gateway -- but it means Router's dashboard is not a complete record of this bot's LLM spend unless the operator also controls which models are configured. Recording it so nobody debugs a missing-traffic mystery later; d1 and i2 both apply per feature label, so they follow whichever model is routed.",
+     "depends_on": [], "excludes": []}
+  ]
+}

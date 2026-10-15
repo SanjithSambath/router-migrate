@@ -1,0 +1,14 @@
+{
+ "winner": "A",
+ "margin": "clear",
+ "why": "A found that the app's only user-facing path (OpenAIAgent.astream_chat) silently drops every tool call, so SEC Insights answers every financial question with its \"Sorry, I...don't have an answer\" fallback \u2014 diagnosed to the exact gate, reproduced with no Router in the path, fixed and tested on a branch \u2014 and is the only one of the two to ask whether a call should exist at all (the per-document agent that spends a whole LLM turn deciding to call a zero-argument function). B's migration and measurement hygiene are better, but it ranked a careful set of tune-ups against a product that currently returns nothing, and its probes drove SubQuestionQueryEngine directly rather than the real entry point, which is why it never saw the outage.",
+ "A_best": "The astream_chat tool-loop bug: correct mechanism (role-only first chunk sets is_function_false_event before the tool call arrives), proven no-Router reproduction, before/after through the real handle_chat_message (1 request and an empty answer \u2192 6 requests and a real figure), honest about the monkeypatch liability and sequenced into i7's FunctionAgent rework to delete it.",
+ "B_best": "Discovering that the runtime's stack-derived spend label is useless for this app \u2014 5 of 8 requests labelled with whatever module was on the stack, 2 unlabelled because the streaming agent runs on a worker thread \u2014 then fixing it with explicit per-workload headers so router.policy.json can actually target chat vs the RAG fan-out separately; plus the latency measurement that kills the obvious cost win (gpt-6-luna 17.5s vs gpt-4o-mini 5.5s on a full RAG turn).",
+ "A_worst": "It left Router's spend/policy keying broken: it saw that call-stack labels resolve to an arbitrary FastAPI frame and responded by writing policy against defaults instead of fixing the labels, so no per-workload lever is reachable; and its headline cost item (gpt-6-luna, 64-72% cheaper on two prompts) never measured latency on a path it itself calls all-user-waiting, which B shows is a 3x regression. No treatment of the spend cap as a new single point of failure, and the outside check could not verify tools.py:156.",
+ "B_worst": "It missed that the product doesn't work \u2014 every improvement is priced and sequenced against a chat feature that currently returns a canned apology \u2014 and its system judgment stops at the migration tune-up boundary: nothing questions whether any call should exist (no mention of the agent hop over a zero-argument polygon.io tool), the model decision ends in \"no change yet\", and prompt_cache_key is set to a constant feature label rather than the conversation id, which is the wrong granularity for the affinity it is buying.",
+ "result": "win",
+ "arm": "open_oldfacts",
+ "ref": "ultra_levels",
+ "repo": "sec-insights",
+ "arm_was": "A"
+}

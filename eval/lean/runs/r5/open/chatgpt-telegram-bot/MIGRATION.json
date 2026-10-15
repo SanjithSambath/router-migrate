@@ -1,0 +1,592 @@
+{
+ "version": 6,
+ "summary": "All four chat.completions calls in this Telegram bot (the reply, the plugin follow-up turn, vision, and history summarisation) now go through Ramp's Router by wrapping the one AsyncOpenAI client the app builds; image generation, TTS and transcription have no Router endpoint and keep going to OpenAI unchanged. Two things had to be fixed for the plugin path to survive the move, both found by running the bot's real flows against Router: the history recorded a plugin result without the assistant turn that asked for it (Chat Completions tolerated it, the Responses API rejects it), and the streamed plugin detection gave up at the role-only chunk a Router stream opens with, so every streamed plugin call was silently dropped and the user got an empty reply - the default STREAM=true configuration. Reviewing the product on top of Router, the item with the most value is not a Router lever at all: the hardcoded 2024 model tables made any other model crash at startup or on the first message, so the bot could not use the catalog Router exists to open up. Items below are ordered by value; four improvements are built and tested on branches, six are proposed for an apply session.",
+ "reviewed": "I read every LLM call and the config that shapes it, then exercised all seven flows (chat, streamed chat, plugin call buffered and streamed, vision buffered and streamed, summarisation) against the simulator and the live Router, on gpt-4o, gpt-4o-mini, claude-haiku-5-5, gpt-6-luna and grok-4.7. I measured what the decisions depend on rather than assuming it: prompt caching (-45% on a 2,247-token gpt-4o prompt), this account's Flex default (a plain gpt-5.4-mini request came back tier=flex, and service_tier default costs exactly 2x), fallbacks next to an explicit tier, a four-model summary side-by-side, and image+tools in one request. The product's own costs were in scope too: the summariser running inline on the expensive model, base64 images stringified into the summary prompt, plugins lost for the rest of a conversation after one photo, and a vision path locked to OpenAI by a hardcoded JPEG media type. All four built branches were test-merged together: no conflicts, suite green, every flow still passing live.",
+ "calls": [
+  {
+   "site": "bot/openai_helper.py:268",
+   "feature": "bot/openai_helper.py:__common_get_chat_response",
+   "model": "gpt-4o",
+   "task": "chat reply (and every turn after an image)",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "bot/openai_helper.py:337",
+   "feature": "bot/openai_helper.py:__handle_function_call",
+   "model": "gpt-4o",
+   "task": "turn after a plugin result",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m2"
+  },
+  {
+   "site": "bot/openai_helper.py:490",
+   "feature": "bot/openai_helper.py:__common_get_chat_response_vision",
+   "model": "gpt-4o (VISION_MODEL)",
+   "task": "image interpretation",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "bot/openai_helper.py:650",
+   "feature": "bot/openai_helper.py:__summarise",
+   "model": "gpt-4o",
+   "task": "compress the conversation when it gets too long",
+   "latency": "user_waiting",
+   "now": "router",
+   "item": "m1"
+  },
+  {
+   "site": "bot/openai_helper.py:364",
+   "feature": "generate_image",
+   "model": "dall-e-2 (IMAGE_MODEL)",
+   "task": "image generation",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s1"
+  },
+  {
+   "site": "bot/openai_helper.py:392",
+   "feature": "generate_speech",
+   "model": "tts-1 (TTS_MODEL)",
+   "task": "text to speech",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s2"
+  },
+  {
+   "site": "bot/openai_helper.py:413",
+   "feature": "transcribe",
+   "model": "whisper-1",
+   "task": "voice message transcription",
+   "latency": "user_waiting",
+   "now": "provider",
+   "item": "s2"
+  }
+ ],
+ "items": [
+  {
+   "id": "m1",
+   "kind": "move",
+   "title": "Route the shared OpenAI client through Router",
+   "summary": "The one AsyncOpenAI client the bot builds goes through the vendored runtime, so all four chat.completions calls are served by Router's /v1/responses.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:337",
+    "bot/openai_helper.py:490",
+    "bot/openai_helper.py:650"
+   ],
+   "gains": "One key and one spend view for every text call; per-feature labels (the runtime tags each request with <file>:<function>); every Responses lever - model choice across 100 catalog ids, tier, fallbacks, prompt caching, timeouts - reachable from router.policy.json without touching the call sites.",
+   "loses": "nothing",
+   "price": "no change by itself: gpt-4o through Router billed list price in every call measured ($0.0056475 for a 2,247-token prompt, matching $2.50/$10 per 1M).",
+   "why": "Every text call in this app comes from one client constructed in OpenAIHelper.__init__, so one wrap covers the reply, the plugin follow-up, vision and summarisation, and keeps the app's own request shape. The runtime translates Chat Completions to Responses in both directions, including the SSE stream, and leaves images, TTS and transcription on OpenAI by itself. Nothing changes in production until RAMP_ROUTER_API_KEY is set, and ROUTER_MIGRATE_DISABLE=1 turns it off again.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "10 requests, 10 x 200 on the real Router: all seven flows (chat, streamed chat, plugin call buffered and streamed, vision buffered and streamed, summarisation) answered with real content - vision read a red test image correctly, the plugin follow-up answered from the tool result."
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "router-migrate check --run on the same script: 10 requests, 10 valid, 0 invalid."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command: 5 passed, same as the baseline."
+    },
+    {
+     "check": "other",
+     "result": "pass",
+     "detail": "router-migrate check --all: 4 of 4 chat.completions sites ROUTE; the 3 image/audio sites report Router's hard limit."
+    }
+   ],
+   "commit": "dfd81a4",
+   "branch": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "m2",
+   "kind": "port",
+   "title": "Record the assistant's function-call turn in the history",
+   "summary": "A plugin result was stored without the assistant turn that asked for it, which the Responses API rejects, so every plugin follow-up turn failed on Router.",
+   "calls": [
+    "bot/openai_helper.py:337"
+   ],
+   "gains": "The plugin path works on Router; the history now matches what OpenAI's own function-calling guide asks for, and the model can see that it already made the call instead of finding a result it never requested.",
+   "loses": "Each plugin call adds one short assistant message to the history, so that conversation costs a few more input tokens per later turn and the /stats token count rises accordingly. __count_tokens now JSON-encodes a non-string message value (the function_call dict) instead of raising TypeError.",
+   "price": "a few tokens per plugin call: about 20-40 input tokens added to subsequent turns of that conversation.",
+   "why": "__handle_function_call appended only {role: function, name, content}. Chat Completions tolerates that dangling result; Router translates the history to Responses items, where a function_call_output needs a function_call with the same call_id, and Router returned 400 'No tool call found for function call output with call_id call_legacy'. The simulator caught this on the first run, before any live call. Recording the request turn is the fix the API expects, and it is correct on the provider path too.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "fail",
+     "detail": "before the fix: 8 requests, 1 invalid - /v1/responses __handle_function_call, 400 'No tool call found for function call output with call_id call_legacy.'"
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "after the fix: 9 requests, 9 valid, 0 invalid."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "live: the buffered plugin flow answered 'The current time in Paris is 12:00.' from the tool result, and the history holds assistant(function_call) then function(result)."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command: 5 passed."
+    }
+   ],
+   "commit": "bf6d6ef",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "m3",
+   "kind": "port",
+   "title": "Don't drop a streamed plugin call at the role-only chunk",
+   "summary": "The streamed plugin detection returned at the first chunk carrying no function_call, which over Router is the role-only chunk every stream opens with, so streamed plugin calls were lost and the reply came back empty.",
+   "calls": [
+    "bot/openai_helper.py:268"
+   ],
+   "gains": "Plugins work in the default configuration (STREAM=true, ENABLE_FUNCTIONS=true). The detection also no longer swallows the first chunk of a plain text answer, which it did on the provider path too.",
+   "loses": "A response that turns out not to be a function call is handed back as an async generator that replays the chunks already read, instead of the SDK's own stream object; anything that needed the SDK Stream type (nothing in this app - both callers only iterate it) would see the difference. The loop also reads one chunk further than before in the text case.",
+   "price": "no change",
+   "why": "OpenAI's Chat Completions merges the role into the first function_call delta; the Responses stream Router serves emits role-only first, then the function_call deltas, then finish_reason=function_call (all three measured). The old loop therefore bailed before seeing the call, executed nothing, and yielded an empty answer with the plugin silently gone. Skipping chunks that carry no content, no function call and no finish reason - and replaying what was read when the response is plain text - makes the detection independent of how a provider splits its chunks.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "fail",
+     "detail": "before the fix: get_chat_response_stream with plugins enabled yielded one chunk, '' - the model had emitted get_time({city: Berlin}) and it was discarded (chunk dump: role-only, 6 function_call deltas, finish_reason=function_call)."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "after the fix: 13 yields ending 'The current time in Berlin is 12:00 PM.' with the plugin listed, 2 Router requests (reply + follow-up), and the first text token 'The' no longer missing."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command: 5 passed."
+    }
+   ],
+   "commit": "72ab171",
+   "branch": null,
+   "depends_on": [
+    "m1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "i3",
+   "kind": "improvement",
+   "level": "rework",
+   "title": "Let the bot run any model Router serves",
+   "summary": "Remove the 2024 model tables' veto so OPENAI_MODEL, VISION_MODEL and SUMMARY_MODEL accept any catalog id, and stop labelling every image as JPEG.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:490",
+    "bot/openai_helper.py:650"
+   ],
+   "gains": "The reason to be on Router at all becomes reachable: 100 catalog ids instead of 8 usable ones. Measured on the same three chat prompts, gpt-4o cost $0.001090 against $0.000089 on gpt-4o-mini, $0.000118 on gpt-6-luna and $0.000122 on claude-haiku-5-5 - 9 to 12x less for answers of the same quality, at the same latency for the OpenAI and Anthropic candidates. It also unblocks gpt-4o-mini as a vision model (count_tokens_vision accepted gpt-4o only) and any Anthropic model for vision at all.",
+   "loses": "For a model outside the known tables, the context limit is an assumption (MAX_MODEL_TOKENS, default 128000) and token counts are an o200k_base estimate, so the summarisation trigger and the /stats display are approximate for it; a model with a smaller real context will error instead of summarising in time unless MAX_MODEL_TOKENS is lowered. The exact counts still come back in each response.",
+   "price": "no change until the operator changes a model; it makes the 9-12x cheaper models usable.",
+   "why": "default_max_tokens returned None for an unrecognised id (int(None) at startup), __max_model_tokens and __count_tokens raised NotImplementedError, and __count_tokens_vision raised for any VISION_MODEL but gpt-4o - so the tables were the list of models the bot accepted, not just the ones it has exact numbers for. Separately, encode_image declared 'data:image/jpeg' for images telegram_bot.py had just converted to PNG: OpenAI ignores the declared type, Anthropic rejects the mismatch, so vision was locked to OpenAI by one hardcoded string. Both are plumbing in the way of the product's main cost decision (p2).",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "all seven flows on claude-haiku-5-5, gpt-6-luna, grok-4.7 and gpt-4o: 'all flows ok' for each (28 flow runs). On the migration branch, claude-haiku-5-5 fails vision with Anthropic's 400 'specified using the image/jpeg media type, but the image appears to be a image/png image'."
+    },
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "3 chat prompts per model through Router: gpt-4o $0.001090 (0.77-1.01s), gpt-4o-mini $0.000089 (0.69-1.18s), gpt-6-luna $0.000118 (1.75-3.60s), claude-haiku-5-5 $0.000122 (0.89-1.27s), gpt-5.4-mini $0.000275 (0.61-0.94s); all five produced a good haiku and a correct TCP/UDP answer."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command on the branch: 5 passed."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "all four improvement branches merge into the migration branch with no conflict, and the four together pass the test suite and every live flow (verified on claude-haiku-5-5 with SUMMARY_MODEL=gpt-4o-mini: 'all flows ok', plugins still running after an image)."
+    }
+   ],
+   "commit": "3cd8fa3",
+   "branch": "router-migrate/improve/any-catalog-model",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i1",
+   "kind": "improvement",
+   "level": "quick-win",
+   "title": "Policy: standard tier, cached prefixes, bounded waits, spend label",
+   "summary": "A router.policy.json that pins the standard tier on everything a user waits for, sets a prompt cache key, caps provider_timeout, and tags spend - no code change.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:337",
+    "bot/openai_helper.py:490",
+    "bot/openai_helper.py:650"
+   ],
+   "gains": "Measured -45% on a repeated prefix (gpt-4o, 2,247-token prompt: second call cached 2,048 tokens, $0.0030875 against $0.0056475) and that call was faster (0.59s against 0.82-1.01s). This bot resends the whole conversation plus the plugin specs on every turn, so the prefix always repeats. The tier pin removes the risk that a Flex-eligible model silently answers a waiting user from a queue, provider_timeout 60 replaces the SDK's 600s default, and the summariser - the one call whose failure already degrades gracefully - gets allow_flex_tier and a 20s bound.",
+   "loses": "On a Flex-eligible model, pinning the standard tier costs exactly 2x the Flex price (measured: gpt-5.4-mini $3.2175e-05 standard against $1.60875e-05 Flex). That is the deliberate trade: a Telegram reply should not queue. A reply that would have taken over 60s now fails with an error instead of eventually arriving.",
+   "price": "-45% on the repeated prefix of every turn; 2x per token on a Flex-eligible model (no effect on gpt-4o or gpt-4o-mini, which have no Flex tier).",
+   "why": "This account's default is cost-efficient routing - a plain gpt-5.4-mini request came back tier=flex - and Flex may queue (61s measured elsewhere on gpt-5-nano). That is right for unattended work and wrong for a chat reply, so the policy asks for the standard tier everywhere a user is waiting, and gives Flex to the summariser only, where a failure already falls back to dropping old messages. The cache key is the big one: Router does not cache gpt-4o without it (0 cached tokens on an identical repeat), and with it the repeat cost 45% less.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "with the policy compiled, through the app's own client: gpt-5.4-mini came back tier=default (it was tier=flex without it), and two identical gpt-4o calls went in=2247 cached=0 $0.0056475 then in=2247 cached=2048 $0.0030875."
+    },
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "10 requests, 10 valid; the runtime logged 'allow_flex_tier skipped for bot/openai_helper.py:__summarise: gpt-4o has no flex tier', which is the documented guard."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command on the branch: 5 passed."
+    }
+   ],
+   "commit": "a110b84",
+   "branch": "router-migrate/improve/policy-tier-cache-timeout",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p2",
+   "kind": "needs-decision",
+   "title": "Change the default model from gpt-4o to a 2026 small model",
+   "summary": "gpt-4o costs 9-12x more than gpt-4o-mini, gpt-6-luna or claude-haiku-5-5 for this bot's traffic, at the same latency; which one answers users is a product call.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:490"
+   ],
+   "gains": "About 90% off the bot's text spend. gpt-4o is a 2024 model at $2.50/$10 per 1M; gpt-4o-mini is $0.15/$0.60, gpt-6-luna and claude-haiku-5-5 $0.10/$0.50. Measured on three chat prompts: $0.001090 against $0.000089 / $0.000118 / $0.000122.",
+   "loses": "A different model answers every user: different voice, different failure modes, and nothing offline measures answer quality. gpt-6-luna was 2-4x slower on the same prompts (1.75-3.60s against 0.77-1.01s), so it is the wrong pick for a chat even though it is cheap.",
+   "price": "about -92% per text call at gpt-4o-mini prices, on the measured sample.",
+   "why": "This is one environment variable, not a code change, once i3 lands (a non-OpenAI id crashes the bot without it), so the decision is purely about which model should talk to users. My recommendation: gpt-4o-mini, because it was both the cheapest and the fastest of the five and stays with the same vendor; claude-haiku-5-5 is the alternative if answer quality matters more than vendor continuity - it was the only candidate that spontaneously kept the image reference when summarising. Decide it with real traffic rather than my three prompts: p4 proposes turning on shadow models for exactly that.",
+   "evidence": [
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "same three prompts through Router per model: gpt-4o $0.001090 (0.77-1.01s), gpt-4o-mini $0.000089 (0.69-1.18s), gpt-6-luna $0.000118 (1.75-3.60s), claude-haiku-5-5 $0.000122 (0.89-1.27s), gpt-5.4-mini $0.000275 (0.61-0.94s)."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "on the i3 branch, every bot flow works on claude-haiku-5-5, gpt-6-luna and grok-4.7, so the choice is not blocked by any flow."
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "catalog: gpt-4o $2.50/$10, gpt-4o-mini $0.15/$0.60, gpt-6-luna $0.10/$0.50, claude-haiku-5-5 $0.10/$0.50 per 1M in/out."
+    }
+   ],
+   "commit": null,
+   "depends_on": [
+    "i3"
+   ],
+   "excludes": [
+    "p5"
+   ]
+  },
+  {
+   "id": "i2",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Summarise with a small model, a capped output and no image data",
+   "summary": "History summarisation runs inline while the user waits, on the model that answers them, with no output cap and with base64 images stringified into the prompt.",
+   "calls": [
+    "bot/openai_helper.py:650"
+   ],
+   "gains": "About 16x cheaper per summarisation ($0.0033 on gpt-4o against $0.0002 on gpt-4o-mini for a ~700-token transcript and a ~150-token summary) and a bounded output, on the call that already makes the slowest turn in the product slower. Stripping image parts removes a failure mode: a vision conversation stringified a base64 data URL into the summary prompt - more tokens than the conversation being summarised, usually a context overflow, which fell back to silently dropping old messages.",
+   "loses": "The summary that becomes the conversation's memory is written by a smaller model, so a long conversation's recalled detail is slightly coarser; and SUMMARY_MAX_TOKENS truncates a summary that would have run long (the prompt asks for 700 characters, the cap is 400 tokens). An image in the history is summarised as '[image]' rather than described.",
+   "price": "about -94% on each summarisation call.",
+   "why": "Compressing a transcript into 700 characters is a mechanical job; the model that answers users is the most expensive thing in the app and this call blocks their reply. Side by side on a 10-message conversation, gpt-4o-mini, claude-haiku-5-5 and gpt-5.4-nano all produced usable summaries in about the same time as gpt-4o. Defaulting SUMMARY_MODEL to gpt-4o-mini keeps the same vendor so the call also works with Router switched off; a Flex-eligible id (gpt-5.4-nano, gpt-6-luna) additionally picks up i1's allow_flex_tier and halves again.",
+   "evidence": [
+    {
+     "check": "side-by-side",
+     "result": "info",
+     "detail": "the same 10-message conversation through __summarise: gpt-4o 1.9s, gpt-4o-mini 1.46s/608 chars, claude-haiku-5-5 1.54s/527 chars (the only one to carry the image reference through), gpt-5.4-nano 1.16s/626 chars - all four accurate on budget, dates, vegetarian constraint and the Douro trip."
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "catalog arithmetic for a 700-token transcript and a 150-token summary: gpt-4o $0.00325, gpt-4o-mini $0.000195."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "all seven flows with SUMMARY_MODEL=gpt-4o-mini: 'all flows ok', and the summariser request shows model=gpt-4o-mini feature=bot/openai_helper.py:__summarise while the reply stays on gpt-4o."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command on the branch: 5 passed."
+    }
+   ],
+   "commit": "09b6174",
+   "branch": "router-migrate/improve/cheap-summariser",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "i4",
+   "kind": "improvement",
+   "level": "change",
+   "title": "Keep plugins working after the conversation has seen an image",
+   "summary": "One photo put the chat in vision mode for its whole life, and vision mode disabled every plugin - a 2023 model limitation that no catalog model has.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:337"
+   ],
+   "gains": "Plugins keep working for the rest of a conversation that contained an image. Measured: after an image turn, 'use the get_time tool for Paris' answered 'I don't have access to real-time tools' before and runs the plugin after. The plugin follow-up turn also stops sending an image history to OPENAI_MODEL, which fails on a text-only model.",
+   "loses": "Turns after an image now carry the plugin specs again, so they cost those input tokens (cached by i1's prompt cache key after the first turn), and the model can choose a plugin where it previously could not - a different answer for the same message.",
+   "price": "the function specs' input tokens on turns after an image; largely cached once i1 is applied.",
+   "why": "The exclusion dates from gpt-4-vision-preview, which supported neither tools nor follow-ups. Every image-capable model in Router's catalog supports tools, and an image plus function specs in one request works on both gpt-4o and claude-haiku-5-5 (measured). With ENABLE_VISION_FOLLOW_UP_QUESTIONS defaulting to true, the old behaviour meant one photo quietly cost the user the bot's whole plugin surface until the conversation expired or was reset.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "image turn then a plugin question on the same chat: plugin called = True, history holds function get_time -> {city: Paris, time: 12:00}; same script on the migration branch: plugin called = False."
+    },
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "an image and legacy function specs in one request: gpt-4o 0.91s $0.00044, claude-haiku-5-5 1.15s $7.62e-05, both answered 'blue' for a blue test image."
+    },
+    {
+     "check": "tests",
+     "result": "pass",
+     "detail": "repository test command on the branch: 5 passed."
+    }
+   ],
+   "commit": "6d67986",
+   "branch": "router-migrate/improve/plugins-after-images",
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p1",
+   "kind": "improvement",
+   "level": "change",
+   "branch": null,
+   "title": "Fall back across models instead of making the user wait 20s",
+   "summary": "Add a fallbacks ladder to the reply features in router.policy.json so a rate limit or a bad provider is answered by the next model instead of a 20s retry.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:337",
+    "bot/openai_helper.py:490"
+   ],
+   "gains": "Today a 429 means tenacity waits a fixed 20s and retries up to 3 times - up to 40s of silence for someone staring at a Telegram chat, then an error. A ranked candidate list answers from another model in the same request instead. Verified live: with [gpt-5.4-mini, gpt-4o-mini, claude-haiku-5-5] a request served normally, and with a deliberately invalid first candidate it fell through and still answered.",
+   "loses": "A different model answers, and the response does not say which candidate served, so the user can get a different voice with no signal. The least capable candidate limits tools and modalities (the runtime drops candidates that lack the request's tools or image input). Fallback on a real provider outage is documented by Router, not measured.",
+   "price": "the serving candidate's price, only when it serves; a cheaper fallback lowers the cost of a degraded request.",
+   "why": "Proposed rather than built for two reasons: it changes which model talks to a user, which is the same class of decision as p2 and deserves a human picking the ladder; and it edits router.policy.json, which i1 introduces, so building it here would conflict with that branch. One measured caveat to carry into the build: a models list without an explicit tier was served at Flex, so each feature with fallbacks must keep i1's service_tier 'default'. Suggested: add \"fallbacks\": [\"gpt-4o-mini\", \"claude-haiku-5-5\"] to the three reply features, then drop the tenacity retry's wait to a few seconds.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "models=[gpt-5.4-mini, gpt-4o-mini, claude-haiku-5-5] + service_tier default: 200, served by gpt-5.4-mini at tier=default; the same list without a tier field was served at tier=flex; models=[no-such-model-x, gpt-4o-mini]: 200, the missing candidate fell through silently."
+    }
+   ],
+   "commit": null,
+   "depends_on": [
+    "i1"
+   ],
+   "excludes": []
+  },
+  {
+   "id": "p6",
+   "kind": "improvement",
+   "level": "change",
+   "branch": null,
+   "title": "Stop summarising on a message count written for 4k contexts",
+   "summary": "MAX_HISTORY_SIZE=15 triggers a summarisation round-trip after about eight turns, on models with a 128k context where the token check would not fire for hundreds.",
+   "calls": [
+    "bot/openai_helper.py:650"
+   ],
+   "gains": "Removes an LLM call, and the lossy summary with it, from the common path of any conversation longer than eight turns: the turn that triggers it pays two round-trips before the user sees anything, and every turn after it answers from a 700-character summary instead of what was actually said. The token-based trigger already in the code (token_count + max_tokens > context) is the one that matches the model.",
+   "loses": "History grows until the token check fires, so turns get more expensive as a conversation runs - mitigated but not removed by i1's prompt caching, which prices the repeated prefix at the cache-read rate (gpt-4o-mini $0.075 against $0.15 per 1M; claude-haiku-5-5 $0.01 against $0.10). A very long conversation also keeps more of the user's earlier messages in memory, which is a privacy choice as much as a cost one.",
+   "price": "one fewer call per ~8 turns, against a larger (mostly cached) prefix on later turns; the direction depends on traffic shape, which is why this is a proposal.",
+   "why": "The 15-message cap and the 4096-token context assumption were written for gpt-3.5. On gpt-4o the token check allows roughly 120k tokens of history, so in practice every summarisation this bot does is triggered by the message count, not by any real limit. I would raise MAX_HISTORY_SIZE to a number that matches the context (or drop the count trigger and keep it only as the truncation length for the fallback path) - but the cost direction depends on real conversation lengths, so it should be a measured change rather than one I assume.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "code reading: __common_get_chat_response summarises when len(history) > max_history_size (15) OR token_count + max_tokens > __max_model_tokens() (126,976 for gpt-4o), so the count always fires first."
+    },
+    {
+     "check": "price",
+     "result": "info",
+     "detail": "cache-read prices that bound the downside: gpt-4o $1.25 against $2.50, gpt-4o-mini $0.075 against $0.15, claude-haiku-5-5 and gpt-6-luna $0.01 against $0.10 per 1M input tokens - a repeated prefix costs half on gpt-4o and a tenth on the cheap models."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p3",
+   "kind": "improvement",
+   "level": "change",
+   "branch": null,
+   "title": "Charge users the price Router reports, not a 2023 token price",
+   "summary": "The budget tracker bills TOKEN_PRICE=$0.002 per 1k tokens for input and output alike, while Router returns the exact cost of each request.",
+   "calls": [
+    "bot/openai_helper.py:268",
+    "bot/openai_helper.py:490"
+   ],
+   "gains": "Per-user budgets and /stats stop being fiction. TOKEN_PRICE is gpt-3.5 pricing: on gpt-4o output ($10 per 1M) it undercharges 5x, and on gpt-4o-mini it overcharges by 3-13x, so every budget is wrong in a direction nobody can predict. The runtime already passes Router's usage.cost through into the translated response (measured: $0.0056475 on a gpt-4o call, matching list price exactly), so the real number is one field away.",
+   "loses": "Only the buffered path has usage at all: streaming (STREAM=true, the default) would need stream_options={'include_usage': True} added to the request, and the provider path with Router switched off reports no cost, so TOKEN_PRICE has to stay as the fallback. Billing would then differ between streamed and buffered replies until the streaming side is done too.",
+   "price": "no change to spend; it corrects what users are charged against their budget.",
+   "why": "Proposed rather than built because it is the one item whose plumbing is bigger than its payload: usage.cost has to be read through the SDK's extra fields, threaded from openai_helper's (answer, tokens) return into usage_tracker.add_current_costs, and the streamed path needs include_usage before most traffic is covered. Worth doing, but it deserves its own change rather than riding along with the migration.",
+   "evidence": [
+    {
+     "check": "router-live",
+     "result": "pass",
+     "detail": "usage.cost arrives on the translated Chat Completions response through the app's own client: $0.0056475 for a 2,247-token gpt-4o prompt, $0.0030875 for the cached repeat."
+    },
+    {
+     "check": "other",
+     "result": "info",
+     "detail": "usage_tracker.add_chat_tokens(tokens, tokens_price=0.002) applies one price to prompt and completion tokens alike; main.py reads it from TOKEN_PRICE (default 0.002)."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p4",
+   "kind": "needs-decision",
+   "title": "Turn on shadow models to pick the default model on real traffic",
+   "summary": "Shadow models record cost and latency for up to 3 candidate models on a 5-10% sample of real traffic, which is the honest way to decide p2.",
+   "calls": [
+    "bot/openai_helper.py:268"
+   ],
+   "gains": "p2 is currently decided by three prompts I wrote. Shadow logs would give cost and latency for gpt-4o-mini, claude-haiku-5-5 and gpt-5.4-mini against this bot's actual conversations, including the long histories and plugin turns my sample does not have.",
+   "loses": "It needs content recording switched on for the account, which means real user conversations are stored on Router's side - a privacy decision for whoever runs the bot, and one its users cannot see. It records cost and latency only, not answer quality, so the quality half of p2 still needs a human reading replies. Not available on BYOK keys.",
+   "price": "no change to the served request; the shadow calls are Router's own.",
+   "why": "A human has to switch this on at app.router.com - no code change here can do it - and the privacy trade is theirs to make, not mine. If content recording is not acceptable, the fallback is to switch the default model for a subset of chats and read the replies.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "documented by Router (Shadow Logs page, 5-10% of /v1/responses traffic, needs content recording, not on BYOK keys); not measured here and not enabled on this account as far as this session can see."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "p5",
+   "kind": "needs-decision",
+   "title": "Try Switchyard: cheap model for easy turns, capable for hard ones",
+   "summary": "OPENAI_MODEL=switchyard lets Router pick the model family per turn within a conversation, which is close to what a general-purpose chat bot wants.",
+   "calls": [
+    "bot/openai_helper.py:268"
+   ],
+   "gains": "A chat bot's turns are not equally hard - 'thanks!' and 'explain this error trace' arrive in the same conversation, and today both cost gpt-4o. Switchyard is the product surface built for exactly that split, and it works from app code once a strategy is saved (measured elsewhere serving gpt-5.6-luna at Flex).",
+   "loses": "Router's docs call it experimental and aimed at coding agents; its quality on ordinary conversation is unmeasured, and so is which model answered any given turn, which makes user-visible behaviour harder to reason about than p2's single choice. It is listed at $3/$15, so the saving depends entirely on how often the strategy picks the cheap model - unknown for this traffic. Switchyard also pins the standard tier question again: the one measurement available had it served at Flex.",
+   "why": "A human has to save the efficient_model / capable_model strategy on app.router.com before the app can use it, and after i3 the app-side change is one environment variable. Worth a trial after p2 is settled, not instead of it: p2 is a measured 9-12x on known models, this is an unmeasured bet on a surface whose docs aim it somewhere else. Mutually exclusive with p2 - both set OPENAI_MODEL.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "not-run",
+     "detail": "catalog: switchyard, $3/$15, tools and image input, 64k output, surfaces responses+messages; served gpt-5.6-luna at Flex in an earlier measurement on another account. Not exercised here - it needs a saved strategy."
+    }
+   ],
+   "commit": null,
+   "depends_on": [
+    "i3"
+   ],
+   "excludes": [
+    "p2"
+   ]
+  },
+  {
+   "id": "s1",
+   "kind": "stays",
+   "title": "Image generation stays on OpenAI",
+   "summary": "Router has no images endpoint, so /image keeps calling OpenAI's DALL-E directly.",
+   "calls": [
+    "bot/openai_helper.py:364"
+   ],
+   "gains": "",
+   "loses": "",
+   "price": "no change",
+   "why": "/v1/images/generations returns 404 on Router and there is no equivalent surface. The runtime recognises images and leaves them on the provider untouched, so OPENAI_API_KEY has to stay configured even once every text call is on Router. Nothing in Router's catalog is an image generation model.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "pass",
+     "detail": "router-migrate check: 'hard limit: images - Router has no endpoint for it'; the live runs show no images request reaching Router."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "s2",
+   "kind": "stays",
+   "title": "Text-to-speech and transcription stay on OpenAI",
+   "summary": "Router serves no audio endpoint, so /tts and voice-message transcription keep calling OpenAI directly.",
+   "calls": [
+    "bot/openai_helper.py:392",
+    "bot/openai_helper.py:413"
+   ],
+   "gains": "",
+   "loses": "",
+   "price": "no change",
+   "why": "Router's endpoint list has no audio surface, and audio input on Responses returns 400 'Audio input is not available', so neither tts-1 nor whisper-1 can move. Some Vertex models in the catalog declare audio input, but it cannot be reached through either surface. Voice messages therefore still depend on OpenAI: transcription goes to Whisper, and only the chat turn built from the transcript is on Router.",
+   "evidence": [
+    {
+     "check": "other",
+     "result": "pass",
+     "detail": "router-migrate check: 'hard limit: audio - Router has no endpoint for it' at both sites; the live runs show no audio request reaching Router."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  },
+  {
+   "id": "n1",
+   "kind": "note",
+   "title": "Three settings quietly take traffic back to OpenAI",
+   "summary": "N_CHOICES other than 1, a non-zero PRESENCE_PENALTY, or MAX_TOKENS under 16 make the runtime keep that call on the provider.",
+   "calls": [
+    "bot/openai_helper.py:268"
+   ],
+   "price": "provider list price for those calls, and no Router spend record for them",
+   "why": "The runtime cannot translate n > 1, presence_penalty or an output cap under 16 to Responses, so it sends those requests to OpenAI unchanged - by design, and silently from the app's point of view. All three are configurable here and all three default to a routable value (N_CHOICES=1, PRESENCE_PENALTY=0.0, MAX_TOKENS=4096 for gpt-4o), so a stock deployment routes everything. But an operator who sets N_CHOICES=2 for the bot's multi-answer display, or a presence penalty, will find that traffic off Router with no error to tell them: it will be missing from Router's spend views, and the provider key has to stay funded. Worth a line in whatever runbook covers this deployment.",
+   "evidence": [
+    {
+     "check": "simulator",
+     "result": "pass",
+     "detail": "the runtime trace for four configurations of the same chat call: default -> 'chat' (Router); n_choices=2 -> provider, reason 'untranslatable: n'; presence_penalty=0.5 -> provider, 'untranslatable: presence_penalty'; max_tokens=8 -> provider, 'untranslatable: max_tokens<16'."
+    }
+   ],
+   "commit": null,
+   "depends_on": [],
+   "excludes": []
+  }
+ ]
+}
