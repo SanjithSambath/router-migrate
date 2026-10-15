@@ -34,10 +34,8 @@ def test_ts_golden(tmp_path, case):
 def test_ts_idempotent(tmp_path, case):
     work = migrate(case, str(tmp_path))
     first, first_out = tree(work), outcomes(work)
-    from router_migrate import cli
-    cli.do_scan(work, quiet=True)
-    cli.do_plan(work, quiet=True)
-    cli.do_apply(work, quiet=True)
+    import rules_pass
+    rules_pass.migrate(work)
     assert tree(work) == first
     # a rescan of patched code sees the inserted import, so line numbers shift by one; the outcomes must not change
     assert sorted(outcomes(work).values()) == sorted(first_out.values())

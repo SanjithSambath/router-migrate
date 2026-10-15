@@ -191,14 +191,20 @@ the model, model_map/drop_params (router.policy.json, applied by the runtime) an
 lever's measured behaviour, cost and interactions: router_migrate/data/ROUTER.md (read it before proposing)."""
 
 
+def _has_flex(mid):
+    try:
+        return mid in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "flex_models.json")))["flex_models"]
+    except (OSError, ValueError, KeyError):
+        return False
+
+
 def cmd_levers(a):
-    """Facts for improvement work: catalog rows and same-family alternatives for models, the lever table, and (for a
-    FILE:LINE) the old rules' suggestions as hints. The agent decides; nothing here is a recommendation it must follow."""
-    from .recommend import _has_flex
+    """Facts for improvement work: catalog rows and same-family alternatives for a model (or the model the call at a
+    FILE:LINE names), and the lever table. The agent decides; nothing here is a recommendation it must follow."""
     root = AG.ledger_root(getattr(a, "path", "."))
     cat = catalog(root)
     args = [x for x in re.split(r"[,\s]+", getattr(a, "loc", None) or "") if x]
-    out = {"catalog": cat.source, "models": [], "hints": []}
+    out = {"catalog": cat.source, "models": []}
     lines = ["catalog: %s" % cat.source, LEVER_FACTS, ""]
 
     def row(m):
@@ -213,6 +219,20 @@ def cmd_levers(a):
 
     models = [x for x in args if not AG.parse_loc(x)[0]]
     locs = [x for x in args if AG.parse_loc(x)[0]]
+    if locs:  # the model each call names, when it is a literal the scanner can read
+        sites = AG.current_plan(root)["sites"]
+        for loc in locs:
+            f, ln = AG.parse_loc(loc)
+            s = AG.site_at(sites, f, ln)
+            m = (s or {}).get("model") or {}
+            if s and m.get("static") and m.get("value"):
+                lines.append("%s: %s %s, model %s" % (loc, s.get("sdk"), s.get("surface"), m["value"]))
+                if m["value"] not in models:
+                    models.append(m["value"])
+            else:
+                lines.append("%s: %s" % (loc, "the model is chosen at runtime (pass its id: `levers MODEL`)" if s else
+                                         "the scanner sees no LLM call here"))
+        lines.append("")
     for mid in models:
         rid = cat.resolve(mid)[0]
         if not rid:
@@ -223,22 +243,6 @@ def cmd_levers(a):
                and m.get("status", "active") == "active"]
         out["models"].append({"model": me, "same_family": fam})
         lines += ["%s:" % rid, show(me), "  same family:"] + [show(r) for r in fam[:8]] + [""]
-    if locs:
-        try:
-            from . import recommend as rec
-            from .agent import current_plan
-            plan = current_plan(root)
-            r = rec.build(root, plan, cat, current_lines=True)
-            for loc in locs:
-                f, ln = AG.parse_loc(loc)
-                feats = {s["feature"] for sid, s in r["signals"].items() if sid.split(":")[1] == f and abs(int(sid.split(":")[2]) - ln) <= 3} \
-                    if r.get("signals") else set()
-                for c in r["cards"]:
-                    if set(c["scope"]["features"]) & feats:
-                        out["hints"].append({"site": loc, "rule": c["rule"], "title": c["title"], "loses": c.get("loses")})
-                        lines.append("hint (heuristic; may be wrong) %s: %s" % (loc, c["title"]))
-        except Exception as e:
-            lines.append("hints unavailable: %s" % str(e)[:160])
     if not args:
         by = {}
         for m in cat.models:
@@ -248,7 +252,7 @@ def cmd_levers(a):
             lines.append("%s:" % owner)
             lines += [show(r) for r in sorted(by[owner], key=lambda r: float(r["input"] or 0))[:12]]
         lines.append("\n`router-migrate levers MODEL[,MODEL]` for one model and its same-family alternatives; FILE:LINE for "
-                     "the old rules' hints at a call site")
+                     "the model a call names")
     return AG.out(dict(out, ok=True), getattr(a, "json", False), "\n".join(lines))
 
 
@@ -371,14 +375,14 @@ def check_tree(root, led, tests=True, report=True, since_tree=None):
 
 def policy_stale(root):
     """Why router.policy.json and the compiled copies beside the runtime disagree, or None."""
-    from . import improve as imp, policy as pol
+    from . import policy as pol
     if not os.path.exists(os.path.join(root, pol.POLICY_FILE)):
         return None
     p, err = pol.load(root)
     if err:
         return "router.policy.json: %s" % err
     want = pol.policy_hash(p)
-    for rt in imp.runtime_paths(root):
+    for rt in pol.runtime_paths(root):
         d = os.path.dirname(os.path.join(root, rt))
         names = [pol.PY_NAME] if rt.endswith(".py") else ["routerPolicy.ts", "routerPolicy.js", "routerPolicy.mjs"]
         got = [pol.compiled_hash(os.path.join(d, n)) for n in names if os.path.exists(os.path.join(d, n))]
@@ -389,15 +393,15 @@ def policy_stale(root):
 
 def cmd_policy(a):
     """Compile router.policy.json into the policy files the vendored runtimes read (after a hand edit)."""
-    from . import improve as imp, policy as pol
+    from . import policy as pol
     root = AG.ledger_root(a.path)
     p, err = pol.load(root)
     if err or p is None:
         return AG.err(False, err or "no router.policy.json", "the format is in router_migrate/data/ROUTER.md")
-    rts = imp.runtime_paths(root)
+    rts = pol.runtime_paths(root)
     if not rts:
         return AG.err(False, "no vendored runtime in this repo", "wrap a client first (the runtime reads the compiled policy)")
-    files = imp._compile_everywhere(root, p, rts)
+    files = pol.compile_everywhere(root, p, rts)
     print("policy %s compiled into: %s" % (pol.policy_hash(p)[:8], ", ".join(files)))
     return 0
 
@@ -1052,6 +1056,10 @@ def _launch(root, prompt, model, timeout, resume=None, commands=AGENT_COMMANDS):
     return {"exit": code, "usd": res.get("total_cost_usd"), "turns": res.get("num_turns"), "minutes": round((time.time() - t) / 60, 1),
             "final": (res.get("result") or "")[:2000], "session": session,
             "api_error": bool(res.get("is_error")) or str(res.get("result") or "").startswith(("API Error", "Failed to authenticate", "Invalid API key"))}
+
+
+def cmd_run(a):
+    return run_v6(os.path.abspath(a.path), a)
 
 
 def run_v6(root, a):

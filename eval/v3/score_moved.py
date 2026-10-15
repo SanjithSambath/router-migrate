@@ -348,7 +348,7 @@ _TS_CLASS = re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\
 
 
 class Scopes:
-    """(class, function) enclosing a pristine line: Python via ast, TS/JS via brace depth (classes) and recommend's
+    """(class, function) enclosing a pristine line: Python via ast, TS/JS via brace depth (classes) and the agent tools'
     enclosing_function. '<module>' at top level, None for no class."""
 
     def __init__(self, root):
@@ -372,7 +372,7 @@ class Scopes:
             src = open(path, encoding="utf-8", errors="replace").read()
         except OSError:
             return [], None
-        from router_migrate.recommend import enclosing_function
+        from router_migrate.agent import enclosing_function
         fn = lambda n: enclosing_function(self.root, {"file": f, "line": n})
         spans = []
         if f.endswith(".py"):

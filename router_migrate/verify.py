@@ -1,4 +1,5 @@
-"""verify: tests before vs after, syntax checks, router-sim validation, optional live replay with a $ cap."""
+"""Checks the outside check and the tools share: test output counts, test-command detection, syntax checks, the Router-on
+test run against router-sim, and request replay (route_check builds on its pieces; the eval scores with `replay`)."""
 import importlib.util
 import json
 import os
@@ -9,7 +10,6 @@ import sys
 import tempfile
 import time
 
-from .catalog import Catalog
 from .runtime import render
 
 STATE = ".router-migrate"
@@ -272,29 +272,7 @@ def replay(plan, base_url, key, catalog, budget=None, tag="sim"):
     return {"results": results, "unique_requests": len(uniq), "ok": sum(1 for r in uniq if r["ok"]), "spent_usd": round(spent, 6)}
 
 
-# ------------------------------------------------------------------------------------------------ verify
-def _git(root, *args):
-    return subprocess.run(["git"] + list(args), cwd=root, capture_output=True, text=True)
-
-
-def baseline_tests(root, cmd, files, timeout, env=None):
-    """Run tests with the router-migrate changes temporarily removed (git stash of exactly the changed + vendored files)."""
-    if _git(root, "rev-parse", "--is-inside-work-tree").returncode != 0:
-        return {"skipped": "not a git repository; pass --baseline <unmodified copy>"}
-    paths = [f for f in files if os.path.exists(os.path.join(root, f))]
-    if not paths:
-        return run_tests(cmd, root, env, timeout)
-    r = _git(root, "stash", "push", "--include-untracked", "-m", "router-migrate-baseline", "--", *paths)
-    if r.returncode != 0:
-        return {"skipped": "git stash failed: %s" % r.stderr.strip()[-300:]}
-    try:
-        return run_tests(cmd, root, env, timeout)
-    finally:
-        pop = _git(root, "stash", "pop")
-        if pop.returncode != 0:
-            print("WARNING: `git stash pop` failed; your router-migrate changes are in `git stash list`.", file=sys.stderr)
-
-
+# ------------------------------------------------------------------------------------------------ Router-on test run
 def sim_test_run(root, cmd, timeout, env=None):
     """Run the repo's tests with Router active against router-sim; every request real code sends is validated and logged."""
     from .sim.server import serve
@@ -320,54 +298,3 @@ def sim_test_run(root, cmd, timeout, env=None):
         return res
     finally:
         srv.shutdown()
-
-
-def verify(root, args):
-    from .cli import load, save, print_summary
-    plan = load(root, "plan.json")
-    applied = load(root, "apply.json") or {"files_changed": [], "runtime_files": []}
-    if plan is None:
-        print("verify: run `router-migrate apply` first")
-        return None
-    cat = Catalog.load()
-    cmd = getattr(args, "test_cmd", None) or detect_test_cmd(root)
-    timeout = getattr(args, "timeout", 1800)
-    out = {"test_cmd": cmd, "syntax": syntax_check(root, applied["files_changed"] + applied["runtime_files"])}
-    if cmd:
-        if getattr(args, "baseline", None):
-            out["tests_before"] = run_tests(cmd, args.baseline, timeout=timeout)
-        else:
-            out["tests_before"] = baseline_tests(root, cmd, applied["files_changed"] + applied["runtime_files"], timeout)
-        out["tests_after"] = run_tests(cmd, root, timeout=timeout)
-        out["sim_tests"] = sim_test_run(root, cmd, timeout)
-    else:
-        out["tests_before"] = out["tests_after"] = {"skipped": "no test command found (pass --test-cmd)"}
-    from .sim.server import serve
-    srv, sim, base = serve()
-    try:
-        out["sim_replay"] = replay(plan, base, SIM_KEY, cat)
-    finally:
-        srv.shutdown()
-    if getattr(args, "live", False):
-        key = os.environ.get("RAMP_ROUTER_API_KEY")
-        if not key:
-            out["live_replay"] = {"skipped": "RAMP_ROUTER_API_KEY not set"}
-        else:
-            out["live_replay"] = replay(plan, "https://api.router.com", key, Catalog.load(live=True, api_key=key), budget=getattr(args, "budget", 0.25), tag="live")
-    save(root, "verify.json", out)
-    sr = out["sim_replay"]
-    st = out.get("sim_tests")
-    print("verify: syntax %d/%d ok | tests before %s after %s | sim: %s/%s unique request shapes valid (static kwargs replayed)%s" % (
-        out["syntax"]["checked"] - len(out["syntax"]["failed"]), out["syntax"]["checked"], _tc(out.get("tests_before")), _tc(out.get("tests_after")),
-        sr["ok"], sr["unique_requests"],
-        ("" if not st else "; repo tests with Router on: N/A (0 requests reached router-sim: the suite mocks the SDK/HTTP)" if not st["requests"]
-         else "; repo tests sent %d requests to router-sim, %d valid" % (st["requests"], st["valid"]))))
-    return out
-
-
-def _tc(t):
-    if not t or t.get("skipped"):
-        return "n/a"
-    if t.get("passed") is None:
-        return "exit %s" % t.get("exit")
-    return "%s passed/%s failed" % (t["passed"], (t.get("failed") or 0) + (t.get("errors") or 0))

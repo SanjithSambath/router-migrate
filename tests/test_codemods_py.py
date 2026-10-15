@@ -1,4 +1,5 @@
-"""Golden before/after fixtures for the Python scanner + planner + codemods, plus idempotency and an end-to-end run."""
+"""Golden before/after fixtures for the Python scanner + planner + codemods (driven by tests/rules_pass.py), plus
+idempotency and an end-to-end run."""
 import json
 import os
 import shutil
@@ -7,7 +8,7 @@ import sys
 
 import pytest
 
-from router_migrate import cli
+import rules_pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIX = os.path.join(HERE, "fixtures", "py")
@@ -28,9 +29,7 @@ def tree(root):
 def migrate(tmp_path, case):
     work = tmp_path / case
     shutil.copytree(os.path.join(FIX, case, "before"), work)
-    cli.do_scan(str(work), quiet=True)
-    cli.do_plan(str(work), quiet=True)
-    cli.do_apply(str(work), quiet=True)
+    rules_pass.migrate(work)
     return work
 
 
@@ -52,20 +51,8 @@ def test_golden(tmp_path, case):
 def test_idempotent(tmp_path, case):
     work = migrate(tmp_path, case)
     first = tree(work)
-    cli.do_scan(str(work), quiet=True)
-    cli.do_plan(str(work), quiet=True)
-    cli.do_apply(str(work), quiet=True)
+    rules_pass.migrate(work)
     assert tree(work) == first
-
-
-def test_dry_run_changes_nothing(tmp_path, capsys):
-    work = tmp_path / "w"
-    shutil.copytree(os.path.join(FIX, "openai_basic", "before"), work)
-    before = tree(work)
-    cli.main(["plan", str(work), "--dry-run"])
-    out = capsys.readouterr().out
-    assert "+client = _router_wrap_openai(OpenAI())" in out
-    assert tree(work) == before
 
 
 def test_patched_code_runs_against_router_sim(tmp_path, sim):
@@ -110,9 +97,7 @@ def _run(cwd, args, **env):
 
 
 def _migrate_dir(work):
-    cli.do_scan(str(work), quiet=True)
-    cli.do_plan(str(work), quiet=True)
-    return cli.do_apply(str(work), quiet=True)
+    return rules_pass.migrate(work)
 
 
 def test_namespace_package_import_still_works(tmp_path):

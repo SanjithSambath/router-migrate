@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from test_agent_v4 import FILES, at  # noqa: F401  (shared toy repo)
+from test_agent_tools import FILES, at  # noqa: F401  (shared toy repo)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RM = os.path.join(ROOT, "bin", "router-migrate")
@@ -201,11 +201,11 @@ def test_policy_hook_in_the_vendored_ts_runtime_is_not_a_hand_edit(tmp_path):
 
 
 def test_policy_hook_copies_the_import_the_agent_wrote(tmp_path):
-    from router_migrate import improve
+    from router_migrate import policy
     git(tmp_path, "init", "-q")
     (tmp_path / "client.ts").write_text("import { routerOptions } from './lib/routerRuntime.js';\n")
     git(tmp_path, "add", "-A")
-    line, name = improve._ts_policy_import(str(tmp_path), "lib/routerRuntime.ts")
+    line, name = policy._ts_policy_import(str(tmp_path), "lib/routerRuntime.ts")
     assert '"./routerPolicy.js"' in line and name == "routerPolicy.ts"
 
 

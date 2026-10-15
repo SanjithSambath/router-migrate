@@ -8,7 +8,8 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from router_migrate import cli  # noqa: E402
+sys.path.insert(0, HERE)
+import rules_pass  # noqa: E402
 
 FIX = os.path.join(HERE, "ts", "fixtures")
 RUNTIMES = ("routerRuntime.ts", "routerRuntime.js", "routerRuntime.mjs", "routerRuntime.cjs")
@@ -17,9 +18,7 @@ RUNTIMES = ("routerRuntime.ts", "routerRuntime.js", "routerRuntime.mjs", "router
 def migrate(case, dst_root):
     work = os.path.join(dst_root, case)
     shutil.copytree(os.path.join(FIX, case, "before"), work)
-    cli.do_scan(work, quiet=True)
-    cli.do_plan(work, quiet=True)
-    cli.do_apply(work, quiet=True)
+    rules_pass.migrate(work)
     return work
 
 

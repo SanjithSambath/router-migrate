@@ -1,11 +1,14 @@
-"""v2 policy: router.policy.json (repo root, committed) -> compiled router_policy.py / routerPolicy.ts beside each vendored runtime.
+"""router.policy.json (repo root, committed) -> compiled router_policy.py / routerPolicy.ts beside each vendored runtime
+(`router-migrate policy`, and `adapt` for the trade-offs it records).
 
 Validation and precedence are the runtime's own (router_migrate/runtime/router_runtime.py: policy_valid, policy_for), so the
-CLI and the shipped code can never disagree. Semantics: router_migrate/schemas/CONTRACTS.md section 1.
+CLI and the shipped code can never disagree. The format: router_migrate/data/ROUTER.md.
 """
 import hashlib
 import json
 import os
+import re
+import subprocess
 
 from .runtime import router_runtime as _rt
 
@@ -67,31 +70,65 @@ def compiled_hash(path):
     return None
 
 
-def write_compiled(root, p, runtime_files):
-    """Write the compiled module next to each vendored runtime. Returns the list of written paths (repo-relative)."""
+def runtime_paths(root):
+    """Vendored runtime files in the repo (the ones router-migrate wrote)."""
     out = []
-    for rt in runtime_files:
-        d = os.path.dirname(os.path.join(root, rt))
-        if rt.endswith(".py"):
-            dst, src = os.path.join(d, PY_NAME), compile_py(p)
-        else:
-            dst, src = os.path.join(d, TS_NAME), compile_ts(p)
-        open(dst, "w").write(src)
-        out.append(os.path.relpath(dst, root))
+    for d, dirs, fs in os.walk(root):
+        dirs[:] = [x for x in dirs if x not in ("node_modules", ".git", ".router-migrate", ".venv", "venv")]
+        for f in fs:
+            if f in ("router_runtime.py", "routerRuntime.ts", "routerRuntime.mjs", "routerRuntime.js", "routerRuntime.cjs"):
+                rel = os.path.relpath(os.path.join(d, f), root)
+                if rel not in out and "router-migrate" in open(os.path.join(d, f), errors="replace").read(400):
+                    out.append(rel)
     return out
 
 
-def merge_entry(p, scope, entry):
-    """Add `entry` under scope ('defaults' | ('features', id) | ('globs', pattern)) of policy p (created if None)."""
-    p = p or {"version": 1}
-    if scope == "defaults":
-        tgt = p.setdefault("defaults", {})
-    else:
-        kind, name = scope
-        tgt = p.setdefault(kind, {}).setdefault(name, {})
-    for k, v in entry.items():
-        if k == "metadata":
-            tgt.setdefault("metadata", {}).update(v)
-        else:
-            tgt[k] = v
-    return p
+def _ts_policy_import(root, runtime_rel):
+    """The side-effect import line appended to a vendored TS/JS runtime so every importer installs the compiled policy."""
+    ext = os.path.splitext(runtime_rel)[1]
+    if ext == ".ts":
+        spec = "./routerPolicy"
+        # copy the convention of the import the agent wrote for the runtime (e.g. '../lib/routerRuntime.js' under NodeNext)
+        try:
+            used = subprocess.run(["git", "grep", "-h", "-E", r"""['"][^'"]*routerRuntime(\.js)?['"]"""], cwd=root,
+                                  capture_output=True, text=True, timeout=20).stdout
+            m = re.search(r"""['"][^'"]*routerRuntime(\.js)?['"]""", used)
+            if m:
+                return ('import "%s"; // router-migrate: compiled policy (router.policy.json)\n'
+                        % ("./routerPolicy.js" if m.group(1) else "./routerPolicy"), "routerPolicy.ts")
+        except (OSError, subprocess.SubprocessError):
+            pass
+        try:
+            pkg = json.load(open(os.path.join(root, "package.json")))
+            ts = open(os.path.join(root, "tsconfig.json")).read().lower()
+            if pkg.get("type") == "module" and re.search(r'"module(resolution)?"\s*:\s*"(node16|nodenext)"', ts):
+                spec = "./routerPolicy.js"
+        except (OSError, ValueError):
+            pass
+        return 'import "%s"; // router-migrate: compiled policy (router.policy.json)\n' % spec, "routerPolicy.ts"
+    if ext == ".mjs":
+        return 'import "./routerPolicy.mjs"; // router-migrate: compiled policy (router.policy.json)\n', "routerPolicy.mjs"
+    return 'require("./routerPolicy.js"); // router-migrate: compiled policy (router.policy.json)\n', "routerPolicy.js"
+
+
+def compile_everywhere(root, p, runtime_files):
+    """Write policy p beside every vendored runtime (TS/JS runtimes also get the import that installs it). Returns the
+    written paths (repo-relative)."""
+    written = []
+    for rt in runtime_files:
+        d = os.path.dirname(os.path.join(root, rt))
+        if rt.endswith(".py"):
+            open(os.path.join(d, PY_NAME), "w").write(compile_py(p))
+            written.append(os.path.relpath(os.path.join(d, PY_NAME), root))
+            continue
+        line, name = _ts_policy_import(root, rt)
+        src = compile_ts(p)
+        if not name.endswith(".ts"):  # plain JS: no TypeScript cast
+            src = src.replace("(globalThis as any)", "globalThis").replace("export const", "const" if name.endswith(".js") and not name.endswith(".mjs") else "export const")
+        open(os.path.join(d, name), "w").write(src)
+        rtp = os.path.join(root, rt)
+        body = open(rtp).read()
+        if line.strip() not in body:
+            open(rtp, "a").write("\n" + line)
+        written.append(os.path.relpath(os.path.join(d, name), root))
+    return written

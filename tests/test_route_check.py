@@ -44,7 +44,7 @@ def repo(tmp_path_factory):
     g("init", "-q")
     g("add", "-A")
     g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
-    r = rm("run", str(root), "--test-cmd", "%s -m pytest -q -p no:cacheprovider tests" % sys.executable, cwd=root)
+    r = rm("start", ".", "--test-cmd", "%s -m pytest -q -p no:cacheprovider tests" % sys.executable, cwd=root)
     assert r.returncode == 0, r.stdout + r.stderr
     for f in ("svc/direct.py", "svc/seeded.py", "svc/old.py"):
         r = rm("wrap", "%s:3" % f, cwd=root)

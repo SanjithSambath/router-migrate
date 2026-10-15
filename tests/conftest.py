@@ -91,16 +91,3 @@ class AsyncSplit(httpx.AsyncBaseTransport):
         self.provider_calls.append((request.method, str(request.url)))
         return httpx.Response(200, json={"id": "chatcmpl-p", "object": "chat.completion", "created": 0, "model": "provider",
                                          "choices": [{"index": 0, "message": {"role": "assistant", "content": "from-provider"}, "finish_reason": "stop"}]})
-
-
-def accept_proposals(repo, rm):
-    """Accept every proposal's suggested edit, as an agent agreeing with the rules would (v3 applied these up front)."""
-    import json as _json
-    done = set()
-    while True:
-        L = _json.load(open(os.path.join(str(repo), ".router-migrate", "ledger.json")))
-        todo = [p for p in L.get("proposals") or [] if (p.get("edit") or {}).get("at") and p["id"] not in done]
-        if not todo:
-            return
-        done.add(todo[0]["id"])
-        rm("wrap", todo[0]["edit"]["at"], cwd=repo)
