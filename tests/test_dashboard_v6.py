@@ -159,7 +159,7 @@ def test_a_v6_report_still_bundles(repo):
     assert {i: by[i]["status"] for i in by} == {k: v for k, v in STATUS.items() if k not in ("r8", "r9")}
     assert by["i1"]["actions"] == ["approve", "dismiss", "postpone"] and by["m1"]["actions"] == ["undo"]
     assert b["setup"] == {"settings": []}
-    assert "What to change" in render_tab(repo, "overview")
+    assert "production LLM calls go through Router." in render_tab(repo, "overview")
 
 
 def test_bundle_tolerates_partial_state(tmp_path):
@@ -252,24 +252,48 @@ def render_tab(repo, tab):
     return r.stdout
 
 
-def test_overview_leads_with_the_top_recommendations(repo):
+def test_overview_is_where_things_stand(repo):
     out = render_tab(repo, "overview")
-    assert out.index("What to change") < out.index('class="doors"') < out.index('id="flow"')
-    top = out[out.index("What to change"):out.index('class="doors"')]
-    rows = re.findall(r'class="trow"><span class="rk">(\d+)</span><div class="tx"><button class="tt" type="button" data-go-item="([^"]+)"', top)
-    assert rows == [("2", "i1"), ("5", "i4"), ("6", "i5"), ("9", "r8")]  # open ones by rank: approved/applied/decided are left out
-    assert "cost per classification</span><span class=\"v\">$0.0021 → $0.0004</span><span class=\"n\">(n=3)" in top
-    assert "Quick win" in top and "Router setting" in top and "Mark done" in top and "Approve anyway" in top
+    head = out[:out.index('class="doors"')]
+    assert "4 of 6 production LLM calls go through Router." in head and "10 changes worth making." in head
+    assert "3 approvals and 1 Router setting wait on you. 2 requests ready to apply." in head  # i1 i4 i5 / r8; i2 and p1 pending
+    doors = out[out.index('class="doors"'):out.index("Start here")]
+    assert [d for d in re.findall(r'class="door[^"]*" type="button" data-tab="([a-z]+)"', doors)] == ["migrate", "review", "queue"]
+    assert "Step 01" in doors and "Step 02" in doors and "Your turn" in doors
+    assert "$0.0021 → $0.0004" in doors and "Tests 947/948 · unchanged" in doors
+    top = out[out.index("Start here"):out.index('id="flow"')]
+    rows = re.findall(r'class="srow" type="button" data-go-item="([^"]+)"><span class="rkn">(\d+)</span>', top)
+    assert rows == [("i1", "2"), ("i4", "5"), ("i5", "6")]  # the three most valuable open ones; approved/applied/decided left out
+    assert "$0.0021 → $0.0004" in top
+    assert 'class="card' not in out  # the overview never repeats a card
 
 
-def test_changes_page_groups_and_setup_page_from_router_settings(repo):
-    out = render_tab(repo, "changes")
-    heads = re.findall(r'<section class="group"><div class="group-h"><h2>([^<]+)<', out)
-    assert heads == ["Migration", "Recommendations", "Stays", "Notes"]
-    recs = out[out.index(">Recommendations<"):out.index(">Stays<")]
-    assert re.findall(r'id="item-([^"]+)"', recs) == ["d1", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "r8", "r9"]
-    assert "Your call" in recs and "Where</span>" in recs and "Shadow models" in recs and ">Measured<" in recs
-    assert 'data-f="l" data-v="quick-win"' in out and 'data-f="a" data-v="router-setting"' in out
+def test_migrate_and_review_pages(repo):
+    mig = render_tab(repo, "migrate")
+    assert re.findall(r'<article class="card item" id="item-([^"]+)"', mig) == ["m1", "t1", "p1"]  # changes, as cards
+    assert 'id="call-0"' in mig and 'id="item-s1"' in mig and "Stays · 1" in mig  # every call; stays as quiet rows
+    assert "You give up:</b> Runs are no longer reproducible" in mig  # t1 loses something; m1 ("nothing") doesn't say so
+    assert mig.count("You give up:") == len([i for i in state(repo, "MIGRATION.json")["items"] if i["kind"] == "change" and not i["loses"].startswith("nothing")])
+    rev = render_tab(repo, "review")
+    assert re.findall(r'<article class="card item" id="item-([^"]+)"', rev) == ["d1", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "r8", "r9"]
+    assert 'data-f="l" data-v="quick-win"' in rev and 'data-f="a" data-v="router-setting"' in rev  # level tiles, actor filter
+    assert "Your call" in rev and "Shadow models" in rev and "Measured" in rev and "$0.0004" in rev
+    assert 'id="item-n1"' in rev and 'data-key="notes"' in rev  # notes, collapsed at the bottom
+    assert 'id="item-m1"' not in rev and 'id="item-i1"' not in mig  # one job per page
+
+
+def test_your_turn_groups_what_waits(repo):
+    out = render_tab(repo, "queue")
+    groups = re.findall(r'<h2>(Approvals|Router settings|Your calls|Ready to apply|Decided earlier)</h2>', out)
+    assert groups == ["Ready to apply", "Approvals", "Router settings", "Decided earlier"]  # no product call waits (d1 is postponed)
+    appr = out[out.index("<h2>Approvals"):out.index("<h2>Router settings")]
+    assert re.findall(r'class="drow" id="q-([^"]+)"', appr) == ["i1", "i4", "i5"] and "Approve anyway" in appr and "Approve again" in appr
+    sets = out[out.index("<h2>Router settings"):out.index("<h2>Decided earlier")]
+    assert 'id="q-r8"' in sets and "Mark done" in sets and "Shadow models" in sets
+    assert 'data-act="apply"' in out and "Frozen report" in out
+
+
+def test_setup_page_from_router_settings(repo):
     setup = render_tab(repo, "setup")
     assert "Turn Router on in production" in setup and "Know the off switch" in setup
     assert "Set a spend cap on the production key" not in setup and "Decide the account Flex default" not in setup
@@ -298,7 +322,7 @@ def test_overview_draws_how_your_traffic_moved(repo):
     assert r.returncode == 0, r.stderr[-800:]
     out = r.stdout
     assert "How your traffic moved" in out and 'id="flow"' in out and 'id="wires"' in out
-    assert out.index('class="doors"') < out.index('id="flow"') < out.index("What the agent did")
+    assert out.index('class="doors"') < out.index('id="flow"') < out.index('class="facts-line"')
     left = out[out.index('class="fcol"'):out.index('id="router-node"')]
     stay = out[out.index('class="flow-stay"'):out.index('class="legend"')]
     calls = I.bundle(str(repo))["calls"]
