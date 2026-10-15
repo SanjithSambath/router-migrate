@@ -91,9 +91,12 @@ export RAMP_ROUTER_API_KEY=...                            # traffic Router can s
 
 - **A branch you review**, `router-migrate/migration`: one commit per decision, plus the vendored runtime
   (`router_runtime.py` / `routerRuntime.ts`). Nothing is merged into your branches by the tool.
-- **Improvements as branches**, each built and checked: model choices per tier, Flex for work nobody waits on, fallbacks,
-  cache-friendly prompts, consolidated clients, ports to the API surface where Router's levers apply, and anything else
-  the agent judges worth it. Each says what it gains, what it loses, the price change and exactly what was checked.
+- **A CTO's review of the whole product on Router**, ranked by value at three levels (quick win, change, rework):
+  anything from a cache key or a priority tier to a different model, a step made deterministic or with no LLM at all,
+  shadow models, Jev or Switchyard, or a redesign of how the product uses models. What the agent is sure of is built and
+  checked on a branch; the rest is proposed, and an apply session builds it once you approve. Decisions only you can
+  make (a model change, a setting on app.router.com) are approvable too. Each says what it gains, what it loses, the
+  price change and exactly what was checked.
 - **A dashboard** (`REPORT.html` and a live local page) where everything is the same kind of card: Overview (traffic on
   Router, behaviour check, what waits on you, the agent's summary), Calls, Changes, Your queue (one Apply), History (each
   apply session's log) and Router setup.
