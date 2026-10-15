@@ -11,6 +11,7 @@ import fcntl
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -29,6 +30,18 @@ ARMS = {
     "min": {"RM_PROMPT": "arms/cto_min.md"},
     "min_bare": {"RM_PROMPT": "arms/cto_min.md", "RM_SCAFFOLD": "nomap,notools"},
 }
+LIVE = set()  # running harness processes, stopped with the runner
+
+
+def _stop(*_):
+    for p in list(LIVE):
+        try:
+            os.killpg(p.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    os._exit(1)
+
+
 PREP = threading.Lock()  # preparing a repo's source isn't safe to run twice at once
 STATE = ("MIGRATION.json", "validation.json", "ledger.json", "baseline.json", "REPORT.html")
 
@@ -57,7 +70,16 @@ def one(rnd, arm, name, model):
         args += ["--model", model]
     env = dict(os.environ, ROUTER_MIGRATE_NO_BROWSER="1", **env_arm)
     t = time.time()
-    r = subprocess.run(args, cwd=dst, capture_output=True, text=True, env=env, timeout=7200)
+    proc = subprocess.Popen(args, cwd=dst, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env,
+                            start_new_session=True)  # its own group, so stopping the runner stops the agent too
+    LIVE.add(proc)
+    try:
+        out, _ = proc.communicate(timeout=7200)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGTERM)
+        out, _ = proc.communicate()
+    LIVE.discard(proc)
+    r = subprocess.CompletedProcess(args, proc.returncode, out, "")
     info = {"arm": arm, "repo": name, "env": env_arm, "exit": r.returncode, "seconds": round(time.time() - t), "trial": dst,
             "out": (r.stdout + r.stderr)[-5000:]}
     for f in STATE:
@@ -81,6 +103,8 @@ def main():
     ap.add_argument("--parallel", type=int, default=4)
     ap.add_argument("--jobs", help="explicit arm:repo,... (overrides --arms/--repos)")
     a = ap.parse_args()
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
     os.environ.setdefault("RM_PREP_TAG", "_" + a.round)
     jobs = [tuple(j.split(":")) for j in a.jobs.split(",")] if a.jobs else \
         [(arm, repo) for arm in a.arms.split(",") for repo in a.repos.split(",")]
