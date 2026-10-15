@@ -619,8 +619,9 @@ a.btn { text-decoration: none; }
   var LAT = {background: "Background", interactive: "Interactive", user_waiting: "User waiting"};
   var FLAG = {"deleted-file": "Deleted files", dependencies: "Dependencies changed", "provider-key": "Provider key", "runtime-edit": "Runtime edited"};
   var GROUPS = [["Migration decisions", ["move", "trade-off", "port"], "What the agent changed to move traffic. Each is one commit you can undo."],
-    ["Stays, or needs you", ["stays", "needs-decision"], "Calls that stay where they are, and choices that are yours to make."],
     ["Improvements", ["improvement"], "What the agent would change, ranked by value: built and tested on a branch, or proposed for the apply session to build once you approve. Nothing reaches your code until you approve and apply."],
+    ["Decisions for you", ["needs-decision"], "Changes the agent recommends that only you can make: a different model, a product trade-off, a setting on app.router.com."],
+    ["Stays", ["stays"], "Calls that stay where they are, and why."],
     ["Notes", ["note"], "Things the agent noticed that aren’t a change."]];
 
   var S = {tab: "overview", fk: "all", fs: "all", busy: null, sig: "", pending: false, conn: "ok", form: {}, open: {}, applyResult: null, stickyN: 0, theme: "auto"};
@@ -979,7 +980,7 @@ a.btn { text-decoration: none; }
   function card(it) {
     var h = [], ev = arr(it.checked).filter(function (e) { return !(it.model_change && e.check === "side-by-side"); });
     h.push('<article class="card item' + (it.waiting ? " waiting" : "") + '" id="item-' + esc(it.id) + '">');
-    var lvl = it.level ? '<span class="chip lvl">' + esc({"quick-win": "Quick win", change: "Change", rework: "Rework"}[it.level] || it.level) + "</span>" : "";
+    var lvl = it.level && (it.kind === "improvement" || it.kind === "needs-decision") ? '<span class="chip lvl">' + esc({"quick-win": "Quick win", change: "Change", rework: "Rework"}[it.level] || it.level) + "</span>" : "";
     var unbuilt = it.kind === "improvement" && it.built === false ? '<span class="chip lvl">Not built yet</span>' : "";
     h.push('<header class="ih">' + kindBadge(it.kind) + '<h3 class="it">' + esc(it.title || it.id) + "</h3>" + lvl + unbuilt + statusChip(it) + "</header>");
     if (it.summary) h.push('<p class="isum">' + esc(it.summary) + "</p>");
