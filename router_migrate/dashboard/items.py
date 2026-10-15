@@ -206,11 +206,23 @@ def _router_entry(r, where):
     return {"check": "simulator", "result": "pass" if not bad and v == n else "fail", "detail": detail, "source": "check"}
 
 
+def _live_entry(lv):
+    """The agent's live Router checks, as recorded by the pass-through (not self-reported)."""
+    lv = _d(lv)
+    n = lv.get("requests") or 0
+    if not n:
+        return None
+    feats = sorted(_d(lv.get("by_feature")))
+    return {"check": "router-live", "label": None, "result": "pass" if lv.get("ok") == n else "info", "source": "check",
+            "detail": "%d live request(s) through Router recorded, %d ok%s" % (n, lv.get("ok") or 0,
+                                                                              (" (features: %s)" % ", ".join(feats[:6])) if feats else "")}
+
+
 def check_entries(v, where):
     """The outside check's result for one ref (the migration or a branch), as evidence entries labelled 'check'."""
     v = _d(v)
     out = [x for x in (_tests_entry(v.get("tests"), where), _typecheck_entry(v.get("typecheck"), where),
-                       _router_entry(v.get("router"), where)) if x]
+                       _router_entry(v.get("router"), where), _live_entry(v.get("live"))) if x]
     for f in _l(v.get("failures")):
         f = _d(f)
         gate, det = _s(f.get("gate")) or "check", _s(f.get("detail"))
