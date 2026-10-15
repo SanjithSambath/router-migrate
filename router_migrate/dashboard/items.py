@@ -1,4 +1,5 @@
-"""v6 dashboard: one item model, rendered uniformly (docs/plans/v6-agent-first.md, "Dashboard").
+"""The dashboard: one item model, rendered uniformly (docs/plans/v7-flagship.md, "Dashboard"). v6 reports load through
+report_v6.normalize (their original kind is kept as `v6_kind`).
 
 - `bundle(root)`: everything the page shows, built only from the `.router-migrate/` state files in
   router_migrate/schemas/V7_CONTRACTS.md plus git (diffs). Never raises on partial state.
@@ -40,7 +41,7 @@ CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline
 CHECK_OF_GATE = {"tests": "tests", "tests-edited": "tests", "typecheck": "typecheck", "router": "simulator"}
 FLAG_TEXT = {"deleted-file": "Deleted files", "dependencies": "Dependencies changed", "provider-key": "Provider key",
              "runtime-edit": "Runtime edited"}
-WAITING = ("proposed", "check failed", "declined")
+WAITING = ("proposed", "check failed", "declined", "your step")
 
 
 # ------------------------------------------------------------------------------------------------ small helpers
@@ -136,7 +137,7 @@ def _commit_diff(root, commit):
 def _branch_diff(root, branch, refs, base):
     how = "git diff %s...%s" % (base, branch)
     if not (REF_RE.match(branch or "") and ".." not in branch and branch.startswith(R.IMPROVE_PREFIX)):
-        return _shape(False, "not an improvement branch name: %r" % branch, branch, how)
+        return _shape(False, "not a recommendation branch name: %r" % branch, branch, how)
     if refs is None:
         return _shape(False, "not a git repository", branch, how)
     if branch not in refs:
@@ -279,20 +280,33 @@ def _route_entry(sites, routes):
     return {"check": "other", "label": "Route", "result": result, "detail": "; ".join(bits) + " (route truth)", "source": "check"}
 
 
+def _setting(item):
+    return item.get("kind") == "recommendation" and item.get("actor") == "router-setting"
+
+
 def _model_change(item):
+    if _setting(item):
+        return False
     if any(_d(e).get("check") == "side-by-side" for e in _l(item.get("evidence"))):
         return True
-    return item.get("kind") in ("improvement", "port") and bool(
+    return item.get("kind") in ("recommendation", "change") and bool(
         re.search(r"different (model|vendor)|answers will differ|model (answers|writes)", _s(item.get("loses")), re.I))
 
 
 # ------------------------------------------------------------------------------------------------ actions
 def actions_for(item, status, req, last):
-    """What the human can do with this item now. Requests already taken by a session can't be withdrawn."""
+    """What the human can do with this item now. Requests already taken by a session can't be withdrawn.
+    A router-setting never goes to an apply session: the human marks it done (or dismisses or postpones it)."""
     kind = item.get("kind")
+    if _setting(item):
+        if status == "done":
+            return []
+        if req and not req.get("session"):
+            return ["withdraw"]
+        return ["done", "dismiss", "postpone"] if status == "your step" else []
     if req and not req.get("session"):
         return ["withdraw"]
-    if kind == "improvement":
+    if kind == "recommendation":  # carried out in code (actor code or product-call)
         if status in ("proposed", "check failed", "undone"):
             return ["approve", "dismiss", "postpone"]
         if status == "applied":
@@ -302,9 +316,17 @@ def actions_for(item, status, req, last):
         return []
     if kind in R.MIGRATION_KINDS:
         return ["undo"] if status in ("in code", "declined") else []
-    if kind == "needs-decision":
-        return {"info": ["approve", "dismiss", "postpone"], "declined": ["approve", "dismiss", "postpone"], "applied": ["undo"]}.get(status, [])
     return []
+
+
+def _value(x):
+    return x if isinstance(x, (str, int, float)) and not isinstance(x, bool) else None
+
+
+def _measured(item):
+    """The agent's measured numbers (metric, before, after, n, how), cleaned for the page."""
+    return [{"metric": m["metric"], "before": _value(m.get("before")), "after": _value(m.get("after")), "n": _num(m.get("n")),
+             "how": _s(m.get("how"))} for m in _l(item.get("measured")) if isinstance(m, dict) and _s(m.get("metric"))]
 
 
 # ------------------------------------------------------------------------------------------------ the bundle
@@ -365,7 +387,9 @@ def bundle(root):
                                 "samples": _l(e.get("samples")) or None})
         flags = []
         diff = None
-        if kind == "improvement":
+        setting = _setting(it)
+        measured = _measured(it)
+        if kind == "recommendation" and not setting:
             b = _s(it.get("branch"))
             bv = _d(branches.get(b))
             checked += check_entries(bv, "this branch") if bv else [{"check": "other", "label": "Check", "result": "not-run", "source": "check",
@@ -385,11 +409,13 @@ def bundle(root):
                         claimed.add(n)
         elif it.get("commit"):
             diff = _commit_diff(root, _s(it.get("commit")))
-        re_ = _route_entry(calls, routes) if kind not in ("note", "improvement") else None  # route truth is the migration's
+        # route truth is the migration's: it says where a change's (or a stay's, or a product call's) calls go now
+        re_ = _route_entry(calls, routes) if kind in R.MIGRATION_KINDS + ("stays",) or it.get("actor") == "product-call" else None
         if re_:
             checked.append(re_)
         model_change = _model_change(it)
-        if kind in R.MIGRATION_KINDS + ("improvement",) and not any(c["check"] == "router-live" for c in checked):
+        if (kind in R.MIGRATION_KINDS or (kind == "recommendation" and not setting)) and not measured \
+                and not any(c["check"] == "router-live" for c in checked):
             checked.append({"check": "router-live", "result": "not-run", "source": "check", "label": None,
                             "detail": "not checked live by the agent" if live else "not checked: no key (simulator only)"})
         if model_change and not any(c["check"] == "side-by-side" for c in checked):
@@ -400,7 +426,10 @@ def bundle(root):
         in_session = req.get("session") if req and req.get("session") and req["session"] not in finished else None
         items.append({
             "id": iid, "kind": kind, "title": _s(it.get("title")), "summary": _s(it.get("summary")), "calls": calls,
-            "level": _s(it.get("level")) or None, "built": bool(_s(it.get("branch"))) if kind == "improvement" else None,
+            "v6_kind": _s(it.get("v6_kind")) or None, "rank": _num(it.get("rank")) if kind == "recommendation" else None,
+            "level": _s(it.get("level")) or None, "actor": _s(it.get("actor")) or None if kind == "recommendation" else None,
+            "where": _s(it.get("where")) or None, "measured": measured,
+            "built": bool(_s(it.get("branch"))) if kind == "recommendation" and not setting else None,
             "gains": it.get("gains"), "loses": it.get("loses"), "price": it.get("price"), "why": it.get("why"),
             "commit": it.get("commit"), "branch": it.get("branch"),
             "depends_on": [x for x in _l(it.get("depends_on")) if isinstance(x, str)],
@@ -410,7 +439,7 @@ def bundle(root):
             "due": bool(due), "checked": checked, "flags": flags, "diff": diff, "results": results,
             "model_change": model_change, "in_session": in_session,
             "actions": [] if in_session else actions_for(it, status, req, last),
-            "waiting": not in_session and (status in WAITING or (kind == "needs-decision" and status == "info") or bool(due)),
+            "waiting": not in_session and (status in WAITING or bool(due)),
         })
     by_id = {i["id"]: i for i in items}
     unclaimed = [f for n, f in enumerate(mig_flags) if n not in claimed]
@@ -452,9 +481,9 @@ def bundle(root):
                                     for r in _l(s.get("results")) if isinstance(r, dict)],
                         "check": _d(s.get("check")) or None,
                         "check_entries": check_entries(s.get("check"), "the result of this session") if _d(s.get("check")) else []})
-    models = sorted({c["model"] for c in calls if isinstance(c.get("model"), str) and c["route"] != "provider" and c["route"] != "stays"})
+    recs = sorted((i for i in items if i["kind"] == "recommendation"), key=lambda i: (i["rank"] is None, i["rank"] or 0))
     return {
-        "version": 6,
+        "version": 7,
         "repo": os.path.basename(root),
         "root": root,
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -479,10 +508,8 @@ def bundle(root):
         "apply_blocked": blocked,
         "pending": pending,
         "cost": _d(ledger.get("cost")),
-        "setup": {"models": models,
-                  "features": sorted({c["feature"] for c in calls if isinstance(c.get("feature"), str) and c["route"] not in ("provider", "stays")}),
-                  "background": sorted({c["feature"] or c["site"] for c in calls if c.get("latency") == "background" and c["route"] not in ("provider", "stays")}),
-                  "model_changes": [i["id"] for i in items if i["model_change"] and i["kind"] == "improvement"]},
+        "recommendations": [i["id"] for i in recs],  # every recommendation, in rank order
+        "setup": {"settings": [i["id"] for i in recs if i["actor"] == "router-setting"]},  # this app's Router settings
     }
 
 
@@ -577,7 +604,7 @@ class _App(object):
             validation = _load(self.root, "validation.json", {})
             pend = R.pending_requests(self.root)
             if not pend:
-                raise HttpError(409, "Nothing to apply: approve an improvement or mark something for undo first.")
+                raise HttpError(409, "Nothing to apply: approve a recommendation or mark something for undo first.")
             sessions = {s.get("id") for s in _l(_load(self.root, "apply_log.json", {}).get("sessions")) if isinstance(s, dict)}
             taken = sorted({r.get("session") for r in _d(_load(self.root, "requests.json", {}).get("requests")).values()
                             if isinstance(r, dict) and r.get("session") and r.get("session") not in sessions})

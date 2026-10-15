@@ -1,4 +1,4 @@
-"""v6 dashboard: the bundle (one item model from the state files plus git), the frozen REPORT.html, and the live server."""
+"""The dashboard (v7 item model; v6 reports still load): the bundle (one item model from the state files plus git), the frozen REPORT.html, and the live server."""
 import http.client
 import json
 import os
@@ -15,7 +15,8 @@ from router_migrate.dashboard import items as I
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "v6_state")
 STATUS = {"m1": "in code", "t1": "in code", "p1": "undo requested", "s1": "info", "d1": "postponed", "i1": "proposed",
-          "i2": "approved", "i3": "applied", "i4": "check failed", "i5": "declined", "i6": "undone", "i7": "dismissed", "n1": "info"}
+          "i2": "approved", "i3": "applied", "i4": "check failed", "i5": "declined", "i6": "undone", "i7": "dismissed",
+          "r8": "your step", "r9": "done", "n1": "info"}
 
 
 def git(root, *a):
@@ -55,6 +56,8 @@ def test_bundle_has_every_kind_and_status(repo):
     by = {i["id"]: i for i in b["items"]}
     assert {i: by[i]["status"] for i in by} == STATUS
     assert {i["kind"] for i in b["items"]} == set(R.KINDS)
+    assert {"your step", "done"} <= {i["status"] for i in b["items"]}
+    assert {by[i]["actor"] for i in by if by[i]["kind"] == "recommendation"} == set(R.ACTORS)
     doc = state(repo, "MIGRATION.json")
     for it in doc["items"]:
         assert by[it["id"]]["etag"] == R.item_etag(it)
@@ -69,7 +72,7 @@ def test_bundle_headline_calls_and_queue(repo):
     bh = b["headline"]["behaviour"]
     assert bh["checked"] and bh["ok"] is True and bh["tests"]["status"] == "passed"
     assert any(e["check"] == "tests" and "same as before" in e["detail"] for e in bh["entries"])
-    assert sorted(b["headline"]["waiting"]["items"]) == ["i1", "i4", "i5"]  # proposed, check failed, declined
+    assert sorted(b["headline"]["waiting"]["items"]) == ["i1", "i4", "i5", "r8"]  # proposed, check failed, declined, your step
     assert sorted(p["item"] for p in b["pending"]) == ["i2", "p1"]
     assert b["apply_blocked"] is None and b["running"] == []
     calls = {c["site"]: c for c in b["calls"]}
@@ -98,6 +101,9 @@ def test_items_carry_evidence_flags_actions_and_model_change(repo):
     assert by["m1"]["actions"] == ["undo"] and by["i3"]["actions"] == ["undo"]
     assert by["p1"]["actions"] == ["withdraw"] and by["i2"]["actions"] == ["withdraw"]
     assert by["s1"]["actions"] == [] and by["n1"]["actions"] == []
+    assert by["r8"]["actions"] == ["done", "dismiss", "postpone"] and by["r8"]["waiting"]  # a router-setting: your step
+    assert by["r9"]["actions"] == [] and not by["r9"]["waiting"]  # marked done: nothing left to do
+    assert by["r8"]["checked"] == [] and not by["r8"]["model_change"]  # nothing built, nothing to check
     assert by["d1"]["actions"] == ["withdraw"] and not by["d1"]["waiting"]  # postponed until a future date
     assert by["i5"]["results"][-1]["status"] == "declined" and by["i5"]["results"][-1]["session"] == "A1"
     # the fixture's commits and branches aren't in this repo: the diff says so instead of failing
@@ -126,6 +132,36 @@ def test_diffs_come_from_git_and_flags_follow_the_commit(repo):
     assert by["i2"]["diff"]["error"]  # its branch doesn't exist here
 
 
+def test_recommendations_carry_rank_level_actor_and_measured(repo):
+    b = I.bundle(str(repo))
+    by = {i["id"]: i for i in b["items"]}
+    assert b["recommendations"] == ["d1", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "r8", "r9"]  # rank order
+    assert b["setup"] == {"settings": ["r8", "r9"]}  # this app's router-setting recommendations, in rank order
+    i1, d1, r8 = by["i1"], by["d1"], by["r8"]
+    assert (i1["rank"], i1["level"], i1["actor"], i1["built"]) == (2, "quick-win", "code", True)
+    assert i1["measured"] == [{"metric": "cost per classification", "before": "$0.0021", "after": "$0.0004", "n": 3,
+                               "how": "check --run --live, the classifier on 3 real tickets"}]
+    assert not any(e["check"] == "router-live" for e in i1["checked"] if e["source"] == "check")  # measured live instead
+    assert (d1["actor"], d1["built"]) == ("product-call", False)
+    assert (r8["actor"], r8["built"], r8["where"]) == ("router-setting", None, "app.router.com > Routing > Shadow models")
+    assert by["m1"]["rank"] is None and by["m1"]["actor"] is None and by["m1"]["measured"] == [] and by["m1"]["v6_kind"] is None
+
+
+def test_a_v6_report_still_bundles(repo):
+    shutil.copy(os.path.join(FIX, "MIGRATION_v6.json"), str(repo / ".router-migrate" / "MIGRATION.json"))
+    b = I.bundle(str(repo))
+    assert b["report_errors"] == []
+    by = {i["id"]: i for i in b["items"]}
+    assert {i["kind"] for i in b["items"]} <= set(R.KINDS)
+    assert {i: by[i]["v6_kind"] for i in ("m1", "t1", "p1", "d1", "i1")} == {
+        "m1": "move", "t1": "trade-off", "p1": "port", "d1": "needs-decision", "i1": "improvement"}
+    assert by["d1"]["actor"] == "product-call" and by["i1"]["actor"] == "code" and by["i1"]["rank"] == 2
+    assert {i: by[i]["status"] for i in by} == {k: v for k, v in STATUS.items() if k not in ("r8", "r9")}
+    assert by["i1"]["actions"] == ["approve", "dismiss", "postpone"] and by["m1"]["actions"] == ["undo"]
+    assert b["setup"] == {"settings": []}
+    assert "What to change" in render_tab(repo, "overview")
+
+
 def test_bundle_tolerates_partial_state(tmp_path):
     b = I.bundle(str(tmp_path))  # nothing at all, not even git
     assert b["items"] == [] and b["calls"] == [] and not b["has_report"] and b["report_errors"] == []
@@ -138,6 +174,7 @@ def test_bundle_tolerates_partial_state(tmp_path):
     by = {i["id"]: i for i in b["items"]}
     assert by["i1"]["status"] == "proposed" and by["i4"]["status"] == "proposed"  # no validation yet
     assert any(e["result"] == "not-run" for e in by["i1"]["checked"])
+    assert by["r9"]["status"] == "your step"  # no requests.json to say it's done
     assert b["history"] == [] and b["pending"] == [] and b["live"] is False and "finish" in b["apply_blocked"]
     assert by["m1"]["diff"]["error"]  # not a git repository
     doc = json.load(open(os.path.join(FIX, "MIGRATION.json")))
@@ -145,7 +182,7 @@ def test_bundle_tolerates_partial_state(tmp_path):
     doc["items"].append("junk")
     (st / "MIGRATION.json").write_text(json.dumps(doc))
     b = I.bundle(str(tmp_path))
-    assert any("kind" in e for e in b["report_errors"]) and len(b["items"]) == 13
+    assert any("kind" in e for e in b["report_errors"]) and len(b["items"]) == 15
 
 
 # ------------------------------------------------------------------------------------------------ REPORT.html
@@ -200,6 +237,55 @@ global.localStorage = {getItem: function () { return null; }, setItem: function 
 global.requestAnimationFrame = function () {};
 global.scrollTo = function () {}; global.scrollY = 0; global.addEventListener = function () {};
 """
+
+
+def render_tab(repo, tab):
+    """The page's main area for one tab, rendered by node from the frozen report."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed")
+    html = I.render_report(str(repo))
+    js = DOM_STUB.replace('hash: ""', 'hash: "#%s"' % tab) + "\n".join(re.findall(r"<script[^>]*>([\s\S]*?)</script>", html)) + \
+        "\nprocess.stdout.write(els.main.innerHTML);"
+    r = subprocess.run([node, "-"], input=js, capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr[-800:]
+    return r.stdout
+
+
+def test_overview_leads_with_the_top_recommendations(repo):
+    out = render_tab(repo, "overview")
+    assert out.index("What to change") < out.index('class="doors"') < out.index('id="flow"')
+    top = out[out.index("What to change"):out.index('class="doors"')]
+    rows = re.findall(r'class="trow"><span class="rk">(\d+)</span><div class="tx"><button class="tt" type="button" data-go-item="([^"]+)"', top)
+    assert rows == [("2", "i1"), ("5", "i4"), ("6", "i5"), ("9", "r8")]  # open ones by rank: approved/applied/decided are left out
+    assert "cost per classification</span><span class=\"v\">$0.0021 → $0.0004</span><span class=\"n\">(n=3)" in top
+    assert "Quick win" in top and "Router setting" in top and "Mark done" in top and "Approve anyway" in top
+
+
+def test_changes_page_groups_and_setup_page_from_router_settings(repo):
+    out = render_tab(repo, "changes")
+    heads = re.findall(r'<section class="group"><div class="group-h"><h2>([^<]+)<', out)
+    assert heads == ["Migration", "Recommendations", "Stays", "Notes"]
+    recs = out[out.index(">Recommendations<"):out.index(">Stays<")]
+    assert re.findall(r'id="item-([^"]+)"', recs) == ["d1", "i1", "i2", "i3", "i4", "i5", "i6", "i7", "r8", "r9"]
+    assert "Your call" in recs and "Where</span>" in recs and "Shadow models" in recs and ">Measured<" in recs
+    assert 'data-f="l" data-v="quick-win"' in out and 'data-f="a" data-v="router-setting"' in out
+    setup = render_tab(repo, "setup")
+    assert "Turn Router on in production" in setup and "Know the off switch" in setup
+    assert "Set a spend cap on the production key" not in setup and "Decide the account Flex default" not in setup
+    assert 'id="step-r8"' in setup and 'id="step-r9"' in setup and "Shadow Haiku 5.5" in setup and "Spend cap" in setup
+    doc = state(repo, "MIGRATION.json")
+    doc["items"] = [i for i in doc["items"] if i.get("actor") != "router-setting"]
+    state(repo, "MIGRATION.json", doc)
+    assert "No Router settings recommended for this app." in render_tab(repo, "setup")
+
+
+def test_mark_done_round_trip(srv):
+    st, out = req(srv, "POST", "/api/request", {"item": "r8", "action": "done"})
+    assert st == 200 and out["request"]["action"] == "done"
+    by = {i["id"]: i for i in req(srv, "GET", "/api/bundle")[1]["items"]}
+    assert by["r8"]["status"] == "done" and by["r8"]["actions"] == [] and not by["r8"]["waiting"]
+    assert "r8" not in [p["item"] for p in req(srv, "GET", "/api/bundle")[1]["pending"]]  # never goes to an apply session
 
 
 def test_overview_draws_how_your_traffic_moved(repo):
@@ -265,7 +351,7 @@ def test_page_and_bundle_need_the_token(srv):
     assert req(srv, "GET", "/api/bundle", token=False)[0] == 403
     assert req(srv, "GET", "/api/bundle", host="evil.example:%d" % srv["port"])[0] == 403
     st, b = req(srv, "GET", "/api/bundle")
-    assert st == 200 and len(b["items"]) == 13
+    assert st == 200 and len(b["items"]) == 15
     assert req(srv, "GET", "/api/nope")[0] == 404 and req(srv, "GET", "/api/apply")[0] == 405
 
 
@@ -287,7 +373,10 @@ def test_request_round_trip_and_withdraw(srv):
 
 @pytest.mark.parametrize("body,needle", [
     ({"item": "i2", "action": "undo"}, "not in the code"),
-    ({"item": "m1", "action": "apply"}, "only improvements"),
+    ({"item": "m1", "action": "apply"}, "only recommendations"),
+    ({"item": "r8", "action": "apply"}, "mark it done"),
+    ({"item": "i1", "action": "done"}, "only a router-setting"),
+    ({"item": "r8", "action": "undo"}, "not in the code"),
     ({"item": "zz", "action": "apply"}, "unknown item"),
     ({"item": "d1", "action": "postpone"}, "needs a date"),
     ({"item": "i1", "action": "ship"}, "action must be"),
