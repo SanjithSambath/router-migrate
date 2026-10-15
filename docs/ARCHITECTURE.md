@@ -18,7 +18,7 @@ production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [
 │  check --all | FILE:LINE | --run CMD [--live]   │   │  outside check: parse · typecheck · tests with Router on   │
 │  check --final [--tests]   dry run              │   │  vs the baseline · existing tests unchanged · Router       │
 │  levers   lever table, catalog, same family,    │   │  accepts the requests · route truth · flags (deleted       │
-│           the old rules as hints                │   │  files, dependencies, provider keys, runtime edits)        │
+│           the model a call names                │   │  files, dependencies, provider keys, runtime edits)        │
 │  wrap / adapt   codemods, trade-offs            │   │  on the migration, every built recommendation, after apply│
 └─────────────────────────────────────────────────┘   │  runtime (in the app): Router or provider, per request    │
                                                        └───────────────────────────────────────────────────────────┘
@@ -47,16 +47,25 @@ otherwise shows the Claude Code command.
 
 | Module | Role |
 |---|---|
-| `harness.py` | `start`, `finish`, `apply`, `request`, `run`, the outside check (`check_tree`), branch validation, route truth, live checks, `levers`, the headless launcher |
+| `cli.py` | The argument parser (`--help` is its docstring) |
+| `harness.py` | `start`, `finish`, `apply`, `request`, `run`, the outside check (`check_tree`), branch validation, route truth, live checks, `levers`, `policy`, the headless launcher |
+| `agent.py` | The agent's code tools (`check --run`'s sandbox, `wrap`, `unwrap`, `adapt`), the ledger and git snapshot helpers, and `dispatch` |
 | `report_v6.py` | Validation of `MIGRATION.json` and `APPLY.json`, item status, requests, `apply_blocked`, the migration key |
 | `live_proxy.py` | The recording pass-through to the real Router for `check --run --live` |
 | `route_check.py` | Does each call route as the code stands: the scanner's sites through the real runtime's planner |
 | `runtime/router_runtime.py`, `runtime/routerRuntime.ts` | The vendored runtime (see below) |
 | `sim/` | router-sim: a local Router built from measured behaviour (outside check, `check --run`) |
-| `dashboard/items.py`, `dashboard/v6.html` | The v6 dashboard: bundle from the state files and git, live server, REPORT.html |
-| `scan_py.py`, `ts/tool.mjs`, `plan.py`, `apply_py.py` | Scanner and codemods behind `check --all`, `wrap`, `unwrap` |
-| `recommend.py` | The v2/v3 rules; in v6 only hints printed by `levers` |
+| `dashboard/items.py`, `dashboard/v6.html`, `dashboard/server.py` | The dashboard: bundle from the state files and git, live server (on `server.py`'s hardening), REPORT.html |
+| `scan_py.py`, `ts/tool.mjs`, `plan.py`, `apply_py.py` | Scanner and codemods behind `check --all`, `wrap`, `unwrap` (site schema: `SCHEMA.md`) |
+| `policy.py` | `router.policy.json` → the compiled policy beside each vendored runtime (`policy`, `adapt`) |
+| `verify.py` | Test-output counts, test-command detection, syntax checks, the Router-on test run, request replay |
+| `facts.py` | `facts --refresh`: re-measure the fact sheet's anchored facts |
 | `catalog.py`, `data/` | Catalog snapshot, Flex list, `ROUTER.md` (the fact sheet) |
+| `prompts/` | `migrate_v6.md`, `apply.md`; `arms/` holds the eval's prompt variants (`eval/lean`, `eval/gate`) |
+
+Everything earlier (the v1 scan/plan/apply/verify/report pipeline, the v2 `up`/`recommend`/`decide`/`status` loop and
+its rules, the v4 `probe`/`claim`/`card`/`judge`/`improve` protocol, the v5 dashboard) is in
+[archive/](../archive/README.md), moved with its history.
 
 ## State
 
@@ -113,8 +122,8 @@ It never edits the tree. A failure blocks Apply for recommendations; undo reques
 | `request ITEM apply\|undo\|dismiss\|postpone\|done [--reason R] [--until D]` | Record what you want for an item (`done`: a Router setting you switched on) |
 | `apply [PATH]` / `apply --done` / `apply PATH --agent claude` | The apply session |
 | `check --all \| FILE:LINE \| --run CMD [--live] \| --final [--tests]` | Agent tool: route facts, sandbox, live, dry run |
-| `levers [MODEL\|FILE:LINE]` | Agent tool: lever table, catalog, same-family models, hints |
-| `wrap FILE:LINE`, `adapt FILE:LINE --LEVER --loses ...`, `policy` | Optional agent helpers (`unwrap` is the apply session's) |
+| `levers [MODEL\|FILE:LINE]` | Agent tool: lever table, catalog, same-family models (for a FILE:LINE, the model the call names) |
+| `wrap FILE:LINE`, `unwrap FILE:LINE`, `adapt FILE:LINE --LEVER --loses ...` / `adapt --undo T<n>`, `policy` | Optional agent helpers (`unwrap` is the apply session's) |
 | `dashboard [PATH]` | REPORT.html and the live dashboard |
 | `facts --refresh [--dry-run]` | Maintainers: re-measure the fact sheet's anchored facts on real Router with the migration key |
 

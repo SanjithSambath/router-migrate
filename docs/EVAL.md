@@ -165,6 +165,8 @@ nohup .venv/bin/python eval/run.py --set heldout --arms D3min,D3free,B --repos a
 ```
 
 Runs are resumable. Each run writes `status.json` and a line to `DONE.txt`. Agent spend comes from the agent transcript.
+Only D3min, D3free and B still run: A, B′, B2, C, Cnf and D ran the v1 floor or the v4 toolkit, which the v7 cleanup moved
+to [archive/](../archive/README.md). Their recorded runs still score and report.
 The eval needs Claude Code on `PATH` and no `RAMP_ROUTER_API_KEY` (the harness strips it).
 
 ## v6 and v7

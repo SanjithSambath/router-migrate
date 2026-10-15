@@ -18,9 +18,9 @@ test:             ## unit + golden tests (runtime vs router-sim, codemods, scann
 demo:             ## placeholder: prints how to run a migration on one repo
 	@echo "Facts for every LLM call in a repo (nothing changes):"
 	@echo "  $(RM) check --all --path <repo>"
-	@echo "Migrate it with the D3 harness (the agent + facts + one outside check):"
-	@echo "  $(RM) run <repo> --test-cmd \"<the repo's tests>\" --agent claude --arm min"
-	@echo "Agent eval sets and arms: make eval-dry (or eval/run.py --help)."
+	@echo "Migrate and review it in Claude Code: /router-migrate (or $(RM) start <repo>); headless:"
+	@echo "  $(RM) run <repo> --test-cmd \"<the repo's tests>\" --agent claude"
+	@echo "Agent eval sets and arms: make eval-dry (or eval/run.py --help); prompt changes: eval/gate/gate.py."
 
 # Agent eval (eval/run.py): every (arm, repo) trial of a set; resumable; spends real agent budget.
 EVAL_ARGS ?= --set heldout2 --arms D3min --repos all
@@ -32,7 +32,7 @@ eval-dry:         ## what `make eval` would run; runs nothing
 
 dashboard:        ## REPORT.html + the live dashboard for a migrated repo: make dashboard REPO=<path>
 	@[ -n "$(REPO)" ] || { echo "usage: make dashboard REPO=<path to a migrated repo>"; exit 2; }
-	$(PY) -c "import sys; from router_migrate import agent; sys.exit(agent.open_dashboard(sys.argv[1], None))" "$(REPO)"
+	$(RM) dashboard "$(REPO)"
 
 sim:              ## run router-sim on :8787
 	$(PY) -m router_migrate.sim.server --port 8787
@@ -51,4 +51,5 @@ clean:            ## remove caches and build artifacts (never eval/work: in a gi
 	rm -rf .pytest_cache tests/_rendered build dist *.egg-info
 
 # Archived (archive/README.md): the v1 targets `eval` and `eval-quick` ran eval/run_eval.py for the 15-repo v1 scoreboard
-# (its outputs are now under archive/eval-v1-v2/). eval/run_eval.py itself stays because eval/v3 imports it.
+# (its outputs are now under archive/eval-v1-v2/). eval/run_eval.py itself stays because eval/v3 imports its helpers; its
+# own runner needs the v1 pipeline, archived in the v7 cleanup.

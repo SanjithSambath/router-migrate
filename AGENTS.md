@@ -50,7 +50,7 @@ it and follow it. Headless: `router-migrate run PATH --agent claude [--model M]`
 | `router-migrate check --run "<cmd>"` | Run code with the runtime pointed at a local Router simulator (offline, provider keys dummied) and see which requests reached Router and whether they were valid. This is how a move gets verified. |
 | `router-migrate check --run "<cmd>" --live` | The same against real Router, with the migration key injected as `RAMP_ROUTER_API_KEY` for that command only. Real money under a spend cap: keep it small. |
 | `router-migrate check --final [--tests]` | Dry run of the outside check `finish` runs, as often as you like. |
-| `router-migrate levers [MODEL\|FILE:LINE]` | The lever table, catalog prices, Flex eligibility and same-family models (live with a key), heuristic hints (they can be wrong). |
+| `router-migrate levers [MODEL\|FILE:LINE]` | The lever table, catalog prices, Flex eligibility and same-family models (live with a key); for a FILE:LINE, the model that call names. |
 | `router-migrate wrap FILE:LINE` / `unwrap FILE:LINE` | Add or remove the vendored runtime at a client construction. |
 | `router-migrate adapt FILE:LINE --drop P \| --model-map OLD=NEW \| --unlock-host H \| --operator-key-only \| --drop-betas F --loses "..." --why "..."` | Apply a trade-off to Router-bound requests only. |
 
