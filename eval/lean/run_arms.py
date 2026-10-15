@@ -92,7 +92,8 @@ def collect(arm, name, env_arm, dst, out, code, secs, text):
             shutil.copy(p, os.path.join(out, f))
     tr = os.path.join(dst, ".router-migrate", "agent_transcript.jsonl")
     errs = [l for l in open(tr, errors="replace")] if os.path.exists(tr) else []
-    info["invalid"] = any('"is_error":true' in l and "API Error" in l for l in errs if '"type":"result"' in l)  # an outage, not a result
+    info["invalid"] = any(('"is_error":true' in l and "API Error" in l) or "hit your session limit" in l or "usage limit" in l
+                          for l in errs if '"type":"result"' in l)  # an outage or a spent quota, not a result
     info["branches"] = subprocess.run(["git", "branch", "--list", "router-migrate/*"], cwd=dst, capture_output=True, text=True).stdout.split()
     json.dump(info, open(os.path.join(out, "run.json"), "w"), indent=1)
     return arm, name, code, secs
