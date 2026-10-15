@@ -18,6 +18,7 @@ actually goes to Router counts: wrapped clients or clients pointed at Router), l
 matched to the frozen inventory (same matcher as the held-out audit); (3) the arm's *reported* outcome per site (A: the plan;
 C: the plan overridden by the agent's ledger claims; B_prime: what its code does) against the inventory; (4) $ and minutes.
 Trials run with no Router key (router-sim only), RAMP_ROUTER_API_KEY unset, and a per-trial copy with fresh git history.
+Since the v7 cleanup only arm B (the docs prompt) runs here; A, B_prime and C ran archived code and keep their recorded results.
 """
 import argparse
 import difflib
@@ -514,6 +515,9 @@ def clear_run_dir(out_dir, keep=("status.json",)):
 
 def trial(arm, name):
     """Run one arm on one repo (the expensive part), then score it."""
+    if arm in ("A", "B_prime", "C"):  # A's floor and C's toolkit were the v1 pipeline and the v4 agent (B_prime starts from A)
+        raise SystemExit("arm %s ran the v1 floor / v4 toolkit, archived in the v7 cleanup (archive/README.md); its recorded "
+                         "results still score and aggregate" % arm)
     rec = recipe(name)
     baseline(name)
     out_dir = os.path.join(RUNS, arm, name)

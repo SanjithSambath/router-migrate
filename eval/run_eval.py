@@ -7,6 +7,10 @@ Per repo (fresh clone at the pinned commit in eval/work/runs/<name>):
   3. typecheck before/after (TS repos)       6. replay of every unique migrated request shape (site's literal kwargs) at router-sim (+ --live)
 Writes eval/scoreboard.json, eval/SCOREBOARD.md, eval/scoreboard.html and per-repo logs in eval/logs/.
 Recipes (env setup + test commands, with measured baselines) live in eval/recipes/<name>.json.
+
+Since the v7 cleanup the scan/plan/apply pipeline this runner drove is archived (archive/README.md), so `run_repo` and
+`main` no longer run; the v1 scoreboard is in archive/eval-v1-v2/. The helpers (repos_file, prepare, sh, tests, typecheck,
+subst, contain, count) stay: eval/v3 and eval/prepare_set.py use them.
 """
 import argparse
 import json
@@ -145,6 +149,8 @@ def count(t, kind="unit"):
 
 
 def run_repo(repo, args, cat):
+    if not hasattr(cli, "do_scan"):
+        raise SystemExit("the v1 scan/plan/apply pipeline was archived in the v7 cleanup (archive/README.md)")
     name = repo["name"]
     rp = os.path.join(SETDIR, "recipes", name + ".json")
     rec = json.load(open(rp)) if os.path.exists(rp) else {"name": name}

@@ -44,6 +44,26 @@ PY = os.path.join(R.ROOT, ".venv", "bin", "python")
 GATE_DIR = os.path.join(R.RE.WORK, "gate_state")
 REPORT = os.path.join(".router-migrate", "MIGRATION_REPORT.json")
 MAX_ATTEMPTS = 3
+# The v4 agent's outcome vocabulary, which B2's MIGRATION_REPORT.json entries are validated against (the v4 agent itself was
+# archived in the v7 cleanup: archive/README.md). The B2, C, Cnf and D trials ran the v4 toolkit (its gate, `run` proposal
+# pass and `claim`), so only their recorded results score and report now; D3min / D3free run the current harness.
+OUTCOMES = ("migrated", "kept", "flagged", "handoff", "needs_human", "not_a_site")
+REASON_CODES = {
+    "R_NO_ENDPOINT": "Router has no endpoint for this surface (embeddings, images, audio, files, moderation, legacy completions)",
+    "R_OTHER_HOST": "the request goes to another vendor's endpoint in production (incl. a user-defined provider list)",
+    "R_PER_TENANT": "the API key is per user / tenant / session",
+    "R_STATEFUL": "stateful Responses use or provider-side files",
+    "R_BETA": "Anthropic beta features",
+    "R_MODEL_NOT_IN_CATALOG": "the model is not a Router catalog id",
+    "R_DEAD_CODE": "unreachable or unused code",
+    "R_NOT_PRODUCTION": "tests, examples, scripts, eval harnesses, docs, templates, or not an LLM call",
+    "R_RAW_REQUESTS": "raw HTTP to OpenAI/Anthropic that needs a code change (no runtime adapter for this client)",
+    "R_OTHER_GATEWAY": "another LLM gateway (Vercel AI Gateway, LiteLLM proxy, ...)",
+    "R_OTHER_VENDOR_SDK": "another vendor's SDK whose model is in Router's catalog (needs a port or BYOK)",
+    "R_BYOK_REQUIRED": "Router serves the model only with the customer's own provider key",
+    "R_UNDECIDED": "the code doesn't settle it; say what a human needs to check",
+    "R_GATE_FAILED": "the edit failed the gate and was reverted",
+}
 
 
 def base(label):
@@ -84,9 +104,9 @@ def _report_entries(dst):
         f, ln = s.get("file"), s.get("line")
         if not f or not os.path.exists(os.path.join(dst, f)) or not isinstance(ln, int):
             errs.append("entry %d: set floor_site, or file (must exist) and an integer line" % i)
-        if s.get("outcome") not in AG.OUTCOMES:
-            errs.append("entry %d: outcome must be one of %s" % (i, ", ".join(AG.OUTCOMES)))
-        elif s["outcome"] != "migrated" and s.get("reason_code") not in AG.REASON_CODES:
+        if s.get("outcome") not in OUTCOMES:
+            errs.append("entry %d: outcome must be one of %s" % (i, ", ".join(OUTCOMES)))
+        elif s["outcome"] != "migrated" and s.get("reason_code") not in REASON_CODES:
             errs.append("entry %d (%s:%s): %s needs a reason_code from the list" % (i, f, ln, s["outcome"]))
         if not s.get("why"):
             errs.append("entry %d (%s:%s): why is required" % (i, f, ln))
@@ -200,7 +220,7 @@ def b2_prompt(rec, dst):
     sim = "%s %s %s %s" % (PY, os.path.join(HERE, "sim_test.py"), shlex.quote(dst), shlex.quote(R.test_cmd(rec, dst)))
     return open(os.path.join(HERE, "prompt_B2.md")).read().replace("{RUNTIME_FILES}", _runtime_files(dst)).replace(
         "{TEST_CMD}", R.test_cmd(rec, dst)).replace("{TYPECHECK_LINE}", ("- Typecheck command: %s\n" % tc) if tc else "").replace(
-        "{SIM_CMD}", sim).replace("{REASON_CODES}", "; ".join("`%s` = %s" % kv for kv in AG.REASON_CODES.items()))
+        "{SIM_CMD}", sim).replace("{REASON_CODES}", "; ".join("`%s` = %s" % kv for kv in REASON_CODES.items()))
 
 
 def trial_b2(label, name, out_dir):
@@ -480,6 +500,9 @@ def trial(label, name):
     if os.path.exists(os.path.join(out_dir, "result.json")):
         print("skip %s %s (done)" % (label, name), flush=True)
         return json.load(open(os.path.join(out_dir, "result.json")))
+    if base(label) not in D3_ARMS:
+        raise SystemExit("arm %s ran the v4 toolkit, archived in the v7 cleanup (archive/README.md); its recorded results "
+                         "still score and report" % label)
     R.baseline(name)
     R.clear_run_dir(out_dir)
     t0 = time.time()
@@ -571,7 +594,7 @@ def _override(rep, entries, dst, name):
     pristine source, nearest site within 3 lines overridden, judged sites the base lacks appended (not_a_site never is)."""
     pm = R.PristineMap(dst, name)
     for c in entries:
-        if not isinstance(c, dict) or not c.get("file") or not isinstance(c.get("line"), int) or c.get("outcome") not in AG.OUTCOMES:
+        if not isinstance(c, dict) or not c.get("file") or not isinstance(c.get("line"), int) or c.get("outcome") not in OUTCOMES:
             continue
         f = c["file"]
         if c.get("_pristine"):  # floor_site from an old-convention FLOOR_REPORT: already a pristine line, as plan.json has it
