@@ -270,7 +270,7 @@ def record_request(root, item_id, action, reason=None, until=None, by="ui"):
         raise ValueError("unknown item %r" % item_id)
     if action not in ACTIONS:
         raise ValueError("action must be one of %s" % ", ".join(ACTIONS))
-    it = items[item_id]
+    it = items[item_id]  # read_report normalized it to v7
     st = item_status(it, load(root, "requests.json", {"requests": {}}), load(root, "apply_log.json", {"sessions": []}),
                      load(root, "validation.json", {}))
     setting = it.get("actor") == "router-setting"
@@ -333,6 +333,7 @@ def _last_result(item_id, apply_log):
 
 def item_status(item, requests, apply_log, validation):
     iid, kind = item.get("id"), item.get("kind")
+    kind = V6_KINDS.get(kind, kind)  # a raw v6 item
     req = ((requests or {}).get("requests") or {}).get(iid)
     last = _last_result(iid, apply_log)
     done = [r for s in (apply_log or {}).get("sessions") or [] for r in s.get("results") or []

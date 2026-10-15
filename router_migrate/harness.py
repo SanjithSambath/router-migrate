@@ -8,7 +8,7 @@
             `apply --done` validates its APPLY.json, re-checks, and logs the session
     run     headless: start -> a `claude -p` session -> finish (one fix pass with the facts if finish fails)
 
-Contracts: router_migrate/schemas/V7_CONTRACTS.md. The agent's tools: check, levers, wrap, unwrap, adapt."""
+Contracts: router_migrate/schemas/V7_CONTRACTS.md. The agent's tools: check, levers, wrap, adapt, policy (apply: + unwrap)."""
 import json
 import os
 import re
@@ -21,7 +21,8 @@ from . import agent as AG
 from . import report_v6 as R
 
 AGENT_TOOLS = "Read,Grep,Glob,Edit,MultiEdit,Write,TodoWrite,Task,Bash,WebFetch,WebSearch"
-AGENT_COMMANDS = ("check", "levers", "wrap", "unwrap", "adapt", "policy")
+AGENT_COMMANDS = ("check", "levers", "wrap", "unwrap", "adapt", "policy")  # the apply session's tools
+MIGRATE_COMMANDS = ("check", "levers", "wrap", "adapt", "policy")  # the migrate agent never used unwrap; undo is the apply session's
 DUMMY_KEYS = {"OPENAI_API_KEY": "sk-dummy-not-a-real-key", "ANTHROPIC_API_KEY": "sk-ant-dummy-not-a-real-key"}
 BACKGROUND_TESTS_SECS = 90  # a suite slower than this is checked in the background after finish; Apply waits for it
 MIGRATION_BRANCH = R.MIGRATION_BRANCH
@@ -1006,7 +1007,7 @@ def _shim(real, commands=AGENT_COMMANDS):
     return d
 
 
-def _launch(root, prompt, model, timeout, resume=None):
+def _launch(root, prompt, model, timeout, resume=None, commands=AGENT_COMMANDS):
     """Headless Claude Code session: full shell and web access, dummy OpenAI key, no Router key in its environment
     (live checks go through `check --run --live`, which injects the migration key into that command only)."""
     here = os.path.dirname(os.path.abspath(__file__))
@@ -1021,7 +1022,7 @@ def _launch(root, prompt, model, timeout, resume=None):
     for k in ("RAMP_ROUTER_API_KEY", "ROUTER_MIGRATE_KEY"):
         env.pop(k, None)
     env["PATH"] = _shim(os.path.join(rm_bin, "router-migrate"), ("check",) if "notools" in scaffold() else
-                          tuple(c for c in AGENT_COMMANDS if "no-" + c not in scaffold())) + os.pathsep + env.get("PATH", "")
+                          tuple(c for c in commands if "no-" + c not in scaffold())) + os.pathsep + env.get("PATH", "")
     log = AG.sp(root, "agent_transcript.jsonl")
     t = time.time()
     with open(log, "a") as fh:
@@ -1050,7 +1051,7 @@ def run_v6(root, a):
         _, prompt = setup(root, a)
     except SystemExit as e:
         return AG.err(False, str(e), "")
-    info = _launch(root, prompt, getattr(a, "model", None), getattr(a, "agent_timeout", None) or 2700)
+    info = _launch(root, prompt, getattr(a, "model", None), getattr(a, "agent_timeout", None) or 2700, commands=MIGRATE_COMMANDS)
     if info.get("api_error") and (info.get("turns") or 0) <= 1:
         print("agent: the session did not start: %s\n(check `claude auth status`)" % (info.get("final") or "see agent_transcript.jsonl"))
         return 2
@@ -1064,7 +1065,7 @@ def run_v6(root, a):
         if _dirty(root):
             facts += "\nuncommitted changes: %s" % ", ".join(_dirty(root)[:8])
         info2 = _launch(root, "The final check reported:\n%s\nFix exactly what failed, commit, then stop." % facts,
-                        getattr(a, "model", None), 1200, resume=info["session"])
+                        getattr(a, "model", None), 1200, resume=info["session"], commands=MIGRATE_COMMANDS)
         runs.append(info2)
         rc = finish(root, a, runs=[info2])
     print("total %.1f min" % ((time.time() - t0) / 60))
