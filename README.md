@@ -193,7 +193,8 @@ bin/router-migrate       entry point
 eval/                    evaluation: repo sets, runs, the experiment log (lean/) and the release gate (gate/)
 tests/                   runtime, codemods, harness end to end, dashboard
 docs/                    architecture, evolution, methodology, eval, plans
-archive/                 earlier specs, research and eval material, indexed in archive/README.md
+archive/                 earlier code (v1-v5 commands, the v5 dashboard, their tests), specs, research and eval
+                         material, indexed in archive/README.md
 ```
 
 **Docs:** [EVOLUTION](docs/EVOLUTION.md) · [ARCHITECTURE](docs/ARCHITECTURE.md) · [METHODOLOGY](docs/METHODOLOGY.md) ·

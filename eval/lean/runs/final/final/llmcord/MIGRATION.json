@@ -1,0 +1,250 @@
+{
+  "version": 7,
+  "summary": "llmcord makes exactly one LLM call: a Discord message comes in, the bot walks the reply chain for history and streams an answer back. That call now goes through Router (the client in on_message is wrapped, so nothing changes until RAMP_ROUTER_API_KEY is set), with a backup model, a 60-second timeout and spend labels added through router.policy.json. Reviewing the product turned up two expensive habits. First, the bot answers casual Discord chat with gpt-5.5 at the highest reasoning setting: measured live, one reply to a real question took 9.1 seconds and cost $0.0148, where gpt-6-luna with reasoning off answered the same question in 4.1 seconds for $0.000048 - about 310 times less. Second, the system prompt starts with a clock that ticks every second, which stops the provider from reusing the conversation it has already seen: moving the clock to the end of the conversation cut the cost of a follow-up turn in a 9,400-token chat from $0.0277 to $0.0043. I would do the model change first (it is one line in config.yaml and reversible, and Router's shadow models can prove it on real traffic before you flip it), then take the clock fix, which is already built and tested on a branch.",
+  "reviewed": "I read the whole bot (one file, one LLM call) and drove its real on_message handler against both the Router simulator and the real Router: short chat, a technical question, a 9,400-token conversation, an image attachment, a model the key cannot use, and a call that throws. Measurements come from 60-odd live Router calls plus Router's free token counter; the recommendations are ranked by what they save against what they risk for people watching a Discord typing indicator.",
+  "calls": [
+    {"site": "llmcord.py:287", "feature": "llmcord.py:on_message", "model": "gpt-5.5", "task": "chat",
+     "latency": "user_waiting", "now": "router", "item": "c1"}
+  ],
+  "items": [
+    {"id": "c1", "kind": "change",
+     "title": "Route the Discord reply model through Router",
+     "summary": "The bot's one model call - the streamed reply in on_message - now goes through Ramp's Router instead of straight to OpenAI, and keeps going straight to OpenAI until RAMP_ROUTER_API_KEY is set in the bot's environment.",
+     "calls": ["llmcord.py:287"],
+     "gains": "One key and one bill for every model the bot can reach, per-request cost reported back on each reply, and the fallback and timeout settings in c2 become available. Replies, streaming, image attachments and the green \"finished\" colour all behave exactly as before: measured live on gpt-5.5, gpt-6-luna and claude-haiku-5-5.",
+     "loses": "Nothing in behaviour. The request now passes through the vendored Router runtime, which rewrites each Chat Completions call into the Responses call Router serves, so there is one more layer of translation in the path. If Router refuses a request before generating anything, the runtime sends the original request to OpenAI once, so the OpenAI key must stay configured.",
+     "price": "no change by itself; the same model at the same price, except that Router's cost-efficient routing (see n2) served most calls at half price",
+     "why": "Router has no Chat Completions endpoint, and llmcord's streaming loop is built around Chat Completions, so pointing the client's base URL at Router would have meant rewriting the reply loop. Wrapping the client keeps the bot's code shape and leaves every non-OpenAI provider in config.yaml (OpenRouter, x.ai, Google, LM Studio, Ollama, vLLM) untouched - see s1. The client is built per message inside on_message, so the wrap sits there.",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "the repo's check (compile everything, import llmcord, config loads) passes with Router on: 2 passed, same as the baseline"},
+       {"check": "router-live", "result": "pass", "detail": "the real on_message handler, driven with fake Discord objects, produced 200s from Router on /v1/responses for text and for an image attachment; the reply streamed and finished with finish_reason \"stop\", which is what turns the Discord embed green"},
+       {"check": "simulator", "result": "pass", "detail": "router-migrate check --all reports 1 of 1 calls routing; a local Ollama model and a model that is not in Router's catalog both stayed on their own provider (0 requests reached the simulator)"}
+     ],
+     "commit": "78149cb"},
+
+    {"id": "c2", "kind": "change",
+     "title": "Answer from a backup model when one fails",
+     "summary": "router.policy.json gives Router-bound requests two backup models (gpt-6-luna, then claude-haiku-5-5), a 60-second limit on a silent upstream, and product and team labels for Router's spend views; today a failed call means the user gets no reply at all.",
+     "calls": ["llmcord.py:287"],
+     "gains": "A measured example: asking for a model this key may not use ended in an error with the policy switched off, and was answered by gpt-6-luna in 2.75 seconds with it on. The 60-second limit stops a stuck upstream from leaving the typing indicator on forever, and every reply is now tagged product=llmcord in Router's spend views.",
+     "loses": "When the first model cannot serve, a different - cheaper and less capable - model answers, and nothing in the reply says so; Router does not report which candidate was used. Backups do not help once a reply has started streaming, and they only apply to models Router serves (local and OpenRouter models are untouched). Router's cost-efficient routing still applied with the backup list in place, so the half-price tier is not lost.",
+     "price": "no change while the first model serves; a backup reply costs that model's price, which is lower for both candidates",
+     "why": "on_message wraps the whole call in try/except and only logs the failure, so any upstream problem shows up to users as a bot that never answers. These three settings live in a policy file rather than in the code because the runtime applies them only to Router-bound requests - the direct-to-provider path never sees fields a provider would reject. Both backups accept image attachments, so a picture does not fall through to a model that cannot see it.",
+     "evidence": [
+       {"check": "router-live", "result": "pass", "detail": "with the policy on, a request for gpt-5.3-codex (403 for this key) was answered by gpt-6-luna in 2.75 s for $0.0000288; with ROUTER_MIGRATE_POLICY=off the same request failed with the provider's error"},
+       {"check": "router-live", "result": "pass", "detail": "three ordinary replies and one image reply with the policy active: all 200, still served by the requested gpt-5.5, and still at the cheaper tier (two of three calls billed at half the standard price)"},
+       {"check": "tests", "result": "pass", "detail": "2 passed with the policy compiled in; .gitignore is a whitelist, so router.policy.json needed an entry to be committed"}
+     ],
+     "commit": "3027e3d"},
+
+    {"id": "r1", "kind": "recommendation", "rank": 1, "level": "quick-win", "actor": "product-call",
+     "depends_on": ["r5"],
+     "title": "Answer most messages with a model 300x cheaper",
+     "summary": "The bot answers Discord chat with gpt-5.5 at the highest reasoning setting, which costs $5 per million input tokens and thinks before every joke; making gpt-6-luna with reasoning off the default in config.yaml answered the same questions about 310 times cheaper and several seconds sooner, with gpt-5.5 still one /model command away.",
+     "gains": "Measured live on the same question, five calls each: $0.0148 per reply becomes $0.000048, and the finished reply arrives in 4.1 s instead of 9.1 s. On short chat the gap is similar: $0.0038 becomes $0.0000246, 2.8 s becomes 1.5 s. At a thousand replies a day that is about $15 a day instead of a fraction of a cent, and the bot stops writing 800-token essays at a system prompt that asks for brevity.",
+     "loses": "Answers change. gpt-6-luna is a small model: on a genuinely hard question it will be shallower than gpt-5.5, and its replies are shorter, which is what this bot's system prompt asks for but may not be what your users expect. Reasoning off means no deliberation at all - if people use the bot for debugging or maths, keep a reasoning model available. The first model in the list is the startup default, so admins can still switch any time with /model, and reverting is a one-line edit.",
+     "price": "input $0.10 and output $0.50 per million tokens instead of $5 and $30; Router's cheaper tier applies to both",
+     "why": "The product is a snarky chat bot whose own system prompt says \"Optimize for brevity\", and the measured traffic shape is short questions with short answers. gpt-5.5 at reasoning effort \"high\" spends 300-500 tokens thinking (billed at $30 per million) before a one-line reply, and the user watches a typing indicator while it does. claude-haiku-5-5 is the same price and answered just as well in the samples ($0.0000581, 1.4 s), and it is already the second backup in c2, so you can compare them. Three caveats worth knowing: gpt-6-luna is not in llmcord's list of models that can see images, which r5 fixes; a bigger model stays available through /model; and r8 lets you watch the cheaper model answer real traffic before you commit.",
+     "branch": null,
+     "measured": [
+       {"metric": "cost of one reply to a technical question", "before": "$0.0148", "after": "$0.000048", "n": 5,
+        "how": "the bot's own request shape driven against the real Router, five calls per model with the same question: gpt-5.5 at reasoning high, then gpt-6-luna with reasoning off (median of five)"},
+       {"metric": "time until the whole reply is ready", "before": "9.1 s", "after": "4.1 s", "n": 5,
+        "how": "the same ten live calls; the sandbox reaches Router through a proxy that buffers the stream, so this is the time to the finished reply, not to the first word"},
+       {"metric": "cost of one reply to a short chat message", "before": "$0.0038", "after": "$0.0000246", "n": 3,
+        "how": "live Router calls with a one-line question (\"what's a good name for a discord bot\"), gpt-5.5 at reasoning high versus gpt-6-luna with reasoning off"},
+       {"metric": "words the model thinks before replying, billed as output", "before": "287-516 thinking tokens per reply", "after": "0", "n": 5,
+        "how": "usage reported by Router on the same ten live calls"}
+     ]},
+
+    {"id": "r2", "kind": "recommendation", "rank": 2, "level": "quick-win", "actor": "code",
+     "title": "Stop the clock from spoiling the prompt cache",
+     "summary": "The system prompt starts with the time to the second, so every request looks new to the provider and the conversation history is paid for in full on every turn; sending the clock as the last message instead made a follow-up turn in a 9,400-token chat cost $0.0043 rather than $0.0277.",
+     "gains": "Measured live on today's model, a follow-up turn in a 9,400-token conversation costs $0.0043 instead of $0.0277 - about six times less - because 8,960 of 9,399 input tokens are billed at the cached rate (roughly a tenth of the normal price). The longer the conversation, the bigger the saving: the same test on gpt-6-luna went from $0.00066 to $0.000064 a turn. Nothing is lost from the prompt: the model still gets the exact time, as the final message.",
+     "loses": "The system prompt's own wording changes slightly - \"The current time is {time}\" renders as \"The current time is sent in the last message\", with the clock arriving at the end. Instructions sent before the conversation are what local chat templates (Ollama, LM Studio, vLLM) expect, and a few of them handle a late instruction less predictably, so if you run a local model as the default, test it there. The date still changes once a day, which costs one uncached turn.",
+     "price": "the repeated part of each prompt drops from $5 to $0.50 per million tokens on gpt-5.5, and from $0.10 to $0.01 on gpt-6-luna",
+     "why": "A reply chain is the conversation history, so every turn re-sends every earlier message. Providers bill that repeat at about a tenth of the price - but only when the start of the prompt is identical to the previous turn, and llmcord put a second-resolution clock in the first message. In three live runs with the clock in place, zero tokens were ever served from cache; with the clock moved to the end, every turn after the first cached almost the whole conversation. This also makes long pastes affordable (see r6) and compounds with r1.",
+     "branch": "router-migrate/improve/cacheable-prompt",
+     "measured": [
+       {"metric": "cost of a follow-up turn in a 9,400-token conversation", "before": "$0.0277", "after": "$0.0043", "n": 2,
+        "how": "two live Router calls per arm on today's model (gpt-5.5): the same conversation sent twice with the clock in the system prompt, then with the clock as the last message"},
+       {"metric": "input tokens billed at the cached rate", "before": "0 of 9,385", "after": "8,960 of 9,399", "n": 2,
+        "how": "usage reported by Router on the same calls"},
+       {"metric": "cost of a follow-up turn on the cheaper model", "before": "$0.00066", "after": "$0.000064", "n": 3,
+        "how": "three live calls per arm on gpt-6-luna with the same 9,400-token conversation"}
+     ],
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "2 passed on the branch"},
+       {"check": "simulator", "result": "pass", "detail": "the real handler over two turns produced the intended message order: fixed system prompt, then the history, then the newest message, then the clock"},
+       {"check": "router-live", "result": "pass", "detail": "cached token counts and costs above, from the real Router"}
+     ]},
+
+    {"id": "r8", "kind": "recommendation", "rank": 3, "level": "quick-win", "actor": "router-setting",
+     "where": "app.router.com > Routing > Shadow models",
+     "title": "Try the cheaper model on real traffic first",
+     "summary": "Before making gpt-6-luna the default (r1), have Router shadow it against the live gpt-5.5 traffic, so you can read both answers to real Discord messages side by side without users seeing the cheaper one.",
+     "gains": "You get the one thing no measurement here can give you: whether the cheap model's answers are good enough for your server's actual messages. The cost of finding out is a second cheap call per reply - about $0.000048 each, measured.",
+     "loses": "Shadow calls are billed, so the bill goes up slightly while the trial runs, and reading the pairs is manual work. Router's shadow behaviour was not measured in this migration; the fact sheet lists it as an account setting rather than something the code controls.",
+     "why": "r1 is a product judgement about answer quality, and the only honest evidence is your own traffic. Shadowing gives that before you change the default, and once you are satisfied the switch is one line in config.yaml.",
+     "measured": [
+       {"metric": "cost of one shadow reply with the cheaper model", "before": null, "after": "$0.000048", "n": 5,
+        "how": "five live Router calls to gpt-6-luna with reasoning off, the bot's own request shape"}
+     ]},
+
+    {"id": "r3", "kind": "recommendation", "rank": 4, "level": "quick-win", "actor": "product-call",
+     "excludes": ["r1"],
+     "title": "Stop the model thinking before every snarky reply",
+     "summary": "If you would rather keep gpt-5.5, setting reasoning_effort to none instead of high in config.yaml made the same reply arrive in 4.8 seconds instead of 9.1 and cost $0.0066 instead of $0.0148, with the same model writing it.",
+     "gains": "Half the wait and under half the cost, measured on three live calls per arm, with no change of model or vendor - the reply is still written by gpt-5.5. The model stops spending 300-500 tokens of paid thinking on jokes.",
+     "loses": "Deliberation on hard questions. In the samples the answers stayed sensible and stayed snarky, but a maths or debugging question is where reasoning earns its keep, and this removes it. r1 is much cheaper still; this is the version that changes the least.",
+     "price": "the same $5 and $30 per million tokens, with fewer output tokens per reply",
+     "why": "Reasoning effort \"high\" makes the model think before it answers, and those thinking tokens are billed as output at $30 per million. For a bot told to \"optimize for brevity\", that is paying frontier-model prices for deliberation the product does not want, while the user watches a typing indicator. Take this if r1 feels too big a change; take r1 if cost matters more than keeping the current model.",
+     "branch": null,
+     "measured": [
+       {"metric": "time until the whole reply is ready", "before": "9.1 s", "after": "4.8 s", "n": 3,
+        "how": "live Router calls on gpt-5.5 with the same technical question, reasoning high (five calls) then reasoning none (three calls), medians"},
+       {"metric": "cost of one reply", "before": "$0.0148", "after": "$0.0066", "n": 3,
+        "how": "the same live calls, cost as reported by Router"}
+     ]},
+
+    {"id": "r4", "kind": "recommendation", "rank": 5, "level": "quick-win", "actor": "code",
+     "title": "Tell the user when the reply failed",
+     "summary": "A failed call is written to the log and nothing else, so the typing indicator just stops and no message appears; the bot now posts one warning line when the call fails before anything was shown.",
+     "gains": "Users can tell a broken bot from a slow one, and stop re-sending messages that each cost another call. Verified by driving the real handler with a call that throws: nothing was posted before, one warning line after.",
+     "loses": "One more Discord message in the channel when things go wrong. The warning is deliberately kept out of the conversation history, so the model never sees it.",
+     "price": "no change",
+     "why": "Everything in the generation path is wrapped in one try/except that only logs. With the backup models from c2 in place, real failures are rarer - but when they happen, silence is the worst possible answer for a chat product.",
+     "branch": "router-migrate/improve/say-when-it-fails",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "2 passed on the branch"},
+       {"check": "simulator", "result": "pass", "detail": "handler driven with a raising call: 0 messages posted on the migration branch, 1 warning posted on this branch; normal replies over two turns unaffected"}
+     ]},
+
+    {"id": "r6", "kind": "recommendation", "rank": 6, "level": "quick-win", "actor": "product-call",
+     "title": "Put a ceiling on what one paste costs",
+     "summary": "max_text allows 100,000 characters per message and max_messages allows 25 of them in one chain, so one pasted log file adds 30,487 tokens - $0.15 of input on today's model - to that turn and to every turn after it.",
+     "gains": "Lowering max_text to, say, 20,000 characters caps a single paste at about $0.03 of input per turn on today's model, and the existing \"Max 100,000 characters per message\" warning already tells users when their text was cut. On the cheaper model from r1 the same paste costs $0.003, so the two together make the worry go away.",
+     "loses": "People who paste long logs or files get them truncated, and the bot answers from the first part only. For a bot used for code review that is a real loss - which is why this is your call, not a code fix.",
+     "price": "a 100,000-character paste is $0.1524 of input per turn on gpt-5.5, $0.0030 on gpt-6-luna",
+     "why": "I measured the token count with Router's free counter: 100,000 characters of pasted code is 30,487 tokens. Because the history is re-sent every turn, that cost repeats on every follow-up - and until r2 lands, none of it is cached. The defaults were written for a bot talking to a local model, where tokens are free; on a $5-per-million model they are a blank cheque. r2 softens this a lot (repeats drop to a tenth), so take r2 first and then decide whether the ceiling still bothers you.",
+     "branch": null,
+     "measured": [
+       {"metric": "tokens in one 100,000-character paste", "before": "30,487 tokens", "after": null, "n": 1,
+        "how": "Router's /v1/messages/count_tokens (free) on 100,000 characters of pasted code, the maximum one Discord message may carry today"},
+       {"metric": "input cost of that paste per turn", "before": "$0.1524 on gpt-5.5", "after": "$0.0030 on gpt-6-luna", "n": 1,
+        "how": "the measured token count at the two models' catalog input prices"}
+     ]},
+
+    {"id": "r7", "kind": "recommendation", "rank": 7, "level": "quick-win", "actor": "router-setting",
+     "where": "app.router.com > Keys (spend cap on the bot's Router key)",
+     "title": "Cap the key's spend at Router",
+     "summary": "Anyone who can see the bot can spend its money - there is no per-user limit in llmcord - so put a spend cap on the Router key the bot uses, and watch the product=llmcord label that c2 now sends.",
+     "gains": "A hard ceiling on the damage from a spam run or a runaway reply chain. At today's measured $0.0148 a reply, a single person sending a message a minute costs about $21 a day; the cap turns that from a surprise into a known limit.",
+     "loses": "When the cap is reached the key is locked and the bot stops answering until you raise it - with r4 in place users at least see a warning instead of silence. Router applies caps after usage is recorded, so concurrent requests can overshoot slightly.",
+     "why": "This is a Discord bot: the audience is a whole server, the cost per reply is set by whatever model is default, and nothing in the code limits anyone. A cap at Router is the one control that cannot be bypassed by a code path I missed. r13 is the in-code counterpart, per person rather than per key.",
+     "measured": [
+       {"metric": "cost of one reply today", "before": "$0.0148", "after": null, "n": 5,
+        "how": "five live Router calls with the bot's request shape on gpt-5.5 at reasoning high, median"}
+     ]},
+
+    {"id": "r5", "kind": "recommendation", "rank": 8, "level": "quick-win", "actor": "code",
+     "title": "Let the bot see images on gpt-6 models",
+     "summary": "llmcord decides whether a model can see images by matching its name against a list that stops at gpt-5, so on any gpt-6 model - including the one r1 recommends - attachments would be dropped with \"Can't see images\"; the list now covers gpt-6 and the o-series.",
+     "gains": "Image attachments keep working when you move to a newer OpenAI model. Checked against Router's live catalog: every gpt-6 model, plus o3, o3-pro and o4-mini, accepts image input, and an image reply through Router was measured working on gpt-6-luna and claude-haiku-5-5.",
+     "loses": "Nothing. Families where only some members take images (deepseek, glm, qwen, kimi) are deliberately left out: claiming image support a model does not have turns an attachment into a failed request rather than a warning.",
+     "price": "no change",
+     "why": "The tag list is a hand-maintained guess about model capability, and it has fallen behind the catalog. It is a one-line fix, but without it r1 silently costs the bot its eyes, so it should land with or before the model change.",
+     "branch": "router-migrate/improve/vision-tags",
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "2 passed on the branch"},
+       {"check": "router-live", "result": "pass", "detail": "a red test image answered correctly (\"Red\") through Router on gpt-5.5, gpt-6-luna and claude-haiku-5-5"},
+       {"check": "other", "result": "info", "detail": "compared llmcord's tag list against Router's live catalog: 19 catalog models accept images but match no tag; only the families where every member accepts images were added"}
+     ]},
+
+    {"id": "r9", "kind": "recommendation", "rank": 9, "level": "quick-win", "actor": "code",
+     "title": "Reuse one API client per provider",
+     "summary": "on_message builds a new API client for every incoming message, and each one opens an HTTP connection pool that is never closed, so every reply pays for a fresh connection; the clients are now kept and reused per provider.",
+     "gains": "One connection pool for the bot's lifetime instead of one per reply - measured as 1 instead of 10 over ten messages - which saves a connection and TLS handshake per reply and stops sockets piling up under a burst of messages. Config hot reloading still works: a changed key or base URL is simply a new entry.",
+     "loses": "Nothing in behaviour. I could not measure the latency saving here, because the sandbox reaches Router through a local proxy where a new connection is almost free; against a real remote API it is the usual cost of a new TLS handshake.",
+     "price": "no change",
+     "why": "It is a small, safe fix that only becomes more valuable with the rest of this list, since every other change makes the model call itself faster and cheaper, leaving fixed per-reply overhead as a bigger share of the wait.",
+     "branch": "router-migrate/improve/one-client-per-provider",
+     "measured": [
+       {"metric": "connection pools opened per ten replies", "before": "10", "after": "1", "n": 10,
+        "how": "the real on_message handler driven over ten messages, counting API clients built"}
+     ],
+     "evidence": [
+       {"check": "tests", "result": "pass", "detail": "2 passed on the branch"},
+       {"check": "simulator", "result": "pass", "detail": "ten replies through the Router simulator, all valid, with one client instead of ten"}
+     ]},
+
+    {"id": "r13", "kind": "recommendation", "rank": 10, "level": "change", "actor": "code",
+     "title": "Limit how much one person can spend",
+     "summary": "Nothing in the bot limits how often one Discord user can trigger a paid model call; a short per-user limit (for example 20 replies an hour, with a one-line \"slow down\" answer) would stop one person from draining the budget.",
+     "gains": "A predictable worst case per person rather than per key. At today's $0.0148 a reply, one user sending a message a minute costs about $21 a day; a 20-an-hour limit caps them near $7 and leaves the bot answering everyone else.",
+     "loses": "A heavy but legitimate user hits the limit and is told to wait, which is annoying in a busy server and needs a sensible number. It also adds the first piece of per-user state to a bot that deliberately keeps none.",
+     "price": "no change per reply; it bounds how many replies one person can cause",
+     "why": "r7 caps the key, which protects the budget but stops the bot for everyone when it trips. A per-user limit puts the cost where it belongs and keeps the bot alive. Worth doing with per-user tagging on the request (passing the Discord user id as the request's user field, which every OpenAI-compatible server accepts) so you can see who is spending; whether Router's spend views break down by that field was not measured.",
+     "branch": null},
+
+    {"id": "r12", "kind": "recommendation", "rank": 11, "level": "rework", "actor": "product-call",
+     "title": "Pick the model from the message itself",
+     "summary": "One model answers everything today. A plain rule in code - short chat to the cheap model, anything with code blocks, attachments or a long question to a stronger one - would give fast cheap replies for small talk and depth where it matters, with no extra model call to decide.",
+     "gains": "Most Discord traffic is chat, and the measured gap between the models is 310x on cost and 5 seconds on speed, so almost all of r1's saving with a stronger answer kept for the messages that need it. The rule is deterministic: no classifier call, nothing to pay for, nothing to debug when it misfires.",
+     "loses": "A rule based on message shape will misjudge some messages: a one-line question can be hard, and a code block can be trivial. Two models also means two personalities in one channel, which users notice. And it is a product decision about where the line sits - which is why it needs your call before anyone builds it.",
+     "price": "between $0.000048 and $0.0148 per reply depending on which side of the rule a message falls",
+     "why": "This is the version of r1 that keeps the hard-question quality, and it is strictly better than letting Router choose for you: I measured Router's own automatic routing (see n1) taking 21 and 33 seconds on a hard question and picking a $3-per-million model to answer \"what colour is this image\". A local rule keeps the latency budget in the product's hands. Build it after r1 has been running, so you can see from real traffic where the line should be.",
+     "branch": null,
+     "measured": [
+       {"metric": "cost of one reply, cheap model versus today's", "before": "$0.0148", "after": "$0.000048", "n": 5,
+        "how": "five live Router calls per model with the same technical question (gpt-5.5 at reasoning high, gpt-6-luna with reasoning off)"}
+     ]},
+
+    {"id": "r11", "kind": "recommendation", "rank": 12, "level": "rework", "actor": "code",
+     "title": "Move the call to Router's newer API",
+     "summary": "The bot speaks the older Chat Completions shape, which the Router runtime translates on every request; rewriting the streaming loop against Router's Responses API would let the bot use web search, per-conversation cache keys and per-request backup models directly.",
+     "gains": "Three things the current path cannot have: a web search tool the model can call (measured by the fact sheet at about $0.011 a search on gpt-4o-mini, $0.0004 on gpt-oss-120b), a cache key per conversation so heavy chats keep their cached prefix on one machine, and backup models chosen per request rather than from a policy file. It also drops the translation layer from the request path.",
+     "loses": "Real work and real risk: the streaming loop, the message-chain builder and the image handling all have to be rewritten against a different event shape, and llmcord's promise of working with \"any OpenAI /v1/chat/completions compatible API server\" means keeping the old path for local models anyway. Two code paths in a 300-line single-file bot is a big change in character.",
+     "price": "no change to the model price; a web search costs extra per search",
+     "why": "Everything cheap has been taken by then. The honest reason to do this is the product one - a chat bot that can look things up is a better chat bot - not the plumbing. Note that requests carrying built-in tools cannot be translated today, so the OpenRouter web-search model in config.yaml stays on OpenRouter (see n5); this is the route to having search on a Router-served model.",
+     "branch": null},
+
+    {"id": "r10", "kind": "recommendation", "rank": 13, "level": "change", "actor": "code",
+     "title": "Let two conversations stream at the same time",
+     "summary": "The one-second pause between message edits is held in a single global timestamp, so while one conversation is streaming, every other conversation's reply stops updating and appears only when it is finished; the pause should be per channel.",
+     "gains": "Streaming keeps working when more than one person is talking to the bot, which is the normal case in a busy server and the whole point of showing partial replies.",
+     "loses": "Discord's edit rate limits are per channel, so per-channel pacing is the right unit - but it does mean more edit calls overall when several conversations are active, and a busy single channel still needs the pause.",
+     "price": "no change",
+     "why": "last_task_time is global: the first conversation to edit resets it, and the others see less than a second elapsed and skip their update. It is a small bug with a visible effect - under load the bot looks like it is not streaming at all - and it gets more noticeable as the model calls get faster.",
+     "branch": null},
+
+    {"id": "s1", "kind": "stays",
+     "title": "Local and other-vendor models stay where they are",
+     "summary": "Models served by OpenRouter, x.ai, Google, LM Studio, Ollama or vLLM - and any model Router's catalog does not list - keep going straight to their own provider, exactly as before.",
+     "why": "The runtime only redirects requests to OpenAI's host for models Router serves, which is what this bot wants: a local Ollama model must stay local, and llmcord's OpenRouter entry names a model (~anthropic/claude-opus-latest) that is not a Router catalog id. Measured with Router switched on: a request for ollama/llama4 and one for a made-up OpenAI model both reached Router zero times and went to their own provider. If you later want x.ai or Google models to go through Router too, that is a one-argument change to how the client is wrapped (unlock_hosts), worth doing only if you actually add those models to config.yaml."},
+
+    {"id": "n1", "kind": "note",
+     "title": "Considered: letting Router pick the model",
+     "summary": "Router's Switchyard router can be called as a model id (model: switchyard) and does route per request, but I measured it picking its own reasoning budget: two short chats were answered in about 2 seconds for $0.000067, while two harder questions took 21 and 33 seconds, and an image question was handed to claude-sonnet-4-5 at $3 per million tokens. A 33-second wait is not acceptable for a Discord reply and the request gives no way to cap the thinking, so a plain local rule (r12) is the better fit for this product. Jev, Router's other automatic router, is only served on the Decisions and System One surfaces, which this bot does not use."},
+
+    {"id": "n2", "kind": "note",
+     "title": "Cost-efficient routing is on and halves the bill",
+     "summary": "Router's cheaper tier (Flex: the request may queue for a few seconds in exchange for a lower price) is on by default for this key and needs no code. Measured on gpt-6-luna: six of six calls were served at the cheap tier at exactly half the standard price (a reply that costs $0.0000277 at the standard tier cost $0.0000139), with no latency difference worth reporting in six calls each (1.7 s against 1.5 s). I left it on. The known risk is the tail: Router's own notes record one call that queued for 61 seconds, which is why c2 sets a 60-second ceiling on a silent upstream. If you ever see users waiting, the escape hatch is one line in router.policy.json (service_tier: default) and it doubles the price."},
+
+    {"id": "n3", "kind": "note",
+     "title": "Considered: skipping the call on a bare mention",
+     "summary": "When someone @-mentions the bot with no text and no attachments, llmcord still calls the model with nothing but the system prompt - about $0.004 and a few seconds on today's model. I was going to answer those with a canned line and no model call, then measured what actually happens: the bot replied \"What do you want, carbon-based notification spammer?\", which is the product working as intended. Not worth trading personality for a fraction of a cent; it gets cheap on its own under r1."},
+
+    {"id": "n4", "kind": "note",
+     "title": "Why the bot keeps its own request shape",
+     "summary": "Router does not serve the /v1/chat/completions endpoint that llmcord's streaming loop is built on, so there were two ways in: rewrite the loop against Router's Responses API, or put the vendored runtime under the existing client so each request is translated. I took the second, because the first is r11-sized work and would have changed the bot's streaming, image and multi-provider behaviour all at once. The cost of that choice is that Router-only settings (backup models, timeouts, labels) live in router.policy.json rather than in the code, and the translation is in the request path."},
+
+    {"id": "n6", "kind": "note",
+     "title": "What happens to per-model parameters in config.yaml",
+     "summary": "The two parameters the shipped config uses were carried through to Router unchanged and measured working: reasoning_effort (high, low, none all honoured) and verbosity. Two things to know if you add more. A temperature or top_p set on a model whose catalog entry says it does not accept one is dropped on the Router path rather than sent and rejected - which matches what the provider would do with today's default model, but means the setting silently has no effect. And a handful of parameters keep a request off Router entirely, straight to the provider as before: seed, n above 1, logprobs, logit_bias, a non-zero presence_penalty, audio options, and an output cap below 16 tokens."},
+
+    {"id": "n5", "kind": "note",
+     "title": "Web search tools keep the request off Router",
+     "summary": "config.yaml gives the OpenRouter model two built-in tools (openrouter:web_search and openrouter:web_fetch). The runtime cannot translate built-in tools into Router's request shape, so any request carrying them stays on its own provider - which is right for that model, since OpenRouter serves it anyway. It also means you cannot give a Router-served model web search from the current code; r11 is the route to that."}
+  ]
+}
