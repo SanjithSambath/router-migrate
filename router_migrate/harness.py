@@ -152,11 +152,12 @@ def probe_live(root, a):
     ok = [x for x in recs if (x.get("status") or 0) < 400]
     rec = {"cmd": a.run, "exit": code, "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "seconds": round(time.time() - t, 1),
            "requests": recs[:50]}
-    led = AG.load_ledger(root)
-    if led is not None:
-        led.setdefault("live_probes", []).append(rec)
-        led.setdefault("cost", {})["live_requests"] = (led["cost"].get("live_requests") or 0) + len(recs)
-        AG.save_ledger(root, led)
+    with AG.ledger_lock(root):
+        led = AG.load_ledger(root)
+        if led is not None:
+            led.setdefault("live_probes", []).append(rec)
+            led.setdefault("cost", {})["live_requests"] = (led["cost"].get("live_requests") or 0) + len(recs)
+            AG.save_ledger(root, led)
     lines = ["live: exit %s, %d request(s) to Router (%d ok, %d error)" % (code, len(recs), len(ok), len(recs) - len(ok))]
     for x in recs[:15]:
         lines.append("  %s %s model=%s feature=%s provider=%s%s" % (x.get("status"), x.get("path"), x.get("model"), x.get("feature"),
@@ -360,6 +361,10 @@ def check_tree(root, led, tests=True, report=True, since_tree=None):
                 b = it.get("branch")
                 if it.get("kind") == "recommendation" and b and _g(root, "rev-parse", "--verify", "--quiet", "refs/heads/" + b) is None:
                     fails.append({"gate": "report", "detail": "items[%s].branch: branch %s does not exist" % (it["id"], b)})
+                c = it.get("commit")  # undo reverts this commit, so it must be real and on the migration branch
+                if it.get("kind") == "change" and isinstance(c, str) and c.strip() and \
+                        AG._git(root, "merge-base", "--is-ancestor", c.strip(), "HEAD").returncode != 0:
+                    fails.append({"gate": "report", "detail": "items[%s].commit: %s is not a commit on %s" % (it["id"], c, MIGRATION_BRANCH)})
     res["ok"] = not fails
     return res
 

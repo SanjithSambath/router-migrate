@@ -106,9 +106,29 @@ def load_ledger(root):
 
 def save_ledger(root, led):
     os.makedirs(os.path.join(root, STATE), exist_ok=True)
-    tmp = sp(root, "ledger.json.tmp")
-    json.dump(led, open(tmp, "w"), indent=1, sort_keys=True, default=str)
+    tmp = sp(root, "ledger.json.%d.tmp" % os.getpid())  # one temp file per writer, so concurrent writes never interleave
+    with open(tmp, "w") as f:
+        json.dump(led, f, indent=1, sort_keys=True, default=str)
     os.replace(tmp, sp(root, "ledger.json"))
+
+
+class ledger_lock:
+    """Hold while reading, changing and saving the ledger: checks the agent runs in parallel then can't drop each
+    other's records."""
+    def __init__(self, root):
+        os.makedirs(os.path.join(root, STATE), exist_ok=True)
+        self.path = sp(root, "ledger.lock")
+
+    def __enter__(self):
+        import fcntl
+        self.f = open(self.path, "w")
+        fcntl.flock(self.f, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        import fcntl
+        fcntl.flock(self.f, fcntl.LOCK_UN)
+        self.f.close()
 
 
 def out(obj, as_json, text):
@@ -1017,8 +1037,10 @@ def cmd_check(a):
     prop = [x for x in (led or {}).get("proposals") or [] if x["file"] == fl and abs(int(x["line"]) - ln) <= 3]
     f["proposal"] = prop[0] if prop else None
     if led is not None:
-        led.setdefault("facts", {})["%s:%d" % (rel, line)] = dict(f, at=time.strftime("%Y-%m-%dT%H:%M:%S"))
-        save_ledger(root, led)
+        with ledger_lock(root):
+            led = load_ledger(root) or led
+            led.setdefault("facts", {})["%s:%d" % (rel, line)] = dict(f, at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+            save_ledger(root, led)
     if f["found"]:
         txt = "%s:%s %s %s -> %s%s\n  why: %s" % (f["file"], f["line"], f["sdk"], f["surface"], "ROUTES" if f["routes"] else "does not route",
                                                  "" if f["routes"] else " (%s)" % f["outcome"], f["reason"])
