@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -27,6 +28,7 @@ ARMS = {
     "min": {"RM_PROMPT": "arms/cto_min.md"},
     "min_bare": {"RM_PROMPT": "arms/cto_min.md", "RM_SCAFFOLD": "nomap,notools"},
 }
+PREP = threading.Lock()  # preparing a repo's source isn't safe to run twice at once
 STATE = ("MIGRATION.json", "validation.json", "ledger.json", "baseline.json", "REPORT.html")
 
 
@@ -40,7 +42,8 @@ def load_arms():
 def one(rnd, arm, name, model):
     env_arm = load_arms()[arm]
     trial = "L_%s_%s" % (rnd, arm)
-    dst, rec = run_v3.fresh_copy(name, trial)
+    with PREP:
+        dst, rec = run_v3.fresh_copy(name, trial)
     out = os.path.join(HERE, "runs", rnd, arm, name)
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
@@ -67,15 +70,21 @@ def one(rnd, arm, name, model):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--round", required=True)
-    ap.add_argument("--arms", required=True)
+    ap.add_argument("--arms", default="")
     ap.add_argument("--repos", default="sec-insights,AI-Scientist,chatgpt-telegram-bot")
     ap.add_argument("--model")
     ap.add_argument("--parallel", type=int, default=4)
+    ap.add_argument("--jobs", help="explicit arm:repo,... (overrides --arms/--repos)")
     a = ap.parse_args()
-    jobs = [(arm, repo) for arm in a.arms.split(",") for repo in a.repos.split(",")]
+    jobs = [tuple(j.split(":")) for j in a.jobs.split(",")] if a.jobs else \
+        [(arm, repo) for arm in a.arms.split(",") for repo in a.repos.split(",")]
     with cf.ThreadPoolExecutor(a.parallel) as ex:
-        for res in ex.map(lambda j: one(a.round, j[0], j[1], a.model), jobs):
-            print(*res, flush=True)
+        futs = {ex.submit(one, a.round, arm, repo, a.model): (arm, repo) for arm, repo in jobs}
+        for f in cf.as_completed(futs):
+            try:
+                print(*f.result(), flush=True)
+            except Exception as e:  # one failed run never stops the others
+                print(*futs[f], "ERROR", repr(e)[:300], flush=True)
 
 
 if __name__ == "__main__":
