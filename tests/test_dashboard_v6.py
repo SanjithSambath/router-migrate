@@ -451,3 +451,50 @@ def test_apply_501_without_launch_apply(srv, monkeypatch):
     monkeypatch.delattr(harness, "launch_apply", raising=False)
     st, out = req(srv, "POST", "/api/apply", {})
     assert st == 501 and "/router-migrate apply" in out["error"]
+
+
+def _raw(ctx, method, path, raw=b"", headers=None):
+    """A request with full control over the body and headers (the hardening checks)."""
+    conn = http.client.HTTPConnection("127.0.0.1", ctx["port"], timeout=10)
+    h = {"Host": ctx["host"], "X-RM-Token": ctx["token"], "Content-Length": str(len(raw))}
+    h.update(headers or {})
+    conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
+    for k, v in h.items():
+        conn.putheader(k, v)
+    conn.endheaders()
+    try:
+        conn.send(raw)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
+    r = conn.getresponse()
+    r.read()
+    conn.close()
+    return r.status, r
+
+
+def test_server_hardening(srv):
+    """Ported from the v5 server tests (archive/tests/test_dashboard.py): loopback only, security headers, foreign Origin
+    and Host refused, body size and type limits, no other methods. Nothing reaches the requests file."""
+    assert srv["server"].server_address[0] == "127.0.0.1" and len(srv["token"]) >= 32
+    st, r = _raw(srv, "GET", "/?t=" + srv["token"])
+    assert st == 200 and "frame-ancestors 'none'" in r.getheader("Content-Security-Policy")
+    assert r.getheader("Referrer-Policy") == "no-referrer" and r.getheader("X-Frame-Options") == "DENY"
+    assert req(srv, "GET", "/api/bundle?t=" + srv["token"], token=False)[0] == 403  # the query token doesn't authorize the API
+    body = json.dumps({"item": "i1", "action": "apply"}).encode()
+    ctype = {"Content-Type": "application/json"}
+    for origin in ("http://evil.example", "http://127.0.0.1:1", "https://127.0.0.1:%d" % srv["port"], "null"):
+        assert _raw(srv, "GET", "/api/bundle", headers={"Origin": origin})[0] == 403
+        assert _raw(srv, "POST", "/api/request", body, dict(ctype, Origin=origin))[0] == 403
+    for origin in ("http://127.0.0.1:%d" % srv["port"], "http://localhost:%d" % srv["port"]):
+        assert _raw(srv, "GET", "/api/bundle", headers={"Origin": origin})[0] == 200
+    for host in ("evil.example", "127.0.0.1", "127.0.0.1:1", "0.0.0.0:%d" % srv["port"]):
+        assert _raw(srv, "GET", "/api/bundle", headers={"Host": host})[0] == 403
+    assert _raw(srv, "GET", "/api/bundle", headers={"Host": "localhost:%d" % srv["port"]})[0] == 200
+    big = json.dumps({"item": "i1", "action": "dismiss", "reason": "x" * (70 * 1024)}).encode()
+    assert _raw(srv, "POST", "/api/request", big, ctype)[0] == 413
+    assert _raw(srv, "POST", "/api/request", b"{nope", ctype)[0] == 400
+    assert _raw(srv, "POST", "/api/request", body, {"Content-Type": "text/plain"})[0] == 415
+    for method in ("PUT", "DELETE", "PATCH", "OPTIONS"):
+        assert _raw(srv, method, "/api/request", b"")[0] == 405
+    assert not os.path.exists(srv["root"] / ".router-migrate" / "requests.json") or \
+        "i1" not in state(srv["root"], "requests.json").get("requests", {})

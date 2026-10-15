@@ -4,8 +4,8 @@ report_v6.normalize (their original kind is kept as `v6_kind`).
 - `bundle(root)`: everything the page shows, built only from the `.router-migrate/` state files in
   router_migrate/schemas/V7_CONTRACTS.md plus git (diffs). Never raises on partial state.
 - `render_report(root)`: the frozen REPORT.html (same pages, actions off, bundle inlined, no network).
-- `serve(root, open_browser=True, port=0)`: the live dashboard (127.0.0.1, session token, JSON API), built on the v5
-  server's hardening (Host/Origin checks, token, body limits). Endpoints:
+- `serve(root, open_browser=True, port=0)`: the live dashboard (127.0.0.1, session token, JSON API), built on server.py's
+  hardening (Host/Origin checks, token, body limits). Endpoints:
     GET  /?t=<token>            the page
     GET  /api/bundle            bundle(root) plus the last apply hand-off
     POST /api/request           {item, action, reason?, until?} -> report_v6.record_request (400 with its message)
@@ -23,8 +23,7 @@ import webbrowser
 from urllib.parse import parse_qs, urlsplit
 
 from .. import report_v6 as R
-from . import server as v5server
-from .render import safe_json
+from . import server as http_base
 
 PAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v6.html")
 PLACEHOLDER = "/*__RM_BOOT__*/"
@@ -568,6 +567,16 @@ def bundle(root):
 
 
 # ------------------------------------------------------------------------------------------------ the page
+def safe_json(value):
+    """JSON that is safe to inline in a <script> element.
+
+    `<`, `>` and `&` are escaped as \\u003c etc. so no `</script>`, `<!--` or `<script` sequence can appear;
+    ensure_ascii also escapes U+2028/U+2029 (JS line terminators in older engines).
+    """
+    s = json.dumps(value, ensure_ascii=True, sort_keys=False, default=str, separators=(",", ":"))
+    return s.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def page_template():
     with open(PAGE, encoding="utf-8") as f:
         return f.read()
@@ -600,7 +609,7 @@ def write_report(root, path=None):
 
 
 # ------------------------------------------------------------------------------------------------ the server
-HttpError = v5server.HttpError
+HttpError = http_base.HttpError
 
 
 def _validate_request(p):
@@ -682,7 +691,7 @@ class _App(object):
 
 
 def _make_handler(app):
-    Base = v5server._make_handler(app)  # Host/Origin checks, token, JSON body reading, error responses
+    Base = http_base._make_handler(app)  # Host/Origin checks, token, JSON body reading, error responses
 
     class Handler(Base):
         def _send(self, status, body, ctype):
@@ -690,7 +699,7 @@ def _make_handler(app):
             self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
-            for k, v in v5server.SECURITY_HEADERS.items():
+            for k, v in http_base.SECURITY_HEADERS.items():
                 self.send_header(k, v)
             if ctype.startswith("text/html"):
                 self.send_header("Content-Security-Policy", CSP)
@@ -762,7 +771,7 @@ def serve(root, open_browser=True, port=0):
     import secrets
     root = os.path.abspath(root)
     app = _App(root, secrets.token_urlsafe(32))
-    httpd = v5server.DashboardServer(("127.0.0.1", int(port)), _make_handler(app))
+    httpd = http_base.DashboardServer(("127.0.0.1", int(port)), _make_handler(app))
     real = httpd.server_address[1]
     app.bind_port(real)
     url = "http://127.0.0.1:%d/?t=%s" % (real, app.token)
