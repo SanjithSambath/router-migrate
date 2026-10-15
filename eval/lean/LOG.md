@@ -54,7 +54,11 @@ level, build what you're sure of, propose the rest unbuilt), ultra_nomap, ultra_
 ultra_levels = ultra + "rank by level, build what you're sure of, propose the rest with branch null". Head-to-head vs
 ultra (both rubrics): **4-1**. It keeps ultra's verification and adds breadth (AI-Scientist: 14 improvements, 4 built;
 llmcord: 7 across all three levels). The one loss was against an ultra run that built six measured levers.
-ultra_nomap / ultra_nofacts still running.
+Final (vs ultra; original rubric / open rubric; 1-10 mean; improvements; $ per run):
+ultra_levels 4-1 / 4-1, 8.6, 7.8, $12.8 · ultra 7.8, 5.0, $15.2 · ultra_nomap 2-3 / 2-3, 8.0, 4.8, $17.1 ·
+ultra_nofacts 1-4 / 2-3, 8.2, 6.4, $13.5. The levels line is better, broader and cheaper (proposing costs less than
+building). Cutting information hurts: no fact sheet is the worst arm; no scanner map missed a whole call path (a Node
+subprocess posting to /chat/completions) in one loss. Rule so far: cut procedure, keep facts.
 
 ## Round 4 (interim): open scope
 
