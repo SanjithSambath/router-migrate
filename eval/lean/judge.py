@@ -91,16 +91,19 @@ def bundle(d):
 
 def judge(d):
     out = os.path.join(d, "judge.json")
-    if os.path.exists(out):
+    if os.path.exists(out) and "error" not in json.load(open(out)):
         return json.load(open(out))
     prompt = RUBRIC + "\n\n" + bundle(d)
-    r = subprocess.run(["claude", "-p", prompt, "--output-format", "json"], capture_output=True, text=True, timeout=1800)
-    try:
-        res = json.loads(r.stdout).get("result") or ""
-        m = re.search(r"\{.*\}", res, re.S)
-        j = json.loads(m.group(0)) if m else {"error": res[:500]}
-    except ValueError:
-        j = {"error": (r.stdout + r.stderr)[-500:]}
+    for _ in range(3):  # a reply that isn't the JSON object is retried, never scored
+        r = subprocess.run(["claude", "-p", prompt, "--output-format", "json"], capture_output=True, text=True, timeout=1800)
+        try:
+            res = json.loads(r.stdout).get("result") or ""
+            m = re.search(r"\{.*\}", res, re.S)
+            j = json.loads(m.group(0)) if m else {"error": res[:500]}
+        except ValueError:
+            j = {"error": (r.stdout + r.stderr)[-500:]}
+        if "error" not in j and j.get("overall") is not None:
+            break
     j["objective"] = objective(d)
     json.dump(j, open(out, "w"), indent=1)
     return j
@@ -127,7 +130,9 @@ def table(rnd):
     arms = sorted({r[0] for r in rows})
     L += ["", "## Mean per arm", "", "| arm | " + " | ".join(k.replace("_", " ") for k in keys) + " | improvements | min | $ |", "|" + "---|" * (len(keys) + 4)]
     for a in arms:
-        js = [r[2] for r in rows if r[0] == a]
+        js = [r[2] for r in rows if r[0] == a and r[2].get("overall") is not None]
+        if not js:
+            continue
         mean = lambda k: round(sum(float(j.get(k) or 0) for j in js) / len(js), 1)
         mo = lambda k: round(sum(float((j.get("objective") or {}).get(k) or 0) for j in js) / len(js), 1)
         L.append("| %s | %s | %s | %s | %s |" % (a, " | ".join(str(mean(k)) for k in keys), mo("improvements"), mo("minutes"), mo("usd")))
