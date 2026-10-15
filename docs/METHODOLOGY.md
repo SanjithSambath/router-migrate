@@ -114,6 +114,12 @@ Each version answered the previous one's failure. Full specs are in [archive/doc
   on, our HTTP client could not be deep-copied, and the call crashed. Every version since v1 had shipped it. The runtime's
   clients are now `deepcopy`-safe, and a crash in the Router-on run is a failure, never a baseline.
 
+- **Procedure in the prompt hurts; facts and a wide mandate help (v6, lean experiments).** Blind head-to-head runs on
+  five repos (`eval/lean/LOG.md`): a 55-line CTO prompt beat the 150-line v6 prompt; a 10-line prompt beat that 5-0; one
+  line allowing unbuilt, levelled proposals beat that 4-1 at lower cost; widening the mandate to the whole product with
+  every Router surface ("nothing is out of scope") beat that 5-0. Removing the fact sheet, the scanner map, or the
+  `policy` / `levers` tools each made results worse. The default prompt is now the 15-line open-scope one.
+
 ## Where natural language appears
 
 Only in four places:

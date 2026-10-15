@@ -9,7 +9,7 @@ production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [
 
 ```
 ┌─ 1. Agent (a Claude Code session on any model, or headless `claude -p`) ───────────────────────────────────────┐
-│  prompts: migrate_v6.md (migrate + improve), apply.md (apply and undo); facts: data/ROUTER.md                 │
+│  prompts: migrate_v6.md (15 lines: migrate, then a CTO's review of the whole product), apply.md; facts: ROUTER.md │
 │  reads the repo, changes it, tests it (simulator, or live with the key), commits, writes MIGRATION.json       │
 └────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
         │ asks for facts                                         │ commits + MIGRATION.json / APPLY.json
@@ -31,10 +31,10 @@ production. Design rationale: [METHODOLOGY.md](METHODOLOGY.md); the full plan: [
 | Step | Who | What happens |
 |---|---|---|
 | `start` | code | Refuses a dirty tree; creates branch `router-migrate/migration` from HEAD; excludes `.router-migrate/` from git; starts the baseline (tests, typecheck) in the background; with a migration key, saves the live catalog; prints the instructions with this repo's context and the scanner's map |
-| migrate + improve | agent | Serves each production call through Router however is best; one commit per decision; labels features; live checks; reviews the system; builds worthwhile improvements as branches `router-migrate/improve/<name>`; writes `MIGRATION.json` |
+| migrate + improve | agent | Serves each production call through Router however is best; one commit per decision; labels features; live checks; reviews the whole product as its CTO, at three levels (quick-win, change, rework): builds what it is sure of as branches `router-migrate/improve/<name>`, proposes the rest unbuilt, and files choices only the human can make as decisions; writes `MIGRATION.json` |
 | `finish` | code | Requires everything committed; the outside check on the migration (the checkout) and on each improvement branch (temporary worktrees); route truth; `validation.json`; the dashboard. Slow suites (> 90 s) run in the background and Apply waits. Never reverts |
-| review | human | Approve / dismiss / postpone improvements; mark changes for undo (dashboard or `router-migrate request`) |
-| `apply` | agent | Gets every pending request at once and decides how to carry them out; commits each result; writes `APPLY.json` |
+| review | human | Approve / dismiss / postpone improvements and decisions; mark changes for undo (dashboard or `router-migrate request`) |
+| `apply` | agent | Gets every pending request at once and decides how to carry them out (building approved proposals from their description; account settings are written up for the human); commits each result; writes `APPLY.json` |
 | `apply --done` | code | Validates `APPLY.json`, runs the outside check, appends the session to `apply_log.json`, refreshes the report |
 
 Headless, `router-migrate run <repo> --agent claude` runs `start`, a session with the same prompt, and `finish`; when

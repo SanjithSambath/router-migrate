@@ -87,3 +87,21 @@ agents (the first round-4 launch left five orphaned agents writing into reused t
 
 Round 5 (running): open minus one tool each (policy, levers, adapt) and minus the budget line, on 3 repos.
 Round 6 (running): open vs the shipped v6 prompt on five repos never used in these experiments (held-out).
+
+## Round 4 final, rounds 5-7, and where it stopped
+
+- Round 4 final (vs ultra_levels): **open 5-0 on both rubrics (+10)**; ultra_facts2 (new facts, old prompt) 1-4 on the
+  original rubric, 3-2 on the open one. The mandate drives the gain; the facts alone don't. open_oldfacts finished 2 of 5
+  runs, never judged, so whether `ROUTER_open.md` should replace `ROUTER.md` is open.
+- Round 5 (vs open, open rubric, 3 repos): no `policy` tool 0-3 (-5); no `levers` 0-1 on the one judged pair. Tools the
+  agents use earn their place. no-adapt and the budget arm were cut off by the quota (the budget arm was a no-op
+  anyway: the open prompt has no {BUDGET} placeholder).
+- Apply end to end on an open run (sec-insights copy): an approved built improvement and an approved, never-built
+  rework decision ("Collapse the two-level agent") were both carried out; the outside check passed.
+- The open prompt became the default (`prompts/migrate_v6.md`; old one kept as `prompts/arms/v6_legacy.md`).
+- Round 6 (held-out, open vs legacy on five unseen repos): 3 open runs valid, 0 legacy, so no comparison yet; the open
+  runs generalised qualitatively (computer_use_ootb: three real bugs found, five improvements built, a rework proposed).
+- Round 7 (open without the dial list; a 4-line version): every run cut off by the usage limit.
+- 12 runs cut off by the usage limit are marked invalid; the runner now detects that message.
+
+Still open: round 6 (the held-out check of the new default), open_oldfacts, round 7.
