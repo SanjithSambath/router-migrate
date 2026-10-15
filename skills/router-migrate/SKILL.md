@@ -1,6 +1,6 @@
 ---
 name: router-migrate
-description: Migrate a codebase's production LLM calls (OpenAI, Anthropic, LangChain, LlamaIndex, LiteLLM, Vercel AI SDK; Python and TS/JS) onto Ramp's Router with the router-migrate CLI without breaking behaviour, propose improvements as tested git branches, open the review dashboard, and later apply or undo what the human decided there ("/router-migrate apply"). Use when the user says "/router-migrate", "/router-migrate apply", "migrate to Router", "migrate this repo to Router", "route LLM traffic through router.com", "move our OpenAI/Anthropic calls to Ramp Router", or mentions setting up RAMP_ROUTER_API_KEY.
+description: Migrate a codebase's production LLM calls (OpenAI, Anthropic, LangChain, LlamaIndex, LiteLLM, Vercel AI SDK; Python and TS/JS) onto Ramp's Router with the router-migrate CLI without breaking behaviour, review the whole product as its CTO and rank what to change (built and tested as git branches, or proposed), open the review dashboard, and later apply or undo what the human decided there ("/router-migrate apply"). Use when the user says "/router-migrate", "/router-migrate apply", "migrate to Router", "migrate this repo to Router", "route LLM traffic through router.com", "move our OpenAI/Anthropic calls to Ramp Router", or mentions setting up RAMP_ROUTER_API_KEY.
 argument-hint: "[apply] [path to the repository, default .]"
 allowed-tools: Bash(router-migrate *)
 ---
@@ -12,25 +12,27 @@ can't influence, and the human approves on a dashboard. Any model can run this. 
 root (the path in $ARGUMENTS if given, else the current directory). If `router-migrate` is not on PATH, use
 `<router-migrate checkout>/bin/router-migrate`.
 
-If $ARGUMENTS starts with `apply`, go to **Apply**. Otherwise **Migrate and improve**.
+If $ARGUMENTS starts with `apply`, go to **Apply**. Otherwise **Migrate and review**.
 
-## Migrate and improve
+## Migrate and review
 1. `router-migrate start .` (add `--test-cmd "<cmd>"` / `--typecheck-cmd "<cmd>"` if they aren't obvious). The repo must
    be a git repository with no uncommitted changes to tracked files. `start` creates and checks out
    `router-migrate/migration`, starts the baseline tests in the background, and prints the instructions with this
    repo's context. Read all of it and follow it: it is the same prompt the headless agent gets, and the Router fact
    sheet it points to is the reference for every Router question.
-2. Migrate, then review and improve, as the instructions say: one commit per decision on `router-migrate/migration`,
-   each improvement a branch `router-migrate/improve/<name>`, and the report in `.router-migrate/MIGRATION.json`.
+2. Migrate, then review the product, as the instructions say: one commit per change on `router-migrate/migration`;
+   recommendations ranked by value, each with a level and who carries it out (code, a Router setting, the human's
+   call), built on a branch `router-migrate/improve/<name>` when you're sure of it, otherwise proposed; numbers you
+   measure in `measured`; the report in `.router-migrate/MIGRATION.json`.
    Use sub-agents to investigate a large repository in parallel if that helps; you own every edit.
 3. `router-migrate finish .` with everything committed and `router-migrate/migration` checked out. It runs the outside
-   check on the migration branch and every improvement branch, validates the report, and opens the dashboard (it
+   check on the migration branch and every built recommendation's branch, validates the report, and opens the dashboard (it
    prints the URL). It never reverts anything: fix what it reports in a new commit and run it again.
-4. Tell the user, from `finish`'s output: calls on Router (verified / unverified), each trade-off or port and what it
-   gives up, what stays and why, what needs their decision, the improvements proposed, the test result (a slow suite
-   finishes in the background), and the dashboard URL. On the dashboard they approve, dismiss or postpone improvements
-   and can mark any decision for undo (or `router-migrate request ITEM apply|undo|dismiss|postpone`); Apply there hands
-   the list back as `/router-migrate apply`.
+4. Tell the user, from `finish`'s output: your top recommendations with their numbers, calls on Router (verified /
+   unverified), each change that gives something up, what stays and why, the test result (a slow suite finishes in the
+   background), and the dashboard URL. On the dashboard they approve, dismiss or postpone recommendations, mark Router
+   settings done once switched on, and can mark any change for undo (or `router-migrate request ITEM
+   apply|undo|dismiss|postpone|done`); Apply there hands the list back as `/router-migrate apply`.
 
 ## Apply
 1. `router-migrate apply .` prints the apply instructions with the human's pending requests (apply or undo, per item,
@@ -44,7 +46,8 @@ If $ARGUMENTS starts with `apply`, go to **Apply**. Otherwise **Migrate and impr
 
 ## The migration key
 - Optional. Without it everything runs against the local Router simulator; with it, live checks show what Router
-  really accepts, catalog prices are live, and a model change can be sampled through both models when that's worth it. Use a dedicated key with a Router
+  really accepts, catalog prices are live, and recommendations carry measured cost, cache and latency numbers. It is the
+  intended way to run. Use a dedicated key with a Router
   spend cap (e.g. $10-20), separate from production.
 - It lives in `~/.config/router-migrate/key` (or the env `ROUTER_MIGRATE_KEY`, or the file named by
   `ROUTER_MIGRATE_KEY_FILE`). If the user wants to add one, they create that file themselves (`chmod 600`); never ask

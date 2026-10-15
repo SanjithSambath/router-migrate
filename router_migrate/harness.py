@@ -622,7 +622,8 @@ def setup(root, a):
            "Python with the repo's dependencies: %s" % baseline["python"] if baseline["python"] else "",
            ("A migration key is available: `router-migrate check --run \"CMD\" --live` runs code against the real Router "
             "(spend-capped; the key is injected into that command only). The catalog is live (`router-migrate levers`)."
-            if key else "No migration key: verify with the simulator (`check --run`) and record live checks as not-run in your evidence."),
+            if key else "No migration key: verify with the simulator (`check --run`) and record live checks as not-run in your evidence; "
+            "costs, cache hits and latency can't be measured, so leave `measured` out rather than estimate."),
            "" if "nomap" in sc else "LLM calls the scanner sees (%d; it misses dynamically built and imported clients), as the code stands:" % len(rows),
            "" if "nomap" in sc else _fmt(rows)]
     budget = "" if "nobudget" in sc else "Budget: aim to finish within about 45 minutes of work; live checks are capped by the key's spend limit."
