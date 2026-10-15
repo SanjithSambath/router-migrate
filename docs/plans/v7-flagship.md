@@ -1,6 +1,8 @@
 # Plan: v7, the flagship: a CTO's review of the product on Router
 
-Status: proposed 2026-10-15. Evidence: `eval/lean/LOG.md` (rounds 1-7, blind head-to-head, five repos plus held-out).
+Status: implemented 2026-10-15 (phase 0 confirmed the default on held-out repos, 5-0; the fact-sheet swap was dropped:
+a tie). Deviations: file names kept (`report_v6.py`, `migrate_v6.md`, `v6.html`) to avoid churn; `rank` is optional
+(report order); router-settings never go to an apply session (the human marks them done). Evidence: `eval/lean/LOG.md` (rounds 1-7, blind head-to-head, five repos plus held-out).
 Scope: an MVP for Kedar; when in doubt, remove rather than add.
 
 ## Why

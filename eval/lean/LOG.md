@@ -105,3 +105,15 @@ Round 6 (running): open vs the shipped v6 prompt on five repos never used in the
 - 12 runs cut off by the usage limit are marked invalid; the runner now detects that message.
 
 Still open: round 6 (the held-out check of the new default), open_oldfacts, round 7.
+
+## Phase 0 of the v7 plan (2026-10-15): the default confirmed
+
+Run on a frozen worktree of the pre-v7 code, judged with `eval/gate/gate.py` (both rubrics).
+- **Held-out (five repos never used in tuning): open vs the legacy v6 prompt, SHIP, 5-0 on both rubrics.** The new
+  default generalises.
+- **Fact sheet: open (ROUTER_open.md) vs open_oldfacts (ROUTER.md), HOLD: 2-3 base, 3-2 open.** A tie: once the
+  prompt gives the open mandate, the fuller fact sheet adds nothing measurable. The default stays `ROUTER.md` (less is
+  more); `ROUTER_open.md` stays for experiments. open_oldfacts also beat ultra_levels 4-0 on both rubrics.
+- End-to-end v7 run (llmcord, new prompt + contract + dashboard): a valid v7 report, 9 ranked recommendations with
+  actors and measured numbers (138x cheaper per reply, n=2; cache reads 0 -> 6,258 tokens, n=2), 47 live requests, the
+  outside check passed, the dashboard renders it.
