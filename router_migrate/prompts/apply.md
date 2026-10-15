@@ -16,9 +16,9 @@ You get the whole list at once, so plan it as a whole: the order; which improvem
 migration and which conflict; whether an undo is a plain `git revert` or needs a partial revert because later work
 builds on it; how to adapt later work when something it relied on is undone. You are judged on the result: the
 migration branch does what the reviewer asked, and apart from that the app behaves as before.
-- `apply` an improvement: bring its branch's change into `router-migrate/migration` (merge it, or re-apply it on the
-  current code if the branch is stale), resolving conflicts so both sides keep working. An improvement without a branch
-  was proposed but not built: build it from its description and test it. A setting only a human can switch on
+- `apply` an improvement or a decision: bring its branch's change into `router-migrate/migration` (merge it, or re-apply it on the
+  current code if the branch is stale), resolving conflicts so both sides keep working. An item without a branch (an
+  approved decision, or an improvement proposed but not built): build it from its description and test it. A setting only a human can switch on
   app.router.com (a strategy, shadow models, a spend cap) isn't yours to change: do the code part, and say in the note
   exactly what to switch on and where.
 - `undo` a decision or an applied improvement: take its effect out of the code, so the calls it covered work as they

@@ -831,7 +831,7 @@ def _requests_text(root, pending):
         out.append("- %s: %s %s \"%s\"%s\n  %s\n  %s%s%s%s" % (
             iid, rq["action"].upper(), it.get("kind"), it.get("title"), (" (the human's reason: %s)" % rq["reason"]) if rq.get("reason") else "",
             it.get("summary") or "", ("branch %s" % it["branch"]) if it.get("branch") else ("commit %s" % it.get("commit") if it.get("commit") else
-                                                                    "not built yet: build it from this description" if it.get("kind") == "improvement" else "no commit recorded"),
+                                                                    "not built yet: build it from this description" if it.get("kind") in ("improvement", "needs-decision") else "no commit recorded"),
             ("; depends on %s" % ", ".join(it["depends_on"])) if it.get("depends_on") else "",
             ("; excludes %s" % ", ".join(it["excludes"])) if it.get("excludes") else "",
             ("\n  why: %s" % it["why"][:600]) if it.get("why") else ""))

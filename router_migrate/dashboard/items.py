@@ -302,8 +302,8 @@ def actions_for(item, status, req, last):
         return []
     if kind in R.MIGRATION_KINDS:
         return ["undo"] if status in ("in code", "declined") else []
-    if kind == "needs-decision" and status in ("info", "declined"):
-        return ["dismiss", "postpone"]
+    if kind == "needs-decision":
+        return {"info": ["approve", "dismiss", "postpone"], "declined": ["approve", "dismiss", "postpone"], "applied": ["undo"]}.get(status, [])
     return []
 
 

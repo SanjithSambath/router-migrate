@@ -83,8 +83,9 @@ Rules (enforced by `validate_report`):
 {"requests": {"<item id>": {"action": "apply|dismiss|postpone|undo", "reason": "…", "until": "YYYY-MM-DD",
                              "at": "…", "by": "ui|cli", "etag": "…", "session": null}}}
 ```
-- `apply` is valid for `improvement` items; `undo` for any item already in the code (migration items, applied
-  improvements); `dismiss`/`postpone` for improvements and needs-decision items.
+- `apply` is valid for `improvement` and `needs-decision` items (an approved decision is carried out by the apply
+  session, or, for an account setting, written up as what to switch on); `undo` for any item already in the code
+  (migration items, applied improvements and decisions); `dismiss`/`postpone` for improvements and needs-decision items.
 - `etag` = `report_v6.item_etag(item)`; a request whose etag no longer matches is shown as stale.
 - `session` is set to the apply session id when a session takes the request, with `state: "running"`; when the
   session's `apply --done` passes, `state` becomes `"done"`. A request with a session is no longer pending.

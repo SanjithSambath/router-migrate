@@ -218,8 +218,8 @@ def record_request(root, item_id, action, reason=None, until=None, by="ui"):
     it = items[item_id]
     st = item_status(it, load(root, "requests.json", {"requests": {}}), load(root, "apply_log.json", {"sessions": []}),
                      load(root, "validation.json", {}))
-    if action == "apply" and it.get("kind") != "improvement":
-        raise ValueError("only improvements can be applied; %s is a %s" % (item_id, it.get("kind")))
+    if action == "apply" and it.get("kind") not in ("improvement", "needs-decision"):
+        raise ValueError("only improvements and decisions can be applied; %s is a %s" % (item_id, it.get("kind")))
     if action == "undo" and st not in ("in code", "applied", "undo requested"):
         raise ValueError("%s is not in the code (status: %s)" % (item_id, st))
     if action in ("dismiss", "postpone") and it.get("kind") not in ("improvement", "needs-decision"):
@@ -299,6 +299,8 @@ def item_status(item, requests, apply_log, validation):
         if req and req.get("action") in ("dismiss", "postpone"):
             return {"dismiss": "dismissed", "postpone": "postponed"}[req["action"]]
         return "proposed"
+    if kind == "needs-decision" and applied:
+        return "applied"
     if req and req.get("action") in ("dismiss", "postpone"):
         return {"dismiss": "dismissed", "postpone": "postponed"}[req["action"]]
     return "info"

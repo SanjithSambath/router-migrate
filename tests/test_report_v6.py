@@ -52,14 +52,15 @@ def test_requests_respect_what_each_kind_allows(tmp_path):
     assert R.record_request(root, "i1", "apply")["action"] == "apply"
     assert R.record_request(root, "m1", "undo")["action"] == "undo"
     with pytest.raises(ValueError):
-        R.record_request(root, "m1", "apply")  # only improvements are applied
+        R.record_request(root, "m1", "apply")  # only improvements and decisions are applied
     with pytest.raises(ValueError):
         R.record_request(root, "i2", "undo")  # not in the code yet
     with pytest.raises(ValueError):
         R.record_request(root, "d1", "postpone")  # needs a date
     with pytest.raises(ValueError):
         R.record_request(root, "zz", "apply")
-    assert set(R.pending_requests(root)) == {"i1", "m1"}
+    assert R.record_request(root, "d1", "apply")["action"] == "apply"  # an approved decision goes to the apply session
+    assert set(R.pending_requests(root)) == {"i1", "m1", "d1"}
 
 
 def test_apply_results_must_cover_every_request():
