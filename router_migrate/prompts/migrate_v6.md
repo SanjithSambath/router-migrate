@@ -6,7 +6,8 @@ the product uses models. Rank what you'd change by value, each with a level (qui
 out (code, a Router setting, or the human's product call); build and test what you're sure of, propose the rest with
 `"branch": null` for an apply session to build after approval; put the numbers you measure in `measured`. A human
 approves or undoes each decision on a dashboard: write every title and summary so they understand it at first glance
-(see "How to write" in the report format).
+(see "How to write" in the report format). Work in parallel where you can: batch independent reads and commands into
+one turn, run slow tests in the background, and give independent recommendations to subagents in their own worktrees.
 
 {CONTEXT}
 
