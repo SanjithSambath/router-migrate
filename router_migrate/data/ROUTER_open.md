@@ -23,10 +23,9 @@ the key you are given: when a fact decides a change and a migration key is avail
 
 - One gateway for an app's LLM traffic: one Router key per deployment instead of a key per provider; Router picks the
   upstream provider per request and reports spend per key and per request metadata [docs].
-- One catalog of models from many vendors behind both API surfaces: OpenAI (34 ids), Anthropic (13), xAI (8), open-weight
-  models under provider-agnostic ids (DeepSeek, Kimi, GLM, MiniMax, Qwen, Nemotron, gpt-oss: 17), plus Bedrock and Vertex
-  (Gemini) ids that need your own provider key (24 ids, `requires_byok`) [catalog]. So a call can change vendor without
-  changing SDK: the Anthropic SDK served gpt-4o-mini, and the OpenAI SDK served Claude [v2 #24].
+- One catalog of models from many vendors behind both API surfaces: OpenAI (34 ids), Anthropic (13), xAI (8), open-weight models under provider-agnostic ids (DeepSeek, Kimi, GLM, MiniMax, Qwen, Nemotron, gpt-oss: 17), plus Bedrock and Vertex (Gemini) ids that need your own provider key (24 ids, `requires_byok`) [catalog]. <!-- fact:catalog-counts -->
+  So a call can change vendor without changing SDK: the Anthropic SDK served gpt-4o-mini, and the OpenAI SDK served
+  Claude [v2 #24].
 - Router is more than a proxy: account strategies (cost-efficient routing, cross-provider routing, Switchyard, Jev
   auto routing, shadow models), per-key spend caps, spend labels and the Decisions and System One endpoints are all
   product surfaces a design can use. Strategies are switched on app.router.com rather than per request (only Flex has
@@ -45,7 +44,7 @@ must switch on, and say what is unmeasured.
 | Fallbacks (`models`) | a ranked list of candidates per call, across vendors and tiers (section 6.2) | [docs, sim] | real outage behaviour |
 | Shadow models | records cost and latency of 1-3 candidate models on a 5-10% sample of real `/v1/responses` traffic; results on the Shadow Logs page | needs content recording; not on BYOK keys [docs] | quality comparison (it records cost and latency only) |
 | Jev auto routing | picks among 2-6 models you describe in a routing profile, per request | catalog: `jev-1.13.0` (aliases `jev-latest`, `jev-preview`), served on the `systemone` and `decisions` surfaces, structured outputs, no tools, $0.042 per 1M input [catalog, docs] | not measured; whether `service_tier: "default"` opts a request out (the docs say `allow_flex_tier` does) |
-| Switchyard | `model: "switchyard"` switches model family within a conversation (cheap model for easy turns, capable model for hard ones) | works from app code once a strategy is saved: served gpt-5.6-luna at Flex; strategy `efficient_model` / `capable_model`; docs call it experimental and aimed at coding agents [M0, docs] | quality on non-coding work |
+| Switchyard | `model: "switchyard"` switches model family within a conversation (cheap model for easy turns, capable model for hard ones) | works from app code once a strategy is saved: served gpt-5.6-luna at Flex; strategy `efficient_model` / `capable_model`; docs call it experimental and aimed at coding agents [M0, docs] <!-- fact:switchyard --> | quality on non-coding work |
 | Decisions, System One (`POST /v1/decisions`, `/v1/systemone`) | documented endpoints, limited availability | listed in the docs [docs] | not measured; may not be enabled on a given account |
 | Spend caps | per API key; requests return 401 at the cap | [docs] | overshoot under concurrency |
 | Spend labels (`metadata`) | per-request tags for spend by feature, team, user, product (section 6.4) | [docs, v2] | |
@@ -142,13 +141,13 @@ OpenAI's own API also accepts: `service_tier`, `prompt_cache_key`, `prompt_cache
 ## 6. Levers
 
 ### 6.1 Flex (service tier)
-- Where: `/v1/responses` with a single `model` that has a Flex tier: 17 OpenAI ids (gpt-6.x, gpt-5.x, o3, o4-mini;
-  `data/flex_models.json`). Not Claude (Anthropic has no tiers on Router) [docs]; not gpt-4o-mini
+- Where: `/v1/responses` with a single `model` that has a Flex tier: 17 OpenAI ids (gpt-6.x, gpt-5.x, o3, o4-mini; `data/flex_models.json`). <!-- fact:flex-eligible -->
+  Not Claude (Anthropic has no tiers on Router) [docs]; not gpt-4o-mini
   (`allow_flex_tier: true` returned 400 "unknown service tier 'flex'") [v1 #9]. On `/v1/messages` the same OpenAI models
   were also served at Flex by default (16 ids in the sweep), with no Router control on that surface [v2 sweep, docs].
 - Default: cost-efficient routing is on by default [docs] (`allow_flex_tier_default: true` on the test account [M0]).
-  Plain `model` requests to Flex-eligible models were served at Flex without opting in (gpt-5-nano 5 of 5; 13 models on
-  Responses) [v2 #3]. The tier can change between turns of one conversation [v2 #4].
+  Plain `model` requests to Flex-eligible models were served at Flex without opting in (gpt-5-nano 5 of 5; 13 models on Responses) [v2 #3]. <!-- fact:flex-tier -->
+  The tier can change between turns of one conversation [v2 #4].
 - Cost: exactly -50% on gpt-5.4-mini (identical prompts, n=5 per arm, `usage.cost`) [M0]. Other models: not measured.
 - Latency: gpt-5.4-mini at Flex 650-850 ms, the same as standard (n=5) [M0]; one gpt-5-nano Flex call took 61 s [M0].
   Docs: a streamed Flex attempt has an implicit 25 s deadline before a same-model standard fallback [docs].
@@ -160,10 +159,9 @@ OpenAI's own API also accepts: `service_tier`, `prompt_cache_key`, `prompt_cache
 ### 6.2 Fallbacks (`models` list)
 - Where: `/v1/responses` only; exactly one of `model` / `models` (both: 400); up to 15 candidates, each a catalog id or
   `provider:model[:tier]` [docs, sim].
-- Behaviour: falls through a missing model, a model the key may not use (403) and an invalid parameter (temperature on
-  gpt-5-nano), silently: the response doesn't say which candidate failed [v2 #8, M0]. Cross-vendor works (gpt-5-nano to
-  claude-haiku-4-5) [M0]. Docs: no fallback once a stream has started; invalid requests and refusals end immediately;
-  truncated attempts are still billed [docs].
+- Behaviour: falls through a missing model, a model the key may not use (403) and an invalid parameter (temperature on gpt-5-nano), silently: the response doesn't say which candidate failed [v2 #8, M0]. <!-- fact:fallback -->
+  Cross-vendor works (gpt-5-nano to claude-haiku-4-5) [M0]. Docs: no fallback once a stream has started; invalid
+  requests and refusals end immediately; truncated attempts are still billed [docs].
 - Flex and fallbacks don't combine: `allow_flex_tier: true` with a list is ignored (served at standard) [M0]. Without a
   tier field, a list of plain catalog ids was served at Flex (3 of 3) [M0] and a provider-pinned single candidate at
   standard (2 of 2) [v2]; pin the tier per candidate or send `service_tier` when it matters.
@@ -175,10 +173,11 @@ OpenAI's own API also accepts: `service_tier`, `prompt_cache_key`, `prompt_cache
   param [M0].
 
 ### 6.3 Prompt caching
-- Responses: `prompt_cache_key` improves provider affinity [docs]. gpt-4o-mini, 9,020-token prompt: the second call
-  cached 8,832 tokens and cost $0.00069 instead of $0.00135 [v2 group 6]. Claude via Responses does not cache without a
-  key ($0.0104 per call both times); with one, 10,362 tokens cached and the call cost $0.00106 (-90%) [v2 #16]. The
-  runtime sets `prompt_cache_key` to the request's label on Claude requests over Responses [runtime].
+- Responses: `prompt_cache_key` improves provider affinity [docs].
+  gpt-4o-mini, 9,020-token prompt: the second call cached 8,832 tokens and cost $0.00069 instead of $0.00135 [v2 group 6]. <!-- fact:cache-responses -->
+  Claude via Responses does not cache without a key ($0.0104 per call both times); with one, 10,362 tokens cached and
+  the call cost $0.00106 (-90%) [v2 #16]. The runtime sets `prompt_cache_key` to the request's label on Claude
+  requests over Responses [runtime].
 - Messages: Anthropic `cache_control` works on Claude (second call read 10,350 cached tokens); it is not translated for
   other providers [v2 #16, docs].
 - `prompt_cache_retention: "24h"` for OpenAI models is documented, not measured [docs].
